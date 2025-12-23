@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import { usePlanner } from '../../store/PlannerContext';
 import CabinetMesh from './CabinetMesh';
@@ -7,11 +7,128 @@ import StructureMesh from './StructureMesh';
 import ApplianceMesh from './ApplianceMesh';
 import Wall from './Wall';
 import SnapIndicators from './SnapIndicators';
+import PlacementGhost from './PlacementGhost';
 import * as THREE from 'three';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '../../constants';
 import SmartDimensions from './SmartDimensions';
 import InteractionHandles from './InteractionHandles';
-import { calculateSnapPosition, SnapResult } from '../../utils/cabinetSnapping';
+import { calculateSnapPosition, SnapResult, checkCollision } from '../../utils/cabinetSnapping';
+import { CATALOG } from '../../constants';
+
+interface SnapState {
+  snappedToItemId: string | null;
+  snapEdge: SnapResult['snapEdge'];
+}
+
+interface PlacementState {
+  position: [number, number, number];
+  rotation: number;
+  isValid: boolean;
+}
+
+// Placement mode handler - follows cursor and places on click
+const PlacementHandler: React.FC<{
+  onPositionUpdate: (state: PlacementState) => void;
+}> = ({ onPositionUpdate }) => {
+  const { camera, gl } = useThree();
+  const { placementItemId, addItem, setPlacementItem, items, room, globalDimensions } = usePlanner();
+  const raycaster = useRef(new THREE.Raycaster());
+  const plane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+
+  const handlePointerMove = useCallback((e: PointerEvent) => {
+    if (!placementItemId) return;
+
+    const rect = gl.domElement.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.current.setFromCamera(new THREE.Vector2(x, y), camera);
+    const target = new THREE.Vector3();
+    const hit = raycaster.current.ray.intersectPlane(plane.current, target);
+
+    if (hit) {
+      const def = CATALOG.find(c => c.id === placementItemId);
+      if (!def) return;
+
+      // Get dimensions for the ghost item
+      let width = def.defaultWidth;
+      let depth = def.defaultDepth;
+      if (def.itemType === 'Cabinet') {
+        if (def.category === 'Base') depth = globalDimensions.baseDepth;
+        else if (def.category === 'Wall') depth = globalDimensions.wallDepth;
+        else if (def.category === 'Tall') depth = globalDimensions.tallDepth;
+      }
+
+      // Create a temporary item for snapping calculation
+      const tempItem = {
+        instanceId: 'temp',
+        definitionId: placementItemId,
+        itemType: def.itemType,
+        x: target.x * 1000,
+        y: 0,
+        z: target.z * 1000,
+        rotation: 0,
+        width,
+        depth,
+        height: def.defaultHeight,
+      };
+
+      const snapResult = calculateSnapPosition(
+        target.x * 1000,
+        target.z * 1000,
+        tempItem as any,
+        items,
+        room,
+        SNAP_INCREMENT
+      );
+
+      // Check for collisions
+      const ghostItem = { ...tempItem, x: snapResult.x, z: snapResult.z, rotation: snapResult.rotation };
+      const hasCollision = items.some(item => checkCollision(ghostItem as any, item, 10));
+
+      onPositionUpdate({
+        position: [snapResult.x / 1000, 0, snapResult.z / 1000],
+        rotation: snapResult.rotation,
+        isValid: !hasCollision,
+      });
+    }
+  }, [placementItemId, camera, gl, items, room, globalDimensions, onPositionUpdate]);
+
+  const handleClick = useCallback((e: MouseEvent) => {
+    if (!placementItemId) return;
+    
+    // Get current position from the state
+    const rect = gl.domElement.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.current.setFromCamera(new THREE.Vector2(x, y), camera);
+    const target = new THREE.Vector3();
+    const hit = raycaster.current.ray.intersectPlane(plane.current, target);
+
+    if (hit) {
+      const snappedX = Math.round((target.x * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
+      const snappedZ = Math.round((target.z * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
+      addItem(placementItemId, snappedX, snappedZ);
+      setPlacementItem(null);
+    }
+  }, [placementItemId, addItem, setPlacementItem, camera, gl]);
+
+  useEffect(() => {
+    if (!placementItemId) return;
+    
+    const canvas = gl.domElement;
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('click', handleClick);
+    
+    return () => {
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      canvas.removeEventListener('click', handleClick);
+    };
+  }, [placementItemId, gl, handlePointerMove, handleClick]);
+
+  return null;
+};
 
 const DropZone: React.FC = () => {
   const { gl, camera } = useThree();
@@ -46,11 +163,6 @@ const DropZone: React.FC = () => {
   return null;
 };
 
-interface SnapState {
-  snappedToItemId: string | null;
-  snapEdge: SnapResult['snapEdge'];
-}
-
 const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ onSnapChange }) => {
   const { items, updateItem, draggedItemId, setDraggedItem, room } = usePlanner();
 
@@ -65,7 +177,6 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
     const rawZ = point.z * 1000;
     const cy = draggedItem.y;
 
-    // Use the new snapping system
     const snapResult = calculateSnapPosition(
       rawX,
       rawZ,
@@ -75,7 +186,6 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
       SNAP_INCREMENT
     );
 
-    // Update snap state for visual indicators
     onSnapChange({
       snappedToItemId: snapResult.snappedItemId || null,
       snapEdge: snapResult.snapEdge,
@@ -104,37 +214,140 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
   );
 };
 
-const CameraController = () => {
-  const { viewMode, room, draggedItemId } = usePlanner();
+interface CameraControllerProps {
+  controlsRef: React.RefObject<any>;
+}
+
+const CameraController: React.FC<CameraControllerProps> = ({ controlsRef }) => {
+  const { viewMode, room, draggedItemId, placementItemId } = usePlanner();
   const widthM = room.width / 1000;
   const depthM = room.depth / 1000;
-  const controlsRef = useRef<any>(null);
 
   useEffect(() => {
     if (controlsRef.current) {
       controlsRef.current.target.set(widthM / 2, 0, depthM / 2);
       controlsRef.current.update();
     }
-  }, [widthM, depthM]);
+  }, [widthM, depthM, controlsRef]);
+
+  const isInteracting = !!draggedItemId || !!placementItemId;
 
   return (
     <>
       <PerspectiveCamera makeDefault={viewMode === '3d'} position={[widthM * 1.5, 5, depthM * 1.5]} fov={45} />
       <OrthographicCamera makeDefault={viewMode === '2d'} position={[widthM / 2, 10, depthM / 2]} zoom={50} near={0.1} far={100} rotation={[-Math.PI / 2, 0, 0]} />
-      <OrbitControls ref={controlsRef} makeDefault enabled={!draggedItemId} enableDamping dampingFactor={0.05} rotateSpeed={0.5} panSpeed={0.6} zoomSpeed={0.8} enableRotate={viewMode === '3d'} minPolarAngle={0} maxPolarAngle={viewMode === '3d' ? Math.PI / 2.1 : 0} />
+      <OrbitControls 
+        ref={controlsRef} 
+        makeDefault 
+        enabled={!isInteracting} 
+        enableDamping 
+        dampingFactor={0.05} 
+        rotateSpeed={0.5} 
+        panSpeed={0.6} 
+        zoomSpeed={0.8} 
+        enableRotate={viewMode === '3d'} 
+        minPolarAngle={0} 
+        maxPolarAngle={viewMode === '3d' ? Math.PI / 2.1 : 0} 
+      />
     </>
   );
 };
 
 interface SceneProps {
   is3D?: boolean;
+  onCameraControlsReady?: (controls: {
+    zoomIn: () => void;
+    zoomOut: () => void;
+    resetView: () => void;
+    fitAll: () => void;
+  }) => void;
 }
 
-const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
-  const { items, room, selectItem, setViewMode, draggedItemId } = usePlanner();
+const Scene: React.FC<SceneProps> = ({ is3D = true, onCameraControlsReady }) => {
+  const { items, room, selectItem, setViewMode, draggedItemId, placementItemId } = usePlanner();
   const [snapState, setSnapState] = useState<SnapState>({ snappedToItemId: null, snapEdge: undefined });
+  const [placementState, setPlacementState] = useState<PlacementState>({
+    position: [0, 0, 0],
+    rotation: 0,
+    isValid: true,
+  });
+  const controlsRef = useRef<any>(null);
 
   useEffect(() => { setViewMode(is3D ? '3d' : '2d'); }, [is3D, setViewMode]);
+
+  // Expose camera controls to parent
+  useEffect(() => {
+    if (onCameraControlsReady && controlsRef.current) {
+      const controls = controlsRef.current;
+      const camera = controls.object;
+      const widthM = room.width / 1000;
+      const depthM = room.depth / 1000;
+
+      onCameraControlsReady({
+        zoomIn: () => {
+          if (camera.isOrthographicCamera) {
+            camera.zoom = Math.min(camera.zoom * 1.2, 200);
+            camera.updateProjectionMatrix();
+          } else {
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            camera.position.addScaledVector(direction, 1);
+          }
+        },
+        zoomOut: () => {
+          if (camera.isOrthographicCamera) {
+            camera.zoom = Math.max(camera.zoom / 1.2, 10);
+            camera.updateProjectionMatrix();
+          } else {
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            camera.position.addScaledVector(direction, -1);
+          }
+        },
+        resetView: () => {
+          if (camera.isPerspectiveCamera) {
+            camera.position.set(widthM * 1.5, 5, depthM * 1.5);
+          } else {
+            camera.position.set(widthM / 2, 10, depthM / 2);
+            camera.zoom = 50;
+            camera.updateProjectionMatrix();
+          }
+          controls.target.set(widthM / 2, 0, depthM / 2);
+          controls.update();
+        },
+        fitAll: () => {
+          const bbox = new THREE.Box3();
+          items.forEach(item => {
+            const pos = new THREE.Vector3(item.x / 1000, item.y / 1000, item.z / 1000);
+            bbox.expandByPoint(pos);
+          });
+          
+          if (bbox.isEmpty()) {
+            bbox.expandByPoint(new THREE.Vector3(0, 0, 0));
+            bbox.expandByPoint(new THREE.Vector3(widthM, 2, depthM));
+          }
+          
+          const center = new THREE.Vector3();
+          bbox.getCenter(center);
+          controls.target.copy(center);
+          
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z);
+          
+          if (camera.isPerspectiveCamera) {
+            const distance = maxDim / Math.tan((camera.fov * Math.PI) / 360);
+            const direction = new THREE.Vector3(-1, 0.8, 1).normalize();
+            camera.position.copy(center).addScaledVector(direction, distance * 1.5);
+          } else {
+            camera.zoom = Math.min(50 / (maxDim / 4), 200);
+            camera.updateProjectionMatrix();
+          }
+          controls.update();
+        },
+      });
+    }
+  }, [onCameraControlsReady, room, items]);
 
   const widthM = room.width / 1000;
   const depthM = room.depth / 1000;
@@ -143,17 +356,21 @@ const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
 
   const draggedItem = draggedItemId ? items.find(i => i.instanceId === draggedItemId) || null : null;
 
+  // Cursor style based on mode
+  const cursorStyle = placementItemId ? 'crosshair' : draggedItemId ? 'grabbing' : 'auto';
+
   return (
-    <Canvas shadows dpr={[1, 2]} className="w-full h-full">
-      <CameraController />
+    <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ cursor: cursorStyle }}>
+      <CameraController controlsRef={controlsRef} />
       <ambientLight intensity={0.5} />
       <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0001} />
       <Environment preset="apartment" blur={0.8} background={false} />
       <ContactShadows resolution={1024} scale={Math.max(widthM, depthM) * 2} blur={2} opacity={0.4} far={10} color="#000000" />
       <DropZone />
       <DragManager onSnapChange={setSnapState} />
+      <PlacementHandler onPositionUpdate={setPlacementState} />
 
-      <group onPointerMissed={() => selectItem(null)}>
+      <group onPointerMissed={() => { if (!placementItemId) selectItem(null); }}>
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[widthM / 2, -0.01, depthM / 2]} receiveShadow>
           <planeGeometry args={[widthM + 2, depthM + 2]} />
           <meshStandardMaterial color="#f0f0f0" roughness={0.8} />
@@ -175,6 +392,15 @@ const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
           if (item.itemType === 'Appliance') return <ApplianceMesh key={item.instanceId} item={item} />;
           return <StructureMesh key={item.instanceId} item={item} />;
         })}
+
+        {/* Placement ghost */}
+        {placementItemId && (
+          <PlacementGhost
+            position={placementState.position}
+            rotation={placementState.rotation}
+            isValid={placementState.isValid}
+          />
+        )}
 
         {/* Snap indicators */}
         <SnapIndicators

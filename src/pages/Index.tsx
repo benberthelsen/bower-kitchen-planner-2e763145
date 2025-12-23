@@ -1,9 +1,14 @@
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useState, useCallback, useEffect } from "react";
 import { PlannerProvider, usePlanner } from "../store/PlannerContext";
 import Sidebar from "../components/Layout/Sidebar";
 import PropertiesPanel from "../components/Layout/PropertiesPanel";
 import Scene from "../components/3d/Scene";
-import { Loader2, Undo2, Redo2, Grid3X3, Box, FileText } from "lucide-react";
+import CameraToolbar from "../components/3d/CameraToolbar";
+import SelectionToolbar from "../components/3d/SelectionToolbar";
+import StatusBar from "../components/3d/StatusBar";
+import { Loader2, Undo2, Redo2, Grid3X3, Box, FileText, HelpCircle } from "lucide-react";
+import { CATALOG } from "../constants";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 function ResizableSidebar({ side, title, children, defaultWidth = 320 }: { side: "left" | "right"; title: string; children: React.ReactNode; defaultWidth?: number }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -23,8 +28,55 @@ function ResizableSidebar({ side, title, children, defaultWidth = 320 }: { side:
 }
 
 function AppInner() {
-  const { undo, redo, canUndo, canRedo } = usePlanner();
+  const { 
+    undo, redo, canUndo, canRedo, 
+    selectedItemId, items, 
+    removeItem, duplicateItem, updateItem, recordHistory,
+    placementItemId, draggedItemId 
+  } = usePlanner();
   const [is3D, setIs3D] = useState(true);
+  const [cameraControls, setCameraControls] = useState<{
+    zoomIn: () => void;
+    zoomOut: () => void;
+    resetView: () => void;
+    fitAll: () => void;
+  } | null>(null);
+
+  // Enable keyboard shortcuts
+  useKeyboardShortcuts();
+
+  // Get selected item info
+  const selectedItem = selectedItemId ? items.find(i => i.instanceId === selectedItemId) : null;
+  const selectedDef = selectedItem ? CATALOG.find(c => c.id === selectedItem.definitionId) : null;
+
+  // Get placement item name
+  const placementDef = placementItemId ? CATALOG.find(c => c.id === placementItemId) : null;
+
+  // Selection toolbar handlers
+  const handleDelete = useCallback(() => {
+    if (selectedItemId) removeItem(selectedItemId);
+  }, [selectedItemId, removeItem]);
+
+  const handleDuplicate = useCallback(() => {
+    if (selectedItemId) duplicateItem(selectedItemId);
+  }, [selectedItemId, duplicateItem]);
+
+  const handleRotate = useCallback(() => {
+    if (selectedItemId && selectedItem) {
+      recordHistory();
+      updateItem(selectedItemId, { rotation: (selectedItem.rotation + 90) % 360 });
+    }
+  }, [selectedItemId, selectedItem, recordHistory, updateItem]);
+
+  const handleFlipHinge = useCallback(() => {
+    if (selectedItemId && selectedItem) {
+      recordHistory();
+      updateItem(selectedItemId, { hinge: selectedItem.hinge === 'Left' ? 'Right' : 'Left' });
+    }
+  }, [selectedItemId, selectedItem, recordHistory, updateItem]);
+
+  // Determine current mode for status bar
+  const currentMode = placementItemId ? 'place' : draggedItemId ? 'drag' : 'select';
 
   return (
     <div className="flex h-screen w-screen bg-gray-100 font-sans text-gray-900 flex-col md:flex-row overflow-hidden relative">
@@ -35,10 +87,10 @@ function AppInner() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50" onClick={undo} disabled={!canUndo} title="Undo">
+          <button className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
             <Undo2 size={16} />
           </button>
-          <button className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50" onClick={redo} disabled={!canRedo} title="Redo">
+          <button className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">
             <Redo2 size={16} />
           </button>
 
@@ -52,6 +104,12 @@ function AppInner() {
             <Box size={16} />
             3D
           </button>
+
+          <div className="h-6 w-px bg-gray-200 mx-1" />
+
+          <button className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2" title="Keyboard shortcuts">
+            <HelpCircle size={16} />
+          </button>
         </div>
       </header>
 
@@ -64,8 +122,39 @@ function AppInner() {
       <div className="flex-1 flex flex-col md:flex-row pt-0 md:pt-14">
         <div className="flex-1 relative bg-gray-100">
           <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
-            <Scene is3D={is3D} />
+            <Scene is3D={is3D} onCameraControlsReady={setCameraControls} />
           </Suspense>
+
+          {/* Selection toolbar - shows when item is selected */}
+          {selectedItem && selectedDef && (
+            <SelectionToolbar
+              onDelete={handleDelete}
+              onDuplicate={handleDuplicate}
+              onRotate={handleRotate}
+              onFlipHinge={handleFlipHinge}
+              cabinetNumber={selectedItem.cabinetNumber}
+              sku={selectedDef.sku}
+            />
+          )}
+
+          {/* Camera toolbar */}
+          {cameraControls && (
+            <CameraToolbar
+              onZoomIn={cameraControls.zoomIn}
+              onZoomOut={cameraControls.zoomOut}
+              onResetView={cameraControls.resetView}
+              onFitAll={cameraControls.fitAll}
+              is3D={is3D}
+              onToggleView={() => setIs3D(!is3D)}
+            />
+          )}
+
+          {/* Status bar */}
+          <StatusBar
+            mode={currentMode}
+            placementItemName={placementDef?.name}
+            selectedInfo={selectedItem ? `${selectedItem.cabinetNumber} selected` : undefined}
+          />
         </div>
 
         <div className="hidden md:flex h-full">

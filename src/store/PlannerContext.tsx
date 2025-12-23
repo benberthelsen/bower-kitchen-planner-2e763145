@@ -7,6 +7,7 @@ interface PlannerContextType {
   items: PlacedItem[];
   selectedItemId: string | null;
   draggedItemId: string | null;
+  placementItemId: string | null;
   selectedFinish: MaterialOption;
   selectedBenchtop: MaterialOption;
   selectedKick: MaterialOption;
@@ -21,6 +22,7 @@ interface PlannerContextType {
   removeItem: (id: string) => void;
   selectItem: (id: string | null) => void;
   setDraggedItem: (id: string | null) => void;
+  setPlacementItem: (id: string | null) => void;
   setFinish: (m: MaterialOption) => void;
   setBenchtop: (m: MaterialOption) => void;
   setKick: (m: MaterialOption) => void;
@@ -34,6 +36,7 @@ interface PlannerContextType {
   recordHistory: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  duplicateItem: (id: string) => void;
 }
 
 const PlannerContext = createContext<PlannerContextType | undefined>(undefined);
@@ -59,6 +62,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [items, setItems] = useState<PlacedItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [placementItemId, setPlacementItemId] = useState<string | null>(null);
   const [selectedFinish, setFinish] = useState<MaterialOption>(FINISH_OPTIONS[0]);
   const [selectedBenchtop, setBenchtop] = useState<MaterialOption>(BENCHTOP_OPTIONS[0]);
   const [selectedKick, setKick] = useState<MaterialOption>(KICK_OPTIONS[0]);
@@ -112,6 +116,13 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const removeItem = (id: string) => { recordHistory(); setItems(prev => prev.filter(item => item.instanceId !== id)); if (selectedItemId === id) setSelectedItemId(null); };
   const selectItem = (id: string | null) => setSelectedItemId(id);
   const setDraggedItem = (id: string | null) => setDraggedItemId(id);
+  const setPlacementItem = (id: string | null) => setPlacementItemId(id);
+
+  const duplicateItem = useCallback((id: string) => {
+    const item = items.find(i => i.instanceId === id);
+    if (!item) return;
+    addItem(item.definitionId, item.x + 100, item.z + 100);
+  }, [items, addItem]);
 
   const totalPrice = useMemo(() => items.reduce((total, item) => { const def = CATALOG.find(c => c.id === item.definitionId); if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; return total + (def?.price || 0); }, 0), [items]);
 
@@ -123,7 +134,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [room, items, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, totalPrice]);
 
   return (
-    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0 }}>
+    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, placementItemId, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setPlacementItem, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, duplicateItem }}>
       {children}
     </PlannerContext.Provider>
   );
