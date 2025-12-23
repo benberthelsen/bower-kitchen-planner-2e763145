@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import { usePlanner } from '../../store/PlannerContext';
@@ -6,10 +6,12 @@ import CabinetMesh from './CabinetMesh';
 import StructureMesh from './StructureMesh';
 import ApplianceMesh from './ApplianceMesh';
 import Wall from './Wall';
+import SnapIndicators from './SnapIndicators';
 import * as THREE from 'three';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '../../constants';
 import SmartDimensions from './SmartDimensions';
 import InteractionHandles from './InteractionHandles';
+import { calculateSnapPosition, SnapResult } from '../../utils/cabinetSnapping';
 
 const DropZone: React.FC = () => {
   const { gl, camera } = useThree();
@@ -44,7 +46,12 @@ const DropZone: React.FC = () => {
   return null;
 };
 
-const DragManager: React.FC = () => {
+interface SnapState {
+  snappedToItemId: string | null;
+  snapEdge: SnapResult['snapEdge'];
+}
+
+const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ onSnapChange }) => {
   const { items, updateItem, draggedItemId, setDraggedItem, room } = usePlanner();
 
   const handlePointerMove = (e: any) => {
@@ -54,35 +61,40 @@ const DragManager: React.FC = () => {
     const draggedItem = items.find(i => i.instanceId === draggedItemId);
     if (!draggedItem) return;
 
-    let cx = point.x * 1000;
-    let cz = point.z * 1000;
+    const rawX = point.x * 1000;
+    const rawZ = point.z * 1000;
     const cy = draggedItem.y;
 
-    cx = Math.round(cx / SNAP_INCREMENT) * SNAP_INCREMENT;
-    cz = Math.round(cz / SNAP_INCREMENT) * SNAP_INCREMENT;
+    // Use the new snapping system
+    const snapResult = calculateSnapPosition(
+      rawX,
+      rawZ,
+      draggedItem,
+      items,
+      room,
+      SNAP_INCREMENT
+    );
 
-    const width = draggedItem.width;
-    const depth = draggedItem.depth;
-    const WALL_SNAP_DIST = 150;
-    let newRot = draggedItem.rotation;
+    // Update snap state for visual indicators
+    onSnapChange({
+      snappedToItemId: snapResult.snappedItemId || null,
+      snapEdge: snapResult.snapEdge,
+    });
 
-    const dBack = cz;
-    const dLeft = cx;
-    const dRight = room.width - cx;
-    const dFront = room.depth - cz;
-
-    if (dBack < WALL_SNAP_DIST) { newRot = 0; cz = depth / 2; }
-    else if (dLeft < WALL_SNAP_DIST) { newRot = 270; cx = depth / 2; }
-    else if (dRight < WALL_SNAP_DIST) { newRot = 90; cx = room.width - depth / 2; }
-    else if (dFront < WALL_SNAP_DIST) { newRot = 180; cz = room.depth - depth / 2; }
-
-    cx = Math.max(width / 2, Math.min(room.width - width / 2, cx));
-    cz = Math.max(depth / 2, Math.min(room.depth - depth / 2, cz));
-
-    updateItem(draggedItemId, { x: cx, y: cy, z: cz, rotation: newRot });
+    updateItem(draggedItemId, {
+      x: snapResult.x,
+      y: cy,
+      z: snapResult.z,
+      rotation: snapResult.rotation,
+    });
   };
 
-  const handlePointerUp = () => { if (draggedItemId) setDraggedItem(null); };
+  const handlePointerUp = () => {
+    if (draggedItemId) {
+      setDraggedItem(null);
+      onSnapChange({ snappedToItemId: null, snapEdge: undefined });
+    }
+  };
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[room.width / 2000, -0.01, room.depth / 2000]} scale={[100, 100, 1]} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} visible={true}>
@@ -119,7 +131,8 @@ interface SceneProps {
 }
 
 const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
-  const { items, room, selectItem, setViewMode } = usePlanner();
+  const { items, room, selectItem, setViewMode, draggedItemId } = usePlanner();
+  const [snapState, setSnapState] = useState<SnapState>({ snappedToItemId: null, snapEdge: undefined });
 
   useEffect(() => { setViewMode(is3D ? '3d' : '2d'); }, [is3D, setViewMode]);
 
@@ -127,6 +140,8 @@ const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
   const depthM = room.depth / 1000;
   const heightM = room.height / 1000;
   const wt = WALL_THICKNESS / 1000;
+
+  const draggedItem = draggedItemId ? items.find(i => i.instanceId === draggedItemId) || null : null;
 
   return (
     <Canvas shadows dpr={[1, 2]} className="w-full h-full">
@@ -136,7 +151,7 @@ const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
       <Environment preset="apartment" blur={0.8} background={false} />
       <ContactShadows resolution={1024} scale={Math.max(widthM, depthM) * 2} blur={2} opacity={0.4} far={10} color="#000000" />
       <DropZone />
-      <DragManager />
+      <DragManager onSnapChange={setSnapState} />
 
       <group onPointerMissed={() => selectItem(null)}>
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[widthM / 2, -0.01, depthM / 2]} receiveShadow>
@@ -160,6 +175,14 @@ const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
           if (item.itemType === 'Appliance') return <ApplianceMesh key={item.instanceId} item={item} />;
           return <StructureMesh key={item.instanceId} item={item} />;
         })}
+
+        {/* Snap indicators */}
+        <SnapIndicators
+          draggedItem={draggedItem}
+          snappedToItemId={snapState.snappedToItemId}
+          snapEdge={snapState.snapEdge}
+          items={items}
+        />
 
         <InteractionHandles />
         <SmartDimensions />
