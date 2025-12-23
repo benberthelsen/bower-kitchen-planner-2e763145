@@ -1,77 +1,135 @@
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { FileText, Users, DollarSign, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
+} from 'recharts';
+import { Plus, FileText, Eye, Download, ChevronRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
 
-interface DashboardStats {
-  totalJobs: number;
-  pendingApproval: number;
-  inProduction: number;
-  completed: number;
-  totalCustomers: number;
-  totalRevenue: number;
+interface Job {
+  id: string;
+  job_number: number;
+  name: string;
+  status: string;
+  cost_incl_tax: number;
+  created_at: string;
+  updated_at: string;
+  customer_id: string;
+  profiles?: { full_name: string; email: string } | null;
+}
+
+interface MonthlyStats {
+  name: string;
+  value: number;
+  color: string;
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalJobs: 0,
-    pendingApproval: 0,
-    inProduction: 0,
-    completed: 0,
-    totalCustomers: 0,
-    totalRevenue: 0,
-  });
-  const [recentJobs, setRecentJobs] = useState<any[]>([]);
+  const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
+  const [latestJobs, setLatestJobs] = useState<Job[]>([]);
+  const [monthlyStats, setMonthlyStats] = useState<MonthlyStats[]>([]);
+  const [totalSubmitted, setTotalSubmitted] = useState(0);
+  const [pendingDays, setPendingDays] = useState('60');
+  const [latestDays, setLatestDays] = useState('30');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadDashboardData();
-  }, []);
+  }, [pendingDays, latestDays]);
 
   const loadDashboardData = async () => {
     try {
-      // Get job counts by status
-      const { data: jobs, error: jobsError } = await supabase
+      // Get all jobs for stats
+      const { data: allJobs } = await supabase
         .from('jobs')
-        .select('status, cost_incl_tax');
+        .select('status, cost_incl_tax, created_at');
+
+      // Calculate monthly stats
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
       
-      if (jobsError) throw jobsError;
+      const thisMonthJobs = allJobs?.filter(j => {
+        const jobDate = new Date(j.created_at);
+        return jobDate.getMonth() === currentMonth && jobDate.getFullYear() === currentYear;
+      }) || [];
 
-      const pendingApproval = jobs?.filter(j => j.status === 'pending_approval').length || 0;
-      const inProduction = jobs?.filter(j => j.status === 'in_production').length || 0;
-      const completed = jobs?.filter(j => j.status === 'completed').length || 0;
-      const totalRevenue = jobs?.reduce((sum, j) => sum + (parseFloat(String(j.cost_incl_tax)) || 0), 0) || 0;
+      const created = thisMonthJobs.filter(j => j.status === 'draft' || j.status === 'processing').length;
+      const accepted = thisMonthJobs.filter(j => j.status === 'approved' || j.status === 'completed').length;
+      
+      const createdValue = thisMonthJobs
+        .filter(j => j.status === 'draft' || j.status === 'processing')
+        .reduce((sum, j) => sum + (parseFloat(String(j.cost_incl_tax)) || 0), 0);
+      const acceptedValue = thisMonthJobs
+        .filter(j => j.status === 'approved' || j.status === 'completed')
+        .reduce((sum, j) => sum + (parseFloat(String(j.cost_incl_tax)) || 0), 0);
 
-      // Get customer count
-      const { count: customerCount } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true });
+      setMonthlyStats([
+        { name: `Created(${created})`, value: createdValue, color: '#0ea5e9' },
+        { name: `Accepted(${accepted})`, value: acceptedValue, color: '#22c55e' },
+      ]);
+      
+      setTotalSubmitted(createdValue + acceptedValue);
 
-      // Get recent jobs
-      const { data: recent } = await supabase
+      // Get pending approval jobs
+      const pendingDate = new Date();
+      pendingDate.setDate(pendingDate.getDate() - parseInt(pendingDays));
+      
+      const { data: pending } = await supabase
         .from('jobs')
-        .select(`
-          id,
-          job_number,
-          name,
-          status,
-          cost_incl_tax,
-          created_at,
-          customer_id
-        `)
+        .select('*')
+        .eq('status', 'pending_approval')
+        .gte('created_at', pendingDate.toISOString())
         .order('created_at', { ascending: false })
-        .limit(5);
+        .limit(10);
 
-      setStats({
-        totalJobs: jobs?.length || 0,
-        pendingApproval,
-        inProduction,
-        completed,
-        totalCustomers: customerCount || 0,
-        totalRevenue,
-      });
+      // Get customer names for pending jobs
+      if (pending && pending.length > 0) {
+        const customerIds = [...new Set(pending.map(j => j.customer_id).filter(Boolean))];
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', customerIds);
 
-      setRecentJobs(recent || []);
+        const jobsWithCustomers = pending.map(job => ({
+          ...job,
+          profiles: profiles?.find(p => p.id === job.customer_id) || null
+        }));
+        setPendingJobs(jobsWithCustomers);
+      } else {
+        setPendingJobs([]);
+      }
+
+      // Get latest jobs
+      const latestDate = new Date();
+      latestDate.setDate(latestDate.getDate() - parseInt(latestDays));
+      
+      const { data: latest } = await supabase
+        .from('jobs')
+        .select('*')
+        .gte('created_at', latestDate.toISOString())
+        .order('updated_at', { ascending: false })
+        .limit(15);
+
+      if (latest && latest.length > 0) {
+        const customerIds = [...new Set(latest.map(j => j.customer_id).filter(Boolean))];
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', customerIds);
+
+        const jobsWithCustomers = latest.map(job => ({
+          ...job,
+          profiles: profiles?.find(p => p.id === job.customer_id) || null
+        }));
+        setLatestJobs(jobsWithCustomers);
+      } else {
+        setLatestJobs([]);
+      }
+
     } catch (error) {
       console.error('Error loading dashboard:', error);
     } finally {
@@ -79,94 +137,248 @@ export default function AdminDashboard() {
     }
   };
 
-  const statCards = [
-    { title: 'Total Jobs', value: stats.totalJobs, icon: FileText, color: 'bg-blue-500' },
-    { title: 'Pending Approval', value: stats.pendingApproval, icon: Clock, color: 'bg-yellow-500' },
-    { title: 'In Production', value: stats.inProduction, icon: AlertCircle, color: 'bg-orange-500' },
-    { title: 'Completed', value: stats.completed, icon: CheckCircle, color: 'bg-green-500' },
-    { title: 'Customers', value: stats.totalCustomers, icon: Users, color: 'bg-purple-500' },
-    { title: 'Total Revenue', value: `$${stats.totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'bg-emerald-500' },
-  ];
-
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
-      draft: 'bg-gray-100 text-gray-700',
-      processing: 'bg-blue-100 text-blue-700',
-      pending_approval: 'bg-yellow-100 text-yellow-700',
-      approved: 'bg-green-100 text-green-700',
-      in_production: 'bg-orange-100 text-orange-700',
-      completed: 'bg-emerald-100 text-emerald-700',
-    };
-    return styles[status] || 'bg-gray-100 text-gray-700';
+  const formatDate = (dateStr: string) => {
+    return format(new Date(dateStr), "d MMM 'at' h:mma").toLowerCase();
   };
 
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+  const currentMonthName = format(new Date(), 'MMMM yyyy');
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-        {statCards.map((stat, i) => (
-          <Card key={i}>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${stat.color} text-white`}>
-                  <stat.icon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-gray-500">{stat.title}</p>
-                </div>
+  return (
+    <div className="p-6 bg-gray-100 min-h-full">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Left Column */}
+        <div className="lg:col-span-3 space-y-6">
+          {/* Total Jobs Submitted Chart */}
+          <Card className="border-l-4 border-l-cyan-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-cyan-600 text-lg font-semibold">
+                Total jobs submitted ($):
+              </CardTitle>
+              <p className="text-sm text-gray-600">{currentMonthName}</p>
+            </CardHeader>
+            <CardContent>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyStats} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(value: number) => [`$${value.toLocaleString()}`, 'Value']} />
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                      {monthlyStats.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
+              <p className="text-xs text-cyan-600 mt-2 cursor-pointer hover:underline">
+                view more reports...
+              </p>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
-      {/* Recent Jobs */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Jobs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p className="text-gray-500">Loading...</p>
-          ) : recentJobs.length === 0 ? (
-            <p className="text-gray-500">No jobs yet</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
-                    <th className="pb-3 font-medium">Job #</th>
-                    <th className="pb-3 font-medium">Name</th>
-                    <th className="pb-3 font-medium">Status</th>
-                    <th className="pb-3 font-medium">Cost</th>
-                    <th className="pb-3 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentJobs.map(job => (
-                    <tr key={job.id} className="border-b last:border-0">
-                      <td className="py-3 font-medium">{job.job_number}</td>
-                      <td className="py-3">{job.name}</td>
-                      <td className="py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(job.status)}`}>
-                          {job.status?.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="py-3">${parseFloat(job.cost_incl_tax || 0).toLocaleString()}</td>
-                      <td className="py-3 text-gray-500 text-sm">
-                        {new Date(job.created_at).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          {/* Add Customer Button */}
+          <Button 
+            className="w-full h-16 bg-cyan-500 hover:bg-cyan-600 text-white text-lg font-semibold rounded-lg shadow-md"
+            asChild
+          >
+            <Link to="/admin/customers">
+              <Plus className="mr-2 h-5 w-5" />
+              Add A Customer
+            </Link>
+          </Button>
+
+          {/* Newest Customers */}
+          <Card className="border-l-4 border-l-cyan-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-cyan-600 text-lg font-semibold">
+                Newest Customers
+              </CardTitle>
+              <p className="text-sm text-gray-500">Show Last: 60 Days</p>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-500 text-sm">Loading customers...</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Center Column - Pending Approval */}
+        <div className="lg:col-span-4 space-y-6">
+          {/* Customer Interactions (placeholder) */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-cyan-600 text-lg font-semibold">
+                Customer Interactions
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Status:</span>
+                <Select defaultValue="open">
+                  <SelectTrigger className="w-24 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">OPEN</SelectItem>
+                    <SelectItem value="closed">CLOSED</SelectItem>
+                    <SelectItem value="all">ALL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="text-center py-8">
+              <p className="text-gray-500">No OPEN Customer Interactions.</p>
+              <Button variant="outline" className="mt-4">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Activity
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Pending Approval */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-cyan-600 text-lg font-semibold">
+                Pending Approval
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Show Last:</span>
+                <Select value={pendingDays} onValueChange={setPendingDays}>
+                  <SelectTrigger className="w-24 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">30 Days</SelectItem>
+                    <SelectItem value="60">60 Days</SelectItem>
+                    <SelectItem value="90">90 Days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {pendingJobs.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No pending approvals</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-gray-500">
+                        <th className="pb-2 font-medium">#</th>
+                        <th className="pb-2 font-medium">Name</th>
+                        <th className="pb-2 font-medium">Customer</th>
+                        <th className="pb-2 font-medium">Cost incl. Tax</th>
+                        <th className="pb-2 font-medium">Date Submitted</th>
+                        <th className="pb-2 font-medium">Options</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingJobs.map(job => (
+                        <tr key={job.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <td className="py-2 text-cyan-600">{job.job_number}</td>
+                          <td className="py-2 text-cyan-600">{job.name}</td>
+                          <td className="py-2 text-cyan-600">{job.profiles?.full_name || 'Unknown'}</td>
+                          <td className="py-2">${parseFloat(String(job.cost_incl_tax) || '0').toFixed(2)}</td>
+                          <td className="py-2 text-gray-500">{formatDate(job.created_at)}</td>
+                          <td className="py-2">
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
+                                <Link to={`/admin/jobs/${job.id}`}>
+                                  <Eye className="h-4 w-4 text-cyan-600" />
+                                </Link>
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <FileText className="h-4 w-4 text-cyan-600" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <Download className="h-4 w-4 text-cyan-600" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-cyan-600 mt-4 text-right cursor-pointer hover:underline">
+                see more...
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column - Latest Jobs */}
+        <div className="lg:col-span-5">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-lg font-semibold">Latest Jobs</CardTitle>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Show Last:</span>
+                  <Select value={latestDays} onValueChange={setLatestDays}>
+                    <SelectTrigger className="w-24 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7">7 Days</SelectItem>
+                      <SelectItem value="30">30 Days</SelectItem>
+                      <SelectItem value="60">60 Days</SelectItem>
+                      <SelectItem value="90">90 Days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">System:</span>
+                  <Select defaultValue="all">
+                    <SelectTrigger className="w-20 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <p className="text-gray-500 text-center py-4">Loading...</p>
+              ) : latestJobs.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No jobs found</p>
+              ) : (
+                <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="border-b text-left text-gray-500">
+                        <th className="pb-2 font-medium">#</th>
+                        <th className="pb-2 font-medium">Name</th>
+                        <th className="pb-2 font-medium">Customer</th>
+                        <th className="pb-2 font-medium">Cost incl. Tax</th>
+                        <th className="pb-2 font-medium">Last Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {latestJobs.map(job => (
+                        <tr 
+                          key={job.id} 
+                          className="border-b last:border-0 hover:bg-gray-50 cursor-pointer"
+                          onClick={() => window.location.href = `/admin/jobs/${job.id}`}
+                        >
+                          <td className="py-2 text-cyan-600 font-medium">{job.job_number}</td>
+                          <td className="py-2 text-cyan-600">{job.name}</td>
+                          <td className="py-2 text-cyan-600">{job.profiles?.full_name || 'Unknown'}</td>
+                          <td className="py-2">${parseFloat(String(job.cost_incl_tax) || '0').toFixed(2)}</td>
+                          <td className="py-2 text-gray-500">{formatDate(job.updated_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
