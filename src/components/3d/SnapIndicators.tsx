@@ -2,7 +2,7 @@ import React from 'react';
 import { Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { PlacedItem } from '../../types';
-import { getRotatedBounds } from '../../utils/cabinetSnapping';
+import { getRotatedBounds } from '../../utils/snapping';
 
 interface SnapIndicatorsProps {
   draggedItem: PlacedItem | null;
