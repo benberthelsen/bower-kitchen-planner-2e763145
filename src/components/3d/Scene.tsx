@@ -146,9 +146,13 @@ const Scene: React.FC<SceneProps> = ({ is3D = true }) => {
 
         <Grid position={[0, 0, 0]} args={[30, 30]} cellSize={0.5} cellThickness={0.5} cellColor="#e5e7eb" sectionSize={1} sectionThickness={1} sectionColor="#d1d5db" fadeDistance={30} />
 
+        {/* Back wall */}
         <Wall position={[widthM / 2, heightM / 2, -wt / 2]} rotation={[0, 0, 0]} width={widthM} height={heightM} thickness={wt} />
+        {/* Left wall */}
         <Wall position={[-wt / 2, heightM / 2, depthM / 2]} rotation={[0, Math.PI / 2, 0]} width={depthM} height={heightM} thickness={wt} />
+        {/* Front wall */}
         <Wall position={[widthM / 2, heightM / 2, depthM + wt / 2]} rotation={[0, Math.PI, 0]} width={widthM} height={heightM} thickness={wt} />
+        {/* Right wall */}
         <Wall position={[widthM + wt / 2, heightM / 2, depthM / 2]} rotation={[0, -Math.PI / 2, 0]} width={depthM} height={heightM} thickness={wt} />
 
         {items.map(item => {
