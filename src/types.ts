@@ -124,6 +124,9 @@ export interface GlobalDimensions {
   rightGap: number;
   topMargin: number;
   bottomMargin: number;
+  
+  /** Gap between cabinet back and wall for installation tolerance (mm) */
+  wallGap: number;
 }
 
 export interface HardwareOptions {

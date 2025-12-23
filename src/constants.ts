@@ -125,5 +125,6 @@ export const DEFAULT_GLOBAL_DIMENSIONS: GlobalDimensions = {
   leftGap: 1.5,
   rightGap: 1.5,
   topMargin: 0,
-  bottomMargin: 0
+  bottomMargin: 0,
+  wallGap: 0,
 };

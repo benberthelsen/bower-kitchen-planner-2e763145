@@ -89,7 +89,7 @@ const GlobalDimensionsPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Door & Drawer Gaps */}
+      {/* Gaps & Margins */}
       <div>
         <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Gaps & Margins</h3>
         <div className="grid grid-cols-2 gap-2">
@@ -99,6 +99,7 @@ const GlobalDimensionsPanel: React.FC = () => {
           <DimensionInput label="Right Gap" value={globalDimensions.rightGap} onChange={v => update('rightGap', v)} min={0} max={10} step={0.5} />
           <DimensionInput label="Top Margin" value={globalDimensions.topMargin} onChange={v => update('topMargin', v)} min={0} max={20} step={1} />
           <DimensionInput label="Bottom Margin" value={globalDimensions.bottomMargin} onChange={v => update('bottomMargin', v)} min={0} max={20} step={1} />
+          <DimensionInput label="Wall Gap" value={globalDimensions.wallGap} onChange={v => update('wallGap', v)} min={0} max={20} step={1} />
         </div>
       </div>
 

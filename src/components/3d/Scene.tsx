@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '../../constants';
 import SmartDimensions from './SmartDimensions';
 import InteractionHandles from './InteractionHandles';
-import { calculateSnapPosition, SnapResult, checkCollision } from '../../utils/cabinetSnapping';
+import { calculateSnapPosition, SnapResult, checkCollision } from '../../utils/snapping';
 import { CATALOG } from '../../constants';
 
 interface SnapState {
@@ -79,7 +79,8 @@ const PlacementHandler: React.FC<{
         tempItem as any,
         items,
         room,
-        SNAP_INCREMENT
+        SNAP_INCREMENT,
+        globalDimensions
       );
 
       // Check for collisions
@@ -164,7 +165,7 @@ const DropZone: React.FC = () => {
 };
 
 const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ onSnapChange }) => {
-  const { items, updateItem, draggedItemId, setDraggedItem, room } = usePlanner();
+  const { items, updateItem, draggedItemId, setDraggedItem, room, globalDimensions } = usePlanner();
 
   const handlePointerMove = (e: any) => {
     if (!draggedItemId) return;
@@ -183,7 +184,8 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
       draggedItem,
       items,
       room,
-      SNAP_INCREMENT
+      SNAP_INCREMENT,
+      globalDimensions
     );
 
     onSnapChange({
