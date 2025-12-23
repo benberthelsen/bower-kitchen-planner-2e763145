@@ -12,9 +12,9 @@ interface Props {
 
 const CabinetMesh: React.FC<Props> = ({ item }) => {
   const { 
-    selectItem, selectedItemId, draggedItemId, setDraggedItem, 
+    selectItem, selectedItemId, draggedItemId, startDrag, 
     selectedFinish, selectedBenchtop, selectedKick, 
-    globalDimensions, recordHistory, hardwareOptions 
+    globalDimensions, hardwareOptions 
   } = usePlanner();
   
   const def = CATALOG.find(c => c.id === item.definitionId);
@@ -35,9 +35,9 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();
-    recordHistory();
-    setDraggedItem(item.instanceId);
     selectItem(item.instanceId);
+    // Start drag tracking - actual drag only begins after movement threshold
+    startDrag(item.instanceId, item.x, item.z);
   };
 
   const useMaterialProps = (option: MaterialOption) => {
@@ -235,7 +235,7 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
     <group 
       position={position} 
       rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} 
-      onClick={handlePointerDown} 
+      onPointerDown={handlePointerDown}
       onPointerOver={() => setHovered(true)} 
       onPointerOut={() => setHovered(false)}
     >
