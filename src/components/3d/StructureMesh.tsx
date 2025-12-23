@@ -10,7 +10,7 @@ interface Props {
 }
 
 const StructureMesh: React.FC<Props> = ({ item }) => {
-  const { selectItem, selectedItemId, draggedItemId, setDraggedItem, recordHistory } = usePlanner();
+  const { selectItem, selectedItemId, draggedItemId, startDrag } = usePlanner();
   const [hovered, setHovered] = useState(false);
   const def = CATALOG.find(c => c.id === item.definitionId);
 
@@ -26,16 +26,15 @@ const StructureMesh: React.FC<Props> = ({ item }) => {
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();
-    recordHistory();
-    setDraggedItem(item.instanceId);
     selectItem(item.instanceId);
+    startDrag(item.instanceId, item.x, item.z);
   };
 
   const isWindow = def.sku.includes('WIN');
   const isDoor = def.sku.includes('DR');
 
   return (
-    <group position={position} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} onClick={handlePointerDown} onPointerOver={() => setHovered(true)} onPointerOut={() => setHovered(false)}>
+    <group position={position} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} onPointerDown={handlePointerDown} onPointerOver={() => setHovered(true)} onPointerOut={() => setHovered(false)}>
       {(isSelected || hovered || isDragged) && (
         <mesh><boxGeometry args={[widthM + 0.05, heightM + 0.05, depthM + 0.05]} /><meshBasicMaterial color={isDragged ? "#2563eb" : "#3b82f6"} wireframe opacity={0.5} transparent /></mesh>
       )}

@@ -2,12 +2,19 @@ import React, { createContext, useContext, useState, ReactNode, useMemo, useCall
 import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensions, HardwareOptions } from '../types';
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, CATALOG, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
 
+interface DragState {
+  itemId: string | null;
+  startPosition: { x: number; z: number } | null;
+  isDragging: boolean; // true once threshold exceeded
+}
+
 interface PlannerContextType {
   room: RoomConfig;
   items: PlacedItem[];
   selectedItemId: string | null;
   draggedItemId: string | null;
   placementItemId: string | null;
+  dragState: DragState;
   selectedFinish: MaterialOption;
   selectedBenchtop: MaterialOption;
   selectedKick: MaterialOption;
@@ -23,6 +30,10 @@ interface PlannerContextType {
   selectItem: (id: string | null) => void;
   setDraggedItem: (id: string | null) => void;
   setPlacementItem: (id: string | null) => void;
+  startDrag: (itemId: string, x: number, z: number) => void;
+  confirmDrag: () => void;
+  cancelDrag: () => void;
+  endDrag: () => void;
   setFinish: (m: MaterialOption) => void;
   setBenchtop: (m: MaterialOption) => void;
   setKick: (m: MaterialOption) => void;
@@ -63,6 +74,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [placementItemId, setPlacementItemId] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<DragState>({ itemId: null, startPosition: null, isDragging: false });
   const [selectedFinish, setFinish] = useState<MaterialOption>(FINISH_OPTIONS[0]);
   const [selectedBenchtop, setBenchtop] = useState<MaterialOption>(BENCHTOP_OPTIONS[0]);
   const [selectedKick, setKick] = useState<MaterialOption>(KICK_OPTIONS[0]);
@@ -118,6 +130,40 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const setDraggedItem = (id: string | null) => setDraggedItemId(id);
   const setPlacementItem = (id: string | null) => setPlacementItemId(id);
 
+  // Drag state management with threshold
+  const startDrag = useCallback((itemId: string, x: number, z: number) => {
+    setDragState({ itemId, startPosition: { x, z }, isDragging: false });
+    setDraggedItemId(itemId);
+  }, []);
+
+  const confirmDrag = useCallback(() => {
+    if (dragState.itemId && !dragState.isDragging) {
+      recordHistory();
+      setDragState(prev => ({ ...prev, isDragging: true }));
+    }
+  }, [dragState.itemId, dragState.isDragging, recordHistory]);
+
+  const cancelDrag = useCallback(() => {
+    // Restore original position
+    if (dragState.itemId && dragState.startPosition && !dragState.isDragging) {
+      const item = items.find(i => i.instanceId === dragState.itemId);
+      if (item) {
+        setItems(prev => prev.map(i => 
+          i.instanceId === dragState.itemId 
+            ? { ...i, x: dragState.startPosition!.x, z: dragState.startPosition!.z }
+            : i
+        ));
+      }
+    }
+    setDragState({ itemId: null, startPosition: null, isDragging: false });
+    setDraggedItemId(null);
+  }, [dragState, items]);
+
+  const endDrag = useCallback(() => {
+    setDragState({ itemId: null, startPosition: null, isDragging: false });
+    setDraggedItemId(null);
+  }, []);
+
   const duplicateItem = useCallback((id: string) => {
     const item = items.find(i => i.instanceId === id);
     if (!item) return;
@@ -134,7 +180,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [room, items, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, totalPrice]);
 
   return (
-    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, placementItemId, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setPlacementItem, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, duplicateItem }}>
+    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, placementItemId, dragState, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setPlacementItem, startDrag, confirmDrag, cancelDrag, endDrag, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, duplicateItem }}>
       {children}
     </PlannerContext.Provider>
   );

@@ -15,6 +15,9 @@ import InteractionHandles from './InteractionHandles';
 import { calculateSnapPosition, SnapResult, checkCollision } from '../../utils/snapping';
 import { CATALOG } from '../../constants';
 
+// Drag threshold in mm - must move at least this much before dragging starts
+const DRAG_THRESHOLD = 20;
+
 interface SnapState {
   snappedToItemId: string | null;
   snapEdge: SnapResult['snapEdge'];
@@ -165,7 +168,8 @@ const DropZone: React.FC = () => {
 };
 
 const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ onSnapChange }) => {
-  const { items, updateItem, draggedItemId, setDraggedItem, room, globalDimensions } = usePlanner();
+  const { items, updateItem, draggedItemId, dragState, confirmDrag, endDrag, room, globalDimensions } = usePlanner();
+  const { gl } = useThree();
 
   const handlePointerMove = (e: any) => {
     if (!draggedItemId) return;
@@ -177,6 +181,20 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
     const rawX = point.x * 1000;
     const rawZ = point.z * 1000;
     const cy = draggedItem.y;
+
+    // Check if we've exceeded drag threshold
+    if (dragState.startPosition && !dragState.isDragging) {
+      const dx = rawX - dragState.startPosition.x;
+      const dz = rawZ - dragState.startPosition.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      
+      if (distance < DRAG_THRESHOLD) {
+        // Haven't moved enough yet, don't update position
+        return;
+      }
+      // Exceeded threshold, confirm the drag
+      confirmDrag();
+    }
 
     const snapResult = calculateSnapPosition(
       rawX,
@@ -203,10 +221,28 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
 
   const handlePointerUp = () => {
     if (draggedItemId) {
-      setDraggedItem(null);
+      endDrag();
       onSnapChange({ snappedToItemId: null, snapEdge: undefined });
     }
   };
+
+  // Global pointer up handler to catch releases outside the drag plane
+  useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      if (draggedItemId) {
+        endDrag();
+        onSnapChange({ snappedToItemId: null, snapEdge: undefined });
+      }
+    };
+
+    gl.domElement.addEventListener('pointerup', handleGlobalPointerUp);
+    gl.domElement.addEventListener('pointerleave', handleGlobalPointerUp);
+    
+    return () => {
+      gl.domElement.removeEventListener('pointerup', handleGlobalPointerUp);
+      gl.domElement.removeEventListener('pointerleave', handleGlobalPointerUp);
+    };
+  }, [draggedItemId, endDrag, onSnapChange, gl]);
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[room.width / 2000, -0.01, room.depth / 2000]} scale={[100, 100, 1]} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} visible={true}>
