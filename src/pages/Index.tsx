@@ -1,4 +1,5 @@
-import React, { Suspense, useState, useCallback, useEffect } from "react";
+import React, { Suspense, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { PlannerProvider, usePlanner } from "../store/PlannerContext";
 import Sidebar from "../components/Layout/Sidebar";
 import PropertiesPanel from "../components/Layout/PropertiesPanel";
@@ -6,9 +7,20 @@ import Scene from "../components/3d/Scene";
 import CameraToolbar from "../components/3d/CameraToolbar";
 import SelectionToolbar from "../components/3d/SelectionToolbar";
 import StatusBar from "../components/3d/StatusBar";
-import { Loader2, Undo2, Redo2, Grid3X3, Box, FileText, HelpCircle } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
+import { supabase } from "../integrations/supabase/client";
+import { Loader2, Undo2, Redo2, Grid3X3, Box, HelpCircle, User, Save, LogIn, Settings } from "lucide-react";
 import { CATALOG } from "../constants";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 function ResizableSidebar({ side, title, children, defaultWidth = 320 }: { side: "left" | "right"; title: string; children: React.ReactNode; defaultWidth?: number }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -30,11 +42,15 @@ function ResizableSidebar({ side, title, children, defaultWidth = 320 }: { side:
 function AppInner() {
   const { 
     undo, redo, canUndo, canRedo, 
-    selectedItemId, items, 
+    selectedItemId, items, room,
     removeItem, duplicateItem, updateItem, recordHistory,
-    placementItemId, draggedItemId 
+    placementItemId, draggedItemId,
+    selectedFinish, selectedBenchtop, selectedKick,
+    projectSettings, globalDimensions, hardwareOptions, totalPrice
   } = usePlanner();
+  const { user, loading: authLoading, signOut, isAdmin } = useAuth();
   const [is3D, setIs3D] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [cameraControls, setCameraControls] = useState<{
     zoomIn: () => void;
     zoomOut: () => void;
@@ -75,6 +91,54 @@ function AppInner() {
     }
   }, [selectedItemId, selectedItem, recordHistory, updateItem]);
 
+  // Save design to database
+  const handleSaveDesign = async () => {
+    if (!user) {
+      toast.error('Please sign in to save your design');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const designData = {
+        room,
+        items,
+        selectedFinish,
+        selectedBenchtop,
+        selectedKick,
+        globalDimensions,
+        hardwareOptions,
+      };
+
+      const costExcl = totalPrice;
+      const costIncl = totalPrice * 1.1; // Add 10% GST
+
+      const { error } = await supabase.from('jobs').insert([{
+        name: projectSettings.jobName || 'New Kitchen Design',
+        customer_id: user.id,
+        design_data: designData as any,
+        cost_excl_tax: costExcl,
+        cost_incl_tax: costIncl,
+        delivery_method: projectSettings.deliveryMethod,
+        notes: projectSettings.description,
+        status: 'draft',
+      }]);
+
+      if (error) throw error;
+      toast.success('Design saved successfully!');
+    } catch (error) {
+      console.error('Error saving design:', error);
+      toast.error('Failed to save design');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast.success('Signed out successfully');
+  };
+
   // Determine current mode for status bar
   const currentMode = placementItemId ? 'place' : draggedItemId ? 'drag' : 'select';
 
@@ -106,6 +170,57 @@ function AppInner() {
           </button>
 
           <div className="h-6 w-px bg-gray-200 mx-1" />
+
+          {/* Save Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSaveDesign}
+            disabled={saving || !user}
+            title={user ? "Save design" : "Sign in to save"}
+          >
+            {saving ? <Loader2 size={16} className="animate-spin mr-1" /> : <Save size={16} className="mr-1" />}
+            Save
+          </Button>
+
+          <div className="h-6 w-px bg-gray-200 mx-1" />
+
+          {/* User Menu */}
+          {authLoading ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <User size={16} className="mr-1" />
+                  {user.email?.split('@')[0]}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isAdmin && (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to="/admin" className="flex items-center">
+                        <Settings size={16} className="mr-2" />
+                        Admin Dashboard
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuItem onClick={handleSignOut}>
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Link to="/auth">
+              <Button variant="outline" size="sm">
+                <LogIn size={16} className="mr-1" />
+                Sign In
+              </Button>
+            </Link>
+          )}
 
           <button className="px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2" title="Keyboard shortcuts">
             <HelpCircle size={16} />
