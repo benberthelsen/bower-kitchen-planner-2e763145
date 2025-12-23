@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CATALOG } from '../../constants';
 import { usePlanner } from '../../store/PlannerContext';
-import { Plus, ChevronDown, ChevronRight, Search, Box } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Search, Box, MousePointer } from 'lucide-react';
 import { CatalogItemDefinition } from '../../types';
 
 interface SidebarProps {
@@ -47,7 +47,7 @@ const CabinetThumbnail = ({ item }: { item: CatalogItemDefinition }) => {
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
-  const { addItem } = usePlanner();
+  const { setPlacementItem, placementItemId } = usePlanner();
   const [search, setSearch] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({ 'Base': true, 'Wall': true, 'Tall': true, 'Appliance': true, 'Structure': true });
 
@@ -62,6 +62,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     e.dataTransfer.effectAllowed = 'copy';
   };
 
+  const handleItemClick = (item: CatalogItemDefinition) => {
+    // Toggle placement mode - if same item clicked, cancel placement
+    if (placementItemId === item.id) {
+      setPlacementItem(null);
+    } else {
+      setPlacementItem(item.id);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-white">
       <div className="p-3 border-b">
@@ -69,6 +78,20 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input type="text" placeholder="Search cabinets..." value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
+        
+        {/* Placement mode indicator */}
+        {placementItemId && (
+          <div className="mt-2 flex items-center gap-2 px-2 py-1.5 bg-green-50 border border-green-200 rounded-lg">
+            <MousePointer size={14} className="text-green-600" />
+            <span className="text-xs text-green-700 font-medium">Click in the scene to place</span>
+            <button 
+              onClick={() => setPlacementItem(null)}
+              className="ml-auto text-xs text-green-600 hover:text-green-800 font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
@@ -90,13 +113,26 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
 
               {expandedCategories[category] && (
                 <div className="grid grid-cols-2 gap-1 mt-1">
-                  {items.map(item => (
-                    <div key={item.id} draggable onDragStart={e => handleDragStart(e, item)} onClick={() => addItem(item.id)} className="flex flex-col items-center p-2 border rounded cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-colors">
-                      <CabinetThumbnail item={item} />
-                      <span className="text-[10px] font-medium text-gray-600 mt-1 text-center leading-tight">{item.sku}</span>
-                      <span className="text-[9px] text-gray-400">${item.price}</span>
-                    </div>
-                  ))}
+                  {items.map(item => {
+                    const isSelected = placementItemId === item.id;
+                    return (
+                      <div 
+                        key={item.id} 
+                        draggable 
+                        onDragStart={e => handleDragStart(e, item)} 
+                        onClick={() => handleItemClick(item)} 
+                        className={`flex flex-col items-center p-2 border rounded cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'bg-green-50 border-green-400 ring-2 ring-green-200' 
+                            : 'hover:bg-blue-50 hover:border-blue-300'
+                        }`}
+                      >
+                        <CabinetThumbnail item={item} />
+                        <span className="text-[10px] font-medium text-gray-600 mt-1 text-center leading-tight">{item.sku}</span>
+                        <span className="text-[9px] text-gray-400">${item.price}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
