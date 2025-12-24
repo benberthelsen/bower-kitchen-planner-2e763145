@@ -14,6 +14,242 @@ export type Database = {
   }
   public: {
     Tables: {
+      client_markup_settings: {
+        Row: {
+          client_id: string | null
+          created_at: string | null
+          delivery_markup: number | null
+          door_drawer_markup: number | null
+          edge_markup: number | null
+          hardware_markup: number | null
+          id: string
+          is_default: boolean | null
+          labor_markup: number | null
+          markup_type: string | null
+          material_markup: number | null
+          name: string
+          parts_markup: number | null
+          stone_markup: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string | null
+          delivery_markup?: number | null
+          door_drawer_markup?: number | null
+          edge_markup?: number | null
+          hardware_markup?: number | null
+          id?: string
+          is_default?: boolean | null
+          labor_markup?: number | null
+          markup_type?: string | null
+          material_markup?: number | null
+          name: string
+          parts_markup?: number | null
+          stone_markup?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string | null
+          delivery_markup?: number | null
+          door_drawer_markup?: number | null
+          edge_markup?: number | null
+          hardware_markup?: number | null
+          id?: string
+          is_default?: boolean | null
+          labor_markup?: number | null
+          markup_type?: string | null
+          material_markup?: number | null
+          name?: string
+          parts_markup?: number | null
+          stone_markup?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_markup_settings_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      door_drawer_pricing: {
+        Row: {
+          advanced: boolean | null
+          area_assembly_cost: number | null
+          area_handling_cost: number | null
+          area_machining_cost: number | null
+          assembly_cost: number | null
+          created_at: string | null
+          filter_name: string | null
+          handling_cost: number | null
+          id: string
+          item_code: string
+          machining_cost: number | null
+          name: string
+          outsourced: boolean | null
+          suffix: string | null
+          unit_cost: number | null
+          updated_at: string | null
+          visibility_status: string | null
+        }
+        Insert: {
+          advanced?: boolean | null
+          area_assembly_cost?: number | null
+          area_handling_cost?: number | null
+          area_machining_cost?: number | null
+          assembly_cost?: number | null
+          created_at?: string | null
+          filter_name?: string | null
+          handling_cost?: number | null
+          id?: string
+          item_code: string
+          machining_cost?: number | null
+          name: string
+          outsourced?: boolean | null
+          suffix?: string | null
+          unit_cost?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Update: {
+          advanced?: boolean | null
+          area_assembly_cost?: number | null
+          area_handling_cost?: number | null
+          area_machining_cost?: number | null
+          assembly_cost?: number | null
+          created_at?: string | null
+          filter_name?: string | null
+          handling_cost?: number | null
+          id?: string
+          item_code?: string
+          machining_cost?: number | null
+          name?: string
+          outsourced?: boolean | null
+          suffix?: string | null
+          unit_cost?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Relationships: []
+      }
+      edge_pricing: {
+        Row: {
+          application_cost: number | null
+          area_handling_cost: number | null
+          brand: string | null
+          created_at: string | null
+          door_filter: string | null
+          edge_type: string | null
+          finish: string | null
+          handling_cost: number | null
+          id: string
+          item_code: string
+          length_cost: number | null
+          name: string
+          thickness: number | null
+          updated_at: string | null
+          visibility_status: string | null
+        }
+        Insert: {
+          application_cost?: number | null
+          area_handling_cost?: number | null
+          brand?: string | null
+          created_at?: string | null
+          door_filter?: string | null
+          edge_type?: string | null
+          finish?: string | null
+          handling_cost?: number | null
+          id?: string
+          item_code: string
+          length_cost?: number | null
+          name: string
+          thickness?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Update: {
+          application_cost?: number | null
+          area_handling_cost?: number | null
+          brand?: string | null
+          created_at?: string | null
+          door_filter?: string | null
+          edge_type?: string | null
+          finish?: string | null
+          handling_cost?: number | null
+          id?: string
+          item_code?: string
+          length_cost?: number | null
+          name?: string
+          thickness?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Relationships: []
+      }
+      hardware_pricing: {
+        Row: {
+          assembly_cost: number | null
+          brand: string | null
+          created_at: string | null
+          handling_cost: number | null
+          hardware_type: string | null
+          id: string
+          inner_unit_cost: number | null
+          item_code: string
+          machining_cost: number | null
+          name: string
+          runner_depth: number | null
+          runner_desc: string | null
+          runner_height: number | null
+          series: string | null
+          unit_cost: number | null
+          updated_at: string | null
+          visibility_status: string | null
+        }
+        Insert: {
+          assembly_cost?: number | null
+          brand?: string | null
+          created_at?: string | null
+          handling_cost?: number | null
+          hardware_type?: string | null
+          id?: string
+          inner_unit_cost?: number | null
+          item_code: string
+          machining_cost?: number | null
+          name: string
+          runner_depth?: number | null
+          runner_desc?: string | null
+          runner_height?: number | null
+          series?: string | null
+          unit_cost?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Update: {
+          assembly_cost?: number | null
+          brand?: string | null
+          created_at?: string | null
+          handling_cost?: number | null
+          hardware_type?: string | null
+          id?: string
+          inner_unit_cost?: number | null
+          item_code?: string
+          machining_cost?: number | null
+          name?: string
+          runner_depth?: number | null
+          runner_desc?: string | null
+          runner_height?: number | null
+          series?: string | null
+          unit_cost?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Relationships: []
+      }
       jobs: {
         Row: {
           completion_date: string | null
@@ -69,6 +305,174 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      labor_rates: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          rate: number | null
+          rate_type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          rate?: number | null
+          rate_type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          rate?: number | null
+          rate_type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      material_pricing: {
+        Row: {
+          area_assembly_cost: number | null
+          area_cost: number | null
+          area_handling_cost: number | null
+          brand: string | null
+          created_at: string | null
+          door_filter: string | null
+          double_sided: boolean | null
+          double_sided_cost: number | null
+          expected_yield_factor: number | null
+          finish: string | null
+          horizontal_grain: boolean | null
+          horizontal_grain_surcharge: number | null
+          id: string
+          item_code: string
+          material_type: string | null
+          minimum_job_area: number | null
+          minimum_usage_rollover: number | null
+          name: string
+          prefix: string | null
+          sheet_length: number | null
+          sheet_width: number | null
+          substrate: string | null
+          thickness: number | null
+          updated_at: string | null
+          visibility_status: string | null
+        }
+        Insert: {
+          area_assembly_cost?: number | null
+          area_cost?: number | null
+          area_handling_cost?: number | null
+          brand?: string | null
+          created_at?: string | null
+          door_filter?: string | null
+          double_sided?: boolean | null
+          double_sided_cost?: number | null
+          expected_yield_factor?: number | null
+          finish?: string | null
+          horizontal_grain?: boolean | null
+          horizontal_grain_surcharge?: number | null
+          id?: string
+          item_code: string
+          material_type?: string | null
+          minimum_job_area?: number | null
+          minimum_usage_rollover?: number | null
+          name: string
+          prefix?: string | null
+          sheet_length?: number | null
+          sheet_width?: number | null
+          substrate?: string | null
+          thickness?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Update: {
+          area_assembly_cost?: number | null
+          area_cost?: number | null
+          area_handling_cost?: number | null
+          brand?: string | null
+          created_at?: string | null
+          door_filter?: string | null
+          double_sided?: boolean | null
+          double_sided_cost?: number | null
+          expected_yield_factor?: number | null
+          finish?: string | null
+          horizontal_grain?: boolean | null
+          horizontal_grain_surcharge?: number | null
+          id?: string
+          item_code?: string
+          material_type?: string | null
+          minimum_job_area?: number | null
+          minimum_usage_rollover?: number | null
+          name?: string
+          prefix?: string | null
+          sheet_length?: number | null
+          sheet_width?: number | null
+          substrate?: string | null
+          thickness?: number | null
+          updated_at?: string | null
+          visibility_status?: string | null
+        }
+        Relationships: []
+      }
+      parts_pricing: {
+        Row: {
+          area_assembly_cost: number | null
+          area_handling_cost: number | null
+          area_machining_cost: number | null
+          assembly_cost: number | null
+          created_at: string | null
+          edging: string | null
+          handling_cost: number | null
+          id: string
+          length_function: string | null
+          machining_cost: number | null
+          name: string
+          part_type: string
+          updated_at: string | null
+          visibility_status: string | null
+          width_function: string | null
+        }
+        Insert: {
+          area_assembly_cost?: number | null
+          area_handling_cost?: number | null
+          area_machining_cost?: number | null
+          assembly_cost?: number | null
+          created_at?: string | null
+          edging?: string | null
+          handling_cost?: number | null
+          id?: string
+          length_function?: string | null
+          machining_cost?: number | null
+          name: string
+          part_type: string
+          updated_at?: string | null
+          visibility_status?: string | null
+          width_function?: string | null
+        }
+        Update: {
+          area_assembly_cost?: number | null
+          area_handling_cost?: number | null
+          area_machining_cost?: number | null
+          assembly_cost?: number | null
+          created_at?: string | null
+          edging?: string | null
+          handling_cost?: number | null
+          id?: string
+          length_function?: string | null
+          machining_cost?: number | null
+          name?: string
+          part_type?: string
+          updated_at?: string | null
+          visibility_status?: string | null
+          width_function?: string | null
+        }
+        Relationships: []
       }
       price_history: {
         Row: {
@@ -177,6 +581,36 @@ export type Database = {
           phone?: string | null
           updated_at?: string | null
           user_type?: string | null
+        }
+        Relationships: []
+      }
+      stone_pricing: {
+        Row: {
+          brand: string
+          created_at: string | null
+          id: string
+          install_supply_per_sqm: number | null
+          range_tier: string | null
+          trade_supply_per_sqm: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          brand: string
+          created_at?: string | null
+          id?: string
+          install_supply_per_sqm?: number | null
+          range_tier?: string | null
+          trade_supply_per_sqm?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          brand?: string
+          created_at?: string | null
+          id?: string
+          install_supply_per_sqm?: number | null
+          range_tier?: string | null
+          trade_supply_per_sqm?: number | null
+          updated_at?: string | null
         }
         Relationships: []
       }
