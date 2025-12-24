@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
+import TradePlanner from "./pages/TradePlanner";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminJobs from "./pages/admin/Jobs";
@@ -13,6 +14,7 @@ import AdminCustomers from "./pages/admin/Customers";
 import AdminPrices from "./pages/admin/Prices";
 import AdminSettings from "./pages/admin/Settings";
 import NotFound from "./pages/NotFound";
+import DevNavBar from "./components/DevNavBar";
 
 const queryClient = new QueryClient();
 
@@ -22,9 +24,12 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/auth" element={<Auth />} />
+        <div className="flex flex-col min-h-screen">
+          <DevNavBar />
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/trade" element={<TradePlanner />} />
           
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminLayout />}>
@@ -38,7 +43,8 @@ const App = () => (
           
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
-        </Routes>
+          </Routes>
+        </div>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
