@@ -23,37 +23,40 @@ export function useAuth() {
 
   useEffect(() => {
     // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setAuthState(prev => ({
-          ...prev,
-          session,
-          user: session?.user ?? null,
-          loading: false,
-        }));
-
-        // Defer role check with setTimeout to avoid deadlock
-        if (session?.user) {
-          setTimeout(() => {
-            checkUserRole(session.user.id);
-          }, 0);
-        } else {
-          setAuthState(prev => ({
-            ...prev,
-            isAdmin: false,
-            userRole: null,
-          }));
-        }
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setAuthState(prev => ({
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // If we have a user, we keep loading=true until role lookup completes.
+      // This prevents ProtectedRoute from redirecting before isAdmin is known.
+      setAuthState((prev) => ({
         ...prev,
         session,
         user: session?.user ?? null,
-        loading: false,
+        loading: Boolean(session?.user),
+      }));
+
+      // Defer role check with setTimeout to avoid deadlock
+      if (session?.user) {
+        setTimeout(() => {
+          checkUserRole(session.user.id);
+        }, 0);
+      } else {
+        setAuthState((prev) => ({
+          ...prev,
+          isAdmin: false,
+          userRole: null,
+          loading: false,
+        }));
+      }
+    });
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthState((prev) => ({
+        ...prev,
+        session,
+        user: session?.user ?? null,
+        loading: Boolean(session?.user),
       }));
 
       if (session?.user) {
@@ -65,6 +68,9 @@ export function useAuth() {
   }, []);
 
   const checkUserRole = async (userId: string) => {
+    // Keep loading true until we definitively know the role.
+    setAuthState((prev) => ({ ...prev, loading: true }));
+
     try {
       const { data, error } = await supabase
         .from('user_roles')
@@ -72,19 +78,33 @@ export function useAuth() {
         .eq('user_id', userId)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error checking user role:', error);
+      // No role row found => normal user
+      if (error?.code === 'PGRST116') {
+        setAuthState((prev) => ({
+          ...prev,
+          isAdmin: false,
+          userRole: null,
+          loading: false,
+        }));
         return;
       }
 
-      const role = data?.role as AppRole | null;
-      setAuthState(prev => ({
+      if (error) {
+        console.error('Error checking user role:', error);
+        setAuthState((prev) => ({ ...prev, loading: false }));
+        return;
+      }
+
+      const role = (data?.role as AppRole | null) ?? null;
+      setAuthState((prev) => ({
         ...prev,
         isAdmin: role === 'admin',
         userRole: role,
+        loading: false,
       }));
     } catch (error) {
       console.error('Error checking user role:', error);
+      setAuthState((prev) => ({ ...prev, loading: false }));
     }
   };
 
