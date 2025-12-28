@@ -13,6 +13,14 @@ import AdminJobDetail from "./pages/admin/JobDetail";
 import AdminCustomers from "./pages/admin/Customers";
 import AdminPrices from "./pages/admin/Prices";
 import AdminSettings from "./pages/admin/Settings";
+import PartsPricing from "./pages/admin/pricing/PartsPricing";
+import HardwarePricing from "./pages/admin/pricing/HardwarePricing";
+import MaterialPricing from "./pages/admin/pricing/MaterialPricing";
+import EdgePricing from "./pages/admin/pricing/EdgePricing";
+import StonePricing from "./pages/admin/pricing/StonePricing";
+import DoorDrawerPricing from "./pages/admin/pricing/DoorDrawerPricing";
+import LaborRates from "./pages/admin/pricing/LaborRates";
+import ClientMarkups from "./pages/admin/pricing/ClientMarkups";
 import NotFound from "./pages/NotFound";
 import DevNavBar from "./components/DevNavBar";
 
@@ -39,6 +47,15 @@ const App = () => (
             <Route path="customers" element={<AdminCustomers />} />
             <Route path="prices" element={<AdminPrices />} />
             <Route path="settings" element={<AdminSettings />} />
+            {/* Pricing Management Routes */}
+            <Route path="pricing/parts" element={<PartsPricing />} />
+            <Route path="pricing/hardware" element={<HardwarePricing />} />
+            <Route path="pricing/materials" element={<MaterialPricing />} />
+            <Route path="pricing/edges" element={<EdgePricing />} />
+            <Route path="pricing/stone" element={<StonePricing />} />
+            <Route path="pricing/doors" element={<DoorDrawerPricing />} />
+            <Route path="pricing/labor" element={<LaborRates />} />
+            <Route path="pricing/markups" element={<ClientMarkups />} />
           </Route>
           
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
