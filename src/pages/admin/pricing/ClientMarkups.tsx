@@ -109,7 +109,20 @@ export default function ClientMarkups() {
 
     const { error } = await supabase
       .from("client_markup_settings")
-      .insert([newMarkup]);
+      .insert({
+        name: newMarkup.name!,
+        client_id: newMarkup.client_id,
+        markup_type: newMarkup.markup_type,
+        material_markup: newMarkup.material_markup,
+        hardware_markup: newMarkup.hardware_markup,
+        labor_markup: newMarkup.labor_markup,
+        delivery_markup: newMarkup.delivery_markup,
+        stone_markup: newMarkup.stone_markup,
+        parts_markup: newMarkup.parts_markup,
+        edge_markup: newMarkup.edge_markup,
+        door_drawer_markup: newMarkup.door_drawer_markup,
+        is_default: newMarkup.is_default,
+      });
 
     if (error) {
       toast.error("Failed to add markup");
