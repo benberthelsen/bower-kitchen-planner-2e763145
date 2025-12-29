@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback } from 'react';
 import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensions, HardwareOptions } from '../types';
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, CATALOG, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
-
+import { loadSampleKitchen as loadSampleKitchenData, SAMPLE_KITCHENS } from '@/data/sampleKitchens';
 interface DragState {
   itemId: string | null;
   startPosition: { x: number; z: number } | null;
@@ -48,6 +48,8 @@ interface PlannerContextType {
   canUndo: boolean;
   canRedo: boolean;
   duplicateItem: (id: string) => void;
+  loadSampleKitchen: (kitchenId: string) => void;
+  sampleKitchens: typeof SAMPLE_KITCHENS;
 }
 
 const PlannerContext = createContext<PlannerContextType | undefined>(undefined);
@@ -170,6 +172,17 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
     addItem(item.definitionId, item.x + 100, item.z + 100);
   }, [items, addItem]);
 
+  const loadSampleKitchen = useCallback((kitchenId: string) => {
+    const data = loadSampleKitchenData(kitchenId);
+    if (!data) return;
+    recordHistory();
+    _setRoom(data.room);
+    _setGlobalDimensions(data.globalDimensions);
+    setHardwareOptions(data.hardwareOptions);
+    setItems(data.items);
+    setSelectedItemId(null);
+  }, [recordHistory]);
+
   const totalPrice = useMemo(() => items.reduce((total, item) => { const def = CATALOG.find(c => c.id === item.definitionId); if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; return total + (def?.price || 0); }, 0), [items]);
 
   const placeOrder = useCallback(() => {
@@ -180,7 +193,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [room, items, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, totalPrice]);
 
   return (
-    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, placementItemId, dragState, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setPlacementItem, startDrag, confirmDrag, cancelDrag, endDrag, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, duplicateItem }}>
+    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, placementItemId, dragState, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setPlacementItem, startDrag, confirmDrag, cancelDrag, endDrag, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, duplicateItem, loadSampleKitchen, sampleKitchens: SAMPLE_KITCHENS }}>
       {children}
     </PlannerContext.Provider>
   );

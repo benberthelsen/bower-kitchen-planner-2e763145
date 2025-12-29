@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
 import { CATALOG, FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS } from '../../constants';
-import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download } from 'lucide-react';
+import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download, Loader2 } from 'lucide-react';
 import CabinetPropertiesTab from './CabinetPropertiesTab';
 import GlobalDimensionsPanel from './GlobalDimensionsPanel';
 import HardwareOptionsPanel from './HardwareOptionsPanel';
 import RoomConfigPanel from './RoomConfigPanel';
+import { useBOMPricing } from '@/hooks/useBOMPricing';
 
 interface PropertiesPanelProps {
   onClose?: () => void;
@@ -25,6 +26,8 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     totalPrice, placeOrder 
   } = usePlanner();
   
+  const { quoteBOM, isLoading: isPricingLoading, totalPrice: bomTotalPrice } = useBOMPricing();
+  
   const [activeTab, setActiveTab] = useState<TabId>('schedule');
 
   const selected = useMemo(() => items.find(i => i.instanceId === selectedItemId) || null, [items, selectedItemId]);
@@ -43,16 +46,18 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
       return def && (def.itemType === 'Cabinet' || def.itemType === 'Appliance');
     }).map(it => {
       const def = CATALOG.find(d => d.id === it.definitionId)!;
+      // Get BOM price for this cabinet if available
+      const cabinetBOM = quoteBOM?.cabinets.find(c => c.cabinetId === it.instanceId);
       return { 
         instanceId: it.instanceId, 
         cabinetNumber: it.cabinetNumber || '', 
         sku: def.sku, 
         name: def.name, 
-        price: def.price,
+        price: cabinetBOM?.totalCost ?? def.price,
         category: def.category || def.itemType
       };
     });
-  }, [items]);
+  }, [items, quoteBOM]);
 
   const handleExportSchedule = () => {
     const order = placeOrder();
@@ -132,10 +137,50 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               </div>
             </div>
 
-            {/* Total */}
-            <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded">
-              <span className="text-sm font-medium">Total</span>
-              <span className="text-lg font-bold text-blue-600">{money(totalPrice)}</span>
+            {/* BOM Pricing Breakdown */}
+            <div className="space-y-1 py-2 px-3 bg-gray-50 rounded">
+              {isPricingLoading ? (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                  <span className="ml-2 text-sm text-gray-500">Calculating...</span>
+                </div>
+              ) : quoteBOM ? (
+                <>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Materials</span>
+                    <span>{money(quoteBOM.grandTotal.materials)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Hardware</span>
+                    <span>{money(quoteBOM.grandTotal.hardware)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Edge Tape</span>
+                    <span>{money(quoteBOM.grandTotal.edging)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Labor</span>
+                    <span>{money(quoteBOM.grandTotal.machining + quoteBOM.grandTotal.assembly)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 border-t pt-1 mt-1">
+                    <span>Subtotal</span>
+                    <span>{money(quoteBOM.grandTotal.subtotalExGst)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>GST (10%)</span>
+                    <span>{money(quoteBOM.grandTotal.gst)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-sm border-t pt-1 mt-1">
+                    <span>Total</span>
+                    <span className="text-blue-600">{money(quoteBOM.grandTotal.total)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Total</span>
+                  <span className="text-lg font-bold text-blue-600">{money(totalPrice)}</span>
+                </div>
+              )}
             </div>
 
             {/* Cabinet List */}
