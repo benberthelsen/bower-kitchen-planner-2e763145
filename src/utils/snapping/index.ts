@@ -166,16 +166,21 @@ export function calculateSnapPosition(
       else if (minOverlap === overlapFront) z -= pushAmount;
       else if (minOverlap === overlapBack) z += pushAmount;
 
-      // Update test item and re-check bounds
+      // Keep the pushed result inside the room (including wallGap)
+      testItem.x = x;
+      testItem.z = z;
+      const pushedDims = getEffectiveDimensions(testItem);
+      x = Math.max(pushedDims.width / 2 + wallGap, Math.min(room.width - pushedDims.width / 2 - wallGap, x));
+      z = Math.max(pushedDims.depth / 2 + wallGap, Math.min(room.depth - pushedDims.depth / 2 - wallGap, z));
       testItem.x = x;
       testItem.z = z;
     }
   }
 
-  // Final bounds check after collision resolution
+  // Final bounds check after collision resolution (include wallGap so we never drift into/through walls)
   const finalEffDims = getEffectiveDimensions(testItem);
-  x = Math.max(finalEffDims.width / 2, Math.min(room.width - finalEffDims.width / 2, x));
-  z = Math.max(finalEffDims.depth / 2, Math.min(room.depth - finalEffDims.depth / 2, z));
+  x = Math.max(finalEffDims.width / 2 + wallGap, Math.min(room.width - finalEffDims.width / 2 - wallGap, x));
+  z = Math.max(finalEffDims.depth / 2 + wallGap, Math.min(room.depth - finalEffDims.depth / 2 - wallGap, z));
 
   return { x, z, rotation, snappedTo, snapEdge, snappedItemId, wallId };
 }
