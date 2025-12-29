@@ -7,6 +7,7 @@ import StructureMesh from './StructureMesh';
 import ApplianceMesh from './ApplianceMesh';
 import Wall from './Wall';
 import SnapIndicators from './SnapIndicators';
+import SnapDebugOverlay from './SnapDebugOverlay';
 import PlacementGhost from './PlacementGhost';
 import * as THREE from 'three';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '../../constants';
@@ -167,7 +168,10 @@ const DropZone: React.FC = () => {
   return null;
 };
 
-const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ onSnapChange }) => {
+const DragManager: React.FC<{ 
+  onSnapChange: (state: SnapState) => void;
+  onSnapResultChange?: (result: SnapResult | null) => void;
+}> = ({ onSnapChange, onSnapResultChange }) => {
   const { items, updateItem, draggedItemId, dragState, confirmDrag, endDrag, room, globalDimensions } = usePlanner();
   const { gl } = useThree();
 
@@ -211,6 +215,9 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
       snapEdge: snapResult.snapEdge,
     });
 
+    // Pass full snap result for debug overlay
+    onSnapResultChange?.(snapResult);
+
     updateItem(draggedItemId, {
       x: snapResult.x,
       y: cy,
@@ -223,6 +230,7 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
     if (draggedItemId) {
       endDrag();
       onSnapChange({ snappedToItemId: null, snapEdge: undefined });
+      onSnapResultChange?.(null);
     }
   };
 
@@ -232,6 +240,7 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
       if (draggedItemId) {
         endDrag();
         onSnapChange({ snappedToItemId: null, snapEdge: undefined });
+        onSnapResultChange?.(null);
       }
     };
 
@@ -242,7 +251,7 @@ const DragManager: React.FC<{ onSnapChange: (state: SnapState) => void }> = ({ o
       gl.domElement.removeEventListener('pointerup', handleGlobalPointerUp);
       gl.domElement.removeEventListener('pointerleave', handleGlobalPointerUp);
     };
-  }, [draggedItemId, endDrag, onSnapChange, gl]);
+  }, [draggedItemId, endDrag, onSnapChange, onSnapResultChange, gl]);
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[room.width / 2000, -0.01, room.depth / 2000]} scale={[100, 100, 1]} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} visible={true}>
@@ -302,16 +311,31 @@ interface SceneProps {
 }
 
 const Scene: React.FC<SceneProps> = ({ is3D = true, onCameraControlsReady }) => {
-  const { items, room, selectItem, setViewMode, draggedItemId, placementItemId } = usePlanner();
+  const { items, room, selectItem, setViewMode, draggedItemId, placementItemId, globalDimensions } = usePlanner();
   const [snapState, setSnapState] = useState<SnapState>({ snappedToItemId: null, snapEdge: undefined });
+  const [currentSnapResult, setCurrentSnapResult] = useState<SnapResult | null>(null);
   const [placementState, setPlacementState] = useState<PlacementState>({
     position: [0, 0, 0],
     rotation: 0,
     isValid: true,
   });
+  const [showDebugOverlay, setShowDebugOverlay] = useState(false);
   const controlsRef = useRef<any>(null);
 
   useEffect(() => { setViewMode(is3D ? '3d' : '2d'); }, [is3D, setViewMode]);
+
+  // Toggle debug overlay with 'D' key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'd' || e.key === 'D') {
+        // Don't toggle if user is typing in an input
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        setShowDebugOverlay(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Expose camera controls to parent
   useEffect(() => {
@@ -405,7 +429,7 @@ const Scene: React.FC<SceneProps> = ({ is3D = true, onCameraControlsReady }) => 
       <Environment preset="apartment" blur={0.8} background={false} />
       <ContactShadows resolution={1024} scale={Math.max(widthM, depthM) * 2} blur={2} opacity={0.4} far={10} color="#000000" />
       <DropZone />
-      <DragManager onSnapChange={setSnapState} />
+      <DragManager onSnapChange={setSnapState} onSnapResultChange={setCurrentSnapResult} />
       <PlacementHandler onPositionUpdate={setPlacementState} />
 
       <group onPointerMissed={() => { if (!placementItemId) selectItem(null); }}>
@@ -446,6 +470,16 @@ const Scene: React.FC<SceneProps> = ({ is3D = true, onCameraControlsReady }) => 
           snappedToItemId={snapState.snappedToItemId}
           snapEdge={snapState.snapEdge}
           items={items}
+        />
+
+        {/* Debug overlay (toggle with D key) */}
+        <SnapDebugOverlay
+          items={items}
+          room={room}
+          globalDimensions={globalDimensions}
+          draggedItem={draggedItem}
+          snapResult={currentSnapResult}
+          visible={showDebugOverlay}
         />
 
         <InteractionHandles />
