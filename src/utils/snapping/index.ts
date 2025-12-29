@@ -42,7 +42,7 @@ export function calculateSnapPosition(
     rightGap: 1.5,
     topMargin: 0,
     bottomMargin: 0,
-    wallGap: 0,
+    wallGap: 10, // 10mm gap between cabinet back and wall
   };
 
   // Start with grid-snapped position

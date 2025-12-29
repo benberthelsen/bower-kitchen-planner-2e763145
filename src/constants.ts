@@ -126,5 +126,5 @@ export const DEFAULT_GLOBAL_DIMENSIONS: GlobalDimensions = {
   rightGap: 1.5,
   topMargin: 0,
   bottomMargin: 0,
-  wallGap: 0,
+  wallGap: 10, // 10mm gap between cabinet back and wall for installation tolerance
 };
