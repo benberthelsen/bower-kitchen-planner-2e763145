@@ -55,8 +55,8 @@ export function calculateSnapPosition(
   let wallId: SnapResult['wallId'] = undefined;
 
   const wallGap = dims.wallGap;
+  // The cabinet's raw depth (back-to-front dimension before rotation)
   const itemDepth = draggedItem.depth;
-  const itemWidth = draggedItem.width;
 
   // 1. Check for corner snap (highest priority for corner cabinets)
   const corner = detectCorner(rawX, rawZ, draggedItem, room, dims);
@@ -76,28 +76,37 @@ export function calculateSnapPosition(
     rotation = wall.rotation;
     snappedTo = 'wall';
 
-    // Calculate snap position based on wall
+    // After wall snap, the cabinet rotates so its DEPTH faces the wall
+    // For all walls, after rotation the cabinet's original depth dimension faces the wall
+    // Calculate position using the cabinet's depth (which will face the wall after rotation)
+    const postSnapDepth = itemDepth; // Depth always faces the wall after snap rotation
+
     switch (wall.id) {
       case 'back':
-        z = itemDepth / 2 + wallGap;
+        // rotation = 0: depth faces back wall (z = 0)
+        z = postSnapDepth / 2 + wallGap;
         snapEdge = 'back';
         break;
       case 'left':
-        x = itemDepth / 2 + wallGap;
+        // rotation = 270: depth faces left wall (x = 0)
+        x = postSnapDepth / 2 + wallGap;
         snapEdge = 'left';
         break;
       case 'right':
-        x = room.width - itemDepth / 2 - wallGap;
+        // rotation = 90: depth faces right wall (x = room.width)
+        x = room.width - postSnapDepth / 2 - wallGap;
         snapEdge = 'right';
         break;
       case 'front':
-        z = room.depth - itemDepth / 2 - wallGap;
+        // rotation = 180: depth faces front wall (z = room.depth)
+        z = room.depth - postSnapDepth / 2 - wallGap;
         snapEdge = 'front';
         break;
     }
 
     // When snapped to wall, allow smooth sliding along the wall
-    // X stays grid-snapped for horizontal walls, Z for vertical
+    // For horizontal walls (back/front), X slides freely
+    // For vertical walls (left/right), Z slides freely
     if (wall.id === 'back' || wall.id === 'front') {
       x = Math.round(rawX / gridSnap) * gridSnap;
     } else {
@@ -105,26 +114,36 @@ export function calculateSnapPosition(
     }
   }
 
-  // 3. Check cabinet-to-cabinet snapping (if not wall-snapped, or enhance wall snap with cabinet alignment)
-  const tempItem: PlacedItem = { ...draggedItem, x, z, rotation };
+  // 3. Check cabinet-to-cabinet snapping
+  // Use the effective rotation AFTER wall snap (if any) for cabinet snapping
+  const effectiveRotation = snappedTo === 'wall' ? rotation : draggedItem.rotation;
+  const tempItem: PlacedItem = { ...draggedItem, x, z, rotation: effectiveRotation };
   const cabinetSnapPoints = findCabinetSnapPoints(tempItem, allItems, CABINET_SNAP_THRESHOLD);
 
   if (cabinetSnapPoints.length > 0) {
     const best = cabinetSnapPoints[0];
     
-    // If wall-snapped, only apply cabinet snap if it's along the same axis
+    // If wall-snapped, only apply cabinet snap along the wall axis
     if (snappedTo === 'wall') {
       // For horizontal walls (back/front), we can snap X to cabinets
       if ((wallId === 'back' || wallId === 'front') && (best.edge === 'left' || best.edge === 'right')) {
         x = best.x;
         snappedItemId = best.targetId;
         snapEdge = best.edge;
+        // Also inherit Z alignment if available (back alignment within wall run)
+        if (best.alignedZ) {
+          z = best.z;
+        }
       }
       // For vertical walls (left/right), we can snap Z to cabinets
       else if ((wallId === 'left' || wallId === 'right') && (best.edge === 'front' || best.edge === 'back')) {
         z = best.z;
         snappedItemId = best.targetId;
         snapEdge = best.edge;
+        // Also inherit X alignment if available
+        if (best.alignedX) {
+          x = best.x;
+        }
       }
     } else {
       // Not wall-snapped, apply full cabinet snap
@@ -133,10 +152,16 @@ export function calculateSnapPosition(
       snappedTo = 'cabinet';
       snapEdge = best.edge;
       snappedItemId = best.targetId;
+      
+      // Inherit rotation from target cabinet if it's wall-aligned
+      const targetCabinet = allItems.find(item => item.instanceId === best.targetId);
+      if (targetCabinet && isWallAligned(targetCabinet, room, dims)) {
+        rotation = targetCabinet.rotation;
+      }
     }
   }
 
-  // 4. Clamp to room bounds
+  // 4. Clamp to room bounds using POST-SNAP rotation
   const effDims = getEffectiveDimensions({ ...draggedItem, rotation });
   const effectiveWidth = effDims.width;
   const effectiveDepth = effDims.depth;
@@ -183,4 +208,20 @@ export function calculateSnapPosition(
   z = Math.max(finalEffDims.depth / 2 + wallGap, Math.min(room.depth - finalEffDims.depth / 2 - wallGap, z));
 
   return { x, z, rotation, snappedTo, snapEdge, snappedItemId, wallId };
+}
+
+/**
+ * Check if a cabinet is aligned to a wall (back touching a wall)
+ */
+function isWallAligned(item: PlacedItem, room: RoomConfig, dims: GlobalDimensions): boolean {
+  const rot = ((item.rotation % 360) + 360) % 360;
+  const depth = item.depth;
+  const tolerance = 50; // 50mm tolerance
+
+  return (
+    (rot === 0 && item.z <= depth / 2 + dims.wallGap + tolerance) ||
+    (rot === 90 && item.x >= room.width - depth / 2 - dims.wallGap - tolerance) ||
+    (rot === 270 && item.x <= depth / 2 + dims.wallGap + tolerance) ||
+    (rot === 180 && item.z >= room.depth - depth / 2 - dims.wallGap - tolerance)
+  );
 }
