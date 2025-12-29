@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
 import { CATALOG } from '../../constants';
 import { usePlanner } from '../../store/PlannerContext';
-import { Plus, ChevronDown, ChevronRight, Search, Box, MousePointer } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Search, Box, MousePointer, FolderOpen } from 'lucide-react';
 import { CatalogItemDefinition } from '../../types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
 
 interface SidebarProps {
   onClose?: () => void;
@@ -47,7 +54,7 @@ const CabinetThumbnail = ({ item }: { item: CatalogItemDefinition }) => {
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
-  const { setPlacementItem, placementItemId } = usePlanner();
+  const { setPlacementItem, placementItemId, loadSampleKitchen, sampleKitchens } = usePlanner();
   const [search, setSearch] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({ 'Base': true, 'Wall': true, 'Tall': true, 'Appliance': true, 'Structure': true });
 
@@ -73,7 +80,29 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
 
   return (
     <div className="h-full flex flex-col bg-white">
-      <div className="p-3 border-b">
+      <div className="p-3 border-b space-y-2">
+        {/* Load Sample Kitchen Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full justify-start gap-2">
+              <FolderOpen size={14} />
+              Load Sample Kitchen
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            {Object.entries(sampleKitchens).map(([id, preset]) => (
+              <DropdownMenuItem 
+                key={id} 
+                onClick={() => loadSampleKitchen(id)}
+                className="flex flex-col items-start"
+              >
+                <span className="font-medium">{preset.name}</span>
+                <span className="text-xs text-muted-foreground">{preset.cabinetCount} cabinets</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input type="text" placeholder="Search cabinets..." value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
