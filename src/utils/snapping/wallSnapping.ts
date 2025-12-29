@@ -2,12 +2,13 @@ import { PlacedItem, RoomConfig, GlobalDimensions } from '../../types';
 import { WallInfo, CornerInfo } from './types';
 import { getEffectiveDimensions } from './bounds';
 
-export const WALL_SNAP_THRESHOLD = 200; // mm - distance to trigger wall snap
+export const WALL_SNAP_THRESHOLD = 200; // mm - distance from cabinet edge to wall to trigger snap
 export const WALL_RELEASE_THRESHOLD = 350; // mm - hysteresis to release from wall
-export const CORNER_SNAP_THRESHOLD = 300; // mm - distance to trigger corner snap
+export const CORNER_SNAP_THRESHOLD = 300; // mm - distance from cabinet edge to trigger corner snap
 
 /**
- * Calculate distance to each wall and determine snap info
+ * Calculate distance from cabinet edge to each wall and determine snap info
+ * Distance is measured from the nearest edge of the cabinet to the wall surface
  */
 export function getWallDistances(
   x: number,
@@ -16,35 +17,53 @@ export function getWallDistances(
   room: RoomConfig,
   globalDimensions: GlobalDimensions
 ): WallInfo[] {
-  const { width, depth } = getEffectiveDimensions(item);
+  // Get current effective dimensions based on item's current rotation
+  const { width: effectiveWidth, depth: effectiveDepth } = getEffectiveDimensions(item);
   const wallGap = globalDimensions.wallGap;
 
-  // Calculate effective depth based on what rotation we'd snap to
-  const itemDepth = item.depth; // Raw depth (before rotation swap)
+  // Raw item depth - this is what faces the wall after snapping
+  const itemDepth = item.depth;
+
+  // Calculate edge-to-wall distances using current rotated dimensions
+  // Back wall: distance from cabinet's back edge (z - effectiveDepth/2) to wall at z=0
+  const backEdgeDistance = z - effectiveDepth / 2;
+  
+  // Left wall: distance from cabinet's left edge (x - effectiveWidth/2) to wall at x=0
+  const leftEdgeDistance = x - effectiveWidth / 2;
+  
+  // Right wall: distance from cabinet's right edge (x + effectiveWidth/2) to wall at x=room.width
+  const rightEdgeDistance = room.width - (x + effectiveWidth / 2);
+  
+  // Front wall: distance from cabinet's front edge (z + effectiveDepth/2) to wall at z=room.depth
+  const frontEdgeDistance = room.depth - (z + effectiveDepth / 2);
 
   const walls: WallInfo[] = [
     {
       id: 'back',
-      distance: z,
+      distance: Math.abs(backEdgeDistance),
       rotation: 0,
+      // After snapping to back wall with rotation 0, depth faces wall
       snapPosition: { x, z: itemDepth / 2 + wallGap },
     },
     {
       id: 'left',
-      distance: x,
+      distance: Math.abs(leftEdgeDistance),
       rotation: 270,
+      // After snapping to left wall with rotation 270, depth faces wall
       snapPosition: { x: itemDepth / 2 + wallGap, z },
     },
     {
       id: 'right',
-      distance: room.width - x,
+      distance: Math.abs(rightEdgeDistance),
       rotation: 90,
+      // After snapping to right wall with rotation 90, depth faces wall
       snapPosition: { x: room.width - itemDepth / 2 - wallGap, z },
     },
     {
       id: 'front',
-      distance: room.depth - z,
+      distance: Math.abs(frontEdgeDistance),
       rotation: 180,
+      // After snapping to front wall with rotation 180, depth faces wall
       snapPosition: { x, z: room.depth - itemDepth / 2 - wallGap },
     },
   ];
@@ -54,6 +73,7 @@ export function getWallDistances(
 
 /**
  * Check if item is near a corner (intersection of two walls)
+ * Uses edge-based distance calculation for accurate corner detection
  */
 export function detectCorner(
   x: number,
@@ -62,18 +82,20 @@ export function detectCorner(
   room: RoomConfig,
   globalDimensions: GlobalDimensions
 ): CornerInfo | null {
+  // Get edge-based wall distances
   const walls = getWallDistances(x, z, item, room, globalDimensions);
   const nearWalls = walls.filter(w => w.distance < CORNER_SNAP_THRESHOLD);
 
-  // Need exactly 2 perpendicular walls for a corner
+  // Need at least 2 walls nearby for a corner
   if (nearWalls.length < 2) return null;
 
   const wall1 = nearWalls[0];
   const wall2 = nearWalls[1];
 
-  // Check if walls are perpendicular
-  const isPerpendicular =
-    (wall1.id === 'back' || wall1.id === 'front') !== (wall2.id === 'back' || wall2.id === 'front');
+  // Check if walls are perpendicular (one horizontal, one vertical)
+  const isWall1Horizontal = wall1.id === 'back' || wall1.id === 'front';
+  const isWall2Horizontal = wall2.id === 'back' || wall2.id === 'front';
+  const isPerpendicular = isWall1Horizontal !== isWall2Horizontal;
 
   if (!isPerpendicular) return null;
 
@@ -81,30 +103,30 @@ export function detectCorner(
   const itemDepth = item.depth;
   const itemWidth = item.width;
 
-  // Determine corner position and rotation
+  // Determine corner position and rotation based on which walls meet
   let cornerX: number;
   let cornerZ: number;
   let rotation: number;
 
-  // Back-left corner
+  // Back-left corner: cabinet faces into room (rotation 0)
   if ((wall1.id === 'back' && wall2.id === 'left') || (wall1.id === 'left' && wall2.id === 'back')) {
     cornerX = itemWidth / 2 + wallGap;
     cornerZ = itemDepth / 2 + wallGap;
     rotation = 0;
   }
-  // Back-right corner
+  // Back-right corner: cabinet faces into room (rotation 0)
   else if ((wall1.id === 'back' && wall2.id === 'right') || (wall1.id === 'right' && wall2.id === 'back')) {
     cornerX = room.width - itemWidth / 2 - wallGap;
     cornerZ = itemDepth / 2 + wallGap;
     rotation = 0;
   }
-  // Front-left corner
+  // Front-left corner: cabinet faces back wall (rotation 180)
   else if ((wall1.id === 'front' && wall2.id === 'left') || (wall1.id === 'left' && wall2.id === 'front')) {
     cornerX = itemWidth / 2 + wallGap;
     cornerZ = room.depth - itemDepth / 2 - wallGap;
     rotation = 180;
   }
-  // Front-right corner
+  // Front-right corner: cabinet faces back wall (rotation 180)
   else {
     cornerX = room.width - itemWidth / 2 - wallGap;
     cornerZ = room.depth - itemDepth / 2 - wallGap;
