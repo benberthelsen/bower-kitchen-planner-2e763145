@@ -21,6 +21,7 @@ import StonePricing from "./pages/admin/pricing/StonePricing";
 import DoorDrawerPricing from "./pages/admin/pricing/DoorDrawerPricing";
 import LaborRates from "./pages/admin/pricing/LaborRates";
 import ClientMarkups from "./pages/admin/pricing/ClientMarkups";
+import MicrovellumImport from "./pages/admin/pricing/MicrovellumImport";
 import NotFound from "./pages/NotFound";
 import DevNavBar from "./components/DevNavBar";
 
@@ -56,6 +57,7 @@ const App = () => (
             <Route path="pricing/doors" element={<DoorDrawerPricing />} />
             <Route path="pricing/labor" element={<LaborRates />} />
             <Route path="pricing/markups" element={<ClientMarkups />} />
+            <Route path="pricing/microvellum" element={<MicrovellumImport />} />
           </Route>
           
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
