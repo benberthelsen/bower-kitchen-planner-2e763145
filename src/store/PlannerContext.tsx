@@ -24,7 +24,7 @@ interface PlannerContextType {
   viewMode: '2d' | '3d';
   setViewMode: (mode: '2d' | '3d') => void;
   setRoom: (room: RoomConfig) => void;
-  addItem: (definitionId: string, x?: number, z?: number) => void;
+  addItem: (definitionId: string, x?: number, z?: number, rotation?: number) => void;
   updateItem: (id: string, updates: Partial<PlacedItem>, recordHistory?: boolean) => void;
   removeItem: (id: string) => void;
   selectItem: (id: string | null) => void;
@@ -110,7 +110,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const setRoom = (newRoom: RoomConfig) => { recordHistory(); _setRoom(newRoom); };
   const setGlobalDimensions = (d: GlobalDimensions) => { recordHistory(); _setGlobalDimensions(d); };
 
-  const addItem = (definitionId: string, x?: number, z?: number) => {
+  const addItem = (definitionId: string, x?: number, z?: number, rotation?: number) => {
     const def = CATALOG.find(c => c.id === definitionId);
     if (!def) return;
     recordHistory();
@@ -121,7 +121,8 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
       else if (def.category === 'Tall') { height = globalDimensions.tallHeight; depth = globalDimensions.tallDepth; }
     }
     const spawnX = x ?? 1000, spawnZ = z ?? 1000;
-    const newItem: PlacedItem = { instanceId: Math.random().toString(36).substr(2, 9), definitionId: def.id, itemType: def.itemType, cabinetNumber: def.itemType === 'Cabinet' ? nextCabinetNumber(items) : undefined, x: spawnX, y: posY, z: spawnZ, rotation: 0, width, depth, height, hinge: 'Left' };
+    const spawnRotation = rotation ?? 0;
+    const newItem: PlacedItem = { instanceId: Math.random().toString(36).substr(2, 9), definitionId: def.id, itemType: def.itemType, cabinetNumber: def.itemType === 'Cabinet' ? nextCabinetNumber(items) : undefined, x: spawnX, y: posY, z: spawnZ, rotation: spawnRotation, width, depth, height, hinge: 'Left' };
     setItems(prev => [...prev, newItem]);
     setSelectedItemId(newItem.instanceId);
   };

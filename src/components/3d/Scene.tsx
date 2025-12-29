@@ -38,6 +38,7 @@ const PlacementHandler: React.FC<{
   const { placementItemId, addItem, setPlacementItem, items, room, globalDimensions } = usePlanner();
   const raycaster = useRef(new THREE.Raycaster());
   const plane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const latestSnapRef = useRef<SnapResult | null>(null);
 
   const handlePointerMove = useCallback((e: PointerEvent) => {
     if (!placementItemId) return;
@@ -87,6 +88,8 @@ const PlacementHandler: React.FC<{
         globalDimensions
       );
 
+      latestSnapRef.current = snapResult;
+
       // Check for collisions
       const ghostItem = { ...tempItem, x: snapResult.x, z: snapResult.z, rotation: snapResult.rotation };
       const hasCollision = items.some(item => checkCollision(ghostItem as any, item, 10));
@@ -112,9 +115,15 @@ const PlacementHandler: React.FC<{
     const hit = raycaster.current.ray.intersectPlane(plane.current, target);
 
     if (hit) {
-      const snappedX = Math.round((target.x * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
-      const snappedZ = Math.round((target.z * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
-      addItem(placementItemId, snappedX, snappedZ);
+      const snap = latestSnapRef.current;
+      if (snap) {
+        addItem(placementItemId, snap.x, snap.z, snap.rotation);
+      } else {
+        const snappedX = Math.round((target.x * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
+        const snappedZ = Math.round((target.z * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
+        addItem(placementItemId, snappedX, snappedZ);
+      }
+      latestSnapRef.current = null;
       setPlacementItem(null);
     }
   }, [placementItemId, addItem, setPlacementItem, camera, gl]);
@@ -137,7 +146,7 @@ const PlacementHandler: React.FC<{
 
 const DropZone: React.FC = () => {
   const { gl, camera } = useThree();
-  const { addItem } = usePlanner();
+  const { addItem, items, room, globalDimensions } = usePlanner();
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -155,15 +164,48 @@ const DropZone: React.FC = () => {
       const target = new THREE.Vector3();
       const hit = raycaster.ray.intersectPlane(plane, target);
       if (hit) {
-        const snappedX = Math.round((target.x * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
-        const snappedZ = Math.round((target.z * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
-        addItem(definitionId, snappedX, snappedZ);
+        const def = CATALOG.find(c => c.id === definitionId);
+        if (!def) return;
+
+        // Match placement sizing logic so snapping uses correct cabinet depth
+        let width = def.defaultWidth;
+        let depth = def.defaultDepth;
+        if (def.itemType === 'Cabinet') {
+          if (def.category === 'Base') depth = globalDimensions.baseDepth;
+          else if (def.category === 'Wall') depth = globalDimensions.wallDepth;
+          else if (def.category === 'Tall') depth = globalDimensions.tallDepth;
+        }
+
+        const tempItem = {
+          instanceId: 'temp',
+          definitionId,
+          itemType: def.itemType,
+          x: target.x * 1000,
+          y: 0,
+          z: target.z * 1000,
+          rotation: 0,
+          width,
+          depth,
+          height: def.defaultHeight,
+        };
+
+        const snapResult = calculateSnapPosition(
+          target.x * 1000,
+          target.z * 1000,
+          tempItem as any,
+          items,
+          room,
+          SNAP_INCREMENT,
+          globalDimensions
+        );
+
+        addItem(definitionId, snapResult.x, snapResult.z, snapResult.rotation);
       }
     };
     canvas.addEventListener('dragover', handleDragOver);
     canvas.addEventListener('drop', handleDrop);
     return () => { canvas.removeEventListener('dragover', handleDragOver); canvas.removeEventListener('drop', handleDrop); };
-  }, [gl, camera, addItem]);
+  }, [gl, camera, addItem, items, room, globalDimensions]);
 
   return null;
 };
