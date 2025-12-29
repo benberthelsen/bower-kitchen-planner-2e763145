@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { CATALOG } from '../../constants';
 import { usePlanner } from '../../store/PlannerContext';
-import { Plus, ChevronDown, ChevronRight, Search, Box, MousePointer, FolderOpen } from 'lucide-react';
+import { useCatalog } from '../../hooks/useCatalog';
+import { Plus, ChevronDown, ChevronRight, Search, Box, MousePointer, FolderOpen, Loader2 } from 'lucide-react';
 import { CatalogItemDefinition } from '../../types';
 import {
   DropdownMenu,
@@ -55,12 +55,13 @@ const CabinetThumbnail = ({ item }: { item: CatalogItemDefinition }) => {
 
 const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const { setPlacementItem, placementItemId, loadSampleKitchen, sampleKitchens } = usePlanner();
+  const { catalog, isLoading, isDynamic } = useCatalog();
   const [search, setSearch] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({ 'Base': true, 'Wall': true, 'Tall': true, 'Appliance': true, 'Structure': true });
 
   const toggleCategory = (cat: string) => setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
 
-  const filteredCatalog = CATALOG.filter(item => item.name.toLowerCase().includes(search.toLowerCase()) || item.sku.toLowerCase().includes(search.toLowerCase()));
+  const filteredCatalog = catalog.filter(item => item.name.toLowerCase().includes(search.toLowerCase()) || item.sku.toLowerCase().includes(search.toLowerCase()));
 
   const categories = ['Base', 'Wall', 'Tall', 'Appliance', 'Structure'];
 
@@ -124,7 +125,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
-        {categories.map(category => {
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : null}
+        
+        {isDynamic && !isLoading && (
+          <div className="mb-2 px-2 py-1 text-xs text-muted-foreground bg-muted/50 rounded">
+            {catalog.length} products from Microvellum
+          </div>
+        )}
+        
+        {!isLoading && categories.map(category => {
           const items = filteredCatalog.filter(item => {
             if (category === 'Appliance') return item.itemType === 'Appliance';
             if (category === 'Structure') return item.itemType === 'Structure' || item.itemType === 'Wall';

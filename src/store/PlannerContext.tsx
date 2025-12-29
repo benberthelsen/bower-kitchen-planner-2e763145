@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback } from 'react';
-import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensions, HardwareOptions } from '../types';
+import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
+import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensions, HardwareOptions, CatalogItemDefinition } from '../types';
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, CATALOG, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
 import { loadSampleKitchen as loadSampleKitchenData, SAMPLE_KITCHENS } from '@/data/sampleKitchens';
+import { supabase } from '@/integrations/supabase/client';
 interface DragState {
   itemId: string | null;
   startPosition: { x: number; z: number } | null;
@@ -83,6 +84,39 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('3d');
   const [past, setPast] = useState<{ items: PlacedItem[]; room: RoomConfig }[]>([]);
   const [future, setFuture] = useState<{ items: PlacedItem[]; room: RoomConfig }[]>([]);
+  const [dynamicCatalog, setDynamicCatalog] = useState<CatalogItemDefinition[]>([]);
+
+  // Load dynamic catalog from database
+  useEffect(() => {
+    const loadCatalog = async () => {
+      const { data } = await supabase
+        .from('microvellum_products')
+        .select('*')
+        .order('category', { ascending: true })
+        .order('name', { ascending: true });
+      
+      if (data && data.length > 0) {
+        const transformed: CatalogItemDefinition[] = data.map(p => ({
+          id: p.id,
+          sku: `${p.category?.charAt(0) || 'B'}${p.default_width || 600}`,
+          name: p.name,
+          itemType: p.category?.toLowerCase() === 'accessory' ? 'Structure' : 'Cabinet',
+          category: p.category?.toLowerCase() === 'base' ? 'Base' : 
+                   p.category?.toLowerCase() === 'wall' || p.category?.toLowerCase() === 'upper' ? 'Wall' : 
+                   p.category?.toLowerCase() === 'tall' ? 'Tall' : undefined,
+          defaultWidth: p.default_width || 600,
+          defaultDepth: p.default_depth || 575,
+          defaultHeight: p.default_height || 870,
+          price: 0,
+        }));
+        setDynamicCatalog(transformed);
+      }
+    };
+    loadCatalog();
+  }, []);
+
+  // Use dynamic catalog if available, otherwise static
+  const activeCatalog = dynamicCatalog.length > 0 ? dynamicCatalog : CATALOG;
 
   const recordHistory = useCallback(() => {
     setPast(prev => [...prev, { items, room }]);
@@ -111,7 +145,8 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const setGlobalDimensions = (d: GlobalDimensions) => { recordHistory(); _setGlobalDimensions(d); };
 
   const addItem = (definitionId: string, x?: number, z?: number, rotation?: number) => {
-    const def = CATALOG.find(c => c.id === definitionId);
+    // Check both dynamic and static catalogs
+    const def = activeCatalog.find(c => c.id === definitionId) || CATALOG.find(c => c.id === definitionId);
     if (!def) return;
     recordHistory();
     let width = def.defaultWidth, depth = def.defaultDepth, height = def.defaultHeight, posY = 0;
@@ -184,7 +219,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
     setSelectedItemId(null);
   }, [recordHistory]);
 
-  const totalPrice = useMemo(() => items.reduce((total, item) => { const def = CATALOG.find(c => c.id === item.definitionId); if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; return total + (def?.price || 0); }, 0), [items]);
+  const totalPrice = useMemo(() => items.reduce((total, item) => { const def = activeCatalog.find(c => c.id === item.definitionId) || CATALOG.find(c => c.id === item.definitionId); if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; return total + (def?.price || 0); }, 0), [items, activeCatalog]);
 
   const placeOrder = useCallback(() => {
     const snapshot = { id: `ord_${Date.now()}`, createdAt: new Date().toISOString(), room, items, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, totalPrice };
