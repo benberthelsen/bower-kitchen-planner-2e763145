@@ -420,6 +420,69 @@ export type Database = {
         }
         Relationships: []
       }
+      microvellum_products: {
+        Row: {
+          cabinet_type: string | null
+          category: string | null
+          created_at: string | null
+          default_depth: number | null
+          default_height: number | null
+          default_width: number | null
+          door_count: number | null
+          drawer_count: number | null
+          id: string
+          is_blind: boolean | null
+          is_corner: boolean | null
+          is_sink: boolean | null
+          microvellum_link_id: string | null
+          name: string
+          raw_metadata: Json | null
+          room_component_type: string | null
+          spec_group: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cabinet_type?: string | null
+          category?: string | null
+          created_at?: string | null
+          default_depth?: number | null
+          default_height?: number | null
+          default_width?: number | null
+          door_count?: number | null
+          drawer_count?: number | null
+          id?: string
+          is_blind?: boolean | null
+          is_corner?: boolean | null
+          is_sink?: boolean | null
+          microvellum_link_id?: string | null
+          name: string
+          raw_metadata?: Json | null
+          room_component_type?: string | null
+          spec_group?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cabinet_type?: string | null
+          category?: string | null
+          created_at?: string | null
+          default_depth?: number | null
+          default_height?: number | null
+          default_width?: number | null
+          door_count?: number | null
+          drawer_count?: number | null
+          id?: string
+          is_blind?: boolean | null
+          is_corner?: boolean | null
+          is_sink?: boolean | null
+          microvellum_link_id?: string | null
+          name?: string
+          raw_metadata?: Json | null
+          room_component_type?: string | null
+          spec_group?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       parts_pricing: {
         Row: {
           area_assembly_cost: number | null
