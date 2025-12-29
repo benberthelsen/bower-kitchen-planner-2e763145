@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
 import { CATALOG, FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS } from '../../constants';
-import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download, Loader2 } from 'lucide-react';
+import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download, Loader2, FileDown } from 'lucide-react';
 import CabinetPropertiesTab from './CabinetPropertiesTab';
 import GlobalDimensionsPanel from './GlobalDimensionsPanel';
 import HardwareOptionsPanel from './HardwareOptionsPanel';
 import RoomConfigPanel from './RoomConfigPanel';
 import { useBOMPricing } from '@/hooks/useBOMPricing';
+import { generateQuotePDF } from '@/lib/pdfQuoteGenerator';
 
 interface PropertiesPanelProps {
   onClose?: () => void;
@@ -23,7 +24,8 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     selectedFinish, setFinish, 
     selectedBenchtop, setBenchtop, 
     selectedKick, setKick, 
-    totalPrice, placeOrder 
+    totalPrice, placeOrder,
+    globalDimensions, hardwareOptions
   } = usePlanner();
   
   const { quoteBOM, isLoading: isPricingLoading, totalPrice: bomTotalPrice } = useBOMPricing();
@@ -228,14 +230,34 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               </table>
             </div>
 
-            {/* Export Button */}
-            <button 
-              onClick={handleExportSchedule}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-            >
-              <Download size={14} />
-              Export Schedule
-            </button>
+            {/* Export Buttons */}
+            <div className="flex gap-2">
+              <button 
+                onClick={handleExportSchedule}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                <Download size={14} />
+                JSON
+              </button>
+              <button 
+                onClick={() => {
+                  if (!quoteBOM) return;
+                  generateQuotePDF({
+                    quoteBOM,
+                    projectSettings,
+                    globalDimensions,
+                    hardwareOptions,
+                    finishName: selectedFinish.name,
+                    benchtopName: selectedBenchtop.name,
+                  });
+                }}
+                disabled={!quoteBOM || isPricingLoading}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FileDown size={14} />
+                PDF Quote
+              </button>
+            </div>
           </div>
         )}
 
