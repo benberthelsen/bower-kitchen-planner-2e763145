@@ -2,21 +2,40 @@ import * as THREE from 'three';
 
 const textureCache: Record<string, THREE.CanvasTexture> = {};
 
-type TextureConfig = 'wood' | 'stone' | 'concrete' | 'marble' | 'noise';
+export type TextureConfig = 'wood' | 'stone' | 'concrete' | 'marble' | 'noise';
 export type GrainDirection = 'horizontal' | 'vertical' | 'none';
 
-interface TextureOptions {
+export interface TextureOptions {
   grainDirection?: GrainDirection;
   tintColor?: string;
 }
 
+/**
+ * Check if we're in a browser environment with canvas support
+ */
+function canUseCanvas(): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return false;
+  }
+  try {
+    const canvas = document.createElement('canvas');
+    return !!(canvas.getContext && canvas.getContext('2d'));
+  } catch {
+    return false;
+  }
+}
+
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : null;
+  try {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : null;
+  } catch {
+    return null;
+  }
 }
 
 function createTextureCanvas(
@@ -24,12 +43,18 @@ function createTextureCanvas(
   width: number = 512, 
   height: number = 512,
   options: TextureOptions = {}
-): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
+): HTMLCanvasElement | null {
+  if (!canUseCanvas()) {
+    console.warn('Canvas not available for texture generation');
+    return null;
+  }
+
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
 
   const imgData = ctx.createImageData(width, height);
   const data = imgData.data;
@@ -120,7 +145,11 @@ function createTextureCanvas(
     }
   }
 
-  return canvas;
+    return canvas;
+  } catch (error) {
+    console.warn('Failed to create texture canvas:', error);
+    return null;
+  }
 }
 
 /**

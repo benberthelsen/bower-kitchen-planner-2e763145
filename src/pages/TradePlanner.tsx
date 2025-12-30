@@ -4,6 +4,7 @@ import { PlannerProvider, usePlanner } from "../store/PlannerContext";
 import Sidebar from "../components/Layout/Sidebar";
 import PropertiesPanel from "../components/Layout/PropertiesPanel";
 import Scene from "../components/3d/Scene";
+import Scene3DErrorBoundary from "../components/3d/Scene3DErrorBoundary";
 import CameraToolbar from "../components/3d/CameraToolbar";
 import SelectionToolbar from "../components/3d/SelectionToolbar";
 import StatusBar from "../components/3d/StatusBar";
@@ -52,6 +53,7 @@ function TradePlannerContent() {
   const { user, loading: authLoading, signOut, isAdmin } = useAuth();
   const { catalog } = useCatalog('trade');
   const [is3D, setIs3D] = useState(true);
+  const setIs2D = useCallback(() => setIs3D(false), []);
   const [saving, setSaving] = useState(false);
   const [cameraControls, setCameraControls] = useState<{
     zoomIn: () => void;
@@ -248,9 +250,11 @@ function TradePlannerContent() {
 
       <div className="flex-1 flex flex-col md:flex-row pt-0 md:pt-14">
         <div className="flex-1 relative bg-gray-100">
-          <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
-            <Scene is3D={is3D} onCameraControlsReady={setCameraControls} />
-          </Suspense>
+          <Scene3DErrorBoundary onSwitch2D={setIs2D}>
+            <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
+              <Scene is3D={is3D} onCameraControlsReady={setCameraControls} />
+            </Suspense>
+          </Scene3DErrorBoundary>
 
           {/* Selection toolbar - shows when item is selected */}
           {selectedItem && selectedDef && (

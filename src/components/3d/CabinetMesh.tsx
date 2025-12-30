@@ -31,7 +31,7 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
 
   const selectedHandle = HANDLE_OPTIONS.find(h => h.id === hardwareOptions.handleId) || HANDLE_OPTIONS[0];
 
-  // Get materials with grain direction support
+  // Get materials with grain direction support - with defensive check
   const { materials } = useCabinetMaterials(
     selectedFinish,
     selectedBenchtop,
@@ -66,20 +66,32 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
       hasAdjustableShelves: true,
       shelfCount: 1,
       cornerType: null,
-      defaultWidth: item.width,
-      defaultHeight: item.height,
-      defaultDepth: item.depth,
+      defaultWidth: item.width || 600,
+      defaultHeight: item.height || 720,
+      defaultDepth: item.depth || 560,
     };
   }, [catalogItem, item.definitionId, item.width, item.height, item.depth]);
 
-  // Validate dimensions
-  if (!item.width || !item.height || !item.depth || isNaN(item.width) || isNaN(item.height) || isNaN(item.depth)) {
+  // Validate dimensions - with better fallbacks
+  const safeWidth = item.width && !isNaN(item.width) && item.width > 0 ? item.width : 600;
+  const safeHeight = item.height && !isNaN(item.height) && item.height > 0 ? item.height : 720;
+  const safeDepth = item.depth && !isNaN(item.depth) && item.depth > 0 ? item.depth : 560;
+  
+  // Skip render only if item is completely invalid
+  if (!item || !item.instanceId) {
+    console.warn('CabinetMesh: Invalid item provided');
     return null;
   }
 
-  const widthM = item.width / 1000;
-  const heightM = item.height / 1000;
-  const depthM = item.depth / 1000;
+  // Verify materials exist
+  if (!materials || !materials.gable) {
+    console.warn('CabinetMesh: Materials not available yet');
+    return null;
+  }
+
+  const widthM = safeWidth / 1000;
+  const heightM = safeHeight / 1000;
+  const depthM = safeDepth / 1000;
 
   const position: [number, number, number] = [item.x / 1000, (item.y / 1000) + (heightM / 2), item.z / 1000];
 
@@ -89,16 +101,24 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
     startDrag(item.instanceId, item.x, item.z);
   };
 
+  // Create safe item with validated dimensions
+  const safeItem = useMemo(() => ({
+    ...item,
+    width: safeWidth,
+    height: safeHeight,
+    depth: safeDepth,
+  }), [item, safeWidth, safeHeight, safeDepth]);
+
   return (
     <group 
       position={position} 
-      rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} 
+      rotation={[0, -THREE.MathUtils.degToRad(item.rotation || 0), 0]} 
       onPointerDown={handlePointerDown}
       onPointerOver={() => setHovered(true)} 
       onPointerOut={() => setHovered(false)}
     >
       <CabinetAssembler
-        item={item}
+        item={safeItem}
         config={renderConfig}
         finishMaterial={selectedFinish}
         benchtopMaterial={selectedBenchtop}
