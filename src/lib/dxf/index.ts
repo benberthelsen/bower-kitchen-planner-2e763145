@@ -1,2 +1,8 @@
 export * from './types';
-export * from './parser';
+export { 
+  parseDXFContent, 
+  extractCabinetData, 
+  extractAllCabinetsFromDXF, 
+  processZipFile, 
+  processMultipleZips 
+} from './parser';
