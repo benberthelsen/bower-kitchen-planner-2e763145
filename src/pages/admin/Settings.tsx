@@ -21,13 +21,17 @@ export default function AdminSettings() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getAccessToken = async () => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+
+    if (!session?.access_token) {
       toast.error('Please sign in as an admin to import products');
       return null;
     }
-    return token;
+
+    // Ensure we have a fresh access token (prevents 401 from expired JWT)
+    const { data: refreshedData } = await supabase.auth.refreshSession();
+    return refreshedData.session?.access_token ?? session.access_token;
   };
 
   const formatFunctionError = async (error: any, response?: Response) => {
@@ -82,7 +86,8 @@ export default function AdminSettings() {
       const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
         body: { xmlContent },
         headers: {
-          Authorization: `Bearer ${token}`,
+          authorization: `Bearer ${token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
       });
 
@@ -123,7 +128,8 @@ export default function AdminSettings() {
       const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
         body: { xmlContent },
         headers: {
-          Authorization: `Bearer ${token}`,
+          authorization: `Bearer ${token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
       });
 
