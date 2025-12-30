@@ -1,0 +1,192 @@
+// Cabinet Configuration Types for Microvellum-compliant rendering
+
+export type GrainDirection = 'horizontal' | 'vertical' | 'none';
+export type CornerType = 'blind' | 'diagonal' | 'l-shape' | null;
+export type CabinetCategory = 'Base' | 'Wall' | 'Tall' | 'Accessory';
+
+/**
+ * Render configuration derived from Microvellum product metadata
+ * Determines exactly how a cabinet should be rendered in 3D
+ */
+export interface CabinetRenderConfig {
+  // Identity
+  productId: string;
+  productName: string;
+  category: CabinetCategory;
+  cabinetType: string; // e.g., 'Drawer', 'Door', 'Corner', 'Sink'
+  
+  // Door/Drawer counts from Microvellum data
+  doorCount: number;
+  drawerCount: number;
+  
+  // Special cabinet types (parsed from product name/metadata)
+  isCorner: boolean;
+  isSink: boolean;
+  isBlind: boolean;
+  isPantry: boolean;
+  isAppliance: boolean;
+  isOven: boolean;
+  isFridge: boolean;
+  isRangehood: boolean;
+  isDishwasher: boolean;
+  
+  // Construction details
+  hasFalseFront: boolean;        // Only if "False Front" in name
+  hasAdjustableShelves: boolean;
+  shelfCount: number;            // Calculated from height
+  cornerType: CornerType;
+  
+  // Dimensions (defaults from Microvellum, can be overridden)
+  defaultWidth: number;
+  defaultHeight: number;
+  defaultDepth: number;
+}
+
+/**
+ * Material configuration for a specific cabinet part
+ */
+export interface PartMaterialConfig {
+  color: string;
+  roughness: number;
+  metalness: number;
+  grainDirection: GrainDirection;
+  textureType: 'wood' | 'stone' | 'concrete' | 'marble' | 'none';
+  boardThickness: number; // in mm
+}
+
+/**
+ * Board thickness options available
+ */
+export const BOARD_THICKNESS_OPTIONS = [16, 18, 25, 32] as const;
+export type BoardThickness = typeof BOARD_THICKNESS_OPTIONS[number];
+
+/**
+ * Standard construction dimensions (in mm)
+ */
+export const CONSTRUCTION_STANDARDS = {
+  gableThickness: 18,
+  shelfThickness: 18,
+  backPanelThickness: 3,
+  doorThickness: 18,
+  drawerFrontThickness: 18,
+  bottomPanelThickness: 18,
+  topPanelThickness: 18,
+  kickboardThickness: 16,
+  edgeBanding: 0.4,
+  
+  // Gaps
+  doorGap: 2,
+  drawerGap: 2,
+  backPanelSetback: 18, // From front of cabinet
+  
+  // Hinge/hardware positions
+  hingeInset: 100, // From top/bottom
+  handleInset: 40, // From edge
+  
+  // Shelf hole spacing
+  shelfHoleSpacing: 32,
+  shelfHoleFromEdge: 37,
+} as const;
+
+/**
+ * Parse Microvellum product name to extract render configuration
+ */
+export function parseProductToRenderConfig(product: {
+  id: string;
+  name: string;
+  category: string | null;
+  cabinet_type: string | null;
+  door_count: number | null;
+  drawer_count: number | null;
+  is_corner: boolean | null;
+  is_sink: boolean | null;
+  is_blind: boolean | null;
+  default_width: number | null;
+  default_height: number | null;
+  default_depth: number | null;
+}): CabinetRenderConfig {
+  const name = product.name.toLowerCase();
+  const category = (product.category as CabinetCategory) || 'Base';
+  
+  // Parse special cabinet types from name
+  const hasFalseFront = name.includes('false front') || name.includes('false drawer');
+  const isPantry = name.includes('pantry') || name.includes('larder');
+  const isOven = name.includes('oven') || name.includes('ov tower');
+  const isFridge = name.includes('fridge') || name.includes('refrigerator') || name.includes('ref ');
+  const isRangehood = name.includes('rangehood') || name.includes('range hood') || name.includes('canopy');
+  const isDishwasher = name.includes('dishwasher') || name.includes('dw ');
+  const isAppliance = isOven || isFridge || isRangehood || isDishwasher;
+  
+  // Determine corner type
+  let cornerType: CornerType = null;
+  if (product.is_corner || product.is_blind) {
+    if (name.includes('blind')) {
+      cornerType = 'blind';
+    } else if (name.includes('diagonal') || name.includes('45')) {
+      cornerType = 'diagonal';
+    } else if (name.includes('l-shape') || name.includes('l shape') || name.includes('lazy')) {
+      cornerType = 'l-shape';
+    } else if (product.is_blind) {
+      cornerType = 'blind';
+    }
+  }
+  
+  // Calculate shelf count based on height (every 300mm after first 200mm)
+  const height = product.default_height || 870;
+  const usableHeight = height - 200; // Exclude top/bottom clearance
+  const shelfCount = Math.max(1, Math.floor(usableHeight / 300));
+  
+  // Determine if adjustable shelves (most cabinets except drawers)
+  const hasDrawers = (product.drawer_count || 0) > 0;
+  const hasAdjustableShelves = !hasDrawers && !(product.is_sink) && !isAppliance;
+  
+  return {
+    productId: product.id,
+    productName: product.name,
+    category,
+    cabinetType: product.cabinet_type || 'Standard',
+    
+    doorCount: product.door_count || 0,
+    drawerCount: product.drawer_count || 0,
+    
+    isCorner: product.is_corner || false,
+    isSink: product.is_sink || false,
+    isBlind: product.is_blind || false,
+    isPantry,
+    isAppliance,
+    isOven,
+    isFridge,
+    isRangehood,
+    isDishwasher,
+    
+    hasFalseFront,
+    hasAdjustableShelves,
+    shelfCount,
+    cornerType,
+    
+    defaultWidth: product.default_width || 600,
+    defaultHeight: product.default_height || 870,
+    defaultDepth: product.default_depth || 575,
+  };
+}
+
+/**
+ * Get grain direction for a specific cabinet part
+ */
+export function getPartGrainDirection(partType: string): GrainDirection {
+  switch (partType) {
+    case 'gable':
+    case 'door':
+    case 'endPanel':
+      return 'vertical';
+    case 'drawerFront':
+    case 'kickboard':
+      return 'horizontal';
+    case 'shelf':
+    case 'bottom':
+    case 'top':
+      return 'horizontal'; // Front to back
+    default:
+      return 'none';
+  }
+}
