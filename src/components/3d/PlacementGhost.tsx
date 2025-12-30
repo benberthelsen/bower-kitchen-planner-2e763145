@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { usePlanner } from '../../store/PlannerContext';
-import { CATALOG } from '../../constants';
+import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 
 interface PlacementGhostProps {
@@ -11,11 +11,7 @@ interface PlacementGhostProps {
 
 const PlacementGhost: React.FC<PlacementGhostProps> = ({ position, rotation, isValid }) => {
   const { placementItemId, globalDimensions } = usePlanner();
-
-  const def = useMemo(() => {
-    if (!placementItemId) return null;
-    return CATALOG.find(c => c.id === placementItemId);
-  }, [placementItemId]);
+  const def = useCatalogItem(placementItemId);
 
   if (!def) return null;
 

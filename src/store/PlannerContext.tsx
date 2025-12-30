@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
 import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensions, HardwareOptions, CatalogItemDefinition } from '../types';
-import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, CATALOG, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
+import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
 import { loadSampleKitchen as loadSampleKitchenData, SAMPLE_KITCHENS } from '@/data/sampleKitchens';
 import { supabase } from '@/integrations/supabase/client';
+
 interface DragState {
   itemId: string | null;
   startPosition: { x: number; z: number } | null;
-  isDragging: boolean; // true once threshold exceeded
+  isDragging: boolean;
 }
 
 interface PlannerContextType {
@@ -115,8 +116,8 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
     loadCatalog();
   }, []);
 
-  // Use dynamic catalog if available, otherwise static
-  const activeCatalog = dynamicCatalog.length > 0 ? dynamicCatalog : CATALOG;
+  // Use dynamic catalog - no static fallback
+  const activeCatalog = dynamicCatalog;
 
   const recordHistory = useCallback(() => {
     setPast(prev => [...prev, { items, room }]);
@@ -145,25 +146,59 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const setGlobalDimensions = (d: GlobalDimensions) => { recordHistory(); _setGlobalDimensions(d); };
 
   const addItem = (definitionId: string, x?: number, z?: number, rotation?: number) => {
-    // Check both dynamic and static catalogs
-    const def = activeCatalog.find(c => c.id === definitionId) || CATALOG.find(c => c.id === definitionId);
-    if (!def) return;
+    // Find in dynamic catalog only
+    const def = activeCatalog.find(c => c.id === definitionId);
+    if (!def) {
+      console.warn(`Cabinet definition not found: ${definitionId}`);
+      return;
+    }
     recordHistory();
     let width = def.defaultWidth, depth = def.defaultDepth, height = def.defaultHeight, posY = 0;
     if (def.itemType === 'Cabinet') {
-      if (def.category === 'Base') { height = globalDimensions.baseHeight + globalDimensions.toeKickHeight; depth = globalDimensions.baseDepth; }
-      else if (def.category === 'Wall') { height = globalDimensions.wallHeight; depth = globalDimensions.wallDepth; posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight + globalDimensions.benchtopThickness + globalDimensions.splashbackHeight; }
-      else if (def.category === 'Tall') { height = globalDimensions.tallHeight; depth = globalDimensions.tallDepth; }
+      if (def.category === 'Base') { 
+        height = globalDimensions.baseHeight + globalDimensions.toeKickHeight; 
+        depth = globalDimensions.baseDepth; 
+      }
+      else if (def.category === 'Wall') { 
+        height = globalDimensions.wallHeight; 
+        depth = globalDimensions.wallDepth; 
+        posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight + globalDimensions.benchtopThickness + globalDimensions.splashbackHeight; 
+      }
+      else if (def.category === 'Tall') { 
+        height = globalDimensions.tallHeight; 
+        depth = globalDimensions.tallDepth; 
+      }
     }
     const spawnX = x ?? 1000, spawnZ = z ?? 1000;
     const spawnRotation = rotation ?? 0;
-    const newItem: PlacedItem = { instanceId: Math.random().toString(36).substr(2, 9), definitionId: def.id, itemType: def.itemType, cabinetNumber: def.itemType === 'Cabinet' ? nextCabinetNumber(items) : undefined, x: spawnX, y: posY, z: spawnZ, rotation: spawnRotation, width, depth, height, hinge: 'Left' };
+    const newItem: PlacedItem = { 
+      instanceId: Math.random().toString(36).substr(2, 9), 
+      definitionId: def.id, 
+      itemType: def.itemType, 
+      cabinetNumber: def.itemType === 'Cabinet' ? nextCabinetNumber(items) : undefined, 
+      x: spawnX, 
+      y: posY, 
+      z: spawnZ, 
+      rotation: spawnRotation, 
+      width, 
+      depth, 
+      height, 
+      hinge: 'Left' 
+    };
     setItems(prev => [...prev, newItem]);
     setSelectedItemId(newItem.instanceId);
   };
 
-  const updateItem = (id: string, updates: Partial<PlacedItem>) => { setItems(prev => prev.map(item => (item.instanceId === id ? { ...item, ...updates } : item))); };
-  const removeItem = (id: string) => { recordHistory(); setItems(prev => prev.filter(item => item.instanceId !== id)); if (selectedItemId === id) setSelectedItemId(null); };
+  const updateItem = (id: string, updates: Partial<PlacedItem>) => { 
+    setItems(prev => prev.map(item => (item.instanceId === id ? { ...item, ...updates } : item))); 
+  };
+  
+  const removeItem = (id: string) => { 
+    recordHistory(); 
+    setItems(prev => prev.filter(item => item.instanceId !== id)); 
+    if (selectedItemId === id) setSelectedItemId(null); 
+  };
+  
   const selectItem = (id: string | null) => setSelectedItemId(id);
   const setDraggedItem = (id: string | null) => setDraggedItemId(id);
   const setPlacementItem = (id: string | null) => setPlacementItemId(id);
@@ -182,20 +217,16 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [dragState.itemId, dragState.isDragging, recordHistory]);
 
   const cancelDrag = useCallback(() => {
-    // Restore original position
     if (dragState.itemId && dragState.startPosition && !dragState.isDragging) {
-      const item = items.find(i => i.instanceId === dragState.itemId);
-      if (item) {
-        setItems(prev => prev.map(i => 
-          i.instanceId === dragState.itemId 
-            ? { ...i, x: dragState.startPosition!.x, z: dragState.startPosition!.z }
-            : i
-        ));
-      }
+      setItems(prev => prev.map(i => 
+        i.instanceId === dragState.itemId 
+          ? { ...i, x: dragState.startPosition!.x, z: dragState.startPosition!.z }
+          : i
+      ));
     }
     setDragState({ itemId: null, startPosition: null, isDragging: false });
     setDraggedItemId(null);
-  }, [dragState, items]);
+  }, [dragState]);
 
   const endDrag = useCallback(() => {
     setDragState({ itemId: null, startPosition: null, isDragging: false });
@@ -219,17 +250,43 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
     setSelectedItemId(null);
   }, [recordHistory]);
 
-  const totalPrice = useMemo(() => items.reduce((total, item) => { const def = activeCatalog.find(c => c.id === item.definitionId) || CATALOG.find(c => c.id === item.definitionId); if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; return total + (def?.price || 0); }, 0), [items, activeCatalog]);
+  const totalPrice = useMemo(() => {
+    return items.reduce((total, item) => { 
+      const def = activeCatalog.find(c => c.id === item.definitionId); 
+      if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; 
+      return total + (def?.price || 0); 
+    }, 0);
+  }, [items, activeCatalog]);
 
   const placeOrder = useCallback(() => {
-    const snapshot = { id: `ord_${Date.now()}`, createdAt: new Date().toISOString(), room, items, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, totalPrice };
+    const snapshot = { 
+      id: `ord_${Date.now()}`, 
+      createdAt: new Date().toISOString(), 
+      room, 
+      items, 
+      selectedFinish, 
+      selectedBenchtop, 
+      selectedKick, 
+      projectSettings, 
+      globalDimensions, 
+      hardwareOptions, 
+      totalPrice 
+    };
     const existing = JSON.parse(localStorage.getItem('planner_orders') || '[]');
     localStorage.setItem('planner_orders', JSON.stringify([...existing, snapshot]));
     return snapshot;
   }, [room, items, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, totalPrice]);
 
   return (
-    <PlannerContext.Provider value={{ room, items, selectedItemId, draggedItemId, placementItemId, dragState, selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, selectItem, setDraggedItem, setPlacementItem, startDrag, confirmDrag, cancelDrag, endDrag, setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, duplicateItem, loadSampleKitchen, sampleKitchens: SAMPLE_KITCHENS }}>
+    <PlannerContext.Provider value={{ 
+      room, items, selectedItemId, draggedItemId, placementItemId, dragState, 
+      selectedFinish, selectedBenchtop, selectedKick, projectSettings, globalDimensions, 
+      hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, 
+      selectItem, setDraggedItem, setPlacementItem, startDrag, confirmDrag, cancelDrag, endDrag, 
+      setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, 
+      totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, 
+      duplicateItem, loadSampleKitchen, sampleKitchens: SAMPLE_KITCHENS 
+    }}>
       {children}
     </PlannerContext.Provider>
   );

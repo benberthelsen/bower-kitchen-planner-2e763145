@@ -1,61 +1,10 @@
-import { CatalogItemDefinition, MaterialOption, HandleDefinition, GlobalDimensions, TapDefinition, ApplianceModel } from './types';
+import { MaterialOption, HandleDefinition, GlobalDimensions, TapDefinition, ApplianceModel } from './types';
 
 export const WALL_THICKNESS = 200;
 export const SNAP_INCREMENT = 50;
 
-export const CATALOG: CatalogItemDefinition[] = [
-  // --- BASE CABINETS ---
-  { id: 'base-150-po', sku: 'B150-PO', name: 'Base Pullout 150', itemType: 'Cabinet', category: 'Base', defaultWidth: 150, defaultDepth: 575, defaultHeight: 870, price: 200 },
-  { id: 'base-300-1d', sku: 'B300-1D', name: 'Base 1 Door 300', itemType: 'Cabinet', category: 'Base', defaultWidth: 300, defaultDepth: 575, defaultHeight: 870, price: 180 },
-  { id: 'base-450-1d', sku: 'B450-1D', name: 'Base 1 Door 450', itemType: 'Cabinet', category: 'Base', defaultWidth: 450, defaultDepth: 575, defaultHeight: 870, price: 210 },
-  { id: 'base-600-1d', sku: 'B600-1D', name: 'Base 1 Door 600', itemType: 'Cabinet', category: 'Base', defaultWidth: 600, defaultDepth: 575, defaultHeight: 870, price: 150 },
-  { id: 'base-800-2d', sku: 'B800-2D', name: 'Base 2 Door 800', itemType: 'Cabinet', category: 'Base', defaultWidth: 800, defaultDepth: 575, defaultHeight: 870, price: 280 },
-  { id: 'base-900-2d', sku: 'B900-2D', name: 'Base 2 Door 900', itemType: 'Cabinet', category: 'Base', defaultWidth: 900, defaultDepth: 575, defaultHeight: 870, price: 220 },
-
-  // Drawers
-  { id: 'base-450-4dr', sku: 'B450-4Dr', name: 'Base 4 Drawers 450', itemType: 'Cabinet', category: 'Base', defaultWidth: 450, defaultDepth: 575, defaultHeight: 870, price: 420 },
-  { id: 'base-600-2dr', sku: 'B600-2Dr', name: 'Base 2 Pot Drawers 600', itemType: 'Cabinet', category: 'Base', defaultWidth: 600, defaultDepth: 575, defaultHeight: 870, price: 400 },
-  { id: 'base-600-3dr', sku: 'B600-3Dr', name: 'Base 3 Drawers 600', itemType: 'Cabinet', category: 'Base', defaultWidth: 600, defaultDepth: 575, defaultHeight: 870, price: 350 },
-  { id: 'base-900-3dr', sku: 'B900-3Dr', name: 'Base 3 Drawers 900', itemType: 'Cabinet', category: 'Base', defaultWidth: 900, defaultDepth: 575, defaultHeight: 870, price: 550 },
-
-  // Special / Corner
-  { id: 'base-600-ov', sku: 'B600-OV', name: 'Base Oven Housing 600', itemType: 'Cabinet', category: 'Base', defaultWidth: 600, defaultDepth: 575, defaultHeight: 870, price: 300 },
-  { id: 'base-1000-bc', sku: 'BC1000', name: 'Corner Blind 1000', itemType: 'Cabinet', category: 'Base', defaultWidth: 1000, defaultDepth: 575, defaultHeight: 870, price: 400 },
-  { id: 'base-900-lc', sku: 'BC900L', name: 'Corner L-Shape 900', itemType: 'Cabinet', category: 'Base', defaultWidth: 900, defaultDepth: 900, defaultHeight: 870, price: 600 },
-
-  // Sink Cabinets
-  { id: 'base-600-sink', sku: 'B600-SINK', name: 'Sink Base 600', itemType: 'Cabinet', category: 'Base', defaultWidth: 600, defaultDepth: 575, defaultHeight: 870, price: 150 },
-  { id: 'base-900-sink', sku: 'B900-SINK', name: 'Sink Base 900', itemType: 'Cabinet', category: 'Base', defaultWidth: 900, defaultDepth: 575, defaultHeight: 870, price: 200 },
-
-  // --- APPLIANCES ---
-  { id: 'app-dw-600', sku: 'AP-DW-600', name: 'Hafele Freestanding DW (SS)', itemType: 'Appliance', defaultWidth: 600, defaultDepth: 600, defaultHeight: 850, price: 800 },
-  { id: 'app-dw-blk', sku: 'AP-DW-BLK', name: 'Hafele Freestanding DW (Black)', itemType: 'Appliance', defaultWidth: 600, defaultDepth: 600, defaultHeight: 850, price: 850 },
-  { id: 'sink-haf-db', sku: 'SINK-HAF-DB', name: 'Hafele Squareline Double', itemType: 'Appliance', defaultWidth: 800, defaultDepth: 450, defaultHeight: 200, price: 950 },
-  { id: 'sink-haf-sb', sku: 'SINK-HAF-SB', name: 'Hafele Squareline Single', itemType: 'Appliance', defaultWidth: 450, defaultDepth: 450, defaultHeight: 200, price: 750 },
-  { id: 'cooktop-600-ind', sku: 'CT-600-IND', name: 'Induction Cooktop 600', itemType: 'Appliance', defaultWidth: 600, defaultDepth: 520, defaultHeight: 50, price: 700 },
-  { id: 'cooktop-900-gas', sku: 'CT-900-GAS', name: 'Gas Cooktop 900', itemType: 'Appliance', defaultWidth: 900, defaultDepth: 520, defaultHeight: 50, price: 900 },
-
-  // --- WALL CABINETS ---
-  { id: 'wall-300-1d', sku: 'W300-1D', name: 'Wall 1 Door 300', itemType: 'Cabinet', category: 'Wall', defaultWidth: 300, defaultDepth: 350, defaultHeight: 720, price: 120 },
-  { id: 'wall-450-1d', sku: 'W450-1D', name: 'Wall 1 Door 450', itemType: 'Cabinet', category: 'Wall', defaultWidth: 450, defaultDepth: 350, defaultHeight: 720, price: 140 },
-  { id: 'wall-600-1d', sku: 'W600-1D', name: 'Wall 1 Door 600', itemType: 'Cabinet', category: 'Wall', defaultWidth: 600, defaultDepth: 350, defaultHeight: 720, price: 100 },
-  { id: 'wall-600-2d', sku: 'W600-2D', name: 'Wall 2 Door 600', itemType: 'Cabinet', category: 'Wall', defaultWidth: 600, defaultDepth: 350, defaultHeight: 720, price: 150 },
-  { id: 'wall-800-2d', sku: 'W800-2D', name: 'Wall 2 Door 800', itemType: 'Cabinet', category: 'Wall', defaultWidth: 800, defaultDepth: 350, defaultHeight: 720, price: 180 },
-  { id: 'wall-900-2d', sku: 'W900-2D', name: 'Wall 2 Door 900', itemType: 'Cabinet', category: 'Wall', defaultWidth: 900, defaultDepth: 350, defaultHeight: 720, price: 160 },
-  { id: 'wall-600-rh', sku: 'W600-RH-2D', name: 'Wall Rangehood 600', itemType: 'Cabinet', category: 'Wall', defaultWidth: 600, defaultDepth: 350, defaultHeight: 400, price: 150 },
-  { id: 'wall-900-rh', sku: 'W900-RH-2D', name: 'Wall Rangehood 900', itemType: 'Cabinet', category: 'Wall', defaultWidth: 900, defaultDepth: 350, defaultHeight: 400, price: 200 },
-
-  // --- TALL CABINETS ---
-  { id: 'tall-450-1d', sku: 'T450-1D', name: 'Pantry 1 Door 450', itemType: 'Cabinet', category: 'Tall', defaultWidth: 450, defaultDepth: 600, defaultHeight: 2200, price: 450 },
-  { id: 'tall-600-2d', sku: 'T600-2D', name: 'Pantry 2 Door 600', itemType: 'Cabinet', category: 'Tall', defaultWidth: 600, defaultDepth: 600, defaultHeight: 2200, price: 500 },
-  { id: 'tall-600-ov', sku: 'T600-OV', name: 'Oven Tower 600', itemType: 'Cabinet', category: 'Tall', defaultWidth: 600, defaultDepth: 600, defaultHeight: 2200, price: 700 },
-  { id: 'tall-1000-ref', sku: 'T1000-REF', name: 'Fridge Space 1000', itemType: 'Cabinet', category: 'Tall', defaultWidth: 1000, defaultDepth: 600, defaultHeight: 2200, price: 400 },
-
-  // --- STRUCTURES ---
-  { id: 'door-std', sku: 'DR-820', name: 'Internal Door', itemType: 'Structure', defaultWidth: 820, defaultDepth: 100, defaultHeight: 2100, price: 150 },
-  { id: 'win-1200', sku: 'WIN-1200', name: 'Window 1200w', itemType: 'Structure', defaultWidth: 1200, defaultDepth: 0, defaultHeight: 1000, price: 400 },
-  { id: 'wall-part', sku: 'WALL-INT', name: 'Internal Wall', itemType: 'Wall', defaultWidth: 1000, defaultDepth: 100, defaultHeight: 2400, price: 80 }
-];
+// Static catalog removed - now using Microvellum products exclusively from database
+// See src/hooks/useCatalog.ts for dynamic catalog loading
 
 export const FINISH_OPTIONS: MaterialOption[] = [
   { id: 'do-designer-white', name: 'Designer White', hex: '#fcfcfc', priceMultiplier: 1.0, textureType: 'none', roughness: 0.2, metalness: 0.0 },

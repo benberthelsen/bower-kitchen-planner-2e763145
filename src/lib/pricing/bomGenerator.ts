@@ -7,22 +7,22 @@ import { calculateSheetRequirements, consolidateSheetRequirements } from './shee
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
 import { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
-import { CATALOG } from '@/constants';
 
 /**
  * Generate BOM for a single cabinet
+ * Note: catalogItem should be passed in from the caller who has access to the catalog hook
  */
 export function generateCabinetBOM(
   cabinet: PlacedItem,
   globalDims: GlobalDimensions,
   hardwareOptions: HardwareOptions,
-  pricingData: PricingData
+  pricingData: PricingData,
+  catalogItemName?: string
 ): CabinetBOM {
-  const catalogItem = CATALOG.find(c => c.id === cabinet.definitionId);
   const mapping = getCabinetPartMapping(cabinet.definitionId);
   
-  if (!mapping || !catalogItem) {
-    return createEmptyBOM(cabinet, catalogItem?.name ?? 'Unknown');
+  if (!mapping) {
+    return createEmptyBOM(cabinet, catalogItemName ?? 'Unknown');
   }
   
   const config = mapping.config;

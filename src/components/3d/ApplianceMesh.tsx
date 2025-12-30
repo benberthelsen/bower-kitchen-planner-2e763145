@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
 import { PlacedItem } from '../../types';
-import { CATALOG, TAP_OPTIONS } from '../../constants';
+import { TAP_OPTIONS } from '../../constants';
+import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
 
 const ApplianceMesh: React.FC<Props> = ({ item }) => {
   const { selectItem, selectedItemId, draggedItemId, startDrag, globalDimensions } = usePlanner();
-  const def = CATALOG.find(c => c.id === item.definitionId);
+  const def = useCatalogItem(item.definitionId);
   const isSelected = selectedItemId === item.instanceId;
   const isDragged = draggedItemId === item.instanceId;
   const [hovered, setHovered] = useState(false);

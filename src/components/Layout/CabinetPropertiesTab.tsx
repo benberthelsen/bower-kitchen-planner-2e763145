@@ -1,6 +1,6 @@
 import React from 'react';
 import { usePlanner } from '../../store/PlannerContext';
-import { CATALOG, TAP_OPTIONS, APPLIANCE_MODELS, HANDLE_OPTIONS } from '../../constants';
+import { TAP_OPTIONS, APPLIANCE_MODELS, HANDLE_OPTIONS } from '../../constants';
 import { PlacedItem, CatalogItemDefinition } from '../../types';
 import { Trash2, RotateCcw, FlipHorizontal } from 'lucide-react';
 

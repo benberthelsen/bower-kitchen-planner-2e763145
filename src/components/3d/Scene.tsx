@@ -14,7 +14,7 @@ import { WALL_THICKNESS, SNAP_INCREMENT } from '../../constants';
 import SmartDimensions from './SmartDimensions';
 import InteractionHandles from './InteractionHandles';
 import { calculateSnapPosition, SnapResult, checkCollision } from '../../utils/snapping';
-import { CATALOG } from '../../constants';
+import { useCatalog } from '../../hooks/useCatalog';
 
 // Drag threshold in mm - must move at least this much before dragging starts
 const DRAG_THRESHOLD = 20;
@@ -36,6 +36,7 @@ const PlacementHandler: React.FC<{
 }> = ({ onPositionUpdate }) => {
   const { camera, gl } = useThree();
   const { placementItemId, addItem, setPlacementItem, items, room, globalDimensions } = usePlanner();
+  const { catalog } = useCatalog('admin');
   const raycaster = useRef(new THREE.Raycaster());
   const plane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
   const latestSnapRef = useRef<SnapResult | null>(null);
@@ -52,7 +53,7 @@ const PlacementHandler: React.FC<{
     const hit = raycaster.current.ray.intersectPlane(plane.current, target);
 
     if (hit) {
-      const def = CATALOG.find(c => c.id === placementItemId);
+      const def = catalog.find(c => c.id === placementItemId);
       if (!def) return;
 
       // Get dimensions for the ghost item
@@ -147,6 +148,7 @@ const PlacementHandler: React.FC<{
 const DropZone: React.FC = () => {
   const { gl, camera } = useThree();
   const { addItem, items, room, globalDimensions } = usePlanner();
+  const { catalog } = useCatalog('admin');
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -164,7 +166,7 @@ const DropZone: React.FC = () => {
       const target = new THREE.Vector3();
       const hit = raycaster.ray.intersectPlane(plane, target);
       if (hit) {
-        const def = CATALOG.find(c => c.id === definitionId);
+        const def = catalog.find(c => c.id === definitionId);
         if (!def) return;
 
         // Match placement sizing logic so snapping uses correct cabinet depth
