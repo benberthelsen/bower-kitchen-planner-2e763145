@@ -67,10 +67,21 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   isDragged,
   hovered,
 }) => {
+  // Defensive checks for materials
+  if (!materials || !materials.gable) {
+    console.warn('CabinetAssembler: Invalid materials');
+    return null;
+  }
+
+  // Validate item dimensions
+  const safeWidth = item.width && item.width > 0 ? item.width : 600;
+  const safeHeight = item.height && item.height > 0 ? item.height : 720;
+  const safeDepth = item.depth && item.depth > 0 ? item.depth : 560;
+
   // Convert dimensions from mm to meters
-  const widthM = item.width / 1000;
-  const heightM = item.height / 1000;
-  const depthM = item.depth / 1000;
+  const widthM = safeWidth / 1000;
+  const heightM = safeHeight / 1000;
+  const depthM = safeDepth / 1000;
   
   // Construction constants in meters
   const gableThickness = CONSTRUCTION_STANDARDS.gableThickness / 1000;
@@ -79,16 +90,16 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const backPanelThickness = CONSTRUCTION_STANDARDS.backPanelThickness / 1000;
   const bottomThickness = CONSTRUCTION_STANDARDS.bottomPanelThickness / 1000;
   
-  // Global dimensions in meters
-  const kickHeight = (globalDimensions.toeKickHeight || 135) / 1000;
-  const btThickness = (globalDimensions.benchtopThickness || 33) / 1000;
-  const btOverhang = (globalDimensions.benchtopOverhang || 0) / 1000;
-  const doorGap = (globalDimensions.doorGap || 2) / 1000;
-  const drawerGap = (globalDimensions.drawerGap || 2) / 1000;
+  // Global dimensions in meters with safe defaults
+  const kickHeight = ((globalDimensions?.toeKickHeight) || 135) / 1000;
+  const btThickness = ((globalDimensions?.benchtopThickness) || 33) / 1000;
+  const btOverhang = ((globalDimensions?.benchtopOverhang) || 0) / 1000;
+  const doorGap = ((globalDimensions?.doorGap) || 2) / 1000;
+  const drawerGap = ((globalDimensions?.drawerGap) || 2) / 1000;
   
   // Determine if cabinet has kick (base/tall, not panels)
   const isBaseOrTall = config.category === 'Base' || config.category === 'Tall';
-  const hasKick = isBaseOrTall && !config.productName.toLowerCase().includes('panel');
+  const hasKick = isBaseOrTall && !config.productName?.toLowerCase()?.includes('panel');
   
   // Calculate carcass dimensions (excluding kick)
   const carcassHeight = hasKick ? heightM - kickHeight : heightM;
