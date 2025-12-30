@@ -97,12 +97,12 @@ export default function MicrovellumImport() {
       const xmlContent = await file.text();
       console.log('File loaded, length:', xmlContent.length);
 
-       const { data, error, response } = await supabase.functions.invoke('import-microvellum', {
+       const functions = supabase.functions;
+       functions.setAuth(token);
+       console.log('[import-microvellum] invoking (microvellum import page)', { tokenLen: token.length });
+
+       const { data, error, response } = await functions.invoke('import-microvellum', {
          body: { xmlContent },
-         headers: {
-           authorization: `Bearer ${token}`,
-           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-         },
        });
 
       if (error) {
@@ -234,12 +234,12 @@ export default function MicrovellumImport() {
                   if (!response.ok) throw new Error('Failed to load bundled XML file');
                   const xmlContent = await response.text();
                   
-                   const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
+                   const functions = supabase.functions;
+                   functions.setAuth(token);
+                   console.log('[import-microvellum] invoking (microvellum import bundled)', { tokenLen: token.length });
+
+                   const { data, error, response: fnResponse } = await functions.invoke('import-microvellum', {
                      body: { xmlContent },
-                     headers: {
-                       authorization: `Bearer ${token}`,
-                       apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-                     },
                    });
 
                   if (error) {
