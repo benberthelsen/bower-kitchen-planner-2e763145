@@ -3,11 +3,17 @@ import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensio
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
 import { loadSampleKitchen as loadSampleKitchenData, SAMPLE_KITCHENS } from '@/data/sampleKitchens';
 import { supabase } from '@/integrations/supabase/client';
+import { parseProductToRenderConfig, CabinetRenderConfig } from '@/types/cabinetConfig';
 
 interface DragState {
   itemId: string | null;
   startPosition: { x: number; z: number } | null;
   isDragging: boolean;
+}
+
+// Extended catalog item with render config for internal use
+interface InternalCatalogItem extends CatalogItemDefinition {
+  renderConfig?: CabinetRenderConfig;
 }
 
 interface PlannerContextType {
@@ -52,6 +58,7 @@ interface PlannerContextType {
   duplicateItem: (id: string) => void;
   loadSampleKitchen: (kitchenId: string) => void;
   sampleKitchens: typeof SAMPLE_KITCHENS;
+  getCatalogItem: (definitionId: string) => InternalCatalogItem | null;
 }
 
 const PlannerContext = createContext<PlannerContextType | undefined>(undefined);
@@ -85,9 +92,9 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('3d');
   const [past, setPast] = useState<{ items: PlacedItem[]; room: RoomConfig }[]>([]);
   const [future, setFuture] = useState<{ items: PlacedItem[]; room: RoomConfig }[]>([]);
-  const [dynamicCatalog, setDynamicCatalog] = useState<CatalogItemDefinition[]>([]);
+  const [catalogMap, setCatalogMap] = useState<Map<string, InternalCatalogItem>>(new Map());
 
-  // Load dynamic catalog from database
+  // Load catalog from database into a Map for O(1) lookups
   useEffect(() => {
     const loadCatalog = async () => {
       const { data } = await supabase
@@ -97,27 +104,34 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
         .order('name', { ascending: true });
       
       if (data && data.length > 0) {
-        const transformed: CatalogItemDefinition[] = data.map(p => ({
-          id: p.id,
-          sku: `${p.category?.charAt(0) || 'B'}${p.default_width || 600}`,
-          name: p.name,
-          itemType: p.category?.toLowerCase() === 'accessory' ? 'Structure' : 'Cabinet',
-          category: p.category?.toLowerCase() === 'base' ? 'Base' : 
-                   p.category?.toLowerCase() === 'wall' || p.category?.toLowerCase() === 'upper' ? 'Wall' : 
-                   p.category?.toLowerCase() === 'tall' ? 'Tall' : undefined,
-          defaultWidth: p.default_width || 600,
-          defaultDepth: p.default_depth || 575,
-          defaultHeight: p.default_height || 870,
-          price: 0,
-        }));
-        setDynamicCatalog(transformed);
+        const map = new Map<string, InternalCatalogItem>();
+        data.forEach(p => {
+          const renderConfig = parseProductToRenderConfig(p);
+          map.set(p.id, {
+            id: p.id,
+            sku: `${p.category?.charAt(0) || 'B'}${p.default_width || 600}`,
+            name: p.name,
+            itemType: p.category?.toLowerCase() === 'accessory' ? 'Structure' : 'Cabinet',
+            category: p.category?.toLowerCase() === 'base' ? 'Base' : 
+                     p.category?.toLowerCase() === 'wall' || p.category?.toLowerCase() === 'upper' ? 'Wall' : 
+                     p.category?.toLowerCase() === 'tall' ? 'Tall' : undefined,
+            defaultWidth: p.default_width || 600,
+            defaultDepth: p.default_depth || 575,
+            defaultHeight: p.default_height || 870,
+            price: 0,
+            renderConfig,
+          });
+        });
+        setCatalogMap(map);
       }
     };
     loadCatalog();
   }, []);
 
-  // Use dynamic catalog - no static fallback
-  const activeCatalog = dynamicCatalog;
+  // Get catalog item by ID (O(1) lookup)
+  const getCatalogItem = useCallback((definitionId: string): InternalCatalogItem | null => {
+    return catalogMap.get(definitionId) || null;
+  }, [catalogMap]);
 
   const recordHistory = useCallback(() => {
     setPast(prev => [...prev, { items, room }]);
@@ -146,8 +160,8 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   const setGlobalDimensions = (d: GlobalDimensions) => { recordHistory(); _setGlobalDimensions(d); };
 
   const addItem = (definitionId: string, x?: number, z?: number, rotation?: number) => {
-    // Find in dynamic catalog only
-    const def = activeCatalog.find(c => c.id === definitionId);
+    // Find in catalog map
+    const def = getCatalogItem(definitionId);
     if (!def) {
       console.warn(`Cabinet definition not found: ${definitionId}`);
       return;
@@ -252,11 +266,11 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const totalPrice = useMemo(() => {
     return items.reduce((total, item) => { 
-      const def = activeCatalog.find(c => c.id === item.definitionId); 
+      const def = getCatalogItem(item.definitionId); 
       if (item.itemType === 'Structure' || item.itemType === 'Wall') return total; 
       return total + (def?.price || 0); 
     }, 0);
-  }, [items, activeCatalog]);
+  }, [items, getCatalogItem]);
 
   const placeOrder = useCallback(() => {
     const snapshot = { 
@@ -284,6 +298,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
       hardwareOptions, viewMode, setViewMode, setRoom, addItem, updateItem, removeItem, 
       selectItem, setDraggedItem, setPlacementItem, startDrag, confirmDrag, cancelDrag, endDrag, 
       setFinish, setBenchtop, setKick, setProjectSettings, setGlobalDimensions, setHardwareOptions, 
+      getCatalogItem,
       totalPrice, placeOrder, undo, redo, recordHistory, canUndo: past.length > 0, canRedo: future.length > 0, 
       duplicateItem, loadSampleKitchen, sampleKitchens: SAMPLE_KITCHENS 
     }}>

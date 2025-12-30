@@ -14,6 +14,7 @@ import {
   Kickboard,
   BenchtopMesh,
   FalseFront,
+  CornerCarcass,
 } from './cabinet-parts';
 
 interface MaterialProps {
@@ -128,35 +129,60 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     return [handleX, handleY, doorThickness / 2 + 0.015];
   };
 
-  // Render gables (side panels)
-  const renderGables = () => (
-    <>
-      {/* Left gable */}
-      <Gable
-        width={gableThickness}
-        height={carcassHeight}
-        depth={depthM}
-        position={[-widthM / 2 + gableThickness / 2, carcassYOffset, 0]}
-        color={gableMat.color}
-        roughness={gableMat.roughness}
-        metalness={gableMat.metalness}
-        map={gableMat.map}
-        grainRotation={0} // Vertical grain
-      />
-      {/* Right gable */}
-      <Gable
-        width={gableThickness}
-        height={carcassHeight}
-        depth={depthM}
-        position={[widthM / 2 - gableThickness / 2, carcassYOffset, 0]}
-        color={gableMat.color}
-        roughness={gableMat.roughness}
-        metalness={gableMat.metalness}
-        map={gableMat.map}
-        grainRotation={0} // Vertical grain
-      />
-    </>
-  );
+  // Check if this is a corner cabinet
+  const isCornerCabinet = config.isCorner || config.cornerType !== null;
+  const cornerType = config.cornerType || (config.isBlind ? 'blind' : 'l-shape');
+
+  // Render gables (side panels) - skip for corner cabinets which use CornerCarcass
+  const renderGables = () => {
+    // Corner cabinets use special geometry
+    if (isCornerCabinet) {
+      return (
+        <CornerCarcass
+          width={widthM}
+          height={carcassHeight}
+          depth={depthM}
+          cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
+          blindWidth={0.15}
+          gableThickness={gableThickness}
+          color={gableMat.color}
+          roughness={gableMat.roughness}
+          metalness={gableMat.metalness}
+          map={gableMat.map}
+        />
+      );
+    }
+
+    // Standard cabinets use regular gables
+    return (
+      <>
+        {/* Left gable */}
+        <Gable
+          width={gableThickness}
+          height={carcassHeight}
+          depth={depthM}
+          position={[-widthM / 2 + gableThickness / 2, carcassYOffset, 0]}
+          color={gableMat.color}
+          roughness={gableMat.roughness}
+          metalness={gableMat.metalness}
+          map={gableMat.map}
+          grainRotation={0} // Vertical grain
+        />
+        {/* Right gable */}
+        <Gable
+          width={gableThickness}
+          height={carcassHeight}
+          depth={depthM}
+          position={[widthM / 2 - gableThickness / 2, carcassYOffset, 0]}
+          color={gableMat.color}
+          roughness={gableMat.roughness}
+          metalness={gableMat.metalness}
+          map={gableMat.map}
+          grainRotation={0} // Vertical grain
+        />
+      </>
+    );
+  };
 
   // Render bottom panel
   const renderBottom = () => (
