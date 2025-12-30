@@ -73,16 +73,30 @@ export default function MicrovellumImport() {
       return;
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      toast.error('Please sign in as an admin to import products');
+      event.target.value = '';
+      return;
+    }
+
     setImporting(true);
     try {
       const xmlContent = await file.text();
       console.log('File loaded, length:', xmlContent.length);
 
-      const { data, error } = await supabase.functions.invoke('import-microvellum', {
-        body: { xmlContent }
+      const { data, error, response } = await supabase.functions.invoke('import-microvellum', {
+        body: { xmlContent },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
-      if (error) throw error;
+      if (error) {
+        const detail = response ? `${response.status}: ${await response.text()}` : error.message;
+        throw new Error(detail);
+      }
 
       const result = data as ImportResult;
       if (result.success) {
@@ -196,6 +210,13 @@ export default function MicrovellumImport() {
           <div className="flex items-center gap-4 pt-2 border-t">
             <Button 
               onClick={async () => {
+                const { data: sessionData } = await supabase.auth.getSession();
+                const token = sessionData.session?.access_token;
+                if (!token) {
+                  toast.error('Please sign in as an admin to import products');
+                  return;
+                }
+
                 setImporting(true);
                 try {
                   // Fetch the bundled XML file
@@ -203,11 +224,17 @@ export default function MicrovellumImport() {
                   if (!response.ok) throw new Error('Failed to load bundled XML file');
                   const xmlContent = await response.text();
                   
-                  const { data, error } = await supabase.functions.invoke('import-microvellum', {
-                    body: { xmlContent }
+                  const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
+                    body: { xmlContent },
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                    },
                   });
 
-                  if (error) throw error;
+                  if (error) {
+                    const detail = fnResponse ? `${fnResponse.status}: ${await fnResponse.text()}` : error.message;
+                    throw new Error(detail);
+                  }
 
                   const result = data as ImportResult;
                   if (result.success) {
