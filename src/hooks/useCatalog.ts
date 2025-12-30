@@ -83,7 +83,7 @@ function transformToDefinition(product: MicrovellumProduct): CatalogItemDefiniti
 }
 
 export function useCatalog() {
-  const { data: dbProducts, isLoading, error } = useQuery({
+  const { data: dbProducts, isLoading, error, refetch } = useQuery({
     queryKey: ['microvellum-catalog'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -119,6 +119,7 @@ export function useCatalog() {
     isLoading,
     error,
     isDynamic: dynamicCatalog.length > 0,
+    refetch,
   };
 }
 
