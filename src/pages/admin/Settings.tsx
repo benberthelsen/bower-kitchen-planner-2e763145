@@ -20,6 +20,15 @@ export default function AdminSettings() {
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const requireSignedIn = async () => {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      toast.error('Please sign in as an admin to import products');
+      return false;
+    }
+    return true;
+  };
+
   const syncProductsFromCatalog = async () => {
     try {
       // Insert all catalog items into products table
@@ -48,6 +57,8 @@ export default function AdminSettings() {
   };
 
   const handleImportFromBundled = async () => {
+    if (!(await requireSignedIn())) return;
+
     setImporting(true);
     try {
       const response = await fetch('/data/microvellum-products.xml');
@@ -58,7 +69,9 @@ export default function AdminSettings() {
         body: { xmlContent }
       });
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(error.message);
+      }
 
       const result = data as ImportResult;
       if (result.success) {
@@ -83,6 +96,8 @@ export default function AdminSettings() {
       return;
     }
 
+    if (!(await requireSignedIn())) return;
+
     setImporting(true);
     try {
       const xmlContent = await file.text();
@@ -91,7 +106,9 @@ export default function AdminSettings() {
         body: { xmlContent }
       });
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(error.message);
+      }
 
       const result = data as ImportResult;
       if (result.success) {

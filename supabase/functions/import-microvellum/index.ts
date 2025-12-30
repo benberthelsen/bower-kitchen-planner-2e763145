@@ -144,81 +144,163 @@ function parseExcelXML(xmlContent: string): Record<string, string>[] {
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      },
+    });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
 
-    const { xmlContent } = await req.json();
-    
-    if (!xmlContent) {
-      throw new Error('No XML content provided');
+    if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
+      console.error('Missing required environment variables');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
     }
 
-    console.log(`Received XML content of length: ${xmlContent.length}`);
-    
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Missing authorization header' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      );
+    }
+
+    // 1) Verify caller identity (JWT)
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: { Authorization: authHeader },
+      },
+    });
+
+    const { data: userData, error: userError } = await authClient.auth.getUser();
+    if (userError || !userData?.user) {
+      console.error('Auth error:', userError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid or expired session' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 401 }
+      );
+    }
+
+    const userId = userData.user.id;
+
+    // 2) Enforce admin-only access (backend-only)
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+    const { data: roleRow, error: roleError } = await adminClient
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    if (roleError) {
+      console.error('Role lookup error:', roleError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to verify permissions' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
+    }
+
+    if (!roleRow) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Admin access required' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
+      );
+    }
+
+    // 3) Parse body
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (e) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid JSON body' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    const { xmlContent } = body ?? {};
+    if (!xmlContent || typeof xmlContent !== 'string') {
+      return new Response(
+        JSON.stringify({ success: false, error: 'No XML content provided' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    console.log(`Import requested by admin ${userId}. XML length: ${xmlContent.length}`);
+
     // Parse the Excel XML
     const rows = parseExcelXML(xmlContent);
     console.log(`Parsed ${rows.length} product rows`);
-    
+
     if (rows.length === 0) {
-      throw new Error('No products found in XML file');
+      return new Response(
+        JSON.stringify({ success: false, error: 'No products found in XML file' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
     }
 
     // Transform rows into database records
-    const products = rows.map(row => {
-      const name = row['Name'] || '';
-      const linkId = row['LinkID'] || row['ID'] || '';
-      
-      if (!name || !linkId) return null;
-      
-      const category = detectCategory(name);
-      const cabinetType = detectCabinetType(name);
-      const { doors, drawers } = extractCounts(name);
-      const lowerName = name.toLowerCase();
-      
-      const xmlWidth = parseFloat(row['Width'] || '0');
-      const xmlDepth = parseFloat(row['Depth'] || '0');
-      const xmlHeight = parseFloat(row['Height'] || '0');
-      
-      const defaults = getDefaultDimensions(category, name);
-      
-      return {
-        microvellum_link_id: linkId,
-        name,
-        category,
-        cabinet_type: cabinetType,
-        default_width: xmlWidth > 0 ? xmlWidth : defaults.width,
-        default_depth: xmlDepth > 0 ? xmlDepth : defaults.depth,
-        default_height: xmlHeight > 0 ? xmlHeight : defaults.height,
-        door_count: doors,
-        drawer_count: drawers,
-        is_corner: lowerName.includes('corner'),
-        is_sink: lowerName.includes('sink'),
-        is_blind: lowerName.includes('blind'),
-        spec_group: row['ProductSpecGroupName'] || null,
-        room_component_type: row['RoomComponentType'] || null,
-        raw_metadata: row
-      };
-    }).filter(Boolean);
+    const products = rows
+      .map((row) => {
+        const name = row['Name'] || '';
+        const linkId = row['LinkID'] || row['ID'] || '';
+
+        if (!name || !linkId) return null;
+
+        const category = detectCategory(name);
+        const cabinetType = detectCabinetType(name);
+        const { doors, drawers } = extractCounts(name);
+        const lowerName = name.toLowerCase();
+
+        const xmlWidth = parseFloat(row['Width'] || '0');
+        const xmlDepth = parseFloat(row['Depth'] || '0');
+        const xmlHeight = parseFloat(row['Height'] || '0');
+
+        const defaults = getDefaultDimensions(category, name);
+
+        return {
+          microvellum_link_id: linkId,
+          name,
+          category,
+          cabinet_type: cabinetType,
+          default_width: xmlWidth > 0 ? xmlWidth : defaults.width,
+          default_depth: xmlDepth > 0 ? xmlDepth : defaults.depth,
+          default_height: xmlHeight > 0 ? xmlHeight : defaults.height,
+          door_count: doors,
+          drawer_count: drawers,
+          is_corner: lowerName.includes('corner'),
+          is_sink: lowerName.includes('sink'),
+          is_blind: lowerName.includes('blind'),
+          spec_group: row['ProductSpecGroupName'] || null,
+          room_component_type: row['RoomComponentType'] || null,
+          raw_metadata: row,
+        };
+      })
+      .filter(Boolean);
 
     console.log(`Transformed ${products.length} valid products`);
 
-    // Upsert products into the database
-    const { data, error } = await supabase
+    const { error: upsertError } = await adminClient
       .from('microvellum_products')
-      .upsert(products, { 
+      .upsert(products, {
         onConflict: 'microvellum_link_id',
-        ignoreDuplicates: false 
-      })
-      .select();
+        ignoreDuplicates: false,
+      });
 
-    if (error) {
-      console.error('Database error:', error);
-      throw new Error(`Database error: ${error.message}`);
+    if (upsertError) {
+      console.error('Database error:', upsertError);
+      return new Response(
+        JSON.stringify({ success: false, error: `Database error: ${upsertError.message}` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
     }
 
     // Get category counts
@@ -234,26 +316,19 @@ serve(async (req) => {
         success: true,
         imported: products.length,
         categoryCounts,
-        message: `Successfully imported ${products.length} products`
+        message: `Successfully imported ${products.length} products`,
       }),
-      { 
+      {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
+        status: 200,
       }
     );
-
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Import error:', errorMessage);
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: errorMessage 
-      }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400 
-      }
+      JSON.stringify({ success: false, error: errorMessage }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });
