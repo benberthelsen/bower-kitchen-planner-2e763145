@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { MaterialOption } from '../types';
 import { GrainDirection, getPartGrainDirection } from '../types/cabinetConfig';
-import { getProceduralTexture } from '../utils/textureGenerator';
+import { getProceduralTexture, getWoodTexture, GrainDirection as TextureGrainDirection } from '../utils/textureGenerator';
 
 interface MaterialProps {
   color: string;
@@ -19,42 +19,40 @@ export function useCabinetMaterials(
   benchtopOption: MaterialOption,
   kickOption: MaterialOption
 ) {
-  // Generate base textures
-  const finishTexture = useMemo(
-    () => getProceduralTexture(finishOption.textureType || 'none'),
-    [finishOption.textureType]
-  );
+  // Create texture cache keyed by grain direction
+  const textureCache = useMemo(() => new Map<string, THREE.Texture | null>(), []);
   
-  const benchtopTexture = useMemo(
-    () => getProceduralTexture(benchtopOption.textureType || 'none'),
-    [benchtopOption.textureType]
-  );
-  
-  const kickTexture = useMemo(
-    () => getProceduralTexture(kickOption.textureType || 'none'),
-    [kickOption.textureType]
-  );
+  // Get texture with specific grain direction
+  const getTextureWithGrain = (
+    option: MaterialOption,
+    grainDirection: TextureGrainDirection
+  ): THREE.Texture | null => {
+    const cacheKey = `${option.id}_${option.textureType}_${grainDirection}_${option.hex}`;
+    
+    if (textureCache.has(cacheKey)) {
+      return textureCache.get(cacheKey) || null;
+    }
+    
+    let texture: THREE.Texture | null = null;
+    
+    if (option.textureType === 'wood') {
+      // Use grain direction-aware wood texture with tint
+      texture = getWoodTexture(grainDirection, option.hex);
+    } else if (option.textureType && option.textureType !== 'none') {
+      texture = getProceduralTexture(option.textureType);
+    }
+    
+    textureCache.set(cacheKey, texture);
+    return texture;
+  };
 
   // Get material props for a specific part with proper grain direction
   const getPartMaterial = (
     option: MaterialOption,
-    baseTexture: THREE.Texture | null,
     partType: string
   ): MaterialProps => {
     const grainDirection = getPartGrainDirection(partType);
-    
-    // Clone and rotate texture based on grain direction
-    let texture: THREE.Texture | null = null;
-    if (baseTexture) {
-      texture = baseTexture.clone();
-      if (grainDirection === 'horizontal') {
-        texture.rotation = Math.PI / 2;
-      } else if (grainDirection === 'vertical') {
-        texture.rotation = 0;
-      }
-      texture.center.set(0.5, 0.5);
-      texture.needsUpdate = true;
-    }
+    const texture = getTextureWithGrain(option, grainDirection);
 
     return {
       color: option.hex,
@@ -66,19 +64,19 @@ export function useCabinetMaterials(
 
   // Pre-computed materials for common parts
   const materials = useMemo(() => ({
-    gable: getPartMaterial(finishOption, finishTexture, 'gable'),
-    door: getPartMaterial(finishOption, finishTexture, 'door'),
-    drawer: getPartMaterial(finishOption, finishTexture, 'drawerFront'),
-    shelf: getPartMaterial(finishOption, finishTexture, 'shelf'),
-    kickboard: getPartMaterial(kickOption, kickTexture, 'kickboard'),
-    benchtop: getPartMaterial(benchtopOption, benchtopTexture, 'benchtop'),
-    endPanel: getPartMaterial(finishOption, finishTexture, 'endPanel'),
-  }), [finishOption, benchtopOption, kickOption, finishTexture, benchtopTexture, kickTexture]);
+    gable: getPartMaterial(finishOption, 'gable'),
+    door: getPartMaterial(finishOption, 'door'),
+    drawer: getPartMaterial(finishOption, 'drawerFront'),
+    shelf: getPartMaterial(finishOption, 'shelf'),
+    bottom: getPartMaterial(finishOption, 'bottom'),
+    back: getPartMaterial(finishOption, 'back'),
+    kickboard: getPartMaterial(kickOption, 'kickboard'),
+    benchtop: getPartMaterial(benchtopOption, 'benchtop'),
+    endPanel: getPartMaterial(finishOption, 'endPanel'),
+    falseFront: getPartMaterial(finishOption, 'drawerFront'),
+  }), [finishOption, benchtopOption, kickOption]);
 
   return {
-    finishTexture,
-    benchtopTexture,
-    kickTexture,
     materials,
     getPartMaterial,
   };

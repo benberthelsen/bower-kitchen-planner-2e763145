@@ -16,6 +16,26 @@ import {
   FalseFront,
 } from './cabinet-parts';
 
+interface MaterialProps {
+  color: string;
+  roughness: number;
+  metalness: number;
+  map: THREE.Texture | null;
+}
+
+interface CabinetMaterials {
+  gable: MaterialProps;
+  door: MaterialProps;
+  drawer: MaterialProps;
+  shelf: MaterialProps;
+  bottom: MaterialProps;
+  back: MaterialProps;
+  kickboard: MaterialProps;
+  benchtop: MaterialProps;
+  endPanel: MaterialProps;
+  falseFront: MaterialProps;
+}
+
 interface CabinetAssemblerProps {
   item: PlacedItem;
   config: CabinetRenderConfig;
@@ -24,9 +44,7 @@ interface CabinetAssemblerProps {
   kickMaterial: MaterialOption;
   handle: HandleDefinition;
   globalDimensions: GlobalDimensions;
-  finishTexture: THREE.Texture | null;
-  benchtopTexture: THREE.Texture | null;
-  kickTexture: THREE.Texture | null;
+  materials: CabinetMaterials;
   isSelected: boolean;
   isDragged: boolean;
   hovered: boolean;
@@ -44,9 +62,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   kickMaterial,
   handle,
   globalDimensions,
-  finishTexture,
-  benchtopTexture,
-  kickTexture,
+  materials,
   isSelected,
   isDragged,
   hovered,
@@ -81,24 +97,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Interior width (between gables)
   const interiorWidth = widthM - gableThickness * 2;
   
-  // Material properties
-  const finishProps = {
-    color: finishMaterial.hex,
-    roughness: finishMaterial.roughness ?? 0.5,
-    metalness: finishMaterial.metalness ?? 0.0,
-  };
-  
-  const kickProps = {
-    color: kickMaterial.hex,
-    roughness: kickMaterial.roughness ?? 0.6,
-    metalness: kickMaterial.metalness ?? 0.0,
-  };
-  
-  const benchProps = {
-    color: benchtopMaterial.hex,
-    roughness: benchtopMaterial.roughness ?? 0.3,
-    metalness: benchtopMaterial.metalness ?? 0.0,
-  };
+  // Use material props from hook (already has correct grain direction per part)
+  const { gable: gableMat, door: doorMat, drawer: drawerMat, shelf: shelfMat, 
+          bottom: bottomMat, kickboard: kickMat, benchtop: benchMat, 
+          endPanel: endPanelMat, falseFront: falseFrontMat } = materials;
 
   // Determine hinge side from item or default
   const hingeLeft = item.hinge !== 'Right';
@@ -124,10 +126,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         height={carcassHeight}
         depth={depthM}
         position={[-widthM / 2 + gableThickness / 2, carcassYOffset, 0]}
-        color={finishProps.color}
-        roughness={finishProps.roughness}
-        metalness={finishProps.metalness}
-        map={finishTexture}
+        color={gableMat.color}
+        roughness={gableMat.roughness}
+        metalness={gableMat.metalness}
+        map={gableMat.map}
         grainRotation={0} // Vertical grain
       />
       {/* Right gable */}
@@ -136,10 +138,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         height={carcassHeight}
         depth={depthM}
         position={[widthM / 2 - gableThickness / 2, carcassYOffset, 0]}
-        color={finishProps.color}
-        roughness={finishProps.roughness}
-        metalness={finishProps.metalness}
-        map={finishTexture}
+        color={gableMat.color}
+        roughness={gableMat.roughness}
+        metalness={gableMat.metalness}
+        map={gableMat.map}
         grainRotation={0} // Vertical grain
       />
     </>
@@ -152,9 +154,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       depth={depthM - backPanelThickness}
       thickness={bottomThickness}
       position={[0, carcassYOffset - carcassHeight / 2 + bottomThickness / 2, backPanelThickness / 2]}
-      color={finishProps.color}
-      roughness={finishProps.roughness}
-      map={finishTexture}
+      color={bottomMat.color}
+      roughness={bottomMat.roughness}
+      map={bottomMat.map}
       hasSinkCutout={config.isSink}
     />
   );
@@ -212,9 +214,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             height={doorHeight}
             thickness={doorThickness}
             position={[-doorWidth / 2, doorY, frontZ]}
-            color={finishProps.color}
-            roughness={finishProps.roughness}
-            map={finishTexture}
+            color={doorMat.color}
+            roughness={doorMat.roughness}
+            map={doorMat.map}
             gap={doorGap}
             hingeLeft={false}
           />
@@ -228,9 +230,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             height={doorHeight}
             thickness={doorThickness}
             position={[doorWidth / 2, doorY, frontZ]}
-            color={finishProps.color}
-            roughness={finishProps.roughness}
-            map={finishTexture}
+            color={doorMat.color}
+            roughness={doorMat.roughness}
+            map={doorMat.map}
             gap={doorGap}
             hingeLeft={true}
           />
@@ -251,9 +253,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           height={doorHeight}
           thickness={doorThickness}
           position={[0, doorY, frontZ]}
-          color={finishProps.color}
-          roughness={finishProps.roughness}
-          map={finishTexture}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
           gap={doorGap}
           hingeLeft={hingeLeft}
         />
@@ -283,9 +285,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             height={drawerHeight}
             thickness={doorThickness}
             position={[0, drawerY, frontZ]}
-            color={finishProps.color}
-            roughness={finishProps.roughness}
-            map={finishTexture}
+            color={drawerMat.color}
+            roughness={drawerMat.roughness}
+            map={drawerMat.map}
             gap={drawerGap}
             showBox={true}
           />
@@ -315,9 +317,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           height={falseFrontHeight}
           thickness={doorThickness}
           position={[0, falseFrontY, frontZ]}
-          color={finishProps.color}
-          roughness={finishProps.roughness}
-          map={finishTexture}
+          color={falseFrontMat.color}
+          roughness={falseFrontMat.roughness}
+          map={falseFrontMat.map}
         />
         <HandleMesh
           type={handle.type}
@@ -338,9 +340,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         width={widthM}
         height={kickHeight}
         position={[0, -heightM / 2 + kickHeight / 2, depthM / 2 - 0.04]}
-        color={kickProps.color}
-        roughness={kickProps.roughness}
-        map={kickTexture}
+        color={kickMat.color}
+        roughness={kickMat.roughness}
+        map={kickMat.map}
       />
     );
   };
@@ -358,9 +360,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         depth={depthM}
         thickness={btThickness}
         position={[0, heightM / 2 + btThickness / 2, 0]}
-        color={benchProps.color}
-        roughness={benchProps.roughness}
-        map={benchtopTexture}
+        color={benchMat.color}
+        roughness={benchMat.roughness}
+        map={benchMat.map}
         overhang={btOverhang}
         leftOverhang={fillerLeftM}
         rightOverhang={fillerRightM}
@@ -381,9 +383,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           height={carcassHeight}
           depth={depthM}
           position={[-widthM / 2 - gableThickness / 2, carcassYOffset, 0]}
-          color={finishProps.color}
-          roughness={finishProps.roughness}
-          map={finishTexture}
+          color={endPanelMat.color}
+          roughness={endPanelMat.roughness}
+          map={endPanelMat.map}
         />
       );
     }
@@ -396,9 +398,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           height={carcassHeight}
           depth={depthM}
           position={[widthM / 2 + gableThickness / 2, carcassYOffset, 0]}
-          color={finishProps.color}
-          roughness={finishProps.roughness}
-          map={finishTexture}
+          color={endPanelMat.color}
+          roughness={endPanelMat.roughness}
+          map={endPanelMat.map}
         />
       );
     }
@@ -415,7 +417,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       fillers.push(
         <mesh key="filler-left" position={[-widthM / 2 - fillerW / 2, carcassYOffset, depthM / 2 + 0.005]}>
           <boxGeometry args={[fillerW, carcassHeight, 0.01]} />
-          <meshStandardMaterial color={finishProps.color} roughness={finishProps.roughness} />
+          <meshStandardMaterial color={doorMat.color} roughness={doorMat.roughness} />
         </mesh>
       );
     }
@@ -425,7 +427,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       fillers.push(
         <mesh key="filler-right" position={[widthM / 2 + fillerW / 2, carcassYOffset, depthM / 2 + 0.005]}>
           <boxGeometry args={[fillerW, carcassHeight, 0.01]} />
-          <meshStandardMaterial color={finishProps.color} roughness={finishProps.roughness} />
+          <meshStandardMaterial color={doorMat.color} roughness={doorMat.roughness} />
         </mesh>
       );
     }

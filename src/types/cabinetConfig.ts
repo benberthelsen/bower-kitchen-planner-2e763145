@@ -104,12 +104,18 @@ export function parseProductToRenderConfig(product: {
   default_width: number | null;
   default_height: number | null;
   default_depth: number | null;
+  // New database columns
+  has_false_front?: boolean | null;
+  has_adjustable_shelves?: boolean | null;
+  corner_type?: string | null;
 }): CabinetRenderConfig {
   const name = product.name.toLowerCase();
   const category = (product.category as CabinetCategory) || 'Base';
   
-  // Parse special cabinet types from name
-  const hasFalseFront = name.includes('false front') || name.includes('false drawer');
+  // Use database columns if available, otherwise parse from name
+  const hasFalseFront = product.has_false_front ?? 
+    (name.includes('false front') || name.includes('false drawer'));
+  
   const isPantry = name.includes('pantry') || name.includes('larder');
   const isOven = name.includes('oven') || name.includes('ov tower');
   const isFridge = name.includes('fridge') || name.includes('refrigerator') || name.includes('ref ');
@@ -117,9 +123,11 @@ export function parseProductToRenderConfig(product: {
   const isDishwasher = name.includes('dishwasher') || name.includes('dw ');
   const isAppliance = isOven || isFridge || isRangehood || isDishwasher;
   
-  // Determine corner type
+  // Determine corner type - prefer database column
   let cornerType: CornerType = null;
-  if (product.is_corner || product.is_blind) {
+  if (product.corner_type) {
+    cornerType = product.corner_type as CornerType;
+  } else if (product.is_corner || product.is_blind) {
     if (name.includes('blind')) {
       cornerType = 'blind';
     } else if (name.includes('diagonal') || name.includes('45')) {
@@ -136,9 +144,10 @@ export function parseProductToRenderConfig(product: {
   const usableHeight = height - 200; // Exclude top/bottom clearance
   const shelfCount = Math.max(1, Math.floor(usableHeight / 300));
   
-  // Determine if adjustable shelves (most cabinets except drawers)
+  // Determine if adjustable shelves - use database column if available
   const hasDrawers = (product.drawer_count || 0) > 0;
-  const hasAdjustableShelves = !hasDrawers && !(product.is_sink) && !isAppliance;
+  const hasAdjustableShelves = product.has_adjustable_shelves ?? 
+    (!hasDrawers && !(product.is_sink) && !isAppliance);
   
   return {
     productId: product.id,

@@ -424,6 +424,7 @@ export type Database = {
         Row: {
           cabinet_type: string | null
           category: string | null
+          corner_type: string | null
           created_at: string | null
           default_depth: number | null
           default_height: number | null
@@ -432,6 +433,8 @@ export type Database = {
           door_count: number | null
           drawer_count: number | null
           featured: boolean | null
+          has_adjustable_shelves: boolean | null
+          has_false_front: boolean | null
           id: string
           is_blind: boolean | null
           is_corner: boolean | null
@@ -448,6 +451,7 @@ export type Database = {
         Insert: {
           cabinet_type?: string | null
           category?: string | null
+          corner_type?: string | null
           created_at?: string | null
           default_depth?: number | null
           default_height?: number | null
@@ -456,6 +460,8 @@ export type Database = {
           door_count?: number | null
           drawer_count?: number | null
           featured?: boolean | null
+          has_adjustable_shelves?: boolean | null
+          has_false_front?: boolean | null
           id?: string
           is_blind?: boolean | null
           is_corner?: boolean | null
@@ -472,6 +478,7 @@ export type Database = {
         Update: {
           cabinet_type?: string | null
           category?: string | null
+          corner_type?: string | null
           created_at?: string | null
           default_depth?: number | null
           default_height?: number | null
@@ -480,6 +487,8 @@ export type Database = {
           door_count?: number | null
           drawer_count?: number | null
           featured?: boolean | null
+          has_adjustable_shelves?: boolean | null
+          has_false_front?: boolean | null
           id?: string
           is_blind?: boolean | null
           is_corner?: boolean | null
