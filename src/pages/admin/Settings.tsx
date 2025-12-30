@@ -20,13 +20,26 @@ export default function AdminSettings() {
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const requireSignedIn = async () => {
+  const getAccessToken = async () => {
     const { data } = await supabase.auth.getSession();
-    if (!data.session) {
+    const token = data.session?.access_token;
+    if (!token) {
       toast.error('Please sign in as an admin to import products');
-      return false;
+      return null;
     }
-    return true;
+    return token;
+  };
+
+  const formatFunctionError = async (error: any, response?: Response) => {
+    try {
+      if (response) {
+        const text = await response.text();
+        return `${response.status}: ${text}`;
+      }
+    } catch {
+      // ignore
+    }
+    return error?.message || 'Import failed';
   };
 
   const syncProductsFromCatalog = async () => {
@@ -57,7 +70,8 @@ export default function AdminSettings() {
   };
 
   const handleImportFromBundled = async () => {
-    if (!(await requireSignedIn())) return;
+    const token = await getAccessToken();
+    if (!token) return;
 
     setImporting(true);
     try {
@@ -65,12 +79,15 @@ export default function AdminSettings() {
       if (!response.ok) throw new Error('Failed to load bundled XML file');
       const xmlContent = await response.text();
       
-      const { data, error } = await supabase.functions.invoke('import-microvellum', {
-        body: { xmlContent }
+      const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
+        body: { xmlContent },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       if (error) {
-        throw new Error(error.message);
+        throw new Error(await formatFunctionError(error, fnResponse));
       }
 
       const result = data as ImportResult;
@@ -96,18 +113,22 @@ export default function AdminSettings() {
       return;
     }
 
-    if (!(await requireSignedIn())) return;
+    const token = await getAccessToken();
+    if (!token) return;
 
     setImporting(true);
     try {
       const xmlContent = await file.text();
       
-      const { data, error } = await supabase.functions.invoke('import-microvellum', {
-        body: { xmlContent }
+      const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
+        body: { xmlContent },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       if (error) {
-        throw new Error(error.message);
+        throw new Error(await formatFunctionError(error, fnResponse));
       }
 
       const result = data as ImportResult;
