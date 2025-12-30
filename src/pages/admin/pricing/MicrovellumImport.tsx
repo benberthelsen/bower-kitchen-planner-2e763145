@@ -177,7 +177,7 @@ export default function MicrovellumImport() {
             Upload a Microvellum Product List export in Excel XML format (.xls.xml)
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
             <Input
               type="file"
@@ -192,6 +192,46 @@ export default function MicrovellumImport() {
                 <span>Importing...</span>
               </div>
             )}
+          </div>
+          <div className="flex items-center gap-4 pt-2 border-t">
+            <Button 
+              onClick={async () => {
+                setImporting(true);
+                try {
+                  // Fetch the bundled XML file
+                  const response = await fetch('/data/microvellum-products.xml');
+                  if (!response.ok) throw new Error('Failed to load bundled XML file');
+                  const xmlContent = await response.text();
+                  
+                  const { data, error } = await supabase.functions.invoke('import-microvellum', {
+                    body: { xmlContent }
+                  });
+
+                  if (error) throw error;
+
+                  const result = data as ImportResult;
+                  if (result.success) {
+                    toast.success(result.message || `Imported ${result.imported} products`);
+                    await loadProducts();
+                  } else {
+                    throw new Error(result.error || 'Import failed');
+                  }
+                } catch (error: any) {
+                  console.error('Import error:', error);
+                  toast.error(error.message || 'Failed to import products');
+                } finally {
+                  setImporting(false);
+                }
+              }}
+              disabled={importing}
+              variant="secondary"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Import Bundled Product List
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Use the pre-configured Microvellum product list
+            </span>
           </div>
         </CardContent>
       </Card>
