@@ -18,7 +18,8 @@ import {
   Gem,
   DoorOpen,
   Clock,
-  Percent
+  Percent,
+  FileCode
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -41,6 +42,7 @@ const pricingItems = [
   { path: '/admin/pricing/doors', label: 'Doors/Drawers', icon: DoorOpen },
   { path: '/admin/pricing/labor', label: 'Labor Rates', icon: Clock },
   { path: '/admin/pricing/markups', label: 'Client Markups', icon: Percent },
+  { path: '/admin/pricing/dxf-import', label: 'DXF Import', icon: FileCode },
 ];
 
 function AdminLayoutInner() {
