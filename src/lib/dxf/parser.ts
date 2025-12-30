@@ -139,34 +139,215 @@ function mapEntity(entity: any): DXFEntity {
 }
 
 /**
- * Extract cabinet data from parsed DXF
+ * Extract cabinet data from a single block definition
+ */
+function extractCabinetFromBlock(
+  block: { name: string; entities: DXFEntity[]; basePoint: DXFPoint },
+  layers: { name: string; color: number; visible: boolean }[],
+  isMetric: boolean
+): ExtractedCabinetData | null {
+  // Skip model space and paper space blocks
+  if (block.name.startsWith('*') || block.name.toLowerCase().includes('model') || block.name.toLowerCase().includes('paper')) {
+    return null;
+  }
+
+  // Skip blocks with no meaningful entities
+  if (block.entities.length < 3) {
+    return null;
+  }
+
+  const extents = calculateExtents(block.entities);
+  const category = detectCategory(block.name, layers);
+  const cabinetType = detectCabinetType(block.name, layers);
+  
+  const entityCounts: Record<string, number> = {};
+  block.entities.forEach(e => {
+    entityCounts[e.type] = (entityCounts[e.type] || 0) + 1;
+  });
+
+  const features = analyzeBlockGeometry(block.entities, block.name);
+  const name = cleanFilename(block.name);
+  
+  const scaleFactor = isMetric ? 1 : 25.4;
+  const width = Math.abs(extents.max.x - extents.min.x) * scaleFactor;
+  const height = Math.abs(extents.max.y - extents.min.y) * scaleFactor;
+  const depth = extents.max.z ? Math.abs(extents.max.z - extents.min.z) * scaleFactor : 580;
+
+  // Skip if dimensions are too small (likely not a cabinet)
+  if (width < 100 || height < 100) {
+    return null;
+  }
+
+  return {
+    filename: block.name,
+    name,
+    category,
+    cabinetType,
+    width: Math.round(width),
+    height: Math.round(height),
+    depth: Math.round(depth || 580),
+    doorCount: features.doorCount,
+    drawerCount: features.drawerCount,
+    isCorner: features.isCorner,
+    isBlind: features.isBlind,
+    isSink: features.isSink,
+    hasFalseFront: features.hasFalseFront,
+    hasAdjustableShelves: features.hasAdjustableShelves,
+    frontView: features.frontView,
+    sideView: features.sideView,
+    topView: features.topView,
+    layers: layers.map(l => l.name),
+    entityCounts
+  };
+}
+
+/**
+ * Extract ALL cabinets from a DXF file (from blocks)
+ */
+export function extractAllCabinetsFromDXF(
+  parsed: ParsedDXF,
+  filename: string
+): ExtractedCabinetData[] {
+  const cabinets: ExtractedCabinetData[] = [];
+  const isMetric = parsed.header.measurement === 1;
+
+  // Method 1: Extract from block definitions (most common for cabinet libraries)
+  for (const block of parsed.blocks) {
+    const cabinet = extractCabinetFromBlock(block, parsed.layers, isMetric);
+    if (cabinet) {
+      cabinet.filename = `${filename}::${block.name}`;
+      cabinets.push(cabinet);
+    }
+  }
+
+  // Method 2: If no blocks found, try to extract from INSERT references
+  if (cabinets.length === 0) {
+    const insertEntities = parsed.entities.filter(e => e.type === 'INSERT') as Array<{ type: 'INSERT'; name: string; position: DXFPoint; scale: { x: number; y: number; z: number }; rotation: number; layer: string }>;
+    
+    // Group by block name to find unique cabinet types
+    const blockRefs = new Map<string, typeof insertEntities[0]>();
+    for (const insert of insertEntities) {
+      if (!blockRefs.has(insert.name) && !insert.name.startsWith('*')) {
+        blockRefs.set(insert.name, insert);
+      }
+    }
+
+    // Find matching blocks for each insert
+    for (const [blockName] of blockRefs) {
+      const matchingBlock = parsed.blocks.find(b => b.name === blockName);
+      if (matchingBlock) {
+        const cabinet = extractCabinetFromBlock(matchingBlock, parsed.layers, isMetric);
+        if (cabinet) {
+          cabinet.filename = `${filename}::${blockName}`;
+          cabinets.push(cabinet);
+        }
+      }
+    }
+  }
+
+  // Method 3: If still no cabinets, try layer-based extraction
+  if (cabinets.length === 0) {
+    const cabinetLayers = parsed.layers.filter(l => 
+      /cabinet|base|wall|tall|sink|corner|drawer/i.test(l.name)
+    );
+
+    if (cabinetLayers.length > 0) {
+      for (const layer of cabinetLayers) {
+        const layerEntities = parsed.entities.filter(e => e.layer === layer.name);
+        if (layerEntities.length >= 3) {
+          const extents = calculateExtents(layerEntities);
+          const features = analyzeBlockGeometry(layerEntities, layer.name);
+          const scaleFactor = isMetric ? 1 : 25.4;
+          
+          const width = Math.abs(extents.max.x - extents.min.x) * scaleFactor;
+          const height = Math.abs(extents.max.y - extents.min.y) * scaleFactor;
+          
+          if (width >= 100 && height >= 100) {
+            cabinets.push({
+              filename: `${filename}::${layer.name}`,
+              name: cleanFilename(layer.name),
+              category: detectCategory(layer.name, []),
+              cabinetType: detectCabinetType(layer.name, []),
+              width: Math.round(width),
+              height: Math.round(height),
+              depth: 580,
+              doorCount: features.doorCount,
+              drawerCount: features.drawerCount,
+              isCorner: features.isCorner,
+              isBlind: features.isBlind,
+              isSink: features.isSink,
+              hasFalseFront: features.hasFalseFront,
+              hasAdjustableShelves: features.hasAdjustableShelves,
+              layers: [layer.name],
+              entityCounts: {}
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Method 4: Fallback - treat entire file as one cabinet
+  if (cabinets.length === 0 && parsed.entities.length > 0) {
+    const extents = parsed.header.extents || calculateExtents(parsed.entities);
+    const features = analyzeBlockGeometry(parsed.entities, filename);
+    const scaleFactor = isMetric ? 1 : 25.4;
+    
+    const width = Math.abs(extents.max.x - extents.min.x) * scaleFactor;
+    const height = Math.abs(extents.max.y - extents.min.y) * scaleFactor;
+    const depth = extents.max.z ? Math.abs(extents.max.z - extents.min.z) * scaleFactor : 580;
+
+    if (width >= 100 && height >= 100) {
+      cabinets.push({
+        filename,
+        name: cleanFilename(filename),
+        category: detectCategory(filename, parsed.layers),
+        cabinetType: detectCabinetType(filename, parsed.layers),
+        width: Math.round(width),
+        height: Math.round(height),
+        depth: Math.round(depth || 580),
+        doorCount: features.doorCount,
+        drawerCount: features.drawerCount,
+        isCorner: features.isCorner,
+        isBlind: features.isBlind,
+        isSink: features.isSink,
+        hasFalseFront: features.hasFalseFront,
+        hasAdjustableShelves: features.hasAdjustableShelves,
+        layers: parsed.layers.map(l => l.name),
+        entityCounts: {}
+      });
+    }
+  }
+
+  return cabinets;
+}
+
+/**
+ * Legacy: Extract single cabinet data from parsed DXF (for backward compatibility)
  */
 export function extractCabinetData(
   parsed: ParsedDXF, 
   filename: string
 ): ExtractedCabinetData {
-  // Extract dimensions from header extents or calculate from geometry
-  const extents = parsed.header.extents || calculateExtents(parsed.entities);
+  const allCabinets = extractAllCabinetsFromDXF(parsed, filename);
+  if (allCabinets.length > 0) {
+    return allCabinets[0];
+  }
   
-  // Detect category from filename or layer names
+  // Fallback to basic extraction
+  const extents = parsed.header.extents || calculateExtents(parsed.entities);
   const category = detectCategory(filename, parsed.layers);
   const cabinetType = detectCabinetType(filename, parsed.layers);
   
-  // Count entity types
   const entityCounts: Record<string, number> = {};
   parsed.entities.forEach(e => {
     entityCounts[e.type] = (entityCounts[e.type] || 0) + 1;
   });
 
-  // Detect features from geometry
-  const features = analyzeGeometry(parsed);
-  
-  // Extract name from filename
+  const features = analyzeBlockGeometry(parsed.entities, filename);
   const name = cleanFilename(filename);
-  
-  // Calculate dimensions (convert if imperial)
   const isMetric = parsed.header.measurement === 1;
-  const scaleFactor = isMetric ? 1 : 25.4; // Convert inches to mm
+  const scaleFactor = isMetric ? 1 : 25.4;
   
   const width = Math.abs(extents.max.x - extents.min.x) * scaleFactor;
   const height = Math.abs(extents.max.y - extents.min.y) * scaleFactor;
@@ -279,7 +460,62 @@ function detectCabinetType(filename: string, layers: { name: string }[]): string
 }
 
 /**
- * Analyze geometry to detect cabinet features
+ * Analyze geometry from entities and name to detect cabinet features
+ */
+function analyzeBlockGeometry(entities: DXFEntity[], nameHint: string): {
+  doorCount: number;
+  drawerCount: number;
+  isCorner: boolean;
+  isBlind: boolean;
+  isSink: boolean;
+  hasFalseFront: boolean;
+  hasAdjustableShelves: boolean;
+  frontView?: ExtractedCabinetData['frontView'];
+  sideView?: ExtractedCabinetData['sideView'];
+  topView?: ExtractedCabinetData['topView'];
+} {
+  const lowerName = nameHint.toLowerCase();
+  
+  // Count rectangles that could be doors/drawers
+  const rectangles = findRectangles(entities);
+  
+  // Detect from name hints
+  let doorCount = 1;
+  if (/2[- ]?door|double/i.test(lowerName)) doorCount = 2;
+  else if (/3[- ]?door/i.test(lowerName)) doorCount = 3;
+  else if (/4[- ]?door/i.test(lowerName)) doorCount = 4;
+  else if (/door/i.test(lowerName)) doorCount = 1;
+  else if (rectangles.length > 0) {
+    doorCount = rectangles.filter(r => r.height > r.width * 0.5).length || 1;
+  }
+  
+  let drawerCount = 0;
+  const drawerMatch = lowerName.match(/(\d)[- ]?drawer/i);
+  if (drawerMatch) {
+    drawerCount = parseInt(drawerMatch[1]);
+  } else if (/drawer/i.test(lowerName)) {
+    drawerCount = countDrawersFromGeometry(entities, lowerName);
+  }
+  
+  const isCorner = /corner/i.test(lowerName) || hasLShapeGeometry(entities);
+  const isBlind = /blind/i.test(lowerName);
+  const isSink = /sink/i.test(lowerName) || hasCircularCutout(entities);
+  const hasFalseFront = (/false[- ]?front|tilt[- ]?out/i.test(lowerName)) || (isSink && /false|tilt/i.test(lowerName));
+  const hasAdjustableShelves = /shelf|adjustable/i.test(lowerName) || !(/drawer/i.test(lowerName));
+
+  return {
+    doorCount: Math.max(0, Math.min(4, doorCount)),
+    drawerCount: Math.max(0, Math.min(8, drawerCount)),
+    isCorner,
+    isBlind,
+    isSink,
+    hasFalseFront,
+    hasAdjustableShelves
+  };
+}
+
+/**
+ * Analyze geometry to detect cabinet features (legacy wrapper)
  */
 function analyzeGeometry(parsed: ParsedDXF): {
   doorCount: number;
@@ -293,34 +529,8 @@ function analyzeGeometry(parsed: ParsedDXF): {
   sideView?: ExtractedCabinetData['sideView'];
   topView?: ExtractedCabinetData['topView'];
 } {
-  // Analyze layer names for clues
   const layerNames = parsed.layers.map(l => l.name.toLowerCase()).join(' ');
-  
-  // Count rectangles that could be doors/drawers
-  const rectangles = findRectangles(parsed.entities);
-  
-  // Detect from layer names
-  const doorCount = /2[- ]?door/i.test(layerNames) ? 2 : 
-                    /door/i.test(layerNames) ? 1 : 
-                    rectangles.filter(r => r.height > r.width * 0.5).length || 1;
-  
-  const drawerCount = countDrawersFromGeometry(parsed.entities, layerNames);
-  
-  const isCorner = /corner/i.test(layerNames) || hasLShapeGeometry(parsed.entities);
-  const isBlind = /blind/i.test(layerNames);
-  const isSink = /sink/i.test(layerNames) || hasCircularCutout(parsed.entities);
-  const hasFalseFront = /false[- ]?front|tilt[- ]?out/i.test(layerNames) && isSink;
-  const hasAdjustableShelves = /shelf|adjustable/i.test(layerNames);
-
-  return {
-    doorCount: Math.max(0, Math.min(4, doorCount)),
-    drawerCount: Math.max(0, Math.min(8, drawerCount)),
-    isCorner,
-    isBlind,
-    isSink,
-    hasFalseFront,
-    hasAdjustableShelves
-  };
+  return analyzeBlockGeometry(parsed.entities, layerNames);
 }
 
 /**
@@ -403,6 +613,7 @@ function cleanFilename(filename: string): string {
 
 /**
  * Process a ZIP file containing DXF cabinet drawings
+ * Now extracts ALL cabinets from each DXF file (blocks, layers, etc.)
  */
 export async function processZipFile(zipData: ArrayBuffer): Promise<DXFProcessingResult> {
   const result: DXFProcessingResult = {
@@ -427,9 +638,14 @@ export async function processZipFile(zipData: ArrayBuffer): Promise<DXFProcessin
         const parsed = parseDXFContent(content);
         
         if (parsed) {
-          const cabinetData = extractCabinetData(parsed, filename);
-          result.cabinets.push(cabinetData);
+          // Extract ALL cabinets from this DXF file
+          const cabinets = extractAllCabinetsFromDXF(parsed, filename);
+          result.cabinets.push(...cabinets);
           result.processedFiles++;
+          
+          if (cabinets.length === 0) {
+            result.errors.push(`No cabinets found in: ${filename}`);
+          }
         } else {
           result.errors.push(`Failed to parse: ${filename}`);
         }
