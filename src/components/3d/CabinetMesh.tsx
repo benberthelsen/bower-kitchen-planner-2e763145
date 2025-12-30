@@ -32,7 +32,7 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
   const selectedHandle = HANDLE_OPTIONS.find(h => h.id === hardwareOptions.handleId) || HANDLE_OPTIONS[0];
 
   // Get materials with grain direction support
-  const { finishTexture, benchtopTexture, kickTexture } = useCabinetMaterials(
+  const { materials } = useCabinetMaterials(
     selectedFinish,
     selectedBenchtop,
     selectedKick
@@ -105,9 +105,7 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
         kickMaterial={selectedKick}
         handle={selectedHandle}
         globalDimensions={globalDimensions}
-        finishTexture={finishTexture}
-        benchtopTexture={benchtopTexture}
-        kickTexture={kickTexture}
+        materials={materials}
         isSelected={isSelected}
         isDragged={isDragged}
         hovered={hovered}

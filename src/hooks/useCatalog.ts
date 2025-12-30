@@ -25,6 +25,10 @@ interface MicrovellumProduct {
   visible_to_trade: boolean | null;
   featured: boolean | null;
   display_order: number | null;
+  // New columns from migration
+  has_false_front: boolean | null;
+  has_adjustable_shelves: boolean | null;
+  corner_type: string | null;
 }
 
 // Extended catalog definition with render config
