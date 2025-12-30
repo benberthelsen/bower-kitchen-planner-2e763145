@@ -1,6 +1,5 @@
 import { useEffect, useCallback } from 'react';
 import { usePlanner } from '../store/PlannerContext';
-import { CATALOG } from '../constants';
 
 const MOVE_STEP = 10; // mm
 const MOVE_STEP_SHIFT = 100; // mm with shift

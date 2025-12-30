@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { CatalogItemDefinition, ItemType, CabinetType } from '@/types';
-import { CATALOG as STATIC_CATALOG } from '@/constants';
+import { CabinetRenderConfig, parseProductToRenderConfig } from '@/types/cabinetConfig';
 
 export type UserType = 'standard' | 'trade' | 'admin';
 
@@ -25,6 +25,12 @@ interface MicrovellumProduct {
   visible_to_trade: boolean | null;
   featured: boolean | null;
   display_order: number | null;
+}
+
+// Extended catalog definition with render config
+export interface ExtendedCatalogItem extends CatalogItemDefinition {
+  renderConfig: CabinetRenderConfig;
+  microvellumProduct?: MicrovellumProduct;
 }
 
 function mapCategoryToItemType(category: string | null): ItemType {
@@ -54,11 +60,12 @@ function generateSku(product: MicrovellumProduct): string {
   else if (doors > 0) suffix = `${doors}D`;
   else if (product.is_corner) suffix = 'C';
   else if (product.is_sink) suffix = 'S';
+  else if (product.is_blind) suffix = 'BL';
   
   return `${category}${width}${suffix ? '-' + suffix : ''}`;
 }
 
-function transformToDefinition(product: MicrovellumProduct): CatalogItemDefinition {
+function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem {
   const itemType = mapCategoryToItemType(product.category);
   const category = mapCategoryToCabinetType(product.category);
   
@@ -75,6 +82,9 @@ function transformToDefinition(product: MicrovellumProduct): CatalogItemDefiniti
     defaultHeight = product.default_height || 2100;
   }
   
+  // Generate render config from Microvellum metadata
+  const renderConfig = parseProductToRenderConfig(product);
+  
   return {
     id: product.id,
     sku: generateSku(product),
@@ -85,8 +95,119 @@ function transformToDefinition(product: MicrovellumProduct): CatalogItemDefiniti
     defaultDepth,
     defaultHeight,
     price: 0, // Pricing comes from BOM calculation
+    renderConfig,
+    microvellumProduct: product,
   };
 }
+
+// Minimal fallback catalog for offline/error cases
+const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
+  {
+    id: 'fallback-base-600',
+    sku: 'B600-1D',
+    name: 'Base Cabinet 600',
+    itemType: 'Cabinet',
+    category: 'Base',
+    defaultWidth: 600,
+    defaultDepth: 575,
+    defaultHeight: 870,
+    price: 0,
+    renderConfig: {
+      productId: 'fallback-base-600',
+      productName: 'Base Cabinet 600',
+      category: 'Base',
+      cabinetType: 'Standard',
+      doorCount: 1,
+      drawerCount: 0,
+      isCorner: false,
+      isSink: false,
+      isBlind: false,
+      isPantry: false,
+      isAppliance: false,
+      isOven: false,
+      isFridge: false,
+      isRangehood: false,
+      isDishwasher: false,
+      hasFalseFront: false,
+      hasAdjustableShelves: true,
+      shelfCount: 1,
+      cornerType: null,
+      defaultWidth: 600,
+      defaultHeight: 870,
+      defaultDepth: 575,
+    },
+  },
+  {
+    id: 'fallback-wall-600',
+    sku: 'W600-2D',
+    name: 'Wall Cabinet 600',
+    itemType: 'Cabinet',
+    category: 'Wall',
+    defaultWidth: 600,
+    defaultDepth: 350,
+    defaultHeight: 720,
+    price: 0,
+    renderConfig: {
+      productId: 'fallback-wall-600',
+      productName: 'Wall Cabinet 600',
+      category: 'Wall',
+      cabinetType: 'Standard',
+      doorCount: 2,
+      drawerCount: 0,
+      isCorner: false,
+      isSink: false,
+      isBlind: false,
+      isPantry: false,
+      isAppliance: false,
+      isOven: false,
+      isFridge: false,
+      isRangehood: false,
+      isDishwasher: false,
+      hasFalseFront: false,
+      hasAdjustableShelves: true,
+      shelfCount: 2,
+      cornerType: null,
+      defaultWidth: 600,
+      defaultHeight: 720,
+      defaultDepth: 350,
+    },
+  },
+  {
+    id: 'fallback-tall-600',
+    sku: 'T600-2D',
+    name: 'Tall Cabinet 600',
+    itemType: 'Cabinet',
+    category: 'Tall',
+    defaultWidth: 600,
+    defaultDepth: 580,
+    defaultHeight: 2100,
+    price: 0,
+    renderConfig: {
+      productId: 'fallback-tall-600',
+      productName: 'Tall Cabinet 600',
+      category: 'Tall',
+      cabinetType: 'Standard',
+      doorCount: 2,
+      drawerCount: 0,
+      isCorner: false,
+      isSink: false,
+      isBlind: false,
+      isPantry: true,
+      isAppliance: false,
+      isOven: false,
+      isFridge: false,
+      isRangehood: false,
+      isDishwasher: false,
+      hasFalseFront: false,
+      hasAdjustableShelves: true,
+      shelfCount: 5,
+      cornerType: null,
+      defaultWidth: 600,
+      defaultHeight: 2100,
+      defaultDepth: 580,
+    },
+  },
+];
 
 export function useCatalog(userType: UserType = 'standard') {
   const { data: dbProducts, isLoading, error, refetch } = useQuery({
@@ -123,25 +244,11 @@ export function useCatalog(userType: UserType = 'standard') {
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
   });
 
-  // Transform DB products to catalog format
-  const dynamicCatalog: CatalogItemDefinition[] = dbProducts?.map(transformToDefinition) || [];
+  // Transform DB products to catalog format with render configs
+  const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
   
-  // Use dynamic catalog if we have products, otherwise fall back to static
-  // For standard users, use a curated subset of static catalog if no dynamic products
-  let catalog: CatalogItemDefinition[];
-  if (dynamicCatalog.length > 0) {
-    catalog = dynamicCatalog;
-  } else if (userType === 'standard') {
-    // Curated selection for standard users - most popular items only
-    const curatedIds = [
-      'base-600-1d', 'base-600-3dr', 'base-900-2d', 'base-600-sink',
-      'wall-600-2d', 'wall-900-2d',
-      'tall-600-2d', 'tall-600-ov'
-    ];
-    catalog = STATIC_CATALOG.filter(item => curatedIds.includes(item.id));
-  } else {
-    catalog = STATIC_CATALOG;
-  }
+  // Use dynamic catalog if available, otherwise minimal fallback
+  const catalog: ExtendedCatalogItem[] = dynamicCatalog.length > 0 ? dynamicCatalog : FALLBACK_CATALOG;
   
   // Group by category for sidebar display
   const groupedCatalog = {
@@ -162,16 +269,22 @@ export function useCatalog(userType: UserType = 'standard') {
   };
 }
 
-// Helper to find a definition by ID (checks both dynamic and static)
-export function useCatalogItem(definitionId: string | null) {
+// Helper to find a definition by ID with render config
+export function useCatalogItem(definitionId: string | null): ExtendedCatalogItem | null {
   const { catalog } = useCatalog('admin');
   
   if (!definitionId) return null;
   
-  // First check dynamic catalog
+  // Find in catalog (includes render config)
   const item = catalog.find(c => c.id === definitionId);
   if (item) return item;
   
-  // Fall back to static catalog for legacy items
-  return STATIC_CATALOG.find(c => c.id === definitionId) || null;
+  // Return null if not found (no static fallback)
+  return null;
+}
+
+// Get render config for a placed item
+export function useRenderConfig(definitionId: string | null): CabinetRenderConfig | null {
+  const item = useCatalogItem(definitionId);
+  return item?.renderConfig || null;
 }

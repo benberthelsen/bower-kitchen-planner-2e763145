@@ -1,5 +1,5 @@
-import { RoomConfig, PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
-import { CATALOG, DEFAULT_GLOBAL_DIMENSIONS, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS } from '@/constants';
+import { RoomConfig, PlacedItem, GlobalDimensions, HardwareOptions, CatalogItemDefinition } from '@/types';
+import { DEFAULT_GLOBAL_DIMENSIONS, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS } from '@/constants';
 
 export interface SampleKitchenPreset {
   name: string;
@@ -16,34 +16,48 @@ export interface SampleKitchenPreset {
   }>;
 }
 
+// Sample kitchens use legacy definition IDs - these will work only with the fallback catalog
+// In production, sample kitchens should be updated to use Microvellum product IDs
 function createPlacedItem(
   preset: { definitionId: string; x: number; z: number; rotation: number },
   index: number,
   globalDimensions: GlobalDimensions
 ): PlacedItem {
-  const def = CATALOG.find(c => c.id === preset.definitionId);
-  if (!def) {
-    throw new Error(`Cabinet definition not found: ${preset.definitionId}`);
-  }
+  // Use default dimensions for sample kitchens (will be overridden when loading from database)
+  const defaultDimensions: Record<string, { width: number; depth: number; height: number; category?: string }> = {
+    'base-600-3dr': { width: 600, depth: 575, height: 870, category: 'Base' },
+    'base-600-sink': { width: 600, depth: 575, height: 870, category: 'Base' },
+    'app-dw-600': { width: 600, depth: 600, height: 850 },
+    'base-600-1d': { width: 600, depth: 575, height: 870, category: 'Base' },
+    'base-900-lc': { width: 900, depth: 900, height: 870, category: 'Base' },
+    'base-600-ov': { width: 600, depth: 575, height: 870, category: 'Base' },
+    'tall-600-2d': { width: 600, depth: 600, height: 2200, category: 'Tall' },
+    'wall-600-2d': { width: 600, depth: 350, height: 720, category: 'Wall' },
+    'wall-600-1d': { width: 600, depth: 350, height: 720, category: 'Wall' },
+    'wall-900-rh': { width: 900, depth: 350, height: 400, category: 'Wall' },
+    'base-900-2d': { width: 900, depth: 575, height: 870, category: 'Base' },
+    'tall-450-1d': { width: 450, depth: 600, height: 2200, category: 'Tall' },
+    'wall-900-2d': { width: 900, depth: 350, height: 720, category: 'Wall' },
+  };
 
-  let width = def.defaultWidth;
-  let depth = def.defaultDepth;
-  let height = def.defaultHeight;
+  const dims = defaultDimensions[preset.definitionId] || { width: 600, depth: 575, height: 870, category: 'Base' };
+  
+  let width = dims.width;
+  let depth = dims.depth;
+  let height = dims.height;
   let posY = 0;
 
-  if (def.itemType === 'Cabinet') {
-    if (def.category === 'Base') {
-      height = globalDimensions.baseHeight + globalDimensions.toeKickHeight;
-      depth = globalDimensions.baseDepth;
-    } else if (def.category === 'Wall') {
-      height = globalDimensions.wallHeight;
-      depth = globalDimensions.wallDepth;
-      posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight + 
-             globalDimensions.benchtopThickness + globalDimensions.splashbackHeight;
-    } else if (def.category === 'Tall') {
-      height = globalDimensions.tallHeight;
-      depth = globalDimensions.tallDepth;
-    }
+  if (dims.category === 'Base') {
+    height = globalDimensions.baseHeight + globalDimensions.toeKickHeight;
+    depth = globalDimensions.baseDepth;
+  } else if (dims.category === 'Wall') {
+    height = globalDimensions.wallHeight;
+    depth = globalDimensions.wallDepth;
+    posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight + 
+           globalDimensions.benchtopThickness + globalDimensions.splashbackHeight;
+  } else if (dims.category === 'Tall') {
+    height = globalDimensions.tallHeight;
+    depth = globalDimensions.tallDepth;
   }
 
   return {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
 import { PlacedItem } from '../../types';
-import { CATALOG } from '../../constants';
+import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 
@@ -12,7 +12,7 @@ interface Props {
 const StructureMesh: React.FC<Props> = ({ item }) => {
   const { selectItem, selectedItemId, draggedItemId, startDrag } = usePlanner();
   const [hovered, setHovered] = useState(false);
-  const def = CATALOG.find(c => c.id === item.definitionId);
+  const def = useCatalogItem(item.definitionId);
 
   if (!def) return null;
 
