@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
-import { CATALOG, FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS } from '../../constants';
+import { useCatalog, UserType } from '../../hooks/useCatalog';
+import { useFinishOptions } from '../../hooks/useFinishOptions';
 import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download, Loader2, FileDown } from 'lucide-react';
 import CabinetPropertiesTab from './CabinetPropertiesTab';
 import GlobalDimensionsPanel from './GlobalDimensionsPanel';
@@ -11,13 +12,14 @@ import { generateQuotePDF } from '@/lib/pdfQuoteGenerator';
 
 interface PropertiesPanelProps {
   onClose?: () => void;
+  userType?: UserType;
 }
 
 const money = (n: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n || 0);
 
 type TabId = 'schedule' | 'selected' | 'dimensions' | 'hardware' | 'room' | 'materials';
 
-export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
+export default function PropertiesPanel({ onClose, userType = 'standard' }: PropertiesPanelProps) {
   const { 
     items, selectedItemId, selectItem, removeItem, 
     projectSettings, setProjectSettings, 
@@ -28,12 +30,14 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     globalDimensions, hardwareOptions
   } = usePlanner();
   
+  const { catalog } = useCatalog(userType);
+  const { finishOptions, benchtopOptions, kickOptions, isFullAccess } = useFinishOptions(userType);
   const { quoteBOM, isLoading: isPricingLoading, totalPrice: bomTotalPrice } = useBOMPricing();
   
   const [activeTab, setActiveTab] = useState<TabId>('schedule');
 
   const selected = useMemo(() => items.find(i => i.instanceId === selectedItemId) || null, [items, selectedItemId]);
-  const selectedDef = useMemo(() => selected ? CATALOG.find(d => d.id === selected.definitionId) || null : null, [selected]);
+  const selectedDef = useMemo(() => selected ? catalog.find(d => d.id === selected.definitionId) || null : null, [selected, catalog]);
 
   // Auto-switch to selected tab when item selected
   React.useEffect(() => {
@@ -44,10 +48,10 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
 
   const pricingRows = useMemo(() => {
     return items.filter(it => {
-      const def = CATALOG.find(d => d.id === it.definitionId);
+      const def = catalog.find(d => d.id === it.definitionId);
       return def && (def.itemType === 'Cabinet' || def.itemType === 'Appliance');
     }).map(it => {
-      const def = CATALOG.find(d => d.id === it.definitionId)!;
+      const def = catalog.find(d => d.id === it.definitionId)!;
       // Get BOM price for this cabinet if available
       const cabinetBOM = quoteBOM?.cabinets.find(c => c.cabinetId === it.instanceId);
       return { 
@@ -59,7 +63,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
         category: def.category || def.itemType
       };
     });
-  }, [items, quoteBOM]);
+  }, [items, quoteBOM, catalog]);
 
   const handleExportSchedule = () => {
     const order = placeOrder();
@@ -72,14 +76,17 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
     URL.revokeObjectURL(url);
   };
 
-  const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  // For standard users, show simplified tabs
+  const allTabs: { id: TabId; label: string; icon: React.ReactNode; tradeOnly?: boolean }[] = [
     { id: 'schedule', label: 'Schedule', icon: <FileText size={14} /> },
     { id: 'selected', label: 'Cabinet', icon: <Box size={14} /> },
     { id: 'materials', label: 'Finishes', icon: <Settings size={14} /> },
-    { id: 'dimensions', label: 'Dims', icon: <Ruler size={14} /> },
-    { id: 'hardware', label: 'Hardware', icon: <Wrench size={14} /> },
+    { id: 'dimensions', label: 'Dims', icon: <Ruler size={14} />, tradeOnly: true },
+    { id: 'hardware', label: 'Hardware', icon: <Wrench size={14} />, tradeOnly: true },
     { id: 'room', label: 'Room', icon: <Home size={14} /> },
   ];
+  
+  const tabs = isFullAccess ? allTabs : allTabs.filter(t => !t.tradeOnly);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -117,36 +124,38 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                   className="w-full px-2 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500" 
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Reference</label>
-                  <input 
-                    type="text" 
-                    value={projectSettings.jobReference} 
-                    onChange={e => setProjectSettings({ ...projectSettings, jobReference: e.target.value })} 
-                    className="w-full px-2 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500" 
-                  />
+              {isFullAccess && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Reference</label>
+                    <input 
+                      type="text" 
+                      value={projectSettings.jobReference} 
+                      onChange={e => setProjectSettings({ ...projectSettings, jobReference: e.target.value })} 
+                      className="w-full px-2 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Contact</label>
+                    <input 
+                      type="text" 
+                      value={projectSettings.contactNumber} 
+                      onChange={e => setProjectSettings({ ...projectSettings, contactNumber: e.target.value })} 
+                      className="w-full px-2 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500" 
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Contact</label>
-                  <input 
-                    type="text" 
-                    value={projectSettings.contactNumber} 
-                    onChange={e => setProjectSettings({ ...projectSettings, contactNumber: e.target.value })} 
-                    className="w-full px-2 py-1.5 text-sm border rounded focus:ring-2 focus:ring-blue-500" 
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* BOM Pricing Breakdown */}
+            {/* BOM Pricing Breakdown - Full for trade, simplified for standard */}
             <div className="space-y-1 py-2 px-3 bg-gray-50 rounded">
               {isPricingLoading ? (
                 <div className="flex items-center justify-center py-2">
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
                   <span className="ml-2 text-sm text-gray-500">Calculating...</span>
                 </div>
-              ) : quoteBOM ? (
+              ) : quoteBOM && isFullAccess ? (
                 <>
                   <div className="flex justify-between text-xs text-gray-600">
                     <span>Materials</span>
@@ -179,8 +188,8 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                 </>
               ) : (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Total</span>
-                  <span className="text-lg font-bold text-blue-600">{money(totalPrice)}</span>
+                  <span className="text-sm font-medium">Estimated Total</span>
+                  <span className="text-lg font-bold text-blue-600">{money(quoteBOM?.grandTotal.total || totalPrice)}</span>
                 </div>
               )}
             </div>
@@ -192,14 +201,14 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                   <tr>
                     <th className="text-left py-2 px-2 font-medium">Ref</th>
                     <th className="text-left py-2 px-2 font-medium">SKU</th>
-                    <th className="text-right py-2 px-2 font-medium">Price</th>
+                    {isFullAccess && <th className="text-right py-2 px-2 font-medium">Price</th>}
                     <th className="w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {pricingRows.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-6 text-center text-gray-400">
+                      <td colSpan={isFullAccess ? 4 : 3} className="py-6 text-center text-gray-400">
                         No cabinets added yet
                       </td>
                     </tr>
@@ -214,7 +223,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                       >
                         <td className="py-1.5 px-2 font-mono text-blue-600">{row.cabinetNumber}</td>
                         <td className="py-1.5 px-2">{row.sku}</td>
-                        <td className="py-1.5 px-2 text-right">{money(row.price)}</td>
+                        {isFullAccess && <td className="py-1.5 px-2 text-right">{money(row.price)}</td>}
                         <td className="py-1.5 px-1">
                           <button 
                             onClick={e => { e.stopPropagation(); removeItem(row.instanceId); }} 
@@ -230,15 +239,17 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
               </table>
             </div>
 
-            {/* Export Buttons */}
+            {/* Export Buttons - trade only shows full options */}
             <div className="flex gap-2">
-              <button 
-                onClick={handleExportSchedule}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
-              >
-                <Download size={14} />
-                JSON
-              </button>
+              {isFullAccess && (
+                <button 
+                  onClick={handleExportSchedule}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  <Download size={14} />
+                  JSON
+                </button>
+              )}
               <button 
                 onClick={() => {
                   if (!quoteBOM) return;
@@ -252,10 +263,10 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
                   });
                 }}
                 disabled={!quoteBOM || isPricingLoading}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`${isFullAccess ? 'flex-1' : 'w-full'} flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <FileDown size={14} />
-                PDF Quote
+                {isFullAccess ? 'PDF Quote' : 'Get Quote'}
               </button>
             </div>
           </div>
@@ -281,7 +292,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Door Finish</label>
               <div className="grid grid-cols-2 gap-2">
-                {FINISH_OPTIONS.map(f => (
+                {finishOptions.map(f => (
                   <button
                     key={f.id}
                     onClick={() => setFinish(f)}
@@ -302,7 +313,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Benchtop</label>
               <div className="grid grid-cols-2 gap-2">
-                {BENCHTOP_OPTIONS.map(f => (
+                {benchtopOptions.map(f => (
                   <button
                     key={f.id}
                     onClick={() => setBenchtop(f)}
@@ -323,7 +334,7 @@ export default function PropertiesPanel({ onClose }: PropertiesPanelProps) {
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Toe Kick</label>
               <div className="grid grid-cols-2 gap-2">
-                {KICK_OPTIONS.map(f => (
+                {kickOptions.map(f => (
                   <button
                     key={f.id}
                     onClick={() => setKick(f)}

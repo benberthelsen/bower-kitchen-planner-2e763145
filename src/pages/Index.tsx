@@ -9,8 +9,8 @@ import SelectionToolbar from "../components/3d/SelectionToolbar";
 import StatusBar from "../components/3d/StatusBar";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../integrations/supabase/client";
-import { Loader2, Undo2, Redo2, Grid3X3, Box, HelpCircle, User, Save, LogIn, Settings } from "lucide-react";
-import { CATALOG } from "../constants";
+import { Loader2, Undo2, Redo2, Grid3X3, Box, HelpCircle, User, Save, LogIn, Settings, Briefcase } from "lucide-react";
+import { useCatalog } from "../hooks/useCatalog";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -48,7 +48,8 @@ function AppInner() {
     selectedFinish, selectedBenchtop, selectedKick,
     projectSettings, globalDimensions, hardwareOptions, totalPrice
   } = usePlanner();
-  const { user, loading: authLoading, signOut, isAdmin } = useAuth();
+  const { user, loading: authLoading, signOut, isAdmin, userType } = useAuth();
+  const { catalog } = useCatalog('standard');
   const [is3D, setIs3D] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cameraControls, setCameraControls] = useState<{
@@ -63,10 +64,10 @@ function AppInner() {
 
   // Get selected item info
   const selectedItem = selectedItemId ? items.find(i => i.instanceId === selectedItemId) : null;
-  const selectedDef = selectedItem ? CATALOG.find(c => c.id === selectedItem.definitionId) : null;
+  const selectedDef = selectedItem ? catalog.find(c => c.id === selectedItem.definitionId) : null;
 
   // Get placement item name
-  const placementDef = placementItemId ? CATALOG.find(c => c.id === placementItemId) : null;
+  const placementDef = placementItemId ? catalog.find(c => c.id === placementItemId) : null;
 
   // Selection toolbar handlers
   const handleDelete = useCallback(() => {
@@ -108,6 +109,7 @@ function AppInner() {
         selectedKick,
         globalDimensions,
         hardwareOptions,
+        plannerType: 'simple',
       };
 
       const costExcl = totalPrice;
@@ -141,6 +143,9 @@ function AppInner() {
 
   // Determine current mode for status bar
   const currentMode = placementItemId ? 'place' : draggedItemId ? 'drag' : 'select';
+
+  // Check if user should see trade link
+  const showTradeLink = userType === 'trade' || isAdmin;
 
   return (
     <div className="flex h-screen w-screen bg-gray-100 font-sans text-gray-900 flex-col md:flex-row overflow-hidden relative">
@@ -208,6 +213,17 @@ function AppInner() {
                     <DropdownMenuSeparator />
                   </>
                 )}
+                {showTradeLink && (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to="/trade" className="flex items-center">
+                        <Briefcase size={16} className="mr-2" />
+                        Trade Planner
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem onClick={handleSignOut}>
                   Sign Out
                 </DropdownMenuItem>
@@ -229,8 +245,8 @@ function AppInner() {
       </header>
 
       <div className="hidden md:flex h-full pt-14">
-        <ResizableSidebar side="left" title="Cabinet Library">
-          <Sidebar />
+        <ResizableSidebar side="left" title="Popular Cabinets">
+          <Sidebar userType="standard" />
         </ResizableSidebar>
       </div>
 
@@ -273,8 +289,8 @@ function AppInner() {
         </div>
 
         <div className="hidden md:flex h-full">
-          <ResizableSidebar side="right" title="Cabinet Schedule">
-            <PropertiesPanel />
+          <ResizableSidebar side="right" title="Your Kitchen">
+            <PropertiesPanel userType="standard" />
           </ResizableSidebar>
         </div>
       </div>

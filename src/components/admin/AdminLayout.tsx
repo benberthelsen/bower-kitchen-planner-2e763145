@@ -27,6 +27,7 @@ const navItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/admin/jobs', label: 'Jobs', icon: FileText },
   { path: '/admin/customers', label: 'Customers', icon: Users },
+  { path: '/admin/products', label: 'Product Visibility', icon: Box },
   { path: '/admin/prices', label: 'Legacy Prices', icon: DollarSign },
   { path: '/admin/settings', label: 'Settings', icon: Settings },
 ];

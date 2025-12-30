@@ -3,6 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { CatalogItemDefinition, ItemType, CabinetType } from '@/types';
 import { CATALOG as STATIC_CATALOG } from '@/constants';
 
+export type UserType = 'standard' | 'trade' | 'admin';
+
 interface MicrovellumProduct {
   id: string;
   microvellum_link_id: string | null;
@@ -19,6 +21,10 @@ interface MicrovellumProduct {
   is_blind: boolean | null;
   spec_group: string | null;
   room_component_type: string | null;
+  visible_to_standard: boolean | null;
+  visible_to_trade: boolean | null;
+  featured: boolean | null;
+  display_order: number | null;
 }
 
 function mapCategoryToItemType(category: string | null): ItemType {
@@ -82,15 +88,34 @@ function transformToDefinition(product: MicrovellumProduct): CatalogItemDefiniti
   };
 }
 
-export function useCatalog() {
+export function useCatalog(userType: UserType = 'standard') {
   const { data: dbProducts, isLoading, error, refetch } = useQuery({
-    queryKey: ['microvellum-catalog'],
+    queryKey: ['microvellum-catalog', userType],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('microvellum_products')
-        .select('*')
-        .order('category', { ascending: true })
-        .order('name', { ascending: true });
+        .select('*');
+      
+      // Apply visibility filters based on user type
+      if (userType === 'standard') {
+        query = query
+          .eq('visible_to_standard', true)
+          .order('featured', { ascending: false })
+          .order('display_order', { ascending: true })
+          .order('name', { ascending: true });
+      } else if (userType === 'trade') {
+        query = query
+          .eq('visible_to_trade', true)
+          .order('category', { ascending: true })
+          .order('name', { ascending: true });
+      } else {
+        // Admin sees everything
+        query = query
+          .order('category', { ascending: true })
+          .order('name', { ascending: true });
+      }
+      
+      const { data, error } = await query;
       
       if (error) throw error;
       return data as MicrovellumProduct[];
@@ -102,7 +127,21 @@ export function useCatalog() {
   const dynamicCatalog: CatalogItemDefinition[] = dbProducts?.map(transformToDefinition) || [];
   
   // Use dynamic catalog if we have products, otherwise fall back to static
-  const catalog = dynamicCatalog.length > 0 ? dynamicCatalog : STATIC_CATALOG;
+  // For standard users, use a curated subset of static catalog if no dynamic products
+  let catalog: CatalogItemDefinition[];
+  if (dynamicCatalog.length > 0) {
+    catalog = dynamicCatalog;
+  } else if (userType === 'standard') {
+    // Curated selection for standard users - most popular items only
+    const curatedIds = [
+      'base-600-1d', 'base-600-3dr', 'base-900-2d', 'base-600-sink',
+      'wall-600-2d', 'wall-900-2d',
+      'tall-600-2d', 'tall-600-ov'
+    ];
+    catalog = STATIC_CATALOG.filter(item => curatedIds.includes(item.id));
+  } else {
+    catalog = STATIC_CATALOG;
+  }
   
   // Group by category for sidebar display
   const groupedCatalog = {
@@ -125,7 +164,7 @@ export function useCatalog() {
 
 // Helper to find a definition by ID (checks both dynamic and static)
 export function useCatalogItem(definitionId: string | null) {
-  const { catalog } = useCatalog();
+  const { catalog } = useCatalog('admin');
   
   if (!definitionId) return null;
   
