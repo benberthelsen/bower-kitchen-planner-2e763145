@@ -45,6 +45,19 @@ export default function MicrovellumImport() {
     loadProducts();
   }, []);
 
+  const getAccessToken = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+
+    if (!session?.access_token) {
+      toast.error('Please sign in as an admin to import products');
+      return null;
+    }
+
+    const { data: refreshedData } = await supabase.auth.refreshSession();
+    return refreshedData.session?.access_token ?? session.access_token;
+  };
+
   const loadProducts = async () => {
     setLoading(true);
     try {
@@ -73,10 +86,8 @@ export default function MicrovellumImport() {
       return;
     }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
+    const token = await getAccessToken();
     if (!token) {
-      toast.error('Please sign in as an admin to import products');
       event.target.value = '';
       return;
     }
@@ -86,12 +97,13 @@ export default function MicrovellumImport() {
       const xmlContent = await file.text();
       console.log('File loaded, length:', xmlContent.length);
 
-      const { data, error, response } = await supabase.functions.invoke('import-microvellum', {
-        body: { xmlContent },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+       const { data, error, response } = await supabase.functions.invoke('import-microvellum', {
+         body: { xmlContent },
+         headers: {
+           authorization: `Bearer ${token}`,
+           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+         },
+       });
 
       if (error) {
         const detail = response ? `${response.status}: ${await response.text()}` : error.message;
@@ -210,10 +222,8 @@ export default function MicrovellumImport() {
           <div className="flex items-center gap-4 pt-2 border-t">
             <Button 
               onClick={async () => {
-                const { data: sessionData } = await supabase.auth.getSession();
-                const token = sessionData.session?.access_token;
+                const token = await getAccessToken();
                 if (!token) {
-                  toast.error('Please sign in as an admin to import products');
                   return;
                 }
 
@@ -224,12 +234,13 @@ export default function MicrovellumImport() {
                   if (!response.ok) throw new Error('Failed to load bundled XML file');
                   const xmlContent = await response.text();
                   
-                  const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
-                    body: { xmlContent },
-                    headers: {
-                      Authorization: `Bearer ${token}`,
-                    },
-                  });
+                   const { data, error, response: fnResponse } = await supabase.functions.invoke('import-microvellum', {
+                     body: { xmlContent },
+                     headers: {
+                       authorization: `Bearer ${token}`,
+                       apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                     },
+                   });
 
                   if (error) {
                     const detail = fnResponse ? `${fnResponse.status}: ${await fnResponse.text()}` : error.message;
