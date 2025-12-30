@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 export type AppRole = 'admin' | 'moderator' | 'user';
+export type UserType = 'consumer' | 'trade';
 
 interface AuthState {
   user: User | null;
@@ -10,6 +11,7 @@ interface AuthState {
   loading: boolean;
   isAdmin: boolean;
   userRole: AppRole | null;
+  userType: UserType;
 }
 
 export function useAuth() {
@@ -19,6 +21,7 @@ export function useAuth() {
     loading: true,
     isAdmin: false,
     userRole: null,
+    userType: 'consumer',
   });
 
   useEffect(() => {
@@ -38,13 +41,14 @@ export function useAuth() {
       // Defer role check with setTimeout to avoid deadlock
       if (session?.user) {
         setTimeout(() => {
-          checkUserRole(session.user.id);
+          checkUserRoleAndType(session.user.id);
         }, 0);
       } else {
         setAuthState((prev) => ({
           ...prev,
           isAdmin: false,
           userRole: null,
+          userType: 'consumer',
           loading: false,
         }));
       }
@@ -60,46 +64,50 @@ export function useAuth() {
       }));
 
       if (session?.user) {
-        checkUserRole(session.user.id);
+        checkUserRoleAndType(session.user.id);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const checkUserRole = async (userId: string) => {
+  const checkUserRoleAndType = async (userId: string) => {
     // Keep loading true until we definitively know the role.
     setAuthState((prev) => ({ ...prev, loading: true }));
 
     try {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .single();
+      // Fetch role and profile in parallel
+      const [roleResult, profileResult] = await Promise.all([
+        supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', userId)
+          .single(),
+        supabase
+          .from('profiles')
+          .select('user_type')
+          .eq('id', userId)
+          .single(),
+      ]);
 
-      // No role row found => normal user
-      if (error?.code === 'PGRST116') {
-        setAuthState((prev) => ({
-          ...prev,
-          isAdmin: false,
-          userRole: null,
-          loading: false,
-        }));
-        return;
+      let role: AppRole | null = null;
+      let userType: UserType = 'consumer';
+
+      // Handle role result
+      if (roleResult.error?.code !== 'PGRST116' && !roleResult.error) {
+        role = (roleResult.data?.role as AppRole | null) ?? null;
       }
 
-      if (error) {
-        console.error('Error checking user role:', error);
-        setAuthState((prev) => ({ ...prev, loading: false }));
-        return;
+      // Handle profile result
+      if (!profileResult.error && profileResult.data?.user_type) {
+        userType = profileResult.data.user_type as UserType;
       }
 
-      const role = (data?.role as AppRole | null) ?? null;
       setAuthState((prev) => ({
         ...prev,
         isAdmin: role === 'admin',
         userRole: role,
+        userType,
         loading: false,
       }));
     } catch (error) {

@@ -428,8 +428,10 @@ export type Database = {
           default_depth: number | null
           default_height: number | null
           default_width: number | null
+          display_order: number | null
           door_count: number | null
           drawer_count: number | null
+          featured: boolean | null
           id: string
           is_blind: boolean | null
           is_corner: boolean | null
@@ -440,6 +442,8 @@ export type Database = {
           room_component_type: string | null
           spec_group: string | null
           updated_at: string | null
+          visible_to_standard: boolean | null
+          visible_to_trade: boolean | null
         }
         Insert: {
           cabinet_type?: string | null
@@ -448,8 +452,10 @@ export type Database = {
           default_depth?: number | null
           default_height?: number | null
           default_width?: number | null
+          display_order?: number | null
           door_count?: number | null
           drawer_count?: number | null
+          featured?: boolean | null
           id?: string
           is_blind?: boolean | null
           is_corner?: boolean | null
@@ -460,6 +466,8 @@ export type Database = {
           room_component_type?: string | null
           spec_group?: string | null
           updated_at?: string | null
+          visible_to_standard?: boolean | null
+          visible_to_trade?: boolean | null
         }
         Update: {
           cabinet_type?: string | null
@@ -468,8 +476,10 @@ export type Database = {
           default_depth?: number | null
           default_height?: number | null
           default_width?: number | null
+          display_order?: number | null
           door_count?: number | null
           drawer_count?: number | null
+          featured?: boolean | null
           id?: string
           is_blind?: boolean | null
           is_corner?: boolean | null
@@ -480,6 +490,8 @@ export type Database = {
           room_component_type?: string | null
           spec_group?: string | null
           updated_at?: string | null
+          visible_to_standard?: boolean | null
+          visible_to_trade?: boolean | null
         }
         Relationships: []
       }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
-import { useCatalog } from '../../hooks/useCatalog';
-import { Plus, ChevronDown, ChevronRight, Search, Box, MousePointer, FolderOpen, Loader2, Download } from 'lucide-react';
+import { useCatalog, UserType } from '../../hooks/useCatalog';
+import { ChevronDown, ChevronRight, Search, MousePointer, FolderOpen, Loader2 } from 'lucide-react';
 import { CatalogItemDefinition } from '../../types';
 import {
   DropdownMenu,
@@ -10,10 +10,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+
 interface SidebarProps {
   onClose?: () => void;
+  userType?: UserType;
 }
 
 const CabinetThumbnail = ({ item }: { item: CatalogItemDefinition }) => {
@@ -54,40 +54,12 @@ const CabinetThumbnail = ({ item }: { item: CatalogItemDefinition }) => {
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onClose, userType = 'standard' }) => {
   const { setPlacementItem, placementItemId, loadSampleKitchen, sampleKitchens } = usePlanner();
-  const { catalog, isLoading, isDynamic, refetch } = useCatalog();
+  const { catalog, isLoading, isDynamic } = useCatalog(userType);
   const [search, setSearch] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({ 'Base': true, 'Wall': true, 'Tall': true, 'Appliance': true, 'Structure': true });
-  const [importing, setImporting] = useState(false);
 
-  const handleImportProducts = async () => {
-    setImporting(true);
-    try {
-      // Fetch the bundled XML file
-      const response = await fetch('/data/microvellum-products.xml');
-      if (!response.ok) throw new Error('Failed to load product data');
-      const xmlContent = await response.text();
-      
-      const { data, error } = await supabase.functions.invoke('import-microvellum', {
-        body: { xmlContent }
-      });
-
-      if (error) throw error;
-
-      if (data?.success) {
-        toast.success(`Imported ${data.imported} products`);
-        refetch();
-      } else {
-        throw new Error(data?.error || 'Import failed');
-      }
-    } catch (error: any) {
-      console.error('Import error:', error);
-      toast.error(error.message || 'Failed to import products');
-    } finally {
-      setImporting(false);
-    }
-  };
   const toggleCategory = (cat: string) => setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
 
   const filteredCatalog = catalog.filter(item => item.name.toLowerCase().includes(search.toLowerCase()) || item.sku.toLowerCase().includes(search.toLowerCase()));
@@ -160,37 +132,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           </div>
         ) : null}
         
-        {/* Import Products Button - show when no dynamic catalog */}
-        {!isLoading && !isDynamic && (
-          <div className="mb-3 p-3 border border-dashed rounded-lg bg-muted/30">
-            <p className="text-xs text-muted-foreground mb-2">
-              Import your Microvellum product library to see all cabinets
-            </p>
-            <Button 
-              size="sm" 
-              variant="secondary" 
-              className="w-full"
-              onClick={handleImportProducts}
-              disabled={importing}
-            >
-              {importing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4 mr-2" />
-                  Import Product Library
-                </>
-              )}
-            </Button>
+        {/* Show catalog info */}
+        {isDynamic && !isLoading && (
+          <div className="mb-2 px-2 py-1 text-xs text-muted-foreground bg-muted/50 rounded">
+            {catalog.length} products {userType === 'standard' ? '(curated)' : 'available'}
           </div>
         )}
         
-        {isDynamic && !isLoading && (
-          <div className="mb-2 px-2 py-1 text-xs text-muted-foreground bg-muted/50 rounded">
-            {catalog.length} products from Microvellum
+        {!isDynamic && !isLoading && userType === 'standard' && (
+          <div className="mb-2 px-2 py-1 text-xs text-muted-foreground bg-blue-50 rounded border border-blue-100">
+            Showing popular selections
           </div>
         )}
         
