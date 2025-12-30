@@ -45,19 +45,30 @@ export default function AdminSettings() {
     return error?.message || 'Import failed';
   };
 
-  const syncProductsFromCatalog = async () => {
+  const syncProductsFromMicrovellum = async () => {
     try {
-      // Insert all catalog items into products table
-      const products = CATALOG.map(item => ({
+      // Fetch all Microvellum products and sync to products table
+      const { data: mvProducts, error: fetchError } = await supabase
+        .from('microvellum_products')
+        .select('*');
+
+      if (fetchError) throw fetchError;
+
+      if (!mvProducts || mvProducts.length === 0) {
+        toast.error('No Microvellum products to sync. Import products first.');
+        return;
+      }
+
+      const products = mvProducts.map(item => ({
         id: item.id,
-        sku: item.sku,
+        sku: item.microvellum_link_id || item.id,
         name: item.name,
         category: item.category || null,
-        item_type: item.itemType,
-        default_width: item.defaultWidth,
-        default_depth: item.defaultDepth,
-        default_height: item.defaultHeight,
-        price: item.price,
+        item_type: item.cabinet_type || 'Cabinet',
+        default_width: item.default_width,
+        default_depth: item.default_depth,
+        default_height: item.default_height,
+        price: 0,
       }));
 
       const { error } = await supabase
@@ -65,7 +76,7 @@ export default function AdminSettings() {
         .upsert(products, { onConflict: 'id' });
 
       if (error) throw error;
-      toast.success(`Synced ${products.length} products from catalog`);
+      toast.success(`Synced ${products.length} products from Microvellum catalog`);
     } catch (error) {
       console.error('Error syncing products:', error);
       toast.error('Failed to sync products');
@@ -288,8 +299,8 @@ export default function AdminSettings() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={syncProductsFromCatalog}>
-              Sync Products from Catalog
+            <Button onClick={syncProductsFromMicrovellum}>
+              Sync Products from Microvellum
             </Button>
           </CardContent>
         </Card>

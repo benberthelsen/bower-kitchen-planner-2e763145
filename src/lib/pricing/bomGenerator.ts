@@ -61,8 +61,8 @@ export function generateCabinetBOM(
   return {
     cabinetId: cabinet.instanceId,
     cabinetNumber: cabinet.cabinetNumber ?? '',
-    cabinetName: catalogItem.name,
-    cabinetSku: catalogItem.sku,
+    cabinetName: catalogItemName ?? 'Unknown',
+    cabinetSku: cabinet.definitionId,
     dimensions: { width: cabinet.width, height: cabinet.height, depth: cabinet.depth },
     parts,
     sheets,

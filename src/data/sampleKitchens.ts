@@ -60,11 +60,13 @@ function createPlacedItem(
     depth = globalDimensions.tallDepth;
   }
 
+  const itemType = dims.category === 'Base' || dims.category === 'Wall' || dims.category === 'Tall' ? 'Cabinet' : 'Appliance';
+
   return {
     instanceId: `sample_${index}_${Math.random().toString(36).substr(2, 6)}`,
-    definitionId: def.id,
-    itemType: def.itemType,
-    cabinetNumber: def.itemType === 'Cabinet' ? `C${String(index + 1).padStart(2, '0')}` : undefined,
+    definitionId: preset.definitionId,
+    itemType,
+    cabinetNumber: itemType === 'Cabinet' ? `C${String(index + 1).padStart(2, '0')}` : undefined,
     x: preset.x,
     y: posY,
     z: preset.z,
