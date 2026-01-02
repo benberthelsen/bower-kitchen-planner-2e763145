@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { usePlanner } from '../../store/PlannerContext';
 import { PlacedItem } from '../../types';
 import { HANDLE_OPTIONS } from '../../constants';
-import { useCatalogItem } from '../../hooks/useCatalog';
+import { useCatalogItem, useCatalog } from '../../hooks/useCatalog';
 import { useCabinetMaterials } from '../../hooks/useCabinetMaterials';
 import CabinetAssembler from './CabinetAssembler';
 import { CabinetRenderConfig, parseProductToRenderConfig } from '../../types/cabinetConfig';
@@ -22,6 +22,9 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
     selectedFinish, selectedBenchtop, selectedKick, 
     globalDimensions, hardwareOptions 
   } = usePlanner();
+  
+  // Get catalog with loading state
+  const { isLoading: catalogLoading } = useCatalog('admin');
   
   // Get catalog item with render config
   const catalogItem = useCatalogItem(item.definitionId);
@@ -83,17 +86,28 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
     return null;
   }
 
+  // Show loading placeholder while catalog is loading
+  const widthM = safeWidth / 1000;
+  const heightM = safeHeight / 1000;
+  const depthM = safeDepth / 1000;
+  const position: [number, number, number] = [item.x / 1000, (item.y / 1000) + (heightM / 2), item.z / 1000];
+
+  if (catalogLoading && !catalogItem) {
+    return (
+      <group position={position} rotation={[0, -THREE.MathUtils.degToRad(item.rotation || 0), 0]}>
+        <mesh>
+          <boxGeometry args={[widthM, heightM, depthM]} />
+          <meshBasicMaterial color="#9ca3af" wireframe opacity={0.5} transparent />
+        </mesh>
+      </group>
+    );
+  }
+
   // Verify materials exist
   if (!materials || !materials.gable) {
     console.warn('CabinetMesh: Materials not available yet');
     return null;
   }
-
-  const widthM = safeWidth / 1000;
-  const heightM = safeHeight / 1000;
-  const depthM = safeDepth / 1000;
-
-  const position: [number, number, number] = [item.x / 1000, (item.y / 1000) + (heightM / 2), item.z / 1000];
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();

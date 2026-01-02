@@ -67,14 +67,14 @@ const HandleMesh: React.FC<HandleMeshProps> = ({
         <meshStandardMaterial {...metalProps} />
       </mesh>
       
-      {/* Top standoff */}
-      <mesh position={[0, halfLength - 0.01, standoffDepth / 2]} rotation={[Math.PI / 2, 0, 0]}>
+      {/* Top standoff - goes INTO the door (negative Z) */}
+      <mesh position={[0, halfLength - 0.01, -standoffDepth / 2]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.004, 0.004, standoffDepth, 8]} />
         <meshStandardMaterial {...metalProps} />
       </mesh>
       
-      {/* Bottom standoff */}
-      <mesh position={[0, -halfLength + 0.01, standoffDepth / 2]} rotation={[Math.PI / 2, 0, 0]}>
+      {/* Bottom standoff - goes INTO the door (negative Z) */}
+      <mesh position={[0, -halfLength + 0.01, -standoffDepth / 2]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.004, 0.004, standoffDepth, 8]} />
         <meshStandardMaterial {...metalProps} />
       </mesh>
