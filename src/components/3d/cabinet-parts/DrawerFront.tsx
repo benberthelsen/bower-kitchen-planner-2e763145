@@ -33,11 +33,16 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   // Rotate texture 90 degrees for horizontal grain
   const texture = React.useMemo(() => {
     if (!map) return null;
-    const cloned = map.clone();
-    cloned.rotation = Math.PI / 2;
-    cloned.center.set(0.5, 0.5);
-    cloned.needsUpdate = true;
-    return cloned;
+    try {
+      const cloned = map.clone();
+      cloned.rotation = Math.PI / 2;
+      cloned.center.set(0.5, 0.5);
+      cloned.needsUpdate = true;
+      return cloned;
+    } catch (e) {
+      console.warn('DrawerFront: Texture clone failed:', e);
+      return null;
+    }
   }, [map]);
 
   const actualWidth = width - gap * 2;
