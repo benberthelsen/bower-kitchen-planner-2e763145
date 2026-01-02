@@ -13,3 +13,5 @@ export { default as Kickboard } from './Kickboard';
 export { default as BenchtopMesh } from './BenchtopMesh';
 export { default as FalseFront } from './FalseFront';
 export { default as CornerCarcass } from './CornerCarcass';
+export { default as TopPanel } from './TopPanel';
+export { default as DividerPanel } from './DividerPanel';
