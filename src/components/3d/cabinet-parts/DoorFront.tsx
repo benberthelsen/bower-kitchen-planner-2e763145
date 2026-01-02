@@ -33,11 +33,16 @@ const DoorFront: React.FC<DoorFrontProps> = ({
   // No rotation for vertical grain
   const texture = React.useMemo(() => {
     if (!map) return null;
-    const cloned = map.clone();
-    cloned.rotation = 0;
-    cloned.center.set(0.5, 0.5);
-    cloned.needsUpdate = true;
-    return cloned;
+    try {
+      const cloned = map.clone();
+      cloned.rotation = 0;
+      cloned.center.set(0.5, 0.5);
+      cloned.needsUpdate = true;
+      return cloned;
+    } catch (e) {
+      console.warn('DoorFront: Texture clone failed:', e);
+      return null;
+    }
   }, [map]);
 
   const actualWidth = width - gap * 2;

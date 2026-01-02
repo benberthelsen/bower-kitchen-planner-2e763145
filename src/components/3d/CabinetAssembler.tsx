@@ -315,7 +315,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           <HandleMesh
             type={handle.type}
             color={handle.hex}
-            position={[-doorWidth / 2 + doorWidth / 2 - 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
+            position={[-doorWidth + 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
           />
           <DoorFront
             width={doorWidth}
@@ -331,7 +331,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           <HandleMesh
             type={handle.type}
             color={handle.hex}
-            position={[doorWidth / 2 - doorWidth / 2 + 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
+            position={[doorWidth - 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
           />
         </>
       );
