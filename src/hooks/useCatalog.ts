@@ -25,10 +25,16 @@ interface MicrovellumProduct {
   visible_to_trade: boolean | null;
   featured: boolean | null;
   display_order: number | null;
-  // New columns from migration
+  // Columns from migration
   has_false_front: boolean | null;
   has_adjustable_shelves: boolean | null;
   corner_type: string | null;
+  // Corner dimension columns
+  left_arm_depth: number | null;
+  right_arm_depth: number | null;
+  blind_depth: number | null;
+  filler_width: number | null;
+  return_filler: boolean | null;
 }
 
 // Extended catalog definition with render config
@@ -136,6 +142,11 @@ const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
       hasAdjustableShelves: true,
       shelfCount: 1,
       cornerType: null,
+      leftArmDepth: 575,
+      rightArmDepth: 575,
+      blindDepth: 150,
+      fillerWidth: 75,
+      hasReturnFiller: false,
       defaultWidth: 600,
       defaultHeight: 870,
       defaultDepth: 575,
@@ -171,6 +182,11 @@ const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
       hasAdjustableShelves: true,
       shelfCount: 2,
       cornerType: null,
+      leftArmDepth: 350,
+      rightArmDepth: 350,
+      blindDepth: 150,
+      fillerWidth: 75,
+      hasReturnFiller: false,
       defaultWidth: 600,
       defaultHeight: 720,
       defaultDepth: 350,
@@ -206,6 +222,11 @@ const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
       hasAdjustableShelves: true,
       shelfCount: 5,
       cornerType: null,
+      leftArmDepth: 580,
+      rightArmDepth: 580,
+      blindDepth: 150,
+      fillerWidth: 75,
+      hasReturnFiller: false,
       defaultWidth: 600,
       defaultHeight: 2100,
       defaultDepth: 580,
