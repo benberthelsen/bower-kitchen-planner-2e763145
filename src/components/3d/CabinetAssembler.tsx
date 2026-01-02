@@ -15,6 +15,8 @@ import {
   BenchtopMesh,
   FalseFront,
   CornerCarcass,
+  TopPanel,
+  DividerPanel,
 } from './cabinet-parts';
 
 interface MaterialProps {
@@ -234,13 +236,66 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     return shelves;
   };
 
-  // Render doors
+  /**
+   * Calculate variable drawer heights - larger drawers at bottom (Microvellum standard)
+   */
+  const getDrawerHeights = (count: number, totalHeight: number): number[] => {
+    // Microvellum-style drawer height distributions (proportions)
+    const distributions: Record<number, number[]> = {
+      1: [1.0],
+      2: [0.40, 0.60],           // Top 40%, Bottom 60%
+      3: [0.25, 0.33, 0.42],     // Small, Medium, Large
+      4: [0.18, 0.24, 0.28, 0.30],
+      5: [0.14, 0.18, 0.22, 0.22, 0.24],
+    };
+    
+    const ratios = distributions[count] || Array(count).fill(1 / count);
+    return ratios.map(ratio => ratio * totalHeight);
+  };
+
+  /**
+   * Calculate section heights for door+drawer combination cabinets
+   */
+  const getDrawerSectionHeight = (drawerCount: number, carcassH: number): number => {
+    // Standard drawer section heights based on count
+    const drawerHeights: Record<number, number> = {
+      1: 0.18,   // 180mm for single drawer
+      2: 0.32,   // 320mm for 2 drawers
+      3: 0.45,   // 450mm for 3 drawers
+      4: 0.55,   // 550mm for 4 drawers
+    };
+    const baseHeight = drawerHeights[drawerCount] || drawerCount * 0.15;
+    // Cap at 60% of carcass height to leave room for doors
+    return Math.min(baseHeight, carcassH * 0.6);
+  };
+
+  // Check if this is a combination cabinet (has both doors AND drawers)
+  const hasBothDoorsAndDrawers = config.doorCount > 0 && config.drawerCount > 0;
+  const drawerSectionHeight = hasBothDoorsAndDrawers 
+    ? getDrawerSectionHeight(config.drawerCount, carcassHeight)
+    : 0;
+  const doorSectionHeight = hasBothDoorsAndDrawers 
+    ? carcassHeight - drawerSectionHeight - shelfThickness // Include divider
+    : carcassHeight;
+
+  // Render doors - now handles combination cabinets
   const renderDoors = () => {
-    if (config.doorCount === 0 || config.drawerCount > 0) return null;
+    // Skip if no doors OR if only drawers (and no doors)
+    if (config.doorCount === 0) return null;
+    // For drawer-only cabinets, skip doors
+    if (config.drawerCount > 0 && config.doorCount === 0) return null;
     
     const frontZ = depthM / 2 + 0.01;
-    const doorHeight = carcassHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0);
-    const doorY = carcassYOffset - (config.isSink && config.hasFalseFront ? 0.05 : 0);
+    
+    // For combination cabinets, doors go in the bottom section
+    const doorHeight = hasBothDoorsAndDrawers 
+      ? doorSectionHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0)
+      : carcassHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0);
+    
+    // Position: for combo cabinets, doors are below the drawers
+    const doorY = hasBothDoorsAndDrawers
+      ? carcassYOffset - carcassHeight / 2 + doorSectionHeight / 2
+      : carcassYOffset - (config.isSink && config.hasFalseFront ? 0.05 : 0);
     
     if (config.doorCount === 2) {
       const doorWidth = widthM / 2;
@@ -306,15 +361,27 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     );
   };
 
-  // Render drawers
+  // Render drawers with variable heights (Microvellum-compliant)
   const renderDrawers = () => {
     if (config.drawerCount === 0) return null;
     
     const frontZ = depthM / 2 + 0.01;
-    const drawerHeight = carcassHeight / config.drawerCount;
     
-    return Array.from({ length: config.drawerCount }).map((_, i) => {
-      const drawerY = carcassYOffset + carcassHeight / 2 - drawerHeight / 2 - i * drawerHeight;
+    // For combination cabinets, drawers use only the drawer section
+    const totalDrawerHeight = hasBothDoorsAndDrawers ? drawerSectionHeight : carcassHeight;
+    const drawerHeights = getDrawerHeights(config.drawerCount, totalDrawerHeight);
+    
+    // Starting Y position - top of drawer section
+    const drawerTopY = hasBothDoorsAndDrawers
+      ? carcassYOffset + carcassHeight / 2
+      : carcassYOffset + carcassHeight / 2;
+    
+    let currentY = drawerTopY;
+    
+    return drawerHeights.map((drawerHeight, i) => {
+      const drawerY = currentY - drawerHeight / 2;
+      currentY -= drawerHeight;
+      
       return (
         <React.Fragment key={`drawer-${i}`}>
           <DrawerFront
@@ -337,6 +404,42 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         </React.Fragment>
       );
     });
+  };
+
+  // Render horizontal divider between drawers and doors (for combination cabinets)
+  const renderDivider = () => {
+    if (!hasBothDoorsAndDrawers) return null;
+    
+    const dividerY = carcassYOffset + carcassHeight / 2 - drawerSectionHeight - shelfThickness / 2;
+    
+    return (
+      <DividerPanel
+        width={interiorWidth}
+        depth={depthM - backPanelThickness}
+        thickness={shelfThickness}
+        position={[0, dividerY, backPanelThickness / 2]}
+        color={gableMat.color}
+        roughness={gableMat.roughness}
+        map={gableMat.map}
+      />
+    );
+  };
+
+  // Render top panel for wall cabinets
+  const renderTopPanel = () => {
+    if (config.category !== 'Wall') return null;
+    
+    return (
+      <TopPanel
+        width={interiorWidth}
+        depth={depthM - backPanelThickness}
+        thickness={bottomThickness}
+        position={[0, carcassYOffset + carcassHeight / 2 - bottomThickness / 2, backPanelThickness / 2]}
+        color={gableMat.color}
+        roughness={gableMat.roughness}
+        map={gableMat.map}
+      />
+    );
   };
 
   // Render false front for sink cabinets (ONLY if hasFalseFront is true)
@@ -515,12 +618,14 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       {/* Cabinet structure */}
       {renderGables()}
       {renderBottom()}
+      {renderTopPanel()}
       {renderBack()}
       {renderShelves()}
       
-      {/* Fronts - doors or drawers */}
+      {/* Fronts - doors and/or drawers */}
       {renderDoors()}
       {renderDrawers()}
+      {renderDivider()}
       {renderFalseFront()}
       
       {/* Accessories */}
