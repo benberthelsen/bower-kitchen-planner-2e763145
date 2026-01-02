@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useCallback } from "react";
+import React, { Suspense, useState, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { PlannerProvider, usePlanner } from "../store/PlannerContext";
 import Sidebar from "../components/Layout/Sidebar";
@@ -10,11 +10,13 @@ import SelectionToolbar from "../components/3d/SelectionToolbar";
 import StatusBar from "../components/3d/StatusBar";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../integrations/supabase/client";
-import { Loader2, Undo2, Redo2, Grid3X3, Box, HelpCircle, User, Save, LogIn, Settings, Briefcase } from "lucide-react";
+import { Loader2, Undo2, Redo2, Grid3X3, Box, HelpCircle, User, Save, LogIn, Settings, Briefcase, Send } from "lucide-react";
 import { useCatalog } from "../hooks/useCatalog";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useExternalDesignSync } from "../hooks/useExternalDesignSync";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { SaveDesignDialog } from "@/components/SaveDesignDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,12 +56,22 @@ function AppInner() {
   const [is3D, setIs3D] = useState(true);
   const setIs2D = useCallback(() => setIs3D(false), []);
   const [saving, setSaving] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveDialogMode, setSaveDialogMode] = useState<'save' | 'quote'>('save');
   const [cameraControls, setCameraControls] = useState<{
     zoomIn: () => void;
     zoomOut: () => void;
     resetView: () => void;
     fitAll: () => void;
   } | null>(null);
+  
+  // External design sync for shared backend
+  const { trackPageView } = useExternalDesignSync();
+
+  // Track page view on mount
+  useEffect(() => {
+    trackPageView('/designer', '3D Kitchen Designer');
+  }, [trackPageView]);
 
   // Enable keyboard shortcuts
   useKeyboardShortcuts();
@@ -178,16 +190,45 @@ function AppInner() {
 
           <div className="h-6 w-px bg-gray-200 mx-1" />
 
-          {/* Save Button */}
+          {/* Save Button - for logged in users to local DB */}
+          {user && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSaveDesign}
+              disabled={saving}
+              title="Save to your account"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin mr-1" /> : <Save size={16} className="mr-1" />}
+              Save
+            </Button>
+          )}
+          
+          {/* Save Design Button - for anonymous users to external DB */}
           <Button
             variant="outline"
             size="sm"
-            onClick={handleSaveDesign}
-            disabled={saving || !user}
-            title={user ? "Save design" : "Sign in to save"}
+            onClick={() => {
+              setSaveDialogMode('save');
+              setSaveDialogOpen(true);
+            }}
+            title="Save your design"
           >
-            {saving ? <Loader2 size={16} className="animate-spin mr-1" /> : <Save size={16} className="mr-1" />}
-            Save
+            <Save size={16} className="mr-1" />
+            Save Design
+          </Button>
+
+          {/* Request Quote Button */}
+          <Button
+            size="sm"
+            onClick={() => {
+              setSaveDialogMode('quote');
+              setSaveDialogOpen(true);
+            }}
+            title="Request a quote for your design"
+          >
+            <Send size={16} className="mr-1" />
+            Get Quote
           </Button>
 
           <div className="h-6 w-px bg-gray-200 mx-1" />
@@ -304,6 +345,13 @@ function AppInner() {
         <button className="flex-1 px-3 py-2 rounded border" onClick={redo} disabled={!canRedo}>Redo</button>
         <button className="flex-1 px-3 py-2 rounded border" onClick={() => setIs3D(!is3D)}>{is3D ? '2D' : '3D'}</button>
       </div>
+
+      {/* Save Design / Request Quote Dialog */}
+      <SaveDesignDialog
+        open={saveDialogOpen}
+        onOpenChange={setSaveDialogOpen}
+        mode={saveDialogMode}
+      />
     </div>
   );
 }
