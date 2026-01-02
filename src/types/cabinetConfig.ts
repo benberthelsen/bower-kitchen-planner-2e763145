@@ -36,6 +36,13 @@ export interface CabinetRenderConfig {
   shelfCount: number;            // Calculated from height
   cornerType: CornerType;
   
+  // Corner cabinet specific dimensions (in mm)
+  leftArmDepth: number;   // Depth of left arm for L-shape corners
+  rightArmDepth: number;  // Depth of right arm for L-shape corners
+  blindDepth: number;     // Blind extension depth
+  fillerWidth: number;    // Required filler width for blind corners
+  hasReturnFiller: boolean; // Whether return filler is needed
+  
   // Dimensions (defaults from Microvellum, can be overridden)
   defaultWidth: number;
   defaultHeight: number;
@@ -108,6 +115,12 @@ export function parseProductToRenderConfig(product: {
   has_false_front?: boolean | null;
   has_adjustable_shelves?: boolean | null;
   corner_type?: string | null;
+  // Corner dimension columns
+  left_arm_depth?: number | null;
+  right_arm_depth?: number | null;
+  blind_depth?: number | null;
+  filler_width?: number | null;
+  return_filler?: boolean | null;
 }): CabinetRenderConfig {
   const name = product.name.toLowerCase();
   const category = (product.category as CabinetCategory) || 'Base';
@@ -172,6 +185,13 @@ export function parseProductToRenderConfig(product: {
     hasAdjustableShelves,
     shelfCount,
     cornerType,
+    
+    // Corner dimensions from database
+    leftArmDepth: product.left_arm_depth || 575,
+    rightArmDepth: product.right_arm_depth || 575,
+    blindDepth: product.blind_depth || 150,
+    fillerWidth: product.filler_width || 75,
+    hasReturnFiller: product.return_filler || false,
     
     defaultWidth: product.default_width || 600,
     defaultHeight: product.default_height || 870,

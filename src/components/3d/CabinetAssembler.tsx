@@ -134,6 +134,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Check if this is a corner cabinet
   const isCornerCabinet = config.isCorner || config.cornerType !== null;
   const cornerType = config.cornerType || (config.isBlind ? 'blind' : 'l-shape');
+  
+  // Corner dimensions from config and item overrides (convert mm to meters)
+  const leftArmDepthM = (item.leftCarcaseDepth || config.leftArmDepth || 575) / 1000;
+  const rightArmDepthM = (item.rightCarcaseDepth || config.rightArmDepth || 575) / 1000;
+  const blindDepthM = (config.blindDepth || 150) / 1000;
+  const fillerWidthM = (config.fillerWidth || 75) / 1000;
 
   // Render gables (side panels) - skip for corner cabinets which use CornerCarcass
   const renderGables = () => {
@@ -145,7 +151,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           height={carcassHeight}
           depth={depthM}
           cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
-          blindWidth={0.15}
+          leftArmDepth={leftArmDepthM}
+          rightArmDepth={rightArmDepthM}
+          blindDepth={blindDepthM}
+          blindSide={item.blindSide}
+          fillerWidth={fillerWidthM}
+          hasReturnFiller={config.hasReturnFiller}
           gableThickness={gableThickness}
           color={gableMat.color}
           roughness={gableMat.roughness}
@@ -638,7 +649,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       {renderOvenCavity()}
       {renderFridgeSpace()}
       
-      {/* Cabinet info label */}
+      {/* Cabinet info label with debug info for corners */}
       {isSelected && (
         <Html position={[0, heightM / 2 + 0.4, 0]} center zIndexRange={[100, 0]}>
           <div className="bg-gray-900/90 backdrop-blur text-white px-3 py-2 rounded-md shadow-xl border border-white/20 flex flex-col items-center pointer-events-none select-none min-w-[100px]">
@@ -646,6 +657,18 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             <div className="h-px w-full bg-white/20 my-1"></div>
             <span className="text-[10px] text-gray-300 truncate max-w-[150px]">{config.productName}</span>
             <span className="text-[10px] text-gray-400 font-mono">{Math.round(item.width)}w × {Math.round(item.height)}h × {Math.round(item.depth)}d</span>
+            {isCornerCabinet && (
+              <>
+                <div className="h-px w-full bg-yellow-500/30 my-1"></div>
+                <span className="text-[9px] text-yellow-300 font-mono">Corner: {cornerType}</span>
+                {cornerType === 'l-shape' && (
+                  <span className="text-[9px] text-yellow-200 font-mono">L: {Math.round(leftArmDepthM * 1000)}mm R: {Math.round(rightArmDepthM * 1000)}mm</span>
+                )}
+                {cornerType === 'blind' && (
+                  <span className="text-[9px] text-yellow-200 font-mono">Blind: {item.blindSide || 'Left'} {Math.round(blindDepthM * 1000)}mm</span>
+                )}
+              </>
+            )}
           </div>
         </Html>
       )}

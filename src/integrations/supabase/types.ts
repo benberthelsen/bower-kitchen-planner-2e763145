@@ -422,6 +422,7 @@ export type Database = {
       }
       microvellum_products: {
         Row: {
+          blind_depth: number | null
           cabinet_type: string | null
           category: string | null
           corner_type: string | null
@@ -433,15 +434,19 @@ export type Database = {
           door_count: number | null
           drawer_count: number | null
           featured: boolean | null
+          filler_width: number | null
           has_adjustable_shelves: boolean | null
           has_false_front: boolean | null
           id: string
           is_blind: boolean | null
           is_corner: boolean | null
           is_sink: boolean | null
+          left_arm_depth: number | null
           microvellum_link_id: string | null
           name: string
           raw_metadata: Json | null
+          return_filler: boolean | null
+          right_arm_depth: number | null
           room_component_type: string | null
           spec_group: string | null
           updated_at: string | null
@@ -449,6 +454,7 @@ export type Database = {
           visible_to_trade: boolean | null
         }
         Insert: {
+          blind_depth?: number | null
           cabinet_type?: string | null
           category?: string | null
           corner_type?: string | null
@@ -460,15 +466,19 @@ export type Database = {
           door_count?: number | null
           drawer_count?: number | null
           featured?: boolean | null
+          filler_width?: number | null
           has_adjustable_shelves?: boolean | null
           has_false_front?: boolean | null
           id?: string
           is_blind?: boolean | null
           is_corner?: boolean | null
           is_sink?: boolean | null
+          left_arm_depth?: number | null
           microvellum_link_id?: string | null
           name: string
           raw_metadata?: Json | null
+          return_filler?: boolean | null
+          right_arm_depth?: number | null
           room_component_type?: string | null
           spec_group?: string | null
           updated_at?: string | null
@@ -476,6 +486,7 @@ export type Database = {
           visible_to_trade?: boolean | null
         }
         Update: {
+          blind_depth?: number | null
           cabinet_type?: string | null
           category?: string | null
           corner_type?: string | null
@@ -487,15 +498,19 @@ export type Database = {
           door_count?: number | null
           drawer_count?: number | null
           featured?: boolean | null
+          filler_width?: number | null
           has_adjustable_shelves?: boolean | null
           has_false_front?: boolean | null
           id?: string
           is_blind?: boolean | null
           is_corner?: boolean | null
           is_sink?: boolean | null
+          left_arm_depth?: number | null
           microvellum_link_id?: string | null
           name?: string
           raw_metadata?: Json | null
+          return_filler?: boolean | null
+          right_arm_depth?: number | null
           room_component_type?: string | null
           spec_group?: string | null
           updated_at?: string | null
