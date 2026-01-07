@@ -109,10 +109,11 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
                       <button
                         key={product.id}
                         onClick={() => onSelectProduct(product.id)}
-                        className="flex items-center gap-2 w-full p-2 rounded-md hover:bg-trade-amber/10 transition-colors text-left group"
+                        className="flex items-center gap-2 w-full p-2 rounded-md hover:bg-trade-amber/10 active:bg-trade-amber/20 transition-colors text-left group"
+                        title={`Click to add ${product.name} to the scene`}
                       >
-                        <div className="w-8 h-8 bg-muted rounded flex items-center justify-center">
-                          <Package className="w-4 h-4 text-muted-foreground" />
+                        <div className="w-8 h-8 bg-muted rounded flex items-center justify-center group-hover:bg-trade-amber/10 transition-colors">
+                          <Package className="w-4 h-4 text-muted-foreground group-hover:text-trade-amber transition-colors" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate">{product.name}</p>
@@ -120,7 +121,10 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
                             {product.defaultWidth} × {product.defaultDepth}mm
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-trade-amber opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="flex items-center gap-1 text-trade-amber opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Plus className="w-4 h-4" />
+                          <span className="text-[10px] font-medium">Add</span>
+                        </div>
                       </button>
                     ))}
                   </div>

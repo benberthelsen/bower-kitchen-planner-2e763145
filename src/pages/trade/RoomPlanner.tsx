@@ -12,9 +12,9 @@ import {
 } from '@/contexts/TradeRoomContext';
 import { PlannerScene } from '@/components/trade/planner/PlannerScene';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
-import { InlineConfigurator } from '@/components/trade/planner/InlineConfigurator';
+import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { PlacementToolbar } from '@/components/trade/planner/PlacementToolbar';
-import { useCatalogItem } from '@/hooks/useCatalog';
+import { useCatalog } from '@/hooks/useCatalog';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { 
   ArrowLeft, 
@@ -35,6 +35,7 @@ import {
 export default function RoomPlanner() {
   const { jobId, roomId } = useParams();
   const navigate = useNavigate();
+  const { catalog } = useCatalog('trade');
   const { 
     currentRoom, 
     setCurrentRoom, 
@@ -50,7 +51,8 @@ export default function RoomPlanner() {
   } = useTradeRoom();
 
   const [showCatalog, setShowCatalog] = useState(true);
-  const [showInlineConfig, setShowInlineConfig] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editDialogCabinet, setEditDialogCabinet] = useState<ConfiguredCabinet | null>(null);
 
   // Initialize room if needed
   useEffect(() => {
@@ -85,18 +87,60 @@ export default function RoomPlanner() {
   const selectedCabinet = getSelectedCabinet();
   const cabinets = currentRoom ? getCabinetsByRoom(currentRoom.id) : [];
 
-  // Show inline config when cabinet is selected
-  useEffect(() => {
-    if (selectedCabinetId) {
-      setShowInlineConfig(true);
+  // Calculate smart default position for new cabinets
+  const calculateDefaultPosition = useCallback((
+    room: TradeRoom,
+    existingCabinets: ConfiguredCabinet[],
+    newCabinetWidth: number
+  ) => {
+    const placedCabinets = existingCabinets.filter(c => c.isPlaced && c.position);
+    
+    if (placedCabinets.length === 0) {
+      // First cabinet: center of back wall
+      return {
+        x: room.config.width / 2 - newCabinetWidth / 2,
+        y: 0,
+        z: 50, // Close to back wall
+        rotation: 0
+      };
     }
-  }, [selectedCabinetId]);
+    
+    // Find rightmost cabinet
+    const sortedByX = [...placedCabinets].sort((a, b) => 
+      (b.position!.x + b.dimensions.width) - (a.position!.x + a.dimensions.width)
+    );
+    const lastCabinet = sortedByX[0];
+    
+    // Calculate new X position (to the right of last cabinet with small gap)
+    const newX = lastCabinet.position!.x + lastCabinet.dimensions.width + 10;
+    
+    // Check if fits in room, otherwise start new row
+    if (newX + newCabinetWidth > room.config.width - 50) {
+      // Start new row - find the frontmost Z position
+      const sortedByZ = [...placedCabinets].sort((a, b) => 
+        (b.position!.z + b.dimensions.depth) - (a.position!.z + a.dimensions.depth)
+      );
+      const frontCabinet = sortedByZ[0];
+      
+      return {
+        x: 50,
+        y: 0,
+        z: frontCabinet.position!.z + frontCabinet.dimensions.depth + 100,
+        rotation: 0
+      };
+    }
+    
+    // Place to the right with small gap
+    return {
+      x: newX,
+      y: 0,
+      z: lastCabinet.position!.z,
+      rotation: lastCabinet.position!.rotation
+    };
+  }, []);
 
   const handleCabinetSelect = (instanceId: string | null) => {
     selectCabinet(instanceId);
-    if (!instanceId) {
-      setShowInlineConfig(false);
-    }
   };
 
   const handleCabinetPlace = (instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
@@ -105,28 +149,37 @@ export default function RoomPlanner() {
     }
   };
 
-  const handleAddProduct = (productId: string) => {
-    if (!currentRoom) return;
-    
-    // Navigate to full configurator
-    navigate(`/trade/job/${jobId}/room/${currentRoom.id}/configure/${productId}`);
-  };
-
+  // Quick add product - places cabinet immediately and opens edit dialog
   const handleQuickAddProduct = useCallback((productId: string) => {
     if (!currentRoom) return;
     
-    // Quick add with defaults - place at center of room
-    const catalogItem = getCatalogItemForQuickAdd(productId);
-    if (!catalogItem) return;
+    // Find catalog item for product info
+    const catalogItem = catalog.find(item => item.id === productId);
+    if (!catalogItem) {
+      toast.error('Product not found');
+      return;
+    }
 
+    const defaultWidth = catalogItem.defaultWidth || 600;
+    const defaultHeight = catalogItem.defaultHeight || 720;
+    const defaultDepth = catalogItem.defaultDepth || 580;
+
+    // Calculate smart position
+    const position = calculateDefaultPosition(
+      currentRoom, 
+      cabinets, 
+      defaultWidth
+    );
+
+    // Create cabinet with placement
     const newCabinet = addCabinet(currentRoom.id, {
       definitionId: productId,
       productName: catalogItem.name,
       category: (catalogItem.category as 'Base' | 'Wall' | 'Tall' | 'Appliance') || 'Base',
       dimensions: {
-        width: catalogItem.defaultWidth || 600,
-        height: catalogItem.defaultHeight || 720,
-        depth: catalogItem.defaultDepth || 580,
+        width: defaultWidth,
+        height: defaultHeight,
+        depth: defaultDepth,
       },
       materials: currentRoom.materialDefaults,
       hardware: {
@@ -144,47 +197,50 @@ export default function RoomPlanner() {
         specialFittings: [],
       },
       isPlaced: true,
-      position: {
-        x: currentRoom.config.width / 2,
-        y: 0,
-        z: currentRoom.config.depth / 2,
-        rotation: 0,
-      },
+      position,
     });
 
+    // Select the new cabinet
     selectCabinet(newCabinet.instanceId);
-    toast.success(`${catalogItem.name} added`, { description: 'Drag to position in the scene' });
-  }, [currentRoom, addCabinet, selectCabinet]);
+    
+    // Open the edit dialog
+    setEditDialogCabinet(newCabinet);
+    setEditDialogOpen(true);
+
+    toast.success(`${catalogItem.name} added`, { 
+      description: 'Configure options in the dialog or drag to reposition' 
+    });
+  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition]);
 
   const handleEditCabinet = (cabinet: ConfiguredCabinet) => {
-    if (!currentRoom) return;
-    navigate(`/trade/job/${jobId}/room/${currentRoom.id}/configure/${cabinet.definitionId}?edit=${cabinet.instanceId}`);
-  };
-
-  const handleCloseInlineConfig = () => {
-    setShowInlineConfig(false);
-    selectCabinet(null);
+    selectCabinet(cabinet.instanceId);
+    setEditDialogCabinet(cabinet);
+    setEditDialogOpen(true);
   };
 
   const handleOpenFullEditor = () => {
-    if (selectedCabinet && currentRoom) {
-      navigate(`/trade/job/${jobId}/room/${currentRoom.id}/configure/${selectedCabinet.definitionId}?edit=${selectedCabinet.instanceId}`);
+    if (editDialogCabinet && currentRoom) {
+      setEditDialogOpen(false);
+      navigate(`/trade/job/${jobId}/room/${currentRoom.id}/configure/${editDialogCabinet.definitionId}?edit=${editDialogCabinet.instanceId}`);
     }
   };
 
-  // Helper function to get catalog item info (simplified)
-  function getCatalogItemForQuickAdd(productId: string) {
-    // This would normally come from useCatalog hook
-    // For now, return mock data
-    return {
-      id: productId,
-      name: 'Cabinet',
-      category: 'Base',
-      defaultWidth: 600,
-      defaultHeight: 720,
-      defaultDepth: 580,
-    };
-  }
+  const handleDialogOpenChange = (open: boolean) => {
+    setEditDialogOpen(open);
+    if (!open) {
+      // Keep cabinet selected after closing dialog
+    }
+  };
+
+  // Sync dialog cabinet with latest state when cabinet updates
+  useEffect(() => {
+    if (editDialogOpen && editDialogCabinet) {
+      const updated = cabinets.find(c => c.instanceId === editDialogCabinet.instanceId);
+      if (updated) {
+        setEditDialogCabinet(updated);
+      }
+    }
+  }, [cabinets, editDialogOpen, editDialogCabinet?.instanceId]);
 
   if (!currentRoom) {
     return (
@@ -272,7 +328,7 @@ export default function RoomPlanner() {
         <div className="flex-1 flex overflow-hidden">
           {/* Catalog Sidebar */}
           {showCatalog && (
-            <PlacementToolbar onSelectProduct={handleAddProduct} />
+            <PlacementToolbar onSelectProduct={handleQuickAddProduct} />
           )}
 
           {/* 3D Scene */}
@@ -284,16 +340,6 @@ export default function RoomPlanner() {
               onCabinetPlace={handleCabinetPlace}
               className="flex-1"
             />
-
-            {/* Inline Configurator */}
-            {showInlineConfig && selectedCabinet && (
-              <InlineConfigurator
-                roomId={currentRoom.id}
-                cabinet={selectedCabinet}
-                onClose={handleCloseInlineConfig}
-                onOpenFull={handleOpenFullEditor}
-              />
-            )}
           </div>
 
           {/* Cabinet List Panel */}
@@ -305,6 +351,15 @@ export default function RoomPlanner() {
             className="w-72"
           />
         </div>
+
+        {/* Edit Dialog */}
+        <CabinetEditDialog
+          roomId={currentRoom.id}
+          cabinet={editDialogCabinet}
+          open={editDialogOpen}
+          onOpenChange={handleDialogOpenChange}
+          onOpenFullEditor={handleOpenFullEditor}
+        />
       </div>
     </TradeLayout>
   );
