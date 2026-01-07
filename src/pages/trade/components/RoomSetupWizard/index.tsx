@@ -12,7 +12,21 @@ export interface RoomConfig {
   // Step 1: Shape
   name: string;
   description: string;
-  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula';
+  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula' | 'island';
+  
+  // Room Dimensions (floor plan)
+  roomWidth: number;
+  roomDepth: number;
+  roomHeight: number;
+  cutoutWidth?: number;
+  cutoutDepth?: number;
+  islandWidth?: number;
+  islandDepth?: number;
+  peninsulaLength?: number;
+  peninsulaWidth?: number;
+  leftWingDepth?: number;
+  rightWingDepth?: number;
+  corridorWidth?: number;
   
   // Step 2: Materials
   exteriorMaterial: string;
@@ -51,6 +65,20 @@ const defaultConfig: RoomConfig = {
   name: '',
   description: '',
   shape: 'rectangular',
+  // Room dimensions
+  roomWidth: 4000,
+  roomDepth: 3500,
+  roomHeight: 2700,
+  cutoutWidth: 2000,
+  cutoutDepth: 2000,
+  islandWidth: 2000,
+  islandDepth: 900,
+  peninsulaLength: 1800,
+  peninsulaWidth: 600,
+  leftWingDepth: 1500,
+  rightWingDepth: 1500,
+  corridorWidth: 1200,
+  // Materials
   exteriorMaterial: 'Antique Wiluna White Pearl - 16.5mm Formica MR MDF',
   exteriorEdge: '1mm Antique Wiluna White Formica Pearl',
   doorStyle: 'Melamine',
