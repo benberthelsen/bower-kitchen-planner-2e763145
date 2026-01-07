@@ -4,6 +4,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RoomConfig } from './index';
+import roomRectangular from '@/assets/room-rectangular.png';
+import roomLShaped from '@/assets/room-l-shaped.png';
 
 interface RoomShapeStepProps {
   config: RoomConfig;
@@ -16,94 +18,13 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
       id: 'rectangular',
       name: 'Rectangular Room',
       description: 'Standard rectangular kitchen layout',
-      icon: (
-        <svg viewBox="0 0 100 80" className="w-full h-full">
-          {/* Top face */}
-          <path
-            d="M20 25 L50 10 L80 25 L50 40 Z"
-            fill="hsl(var(--trade-amber))"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Front face */}
-          <path
-            d="M20 25 L20 50 L50 65 L50 40 Z"
-            fill="hsl(var(--trade-amber))"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Right face */}
-          <path
-            d="M50 40 L50 65 L80 50 L80 25 Z"
-            fill="hsl(var(--trade-amber) / 0.7)"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Inner lines for depth */}
-          <path
-            d="M30 30 L50 20 L70 30"
-            fill="none"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="1.5"
-          />
-          <path
-            d="M30 30 L30 48 M50 20 L50 38"
-            fill="none"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="1.5"
-          />
-        </svg>
-      ),
+      image: roomRectangular,
     },
     {
       id: 'l-shaped',
       name: 'L-Shaped Room',
       description: 'Corner kitchen with L-shaped layout',
-      icon: (
-        <svg viewBox="0 0 100 80" className="w-full h-full">
-          {/* Top face - L shape */}
-          <path
-            d="M15 30 L40 18 L40 25 L60 15 L85 28 L60 40 L60 33 L40 43 Z"
-            fill="hsl(var(--trade-amber))"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Left front face */}
-          <path
-            d="M15 30 L15 55 L40 68 L40 43 Z"
-            fill="hsl(var(--trade-amber))"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Inner step front face */}
-          <path
-            d="M40 43 L40 68 L60 58 L60 33 Z"
-            fill="hsl(var(--trade-amber) / 0.85)"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Right face */}
-          <path
-            d="M60 40 L60 58 L85 45 L85 28 Z"
-            fill="hsl(var(--trade-amber) / 0.7)"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="2"
-          />
-          {/* Inner detail lines */}
-          <path
-            d="M25 35 L40 27 L40 33 L55 25"
-            fill="none"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="1.5"
-          />
-          <path
-            d="M25 35 L25 52"
-            fill="none"
-            stroke="hsl(var(--trade-navy))"
-            strokeWidth="1.5"
-          />
-        </svg>
-      ),
+      image: roomLShaped,
     },
   ];
 
@@ -165,9 +86,13 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
                 </div>
               )}
               
-              {/* Icon */}
-              <div className="h-24 mb-4">
-                {shape.icon}
+              {/* Image */}
+              <div className="h-24 mb-4 flex items-center justify-center">
+                <img 
+                  src={shape.image} 
+                  alt={shape.name}
+                  className="h-full w-auto object-contain"
+                />
               </div>
               
               {/* Label */}
