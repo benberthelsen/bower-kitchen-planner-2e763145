@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
 import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
+import { useTradeRoom, defaultMaterialDefaults, defaultHardwareDefaults } from '@/contexts/TradeRoomContext';
+import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 
 interface Room {
   id: string;
@@ -17,26 +19,72 @@ export default function JobEditor() {
   const navigate = useNavigate();
   const isNewJob = jobId === 'new';
   
+  const { addRoom: addTradeRoom } = useTradeRoom();
+  
   const [rooms, setRooms] = useState<Room[]>([]);
   const [showRoomWizard, setShowRoomWizard] = useState(isNewJob);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
 
   const handleRoomComplete = (config: RoomConfig) => {
     if (editingRoom) {
-      // Update existing room
       setRooms(rooms.map(r => 
         r.id === editingRoom.id ? { ...r, config } : r
       ));
       toast.success(`Room "${config.name}" updated`);
     } else {
-      // Add new room
+      // Add new room to TradeRoomContext  
+      const newTradeRoom = addTradeRoom({
+        name: config.name,
+        description: config.description || '',
+        shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
+        config: {
+          width: 4000,
+          depth: 3000,
+          height: 2400,
+          shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
+          cutoutWidth: 0,
+          cutoutDepth: 0,
+        },
+        dimensions: {
+          ...DEFAULT_GLOBAL_DIMENSIONS,
+          toeKickHeight: config.toeKickHeight,
+          baseHeight: config.baseHeight,
+          baseDepth: config.baseDepth,
+          wallHeight: config.wallHeight,
+          wallDepth: config.wallDepth,
+          tallHeight: config.tallHeight,
+          tallDepth: config.tallDepth,
+          doorGap: config.doorGap,
+          drawerGap: config.drawerGap,
+        },
+        materialDefaults: {
+          exteriorFinish: config.exteriorMaterial,
+          carcaseFinish: config.carcaseMaterial,
+          doorStyle: config.doorStyle,
+          edgeBanding: config.exteriorEdge,
+        },
+        hardwareDefaults: {
+          handleType: 'bar-handle',
+          handleColor: '#1a1a1a',
+          hingeType: config.hingeStyle,
+          drawerType: config.drawerStyle,
+          softClose: true,
+          supplyHardware: config.supplyHardware,
+          adjustableLegs: config.adjustableLegs,
+        },
+      });
+      
       const newRoom: Room = {
-        id: crypto.randomUUID(),
+        id: newTradeRoom.id,
         config,
         products: [],
       };
       setRooms([...rooms, newRoom]);
       toast.success(`Room "${config.name}" created`);
+      
+      // Navigate to the planner
+      navigate(`/trade/job/${jobId}/room/${newTradeRoom.id}/planner`);
+      return;
     }
     setShowRoomWizard(false);
     setEditingRoom(null);
@@ -54,6 +102,10 @@ export default function JobEditor() {
   const handleEditRoom = (room: Room) => {
     setEditingRoom(room);
     setShowRoomWizard(true);
+  };
+
+  const handleOpenPlanner = (room: Room) => {
+    navigate(`/trade/job/${jobId}/room/${room.id}/planner`);
   };
 
   const handleAddRoom = () => {
@@ -120,8 +172,7 @@ export default function JobEditor() {
               {rooms.map((room) => (
                 <div 
                   key={room.id}
-                  className="bg-trade-surface-elevated rounded-xl border border-trade-border p-5 hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => handleEditRoom(room)}
+                  className="bg-trade-surface-elevated rounded-xl border border-trade-border p-5 hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="p-2 bg-trade-amber/10 rounded-lg">
@@ -139,13 +190,27 @@ export default function JobEditor() {
                       {room.config.description}
                     </p>
                   )}
-                  <div className="mt-4 pt-3 border-t border-trade-border flex items-center justify-between text-sm">
-                    <span className="text-trade-muted">
+                  <div className="mt-4 pt-3 border-t border-trade-border flex items-center justify-between">
+                    <span className="text-sm text-trade-muted">
                       {room.products.length} products
                     </span>
-                    <span className="text-trade-amber font-medium">
-                      Edit →
-                    </span>
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleEditRoom(room)}
+                      >
+                        Edit
+                      </Button>
+                      <Button 
+                        size="sm"
+                        className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
+                        onClick={() => handleOpenPlanner(room)}
+                      >
+                        <Box className="h-4 w-4 mr-1" />
+                        Open Planner
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -162,28 +227,6 @@ export default function JobEditor() {
                   Add Another Room
                 </span>
               </button>
-            </div>
-
-            {/* Products Section Placeholder */}
-            <div className="bg-trade-surface-elevated rounded-xl border border-trade-border p-8 text-center">
-              <div className="max-w-md mx-auto">
-                <div className="w-14 h-14 bg-trade-amber/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <LayoutGrid className="h-7 w-7 text-trade-amber" />
-                </div>
-                <h3 className="text-lg font-display font-semibold text-trade-navy mb-2">
-                  Ready to Add Products
-                </h3>
-                <p className="text-trade-muted mb-4">
-                  Your rooms are configured. Phase 3 will add the Product Catalog where you can browse and add cabinets to each room.
-                </p>
-                <Button 
-                  variant="outline" 
-                  className="border-trade-amber text-trade-amber hover:bg-trade-amber hover:text-white"
-                  onClick={() => navigate('/trade/catalog')}
-                >
-                  Browse Product Catalog
-                </Button>
-              </div>
             </div>
           </div>
         ) : (

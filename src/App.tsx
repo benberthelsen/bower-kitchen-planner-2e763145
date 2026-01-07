@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import TradePlanner from "./pages/TradePlanner";
-import { TradeDashboard, JobEditor, ProductCatalog, ProductConfigurator } from "./pages/trade";
+import { TradeDashboard, JobEditor, ProductCatalog, ProductConfigurator, RoomPlanner } from "./pages/trade";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminJobs from "./pages/admin/Jobs";
@@ -52,6 +52,8 @@ const App = () => (
             <Route path="/trade/job/:jobId" element={<JobEditor />} />
             <Route path="/trade/catalog" element={<ProductCatalog />} />
             <Route path="/trade/job/:jobId/room/:roomId/configure/:productId" element={<ProductConfigurator />} />
+            <Route path="/trade/job/:jobId/room/:roomId/planner" element={<RoomPlanner />} />
+            <Route path="/trade/job/:jobId/room/:roomId/catalog" element={<ProductCatalog />} />
             <Route path="/trade/hardware" element={<TradeDashboard />} />
             <Route path="/trade/settings" element={<TradeDashboard />} />
           
