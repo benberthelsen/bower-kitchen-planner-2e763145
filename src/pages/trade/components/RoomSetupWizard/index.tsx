@@ -12,7 +12,7 @@ export interface RoomConfig {
   // Step 1: Shape
   name: string;
   description: string;
-  shape: 'rectangular' | 'l-shaped';
+  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula';
   
   // Step 2: Materials
   exteriorMaterial: string;
