@@ -57,6 +57,21 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        trade: {
+          navy: "hsl(var(--trade-navy))",
+          "navy-light": "hsl(var(--trade-navy-light))",
+          amber: "hsl(var(--trade-amber))",
+          "amber-light": "hsl(var(--trade-amber-light))",
+          surface: "hsl(var(--trade-surface))",
+          "surface-elevated": "hsl(var(--trade-surface-elevated))",
+          muted: "hsl(var(--trade-muted))",
+          success: "hsl(var(--trade-success))",
+          border: "hsl(var(--trade-border))",
+        },
+      },
+      fontFamily: {
+        sans: ["Inter", "system-ui", "sans-serif"],
+        display: ["Outfit", "system-ui", "sans-serif"],
       },
       borderRadius: {
         lg: "var(--radius)",

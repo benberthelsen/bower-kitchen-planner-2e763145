@@ -1,15 +1,16 @@
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, PenTool, Briefcase } from "lucide-react";
+import { LayoutDashboard, PenTool, Briefcase, Wrench } from "lucide-react";
 
 const DevNavBar = () => {
   const location = useLocation();
   const currentPath = location.pathname;
 
   const navItems = [
-    { path: "/admin", label: "Admin Dashboard", icon: LayoutDashboard },
+    { path: "/admin", label: "Admin", icon: LayoutDashboard },
     { path: "/", label: "Simple Planner", icon: PenTool, exact: true },
-    { path: "/trade", label: "Trade Planner", icon: Briefcase },
+    { path: "/trade-planner", label: "3D Planner", icon: Wrench },
+    { path: "/trade/dashboard", label: "Trade Dashboard", icon: Briefcase },
   ];
 
   const isActive = (path: string, exact?: boolean) => {
@@ -31,7 +32,7 @@ const DevNavBar = () => {
               key={item.path}
               to={item.path}
               className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-md font-medium text-sm transition-colors",
+                "flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-sm transition-colors",
                 active
                   ? "bg-amber-900 text-amber-100"
                   : "bg-amber-400 hover:bg-amber-600 hover:text-amber-100"

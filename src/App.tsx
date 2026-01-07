@@ -2,10 +2,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import TradePlanner from "./pages/TradePlanner";
+import { TradeDashboard, JobEditor } from "./pages/trade";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminJobs from "./pages/admin/Jobs";
@@ -40,7 +41,18 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
-            <Route path="/trade" element={<TradePlanner />} />
+            
+            {/* Legacy Trade Planner (3D Scene) */}
+            <Route path="/trade-planner" element={<TradePlanner />} />
+            
+            {/* New Trade Dashboard Routes */}
+            <Route path="/trade" element={<Navigate to="/trade/dashboard" replace />} />
+            <Route path="/trade/dashboard" element={<TradeDashboard />} />
+            <Route path="/trade/jobs" element={<TradeDashboard />} />
+            <Route path="/trade/job/:jobId" element={<JobEditor />} />
+            <Route path="/trade/catalog" element={<TradeDashboard />} />
+            <Route path="/trade/hardware" element={<TradeDashboard />} />
+            <Route path="/trade/settings" element={<TradeDashboard />} />
           
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminLayout />}>
