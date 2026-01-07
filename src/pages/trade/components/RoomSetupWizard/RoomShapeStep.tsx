@@ -17,34 +17,40 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
       name: 'Rectangular Room',
       description: 'Standard rectangular kitchen layout',
       icon: (
-        <svg viewBox="0 0 100 70" className="w-full h-full">
-          {/* Floor */}
+        <svg viewBox="0 0 100 80" className="w-full h-full">
+          {/* Top face */}
           <path
-            d="M15 55 L50 42 L85 55 L50 68 Z"
-            fill="hsl(var(--trade-amber) / 0.15)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Back wall */}
-          <path
-            d="M15 55 L15 25 L50 12 L50 42 Z"
-            fill="hsl(var(--trade-amber) / 0.25)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Right wall */}
-          <path
-            d="M50 42 L50 12 L85 25 L85 55 Z"
-            fill="hsl(var(--trade-amber) / 0.2)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Top edge highlight */}
-          <path
-            d="M15 25 L50 12 L85 25"
-            fill="none"
-            stroke="hsl(var(--trade-amber))"
+            d="M20 25 L50 10 L80 25 L50 40 Z"
+            fill="hsl(var(--trade-amber))"
+            stroke="hsl(var(--trade-navy))"
             strokeWidth="2"
+          />
+          {/* Front face */}
+          <path
+            d="M20 25 L20 50 L50 65 L50 40 Z"
+            fill="hsl(var(--trade-amber))"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="2"
+          />
+          {/* Right face */}
+          <path
+            d="M50 40 L50 65 L80 50 L80 25 Z"
+            fill="hsl(var(--trade-amber) / 0.7)"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="2"
+          />
+          {/* Inner lines for depth */}
+          <path
+            d="M30 30 L50 20 L70 30"
+            fill="none"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M30 30 L30 48 M50 20 L50 38"
+            fill="none"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="1.5"
           />
         </svg>
       ),
@@ -54,48 +60,47 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
       name: 'L-Shaped Room',
       description: 'Corner kitchen with L-shaped layout',
       icon: (
-        <svg viewBox="0 0 100 70" className="w-full h-full">
-          {/* Floor - L shape */}
+        <svg viewBox="0 0 100 80" className="w-full h-full">
+          {/* Top face - L shape */}
           <path
-            d="M10 52 L32 43 L32 35 L58 25 L90 38 L90 55 L58 68 L58 60 L32 68 Z"
-            fill="hsl(var(--trade-amber) / 0.15)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Back wall left section */}
-          <path
-            d="M10 52 L10 28 L32 18 L32 43 Z"
-            fill="hsl(var(--trade-amber) / 0.25)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Back wall right section (upper) */}
-          <path
-            d="M32 35 L32 18 L58 8 L58 25 Z"
-            fill="hsl(var(--trade-amber) / 0.25)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Right wall */}
-          <path
-            d="M58 25 L58 8 L90 20 L90 38 Z"
-            fill="hsl(var(--trade-amber) / 0.2)"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Inner corner floor step */}
-          <path
-            d="M32 43 L32 35 L58 25 L58 60"
-            fill="none"
-            stroke="hsl(var(--trade-amber))"
-            strokeWidth="1.5"
-          />
-          {/* Top edge highlight */}
-          <path
-            d="M10 28 L32 18 L58 8 L90 20"
-            fill="none"
-            stroke="hsl(var(--trade-amber))"
+            d="M15 30 L40 18 L40 25 L60 15 L85 28 L60 40 L60 33 L40 43 Z"
+            fill="hsl(var(--trade-amber))"
+            stroke="hsl(var(--trade-navy))"
             strokeWidth="2"
+          />
+          {/* Left front face */}
+          <path
+            d="M15 30 L15 55 L40 68 L40 43 Z"
+            fill="hsl(var(--trade-amber))"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="2"
+          />
+          {/* Inner step front face */}
+          <path
+            d="M40 43 L40 68 L60 58 L60 33 Z"
+            fill="hsl(var(--trade-amber) / 0.85)"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="2"
+          />
+          {/* Right face */}
+          <path
+            d="M60 40 L60 58 L85 45 L85 28 Z"
+            fill="hsl(var(--trade-amber) / 0.7)"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="2"
+          />
+          {/* Inner detail lines */}
+          <path
+            d="M25 35 L40 27 L40 33 L55 25"
+            fill="none"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M25 35 L25 52"
+            fill="none"
+            stroke="hsl(var(--trade-navy))"
+            strokeWidth="1.5"
           />
         </svg>
       ),
