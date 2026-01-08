@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useCatalog } from '@/hooks/useCatalog';
+import React, { useState, useMemo } from 'react';
+import { useCatalog, ExtendedCatalogItem } from '@/hooks/useCatalog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -18,6 +18,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { 
+  SPEC_GROUP_ICONS, 
+  SPEC_GROUP_COLORS, 
+  sortSpecGroups 
+} from '@/constants/catalogGroups';
 
 interface PlacementToolbarProps {
   onSelectProduct: (productId: string) => void;
@@ -27,30 +32,45 @@ interface PlacementToolbarProps {
 export function PlacementToolbar({ onSelectProduct, className }: PlacementToolbarProps) {
   const { catalog, isLoading } = useCatalog('trade');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedCategory, setExpandedCategory] = useState<string | null>('Base');
+  const [expandedGroup, setExpandedGroup] = useState<string | null>('Base Cabinets');
 
-  // Group by category
-  const groupedProducts = catalog.reduce((acc, product) => {
-    const category = product.category || 'Other';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(product);
-    return acc;
-  }, {} as Record<string, typeof catalog>);
+  // Group by specGroup (Microvellum-style categories)
+  const groupedProducts = useMemo(() => {
+    return catalog.reduce((acc, product) => {
+      const group = product.specGroup || 'Other';
+      if (!acc[group]) acc[group] = [];
+      acc[group].push(product);
+      return acc;
+    }, {} as Record<string, ExtendedCatalogItem[]>);
+  }, [catalog]);
 
   // Filter by search
-  const filteredGroups = Object.entries(groupedProducts).reduce((acc, [category, products]) => {
-    const filtered = products.filter(p => 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.sku.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    if (filtered.length > 0) acc[category] = filtered;
-    return acc;
-  }, {} as Record<string, typeof catalog>);
+  const filteredGroups = useMemo(() => {
+    if (!searchQuery.trim()) return groupedProducts;
+    
+    const query = searchQuery.toLowerCase();
+    return Object.entries(groupedProducts).reduce((acc, [group, products]) => {
+      const filtered = products.filter(p => 
+        p.name.toLowerCase().includes(query) ||
+        p.sku.toLowerCase().includes(query)
+      );
+      if (filtered.length > 0) acc[group] = filtered;
+      return acc;
+    }, {} as Record<string, ExtendedCatalogItem[]>);
+  }, [groupedProducts, searchQuery]);
 
-  const categoryOrder = ['Base', 'Wall', 'Tall', 'Appliance', 'Other'];
-  const sortedCategories = Object.keys(filteredGroups).sort(
-    (a, b) => categoryOrder.indexOf(a) - categoryOrder.indexOf(b)
-  );
+  // Sort groups in Microvellum order
+  const sortedGroups = useMemo(() => {
+    return sortSpecGroups(Object.keys(filteredGroups));
+  }, [filteredGroups]);
+
+  // Auto-expand first matching group when searching
+  const effectiveExpandedGroup = useMemo(() => {
+    if (searchQuery.trim() && sortedGroups.length > 0 && !sortedGroups.includes(expandedGroup || '')) {
+      return sortedGroups[0];
+    }
+    return expandedGroup;
+  }, [searchQuery, sortedGroups, expandedGroup]);
 
   return (
     <div className={cn("flex flex-col bg-background border-r h-full w-64", className)}>
@@ -78,34 +98,34 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
             <div className="p-4 text-center text-sm text-muted-foreground">
               Loading products...
             </div>
-          ) : sortedCategories.length === 0 ? (
+          ) : sortedGroups.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               No products found
             </div>
           ) : (
-            sortedCategories.map((category) => (
+            sortedGroups.map((group) => (
               <Collapsible
-                key={category}
-                open={expandedCategory === category}
-                onOpenChange={(open) => setExpandedCategory(open ? category : null)}
+                key={group}
+                open={effectiveExpandedGroup === group}
+                onOpenChange={(open) => setExpandedGroup(open ? group : null)}
               >
                 <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-md hover:bg-muted/50 transition-colors">
                   <div className="flex items-center gap-2">
-                    <CategoryIcon category={category} />
-                    <span className="font-medium text-sm">{category}</span>
+                    <SpecGroupIcon group={group} />
+                    <span className="font-medium text-sm truncate">{group}</span>
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                      {filteredGroups[category].length}
+                      {filteredGroups[group].length}
                     </Badge>
                   </div>
-                  {expandedCategory === category ? (
-                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                  {effectiveExpandedGroup === group ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   ) : (
-                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   )}
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pl-2">
                   <div className="space-y-0.5">
-                    {filteredGroups[category].map((product) => (
+                    {filteredGroups[group].map((product) => (
                       <button
                         key={product.id}
                         onClick={() => onSelectProduct(product.id)}
@@ -138,16 +158,10 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
   );
 }
 
-function CategoryIcon({ category }: { category: string }) {
-  const colors: Record<string, string> = {
-    Base: 'text-blue-500',
-    Wall: 'text-green-500',
-    Tall: 'text-purple-500',
-    Appliance: 'text-orange-500',
-    Other: 'text-gray-500',
-  };
-
+function SpecGroupIcon({ group }: { group: string }) {
+  const colorClass = SPEC_GROUP_COLORS[group] || SPEC_GROUP_COLORS['Other'];
+  
   return (
-    <div className={cn("w-2 h-2 rounded-full", colors[category]?.replace('text-', 'bg-'))} />
+    <div className={cn("w-2 h-2 rounded-full flex-shrink-0", colorClass)} />
   );
 }

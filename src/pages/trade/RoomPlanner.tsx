@@ -16,7 +16,8 @@ import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog'
 import { PlacementToolbar } from '@/components/trade/planner/PlacementToolbar';
 import { useCatalog } from '@/hooks/useCatalog';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
-import { 
+import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
+import {
   ArrowLeft, 
   Save, 
   FileDown, 
@@ -171,11 +172,16 @@ export default function RoomPlanner() {
       defaultWidth
     );
 
+    // Determine category from specGroup (Appliances, Wall/Upper, Tall, or Base)
+    const category = catalogItem.itemType === 'Appliance' 
+      ? 'Appliance' 
+      : getCategoryFromSpecGroup(catalogItem.specGroup) || catalogItem.category || 'Base';
+
     // Create cabinet with placement
     const newCabinet = addCabinet(currentRoom.id, {
       definitionId: productId,
       productName: catalogItem.name,
-      category: (catalogItem.category as 'Base' | 'Wall' | 'Tall' | 'Appliance') || 'Base',
+      category: category as 'Base' | 'Wall' | 'Tall' | 'Appliance',
       dimensions: {
         width: defaultWidth,
         height: defaultHeight,
