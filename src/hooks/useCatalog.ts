@@ -44,14 +44,29 @@ export interface ExtendedCatalogItem extends CatalogItemDefinition {
   specGroup?: string | null;
 }
 
-function mapCategoryToItemType(category: string | null): ItemType {
+function mapCategoryToItemType(category: string | null, specGroup: string | null): ItemType {
+  // Check specGroup first for more accurate mapping
+  if (specGroup) {
+    const lowerGroup = specGroup.toLowerCase();
+    if (lowerGroup.includes('appliance')) return 'Appliance';
+  }
+  
   if (!category) return 'Cabinet';
   const lower = category.toLowerCase();
+  if (lower === 'appliance' || lower === 'appliances') return 'Appliance';
   if (lower === 'accessory' || lower === 'accessories') return 'Structure';
   return 'Cabinet';
 }
 
-function mapCategoryToCabinetType(category: string | null): CabinetType | undefined {
+function mapCategoryToCabinetType(category: string | null, specGroup: string | null): CabinetType | undefined {
+  // Use specGroup for more accurate mapping
+  if (specGroup) {
+    const lowerGroup = specGroup.toLowerCase();
+    if (lowerGroup.includes('upper') || lowerGroup.includes('wall')) return 'Wall';
+    if (lowerGroup.includes('tall')) return 'Tall';
+    if (lowerGroup.includes('base') || lowerGroup.includes('sink')) return 'Base';
+  }
+  
   if (!category) return 'Base';
   const lower = category.toLowerCase();
   if (lower === 'base') return 'Base';
@@ -77,8 +92,8 @@ function generateSku(product: MicrovellumProduct): string {
 }
 
 function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem {
-  const itemType = mapCategoryToItemType(product.category);
-  const category = mapCategoryToCabinetType(product.category);
+  const itemType = mapCategoryToItemType(product.category, product.spec_group);
+  const category = mapCategoryToCabinetType(product.category, product.spec_group);
   
   // Default dimensions based on category
   let defaultWidth = product.default_width || 600;
