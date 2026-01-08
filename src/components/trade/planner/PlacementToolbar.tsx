@@ -1,6 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useCatalog, ExtendedCatalogItem } from '@/hooks/useCatalog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +9,8 @@ import {
   Package, 
   ChevronDown,
   ChevronUp,
-  Grid3X3
+  Grid3X3,
+  GripVertical
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -19,7 +19,6 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { 
-  SPEC_GROUP_ICONS, 
   SPEC_GROUP_COLORS, 
   sortSpecGroups 
 } from '@/constants/catalogGroups';
@@ -29,15 +28,21 @@ interface PlacementToolbarProps {
   className?: string;
 }
 
+// Hidden categories that shouldn't appear in the catalog
+const HIDDEN_SPEC_GROUPS = ['Props', 'Parts'];
+
 export function PlacementToolbar({ onSelectProduct, className }: PlacementToolbarProps) {
   const { catalog, isLoading } = useCatalog('trade');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedGroup, setExpandedGroup] = useState<string | null>('Base Cabinets');
+  const [draggedProduct, setDraggedProduct] = useState<string | null>(null);
 
-  // Group by specGroup (Microvellum-style categories)
+  // Group by specGroup (Microvellum-style categories), filtering out hidden groups
   const groupedProducts = useMemo(() => {
     return catalog.reduce((acc, product) => {
       const group = product.specGroup || 'Other';
+      // Skip hidden groups
+      if (HIDDEN_SPEC_GROUPS.includes(group)) return acc;
       if (!acc[group]) acc[group] = [];
       acc[group].push(product);
       return acc;
@@ -72,6 +77,35 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
     return expandedGroup;
   }, [searchQuery, sortedGroups, expandedGroup]);
 
+  // Drag handlers
+  const handleDragStart = useCallback((e: React.DragEvent, product: ExtendedCatalogItem) => {
+    setDraggedProduct(product.id);
+    e.dataTransfer.setData('application/json', JSON.stringify({
+      productId: product.id,
+      productName: product.name,
+      width: product.defaultWidth,
+      height: product.defaultHeight,
+      depth: product.defaultDepth,
+    }));
+    e.dataTransfer.effectAllowed = 'copy';
+    
+    // Create a custom drag image
+    const dragImage = document.createElement('div');
+    dragImage.className = 'bg-trade-amber text-trade-navy px-3 py-2 rounded-md shadow-lg font-medium text-sm';
+    dragImage.textContent = product.name;
+    dragImage.style.position = 'absolute';
+    dragImage.style.top = '-1000px';
+    document.body.appendChild(dragImage);
+    e.dataTransfer.setDragImage(dragImage, 50, 20);
+    
+    // Clean up drag image after a short delay
+    setTimeout(() => document.body.removeChild(dragImage), 0);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedProduct(null);
+  }, []);
+
   return (
     <div className={cn("flex flex-col bg-background border-r h-full w-64", className)}>
       {/* Header */}
@@ -89,6 +123,9 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
             className="pl-8 h-8 text-sm"
           />
         </div>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Click to add or drag into scene
+        </p>
       </div>
 
       {/* Product List */}
@@ -126,14 +163,23 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
                 <CollapsibleContent className="pl-2">
                   <div className="space-y-0.5">
                     {filteredGroups[group].map((product) => (
-                      <button
+                      <div
                         key={product.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, product)}
+                        onDragEnd={handleDragEnd}
                         onClick={() => onSelectProduct(product.id)}
-                        className="flex items-center gap-2 w-full p-2 rounded-md hover:bg-trade-amber/10 active:bg-trade-amber/20 transition-colors text-left group"
-                        title={`Click to add ${product.name} to the scene`}
+                        className={cn(
+                          "flex items-center gap-2 w-full p-2 rounded-md transition-colors text-left group cursor-grab active:cursor-grabbing",
+                          draggedProduct === product.id 
+                            ? "bg-trade-amber/20 ring-2 ring-trade-amber" 
+                            : "hover:bg-trade-amber/10 active:bg-trade-amber/20"
+                        )}
+                        title={`Click to add or drag "${product.name}" to the scene`}
                       >
-                        <div className="w-8 h-8 bg-muted rounded flex items-center justify-center group-hover:bg-trade-amber/10 transition-colors">
-                          <Package className="w-4 h-4 text-muted-foreground group-hover:text-trade-amber transition-colors" />
+                        <GripVertical className="w-3 h-3 text-muted-foreground/50 group-hover:text-muted-foreground flex-shrink-0" />
+                        <div className="w-7 h-7 bg-muted rounded flex items-center justify-center group-hover:bg-trade-amber/10 transition-colors flex-shrink-0">
+                          <Package className="w-3.5 h-3.5 text-muted-foreground group-hover:text-trade-amber transition-colors" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate">{product.name}</p>
@@ -141,11 +187,10 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
                             {product.defaultWidth} × {product.defaultDepth}mm
                           </p>
                         </div>
-                        <div className="flex items-center gap-1 text-trade-amber opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Plus className="w-4 h-4" />
-                          <span className="text-[10px] font-medium">Add</span>
+                        <div className="flex items-center gap-1 text-trade-amber opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <Plus className="w-3.5 h-3.5" />
                         </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
                 </CollapsibleContent>
