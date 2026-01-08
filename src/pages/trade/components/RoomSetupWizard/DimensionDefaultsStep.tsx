@@ -246,62 +246,62 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
             className="w-full max-w-md object-contain"
           />
           {/* Overlay dimension labels - clickable */}
-          <div className="absolute inset-0">
-            {/* Wall Cabinet Height */}
-            <DimensionLabel
-              value={config.wallHeight}
-              inputId="wallHeight"
-              onFocus={handleLabelFocus}
-              className="absolute top-[10%] right-[8%]"
-            />
-            {/* Wall Cabinet Depth */}
-            <DimensionLabel
-              value={config.wallDepth}
-              inputId="wallDepth"
-              onFocus={handleLabelFocus}
-              className="absolute top-[20%] right-[4%]"
-            />
-            {/* Tall Cabinet Height */}
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Tall Cabinet Height - left side vertical */}
             <DimensionLabel
               value={config.tallHeight}
               inputId="tallHeight"
               onFocus={handleLabelFocus}
-              className="absolute top-[40%] left-[12%]"
+              className="absolute top-[35%] left-[5%]"
             />
-            {/* Tall Cabinet Depth */}
+            {/* Wall Cabinet Height - right side upper */}
             <DimensionLabel
-              value={config.tallDepth}
-              inputId="tallDepth"
+              value={config.wallHeight}
+              inputId="wallHeight"
               onFocus={handleLabelFocus}
-              className="absolute top-[32%] left-[26%]"
+              className="absolute top-[22%] right-[5%]"
             />
-            {/* Base Cabinet Depth */}
+            {/* Wall Cabinet Depth - right side */}
             <DimensionLabel
-              value={config.baseDepth}
-              inputId="baseDepth"
+              value={config.wallDepth}
+              inputId="wallDepth"
               onFocus={handleLabelFocus}
-              className="absolute top-[55%] right-[6%]"
+              className="absolute top-[12%] right-[18%]"
             />
-            {/* Base Cabinet Height */}
+            {/* Base Cabinet Height - right side middle */}
             <DimensionLabel
               value={config.baseHeight}
               inputId="baseHeight"
               onFocus={handleLabelFocus}
-              className="absolute top-[70%] right-[6%]"
+              className="absolute top-[58%] right-[5%]"
             />
-            {/* Shelf Setback */}
+            {/* Base Cabinet Depth - right side */}
             <DimensionLabel
-              value={config.shelfSetback}
-              inputId="shelfSetback"
+              value={config.baseDepth}
+              inputId="baseDepth"
               onFocus={handleLabelFocus}
-              className="absolute top-[62%] left-[24%]"
+              className="absolute top-[48%] right-[18%]"
             />
-            {/* Toe Kick Height */}
+            {/* Tall Cabinet Depth - bottom left */}
+            <DimensionLabel
+              value={config.tallDepth}
+              inputId="tallDepth"
+              onFocus={handleLabelFocus}
+              className="absolute bottom-[12%] left-[18%]"
+            />
+            {/* Toe Kick Height - bottom front */}
             <DimensionLabel
               value={config.toeKickHeight}
               inputId="toeKickHeight"
               onFocus={handleLabelFocus}
-              className="absolute bottom-[10%] right-[10%]"
+              className="absolute bottom-[18%] left-[5%]"
+            />
+            {/* Shelf Setback - inside cabinet */}
+            <DimensionLabel
+              value={config.shelfSetback}
+              inputId="shelfSetback"
+              onFocus={handleLabelFocus}
+              className="absolute top-[52%] left-[35%]"
             />
           </div>
         </div>
