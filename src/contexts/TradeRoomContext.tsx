@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode, useEffect } from 'react';
 import { RoomConfig, GlobalDimensions, HardwareOptions } from '@/types';
 import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, HANDLE_OPTIONS } from '@/constants';
+
+const STORAGE_KEY = 'trade-room-data';
 
 export interface CabinetMaterials {
   exteriorFinish: string;
@@ -148,9 +150,40 @@ const defaultHardwareDefaults: RoomHardwareDefaults = {
 };
 
 export function TradeRoomProvider({ children }: { children: ReactNode }) {
-  const [rooms, setRooms] = useState<TradeRoom[]>([]);
+  // Load initial state from localStorage
+  const [rooms, setRooms] = useState<TradeRoom[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Convert date strings back to Date objects
+        return parsed.map((room: any) => ({
+          ...room,
+          createdAt: new Date(room.createdAt),
+          updatedAt: new Date(room.updatedAt),
+          cabinets: room.cabinets.map((cab: any) => ({
+            ...cab,
+            createdAt: new Date(cab.createdAt),
+            updatedAt: new Date(cab.updatedAt),
+          })),
+        }));
+      }
+    } catch (e) {
+      console.warn('Failed to load rooms from localStorage:', e);
+    }
+    return [];
+  });
   const [currentRoom, setCurrentRoom] = useState<TradeRoom | null>(null);
   const [selectedCabinetId, setSelectedCabinetId] = useState<string | null>(null);
+
+  // Persist rooms to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
+    } catch (e) {
+      console.warn('Failed to save rooms to localStorage:', e);
+    }
+  }, [rooms]);
 
   const addRoom = useCallback((roomData: Omit<TradeRoom, 'id' | 'cabinets' | 'createdAt' | 'updatedAt'>): TradeRoom => {
     const newRoom: TradeRoom = {
