@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import { ConfiguredCabinet, useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
@@ -26,15 +26,15 @@ function TradeCabinetMesh({
   onSelect: () => void;
   onDragEnd: (position: { x: number; z: number }) => void;
 }) {
-  const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const { camera, gl } = useThree();
+  const dragOffset = useRef({ x: 0, z: 0 });
 
   const width = cabinet.dimensions.width / 1000;
   const height = cabinet.dimensions.height / 1000;
   const depth = cabinet.dimensions.depth / 1000;
 
-  const position = cabinet.position 
+  const initialPosition = cabinet.position 
     ? [cabinet.position.x / 1000, height / 2, cabinet.position.z / 1000] as [number, number, number]
     : [1, height / 2, 1] as [number, number, number];
 
@@ -49,37 +49,39 @@ function TradeCabinetMesh({
   const color = categoryColors[cabinet.category] || '#64748b';
 
   return (
-    <group position={position}>
-      <mesh
-        ref={meshRef}
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          if (e.button === 0) {
-            setIsDragging(true);
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          }
-        }}
-        onPointerUp={(e) => {
-          if (isDragging && meshRef.current) {
-            setIsDragging(false);
-            const pos = meshRef.current.position;
-            onDragEnd({ x: pos.x * 1000, z: pos.z * 1000 });
-            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-          }
-        }}
-        onPointerMove={(e) => {
-          if (isDragging) {
-            const point = e.point;
-            if (meshRef.current) {
-              meshRef.current.position.x = point.x;
-              meshRef.current.position.z = point.z;
-            }
-          }
-        }}
-        castShadow
-        receiveShadow
-      >
+    <group 
+      ref={groupRef}
+      position={initialPosition}
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        if (e.button === 0 && groupRef.current) {
+          setIsDragging(true);
+          // Store offset from click point to cabinet center
+          dragOffset.current = {
+            x: e.point.x - groupRef.current.position.x,
+            z: e.point.z - groupRef.current.position.z
+          };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        }
+      }}
+      onPointerUp={(e) => {
+        if (isDragging && groupRef.current) {
+          setIsDragging(false);
+          const pos = groupRef.current.position;
+          onDragEnd({ x: pos.x * 1000, z: pos.z * 1000 });
+          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        }
+      }}
+      onPointerMove={(e) => {
+        if (isDragging && groupRef.current) {
+          // Apply offset so cabinet doesn't jump to cursor
+          groupRef.current.position.x = e.point.x - dragOffset.current.x;
+          groupRef.current.position.z = e.point.z - dragOffset.current.z;
+        }
+      }}
+    >
+      <mesh castShadow receiveShadow>
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial 
           color={isSelected ? '#fbbf24' : color} 
@@ -182,7 +184,7 @@ export function PlannerScene({
   };
 
   return (
-    <div className={className}>
+    <div className={`w-full h-full ${className || ''}`}>
       <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ background: 'linear-gradient(to bottom, #f8fafc, #e2e8f0)' }}>
         <CameraController room={room} controlsRef={controlsRef} />
         <ambientLight intensity={0.5} />

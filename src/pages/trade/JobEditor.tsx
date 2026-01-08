@@ -142,15 +142,26 @@ export default function JobEditor() {
           
           {!showRoomWizard && rooms.length > 0 && (
             <div className="flex items-center gap-3">
-              <Button variant="outline" className="border-trade-border">
+              <Button 
+                variant="outline" 
+                className="border-trade-border"
+                onClick={() => toast.info('Export PDF', { description: 'Coming soon' })}
+              >
                 <FileDown className="h-4 w-4 mr-2" />
                 Export PDF
               </Button>
-              <Button variant="outline" className="border-trade-border">
+              <Button 
+                variant="outline" 
+                className="border-trade-border"
+                onClick={() => toast.success('Draft saved', { description: 'Your job has been saved' })}
+              >
                 <Save className="h-4 w-4 mr-2" />
                 Save Draft
               </Button>
-              <Button className="bg-trade-amber hover:bg-trade-amber-light text-white">
+              <Button 
+                className="bg-trade-amber hover:bg-trade-amber-light text-white"
+                onClick={() => toast.info('Submit Job', { description: 'Coming soon' })}
+              >
                 <Send className="h-4 w-4 mr-2" />
                 Submit Job
               </Button>

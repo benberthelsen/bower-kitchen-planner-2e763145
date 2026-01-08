@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import TradePlanner from "./pages/TradePlanner";
-import { TradeDashboard, JobEditor, ProductCatalog, ProductConfigurator, RoomPlanner } from "./pages/trade";
+import { TradeDashboard, JobEditor, ProductCatalog, ProductConfigurator, RoomPlanner, MyJobs, HardwareStore, TradeSettings } from "./pages/trade";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminJobs from "./pages/admin/Jobs";
@@ -48,14 +48,14 @@ const App = () => (
             {/* New Trade Dashboard Routes */}
             <Route path="/trade" element={<Navigate to="/trade/dashboard" replace />} />
             <Route path="/trade/dashboard" element={<TradeDashboard />} />
-            <Route path="/trade/jobs" element={<TradeDashboard />} />
+            <Route path="/trade/jobs" element={<MyJobs />} />
             <Route path="/trade/job/:jobId" element={<JobEditor />} />
             <Route path="/trade/catalog" element={<ProductCatalog />} />
             <Route path="/trade/job/:jobId/room/:roomId/configure/:productId" element={<ProductConfigurator />} />
             <Route path="/trade/job/:jobId/room/:roomId/planner" element={<RoomPlanner />} />
             <Route path="/trade/job/:jobId/room/:roomId/catalog" element={<ProductCatalog />} />
-            <Route path="/trade/hardware" element={<TradeDashboard />} />
-            <Route path="/trade/settings" element={<TradeDashboard />} />
+            <Route path="/trade/hardware" element={<HardwareStore />} />
+            <Route path="/trade/settings" element={<TradeSettings />} />
           
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminLayout />}>
