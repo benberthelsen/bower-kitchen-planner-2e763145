@@ -1,9 +1,12 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import { ConfiguredCabinet, useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
 import * as THREE from 'three';
 import { WALL_THICKNESS } from '@/constants';
+import { calculateSnapPosition } from '@/utils/snapping';
+import { cabinetToPlacedItem, cabinetsToPlacedItems } from '@/utils/snapping/adapter';
+import { RoomConfig } from '@/types';
 
 interface PlannerSceneProps {
   room: TradeRoom;
@@ -14,7 +17,7 @@ interface PlannerSceneProps {
   className?: string;
 }
 
-// Simple cabinet mesh for trade planner
+// Simple cabinet mesh for trade planner with snapping support
 function TradeCabinetMesh({ 
   cabinet, 
   isSelected, 
@@ -33,10 +36,22 @@ function TradeCabinetMesh({
   const width = cabinet.dimensions.width / 1000;
   const height = cabinet.dimensions.height / 1000;
   const depth = cabinet.dimensions.depth / 1000;
+  const rotation = cabinet.position?.rotation ?? 0;
 
-  const initialPosition = cabinet.position 
-    ? [cabinet.position.x / 1000, height / 2, cabinet.position.z / 1000] as [number, number, number]
-    : [1, height / 2, 1] as [number, number, number];
+  // Update position when cabinet.position changes (after snapping)
+  useEffect(() => {
+    if (groupRef.current && cabinet.position && !isDragging) {
+      groupRef.current.position.x = cabinet.position.x / 1000;
+      groupRef.current.position.z = cabinet.position.z / 1000;
+      groupRef.current.rotation.y = -THREE.MathUtils.degToRad(cabinet.position.rotation || 0);
+    }
+  }, [cabinet.position?.x, cabinet.position?.z, cabinet.position?.rotation, isDragging]);
+
+  const initialPosition: [number, number, number] = cabinet.position 
+    ? [cabinet.position.x / 1000, height / 2, cabinet.position.z / 1000]
+    : [1, height / 2, 1];
+
+  const initialRotation: [number, number, number] = [0, -THREE.MathUtils.degToRad(rotation), 0];
 
   // Get category-based color
   const categoryColors: Record<string, string> = {
@@ -52,6 +67,7 @@ function TradeCabinetMesh({
     <group 
       ref={groupRef}
       position={initialPosition}
+      rotation={initialRotation}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       onPointerDown={(e) => {
         e.stopPropagation();
@@ -171,17 +187,42 @@ export function PlannerScene({
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
 
-  const handleCabinetDragEnd = (instanceId: string, pos: { x: number; z: number }) => {
-    const cabinet = cabinets.find(c => c.instanceId === instanceId);
-    if (cabinet) {
-      onCabinetPlace(instanceId, {
-        x: pos.x,
-        y: cabinet.position?.y || 0,
-        z: pos.z,
-        rotation: cabinet.position?.rotation || 0,
-      });
-    }
+  // Convert TradeRoom config to RoomConfig for snapping
+  const roomConfig: RoomConfig = {
+    width: room.config.width,
+    depth: room.config.depth,
+    height: room.config.height,
+    shape: room.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
+    cutoutWidth: 0,
+    cutoutDepth: 0,
   };
+
+  const handleCabinetDragEnd = useCallback((instanceId: string, rawPos: { x: number; z: number }) => {
+    const cabinet = cabinets.find(c => c.instanceId === instanceId);
+    if (!cabinet) return;
+
+    // Convert to PlacedItem format for snapping
+    const placedItem = cabinetToPlacedItem(cabinet, rawPos);
+    const otherItems = cabinetsToPlacedItems(cabinets, instanceId);
+
+    // Calculate snapped position with rotation
+    const snapResult = calculateSnapPosition(
+      rawPos.x,
+      rawPos.z,
+      placedItem,
+      otherItems,
+      roomConfig,
+      50, // grid snap in mm
+      room.dimensions
+    );
+
+    onCabinetPlace(instanceId, {
+      x: snapResult.x,
+      y: cabinet.position?.y || 0,
+      z: snapResult.z,
+      rotation: snapResult.rotation,
+    });
+  }, [cabinets, roomConfig, room.dimensions, onCabinetPlace]);
 
   return (
     <div className={`w-full h-full ${className || ''}`}>
