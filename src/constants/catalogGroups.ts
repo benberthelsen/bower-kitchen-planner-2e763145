@@ -13,6 +13,8 @@ import {
   Columns3,
   Square,
   PanelTop,
+  Settings2,
+  Armchair,
   type LucideIcon
 } from 'lucide-react';
 
@@ -22,14 +24,18 @@ export const SPEC_GROUP_ORDER = [
   'Base Corner Cabinets',
   'Base Door-Drawer Cabinets',
   'Base Drawer Bank Cabinets',
+  'Master Cabinets',
+  'Master Corner Cabinets',
   'Sink Cabinets',
   'Upper Cabinets',
   'Upper Corner Cabinets',
   'Tall Cabinets',
   'Tall Corner Cabinets',
+  'Countertops',
   'Appliances',
   'Accessories',
   'Parts',
+  'Props',
 ] as const;
 
 export type SpecGroupName = typeof SPEC_GROUP_ORDER[number] | 'Other';
@@ -40,14 +46,18 @@ export const SPEC_GROUP_ICONS: Record<string, LucideIcon> = {
   'Base Corner Cabinets': CornerDownRight,
   'Base Door-Drawer Cabinets': Layers,
   'Base Drawer Bank Cabinets': Archive,
+  'Master Cabinets': Settings2,
+  'Master Corner Cabinets': Settings2,
   'Sink Cabinets': Grid2X2,
   'Upper Cabinets': PanelTop,
   'Upper Corner Cabinets': Square,
   'Tall Cabinets': Columns3,
   'Tall Corner Cabinets': CornerDownRight,
+  'Countertops': Layers,
   'Appliances': Refrigerator,
   'Accessories': Wrench,
   'Parts': Puzzle,
+  'Props': Armchair,
   'Other': LayoutGrid,
 };
 
@@ -57,14 +67,18 @@ export const SPEC_GROUP_COLORS: Record<string, string> = {
   'Base Corner Cabinets': 'bg-blue-400',
   'Base Door-Drawer Cabinets': 'bg-blue-600',
   'Base Drawer Bank Cabinets': 'bg-blue-700',
+  'Master Cabinets': 'bg-indigo-500',
+  'Master Corner Cabinets': 'bg-indigo-400',
   'Sink Cabinets': 'bg-cyan-500',
   'Upper Cabinets': 'bg-green-500',
   'Upper Corner Cabinets': 'bg-green-400',
   'Tall Cabinets': 'bg-purple-500',
   'Tall Corner Cabinets': 'bg-purple-400',
+  'Countertops': 'bg-stone-500',
   'Appliances': 'bg-orange-500',
   'Accessories': 'bg-amber-500',
   'Parts': 'bg-gray-500',
+  'Props': 'bg-rose-400',
   'Other': 'bg-gray-400',
 };
 
