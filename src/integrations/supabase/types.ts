@@ -435,7 +435,9 @@ export type Database = {
           drawer_count: number | null
           featured: boolean | null
           filler_width: number | null
+          front_geometry: Json | null
           has_adjustable_shelves: boolean | null
+          has_dxf_geometry: boolean | null
           has_false_front: boolean | null
           id: string
           is_blind: boolean | null
@@ -449,6 +451,7 @@ export type Database = {
           right_arm_depth: number | null
           room_component_type: string | null
           spec_group: string | null
+          thumbnail_svg: string | null
           updated_at: string | null
           visible_to_standard: boolean | null
           visible_to_trade: boolean | null
@@ -467,7 +470,9 @@ export type Database = {
           drawer_count?: number | null
           featured?: boolean | null
           filler_width?: number | null
+          front_geometry?: Json | null
           has_adjustable_shelves?: boolean | null
+          has_dxf_geometry?: boolean | null
           has_false_front?: boolean | null
           id?: string
           is_blind?: boolean | null
@@ -481,6 +486,7 @@ export type Database = {
           right_arm_depth?: number | null
           room_component_type?: string | null
           spec_group?: string | null
+          thumbnail_svg?: string | null
           updated_at?: string | null
           visible_to_standard?: boolean | null
           visible_to_trade?: boolean | null
@@ -499,7 +505,9 @@ export type Database = {
           drawer_count?: number | null
           featured?: boolean | null
           filler_width?: number | null
+          front_geometry?: Json | null
           has_adjustable_shelves?: boolean | null
+          has_dxf_geometry?: boolean | null
           has_false_front?: boolean | null
           id?: string
           is_blind?: boolean | null
@@ -513,6 +521,7 @@ export type Database = {
           right_arm_depth?: number | null
           room_component_type?: string | null
           spec_group?: string | null
+          thumbnail_svg?: string | null
           updated_at?: string | null
           visible_to_standard?: boolean | null
           visible_to_trade?: boolean | null

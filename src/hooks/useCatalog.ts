@@ -35,6 +35,10 @@ interface MicrovellumProduct {
   blind_depth: number | null;
   filler_width: number | null;
   return_filler: boolean | null;
+  // DXF geometry columns
+  thumbnail_svg: string | null;
+  front_geometry: object | null;
+  has_dxf_geometry: boolean | null;
 }
 
 // Extended catalog definition with render config
