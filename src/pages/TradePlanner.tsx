@@ -248,8 +248,8 @@ function TradePlannerContent() {
         </ResizableSidebar>
       </div>
 
-      <div className="flex-1 flex flex-col md:flex-row pt-0 md:pt-14">
-        <div className="flex-1 relative bg-gray-100">
+      <div className="flex-1 flex flex-col md:flex-row pt-0 md:pt-14 h-[calc(100vh-56px)] md:h-screen">
+        <div className="flex-1 relative bg-gray-100 h-full min-h-0">
           <Scene3DErrorBoundary onSwitch2D={setIs2D}>
             <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
               <Scene is3D={is3D} onCameraControlsReady={setCameraControls} />
