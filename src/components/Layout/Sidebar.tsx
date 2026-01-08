@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { sortSpecGroups } from '@/constants/catalogGroups';
 
 interface SidebarProps {
   onClose?: () => void;
@@ -132,13 +133,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose, userType = 'standard' }) => 
   const { setPlacementItem, placementItemId, loadSampleKitchen, sampleKitchens } = usePlanner();
   const { catalog, isLoading, isDynamic } = useCatalog(userType);
   const [search, setSearch] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({ 'Base': true, 'Wall': true, 'Tall': true, 'Appliance': true, 'Structure': true });
 
-  const toggleCategory = (cat: string) => setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+  const isTrade = userType === 'trade' || userType === 'admin';
+
+  // Expanded sections (keys are either Base/Wall/Tall... OR spec group names)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(
+    isTrade
+      ? { 'Base Cabinets': true, 'Upper Cabinets': true, 'Tall Cabinets': true, Appliances: true }
+      : { Base: true, Wall: true, Tall: true, Appliance: true, Structure: true }
+  );
+
+  const toggleSection = (key: string) => setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
 
   const filteredCatalog = catalog.filter(item => item.name.toLowerCase().includes(search.toLowerCase()) || item.sku.toLowerCase().includes(search.toLowerCase()));
 
   const categories = ['Base', 'Wall', 'Tall', 'Appliance', 'Structure'];
+  const specGroups = sortSpecGroups(Array.from(new Set(filteredCatalog.map(i => i.specGroup || 'Other'))));
+  const sections = isTrade ? specGroups : categories;
 
   const handleDragStart = (e: React.DragEvent, item: CatalogItemDefinition) => {
     e.dataTransfer.setData('definitionId', item.id);
@@ -219,23 +230,28 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose, userType = 'standard' }) => 
           </div>
         )}
         
-        {!isLoading && categories.map(category => {
-          const items = filteredCatalog.filter(item => {
-            if (category === 'Appliance') return item.itemType === 'Appliance';
-            if (category === 'Structure') return item.itemType === 'Structure' || item.itemType === 'Wall';
-            return item.category === category;
-          });
+        {!isLoading && sections.map(sectionKey => {
+          const items = isTrade
+            ? filteredCatalog.filter(item => (item.specGroup || 'Other') === sectionKey)
+            : filteredCatalog.filter(item => {
+                if (sectionKey === 'Appliance') return item.itemType === 'Appliance';
+                if (sectionKey === 'Structure') return item.itemType === 'Structure' || item.itemType === 'Wall';
+                return item.category === sectionKey;
+              });
 
           if (items.length === 0) return null;
 
+          const title = isTrade ? sectionKey : `${sectionKey} Cabinets`;
+          const isOpen = !!expandedSections[sectionKey];
+
           return (
-            <div key={category} className="mb-2">
-              <button onClick={() => toggleCategory(category)} className="w-full flex items-center justify-between px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded">
-                <span>{category} Cabinets</span>
-                {expandedCategories[category] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            <div key={sectionKey} className="mb-2">
+              <button onClick={() => toggleSection(sectionKey)} className="w-full flex items-center justify-between px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded">
+                <span className="truncate">{title}</span>
+                {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               </button>
 
-              {expandedCategories[category] && (
+              {isOpen && (
                 <div className="grid grid-cols-2 gap-1 mt-1">
                   {items.map(item => {
                     const isSelected = placementItemId === item.id;
