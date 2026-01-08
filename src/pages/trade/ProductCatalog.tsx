@@ -21,20 +21,42 @@ import TradeLayout from './components/TradeLayout';
 import { useCatalog, ExtendedCatalogItem } from '@/hooks/useCatalog';
 
 type ViewMode = 'grid' | 'list';
-type CategoryFilter = 'all' | 'Base' | 'Wall' | 'Tall' | 'Appliance';
 
-const CATEGORY_INFO: Record<CategoryFilter, { label: string; description: string; icon: React.ReactNode }> = {
-  all: { label: 'All Products', description: 'Browse our complete catalog', icon: <Package className="h-5 w-5" /> },
-  Base: { label: 'Base Cabinets', description: 'Floor-standing cabinets', icon: <Package className="h-5 w-5" /> },
-  Wall: { label: 'Wall Cabinets', description: 'Mounted wall units', icon: <Package className="h-5 w-5" /> },
-  Tall: { label: 'Tall Cabinets', description: 'Full-height pantry & storage', icon: <Package className="h-5 w-5" /> },
-  Appliance: { label: 'Appliance Housing', description: 'Oven, fridge & dishwasher', icon: <Package className="h-5 w-5" /> },
+// Microvellum spec_group categories in display order
+const SPEC_GROUP_ORDER = [
+  'Base Cabinets',
+  'Base Corner Cabinets',
+  'Base Door-Drawer Cabinets',
+  'Base Drawer Bank Cabinets',
+  'Sink Cabinets',
+  'Upper Cabinets',
+  'Upper Corner Cabinets',
+  'Tall Cabinets',
+  'Tall Corner Cabinets',
+  'Appliances',
+  'Accessories',
+  'Parts',
+];
+
+const SPEC_GROUP_ICONS: Record<string, React.ReactNode> = {
+  'Base Cabinets': <Package className="h-5 w-5" />,
+  'Base Corner Cabinets': <Package className="h-5 w-5" />,
+  'Base Door-Drawer Cabinets': <Package className="h-5 w-5" />,
+  'Base Drawer Bank Cabinets': <Package className="h-5 w-5" />,
+  'Sink Cabinets': <Package className="h-5 w-5" />,
+  'Upper Cabinets': <Package className="h-5 w-5" />,
+  'Upper Corner Cabinets': <Package className="h-5 w-5" />,
+  'Tall Cabinets': <Package className="h-5 w-5" />,
+  'Tall Corner Cabinets': <Package className="h-5 w-5" />,
+  'Appliances': <Package className="h-5 w-5" />,
+  'Accessories': <Package className="h-5 w-5" />,
+  'Parts': <Package className="h-5 w-5" />,
 };
 
 export default function ProductCatalog() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { catalog, isLoading } = useCatalog('trade');
+  const { catalog, groupedBySpecGroup, specGroups, isLoading } = useCatalog('trade');
   
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,10 +66,10 @@ export default function ProductCatalog() {
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  const activeCategory = (searchParams.get('category') as CategoryFilter) || 'all';
+  const activeSpecGroup = searchParams.get('specGroup') || 'all';
 
-  const setActiveCategory = (category: CategoryFilter) => {
-    setSearchParams({ category });
+  const setActiveSpecGroup = (specGroup: string) => {
+    setSearchParams({ specGroup });
   };
 
   const toggleFavorite = (id: string) => {
@@ -63,12 +85,17 @@ export default function ProductCatalog() {
     });
   };
 
+  // Sort spec groups according to defined order
+  const sortedSpecGroups = useMemo(() => {
+    return SPEC_GROUP_ORDER.filter(group => specGroups.includes(group));
+  }, [specGroups]);
+
   const filteredCatalog = useMemo(() => {
     let items = catalog;
 
-    // Category filter
-    if (activeCategory !== 'all') {
-      items = items.filter(item => item.category === activeCategory);
+    // Spec group filter
+    if (activeSpecGroup !== 'all') {
+      items = items.filter(item => item.specGroup === activeSpecGroup);
     }
 
     // Search filter
@@ -86,19 +113,13 @@ export default function ProductCatalog() {
     }
 
     return items;
-  }, [catalog, activeCategory, searchQuery, showFavoritesOnly, favorites]);
+  }, [catalog, activeSpecGroup, searchQuery, showFavoritesOnly, favorites]);
 
-  const categoryCounts = useMemo(() => {
-    const counts: Record<CategoryFilter, number> = {
-      all: catalog.length,
-      Base: 0,
-      Wall: 0,
-      Tall: 0,
-      Appliance: 0,
-    };
+  const specGroupCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: catalog.length };
     catalog.forEach(item => {
-      if (item.category && counts[item.category as CategoryFilter] !== undefined) {
-        counts[item.category as CategoryFilter]++;
+      if (item.specGroup) {
+        counts[item.specGroup] = (counts[item.specGroup] || 0) + 1;
       }
     });
     return counts;
@@ -109,33 +130,70 @@ export default function ProductCatalog() {
     navigate(`/trade/job/new?addProduct=${item.id}`);
   };
 
+  const getActiveLabel = () => {
+    if (activeSpecGroup === 'all') return 'All Products';
+    return activeSpecGroup;
+  };
+
+  const getActiveDescription = () => {
+    if (activeSpecGroup === 'all') return 'Browse our complete Microvellum catalog';
+    if (activeSpecGroup.includes('Base')) return 'Floor-standing cabinet units';
+    if (activeSpecGroup.includes('Upper')) return 'Mounted wall cabinet units';
+    if (activeSpecGroup.includes('Tall')) return 'Full-height storage units';
+    if (activeSpecGroup.includes('Sink')) return 'Sink base cabinets';
+    if (activeSpecGroup.includes('Appliance')) return 'Oven, fridge & dishwasher housings';
+    if (activeSpecGroup.includes('Accessor')) return 'Cabinet accessories';
+    if (activeSpecGroup.includes('Parts')) return 'Panels, fillers & parts';
+    return 'Browse products';
+  };
+
   return (
     <TradeLayout>
       <div className="flex h-[calc(100vh-3.5rem)] lg:h-screen">
         {/* Category Sidebar */}
-        <aside className="hidden md:flex w-64 border-r border-trade-border bg-white flex-col">
+        <aside className="hidden md:flex w-72 border-r border-trade-border bg-white flex-col">
           <div className="p-4 border-b border-trade-border">
-            <h2 className="font-display font-semibold text-trade-navy">Categories</h2>
+            <h2 className="font-display font-semibold text-trade-navy">Microvellum Categories</h2>
           </div>
           <ScrollArea className="flex-1">
             <nav className="p-2 space-y-1">
-              {(Object.keys(CATEGORY_INFO) as CategoryFilter[]).map(category => (
+              {/* All Products */}
+              <button
+                onClick={() => setActiveSpecGroup('all')}
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all text-left",
+                  activeSpecGroup === 'all'
+                    ? "bg-trade-amber/10 text-trade-amber border border-trade-amber/20"
+                    : "text-trade-navy/70 hover:bg-trade-muted hover:text-trade-navy"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <Package className="h-5 w-5" />
+                  <span className="font-medium">All Products</span>
+                </div>
+                <Badge variant="secondary" className="bg-trade-muted text-trade-navy/60">
+                  {specGroupCounts.all || 0}
+                </Badge>
+              </button>
+
+              {/* Grouped by spec_group */}
+              {sortedSpecGroups.map(specGroup => (
                 <button
-                  key={category}
-                  onClick={() => setActiveCategory(category)}
+                  key={specGroup}
+                  onClick={() => setActiveSpecGroup(specGroup)}
                   className={cn(
                     "w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all text-left",
-                    activeCategory === category
+                    activeSpecGroup === specGroup
                       ? "bg-trade-amber/10 text-trade-amber border border-trade-amber/20"
                       : "text-trade-navy/70 hover:bg-trade-muted hover:text-trade-navy"
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    {CATEGORY_INFO[category].icon}
-                    <span className="font-medium">{CATEGORY_INFO[category].label}</span>
+                    {SPEC_GROUP_ICONS[specGroup] || <Package className="h-5 w-5" />}
+                    <span className="font-medium text-sm">{specGroup}</span>
                   </div>
                   <Badge variant="secondary" className="bg-trade-muted text-trade-navy/60">
-                    {categoryCounts[category]}
+                    {specGroupCounts[specGroup] || 0}
                   </Badge>
                 </button>
               ))}
@@ -171,10 +229,10 @@ export default function ProductCatalog() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="font-display text-2xl font-bold text-trade-navy">
-                  {CATEGORY_INFO[activeCategory].label}
+                  {getActiveLabel()}
                 </h1>
                 <p className="text-trade-navy/60 text-sm">
-                  {CATEGORY_INFO[activeCategory].description}
+                  {getActiveDescription()}
                 </p>
               </div>
               <div className="flex items-center gap-2">

@@ -41,6 +41,7 @@ interface MicrovellumProduct {
 export interface ExtendedCatalogItem extends CatalogItemDefinition {
   renderConfig: CabinetRenderConfig;
   microvellumProduct?: MicrovellumProduct;
+  specGroup?: string | null;
 }
 
 function mapCategoryToItemType(category: string | null): ItemType {
@@ -107,6 +108,7 @@ function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem
     price: 0, // Pricing comes from BOM calculation
     renderConfig,
     microvellumProduct: product,
+    specGroup: product.spec_group,
   };
 }
 
@@ -284,9 +286,18 @@ export function useCatalog(userType: UserType = 'standard') {
     Structure: catalog.filter(item => item.itemType === 'Structure' || item.itemType === 'Wall'),
   };
 
+  // Group by spec_group (Microvellum categories)
+  const specGroups = [...new Set(catalog.map(item => item.specGroup).filter(Boolean))] as string[];
+  const groupedBySpecGroup: Record<string, ExtendedCatalogItem[]> = {};
+  specGroups.forEach(group => {
+    groupedBySpecGroup[group] = catalog.filter(item => item.specGroup === group);
+  });
+
   return {
     catalog,
     groupedCatalog,
+    groupedBySpecGroup,
+    specGroups,
     isLoading,
     error,
     isDynamic: dynamicCatalog.length > 0,
