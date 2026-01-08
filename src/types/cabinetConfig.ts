@@ -47,6 +47,16 @@ export interface CabinetRenderConfig {
   defaultWidth: number;
   defaultHeight: number;
   defaultDepth: number;
+  
+  // SVG thumbnail and front geometry from DXF processing
+  thumbnailSvg?: string;
+  frontGeometry?: {
+    doors: Array<{ x: number; y: number; width: number; height: number }>;
+    drawers: Array<{ x: number; y: number; width: number; height: number }>;
+    handles: Array<{ x: number; y: number; type: 'bar' | 'knob' }>;
+    cutouts?: Array<{ x: number; y: number; width: number; height: number; type: 'sink' | 'appliance' }>;
+  };
+  hasDxfGeometry?: boolean;
 }
 
 /**
@@ -121,6 +131,10 @@ export function parseProductToRenderConfig(product: {
   blind_depth?: number | null;
   filler_width?: number | null;
   return_filler?: boolean | null;
+  // DXF geometry columns
+  thumbnail_svg?: string | null;
+  front_geometry?: unknown;
+  has_dxf_geometry?: boolean | null;
 }): CabinetRenderConfig {
   const name = product.name.toLowerCase();
   const category = (product.category as CabinetCategory) || 'Base';
@@ -196,6 +210,11 @@ export function parseProductToRenderConfig(product: {
     defaultWidth: product.default_width || 600,
     defaultHeight: product.default_height || 870,
     defaultDepth: product.default_depth || 575,
+    
+    // DXF geometry data
+    thumbnailSvg: product.thumbnail_svg || undefined,
+    frontGeometry: product.front_geometry as CabinetRenderConfig['frontGeometry'] || undefined,
+    hasDxfGeometry: product.has_dxf_geometry || false,
   };
 }
 

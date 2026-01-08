@@ -2,3 +2,6 @@ project_id = "wyiydozwukiayhwcdlcf"
 
 [functions.import-microvellum]
 verify_jwt = false
+
+[functions.process-dxf-geometry]
+verify_jwt = false

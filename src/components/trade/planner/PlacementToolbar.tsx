@@ -178,9 +178,7 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
                         title={`Click to add or drag "${product.name}" to the scene`}
                       >
                         <GripVertical className="w-3 h-3 text-muted-foreground/50 group-hover:text-muted-foreground flex-shrink-0" />
-                        <div className="w-7 h-7 bg-muted rounded flex items-center justify-center group-hover:bg-trade-amber/10 transition-colors flex-shrink-0">
-                          <Package className="w-3.5 h-3.5 text-muted-foreground group-hover:text-trade-amber transition-colors" />
-                        </div>
+                        <ProductThumbnail product={product} />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate">{product.name}</p>
                           <p className="text-[10px] text-muted-foreground">
@@ -200,6 +198,81 @@ export function PlacementToolbar({ onSelectProduct, className }: PlacementToolba
         </div>
       </ScrollArea>
     </div>
+  );
+}
+
+// Product thumbnail - shows SVG if available, otherwise icon
+function ProductThumbnail({ product }: { product: ExtendedCatalogItem }) {
+  const thumbnailSvg = product.renderConfig?.thumbnailSvg;
+  
+  if (thumbnailSvg) {
+    return (
+      <div 
+        className="w-7 h-7 bg-white rounded border border-border flex-shrink-0 overflow-hidden"
+        dangerouslySetInnerHTML={{ __html: thumbnailSvg }}
+      />
+    );
+  }
+  
+  // Fallback to generated procedural thumbnail
+  return <ProceduralThumbnail product={product} />;
+}
+
+// Procedural thumbnail based on door/drawer counts
+function ProceduralThumbnail({ product }: { product: ExtendedCatalogItem }) {
+  const { doorCount = 0, drawerCount = 0, isSink, isCorner } = product.renderConfig || {};
+  
+  return (
+    <svg 
+      className="w-7 h-7 flex-shrink-0" 
+      viewBox="0 0 28 28" 
+      fill="none"
+    >
+      <rect x="2" y="2" width="24" height="24" rx="2" fill="#f3f4f6" stroke="#9ca3af" strokeWidth="1"/>
+      {drawerCount > 0 && doorCount === 0 ? (
+        // All drawers
+        Array.from({ length: Math.min(drawerCount, 4) }).map((_, i) => {
+          const h = 20 / Math.min(drawerCount, 4);
+          return (
+            <g key={i}>
+              <rect x="4" y={4 + i * h} width="20" height={h - 1} fill="none" stroke="#6b7280" strokeWidth="0.5"/>
+              <line x1="10" y1={4 + i * h + h * 0.3} x2="18" y2={4 + i * h + h * 0.3} stroke="#6b7280" strokeWidth="0.5"/>
+            </g>
+          );
+        })
+      ) : doorCount > 0 && drawerCount === 0 ? (
+        // All doors
+        Array.from({ length: Math.min(doorCount, 2) }).map((_, i) => {
+          const w = 20 / Math.min(doorCount, 2);
+          return (
+            <g key={i}>
+              <rect x={4 + i * w} y="4" width={w - 1} height="20" fill="none" stroke="#6b7280" strokeWidth="0.5"/>
+              <circle cx={i === 0 ? 4 + w - 4 : 4 + i * w + 3} cy="14" r="1.5" fill="#6b7280"/>
+            </g>
+          );
+        })
+      ) : doorCount > 0 && drawerCount > 0 ? (
+        // Drawers on top, doors below
+        <>
+          <rect x="4" y="4" width="20" height="6" fill="none" stroke="#6b7280" strokeWidth="0.5"/>
+          {Array.from({ length: Math.min(doorCount, 2) }).map((_, i) => {
+            const w = 20 / Math.min(doorCount, 2);
+            return (
+              <rect key={i} x={4 + i * w} y="11" width={w - 1} height="13" fill="none" stroke="#6b7280" strokeWidth="0.5"/>
+            );
+          })}
+        </>
+      ) : (
+        // Default single door
+        <rect x="4" y="4" width="20" height="20" fill="none" stroke="#6b7280" strokeWidth="0.5"/>
+      )}
+      {isSink && (
+        <ellipse cx="14" cy="8" rx="6" ry="2" fill="none" stroke="#6b7280" strokeWidth="0.5" strokeDasharray="2,1"/>
+      )}
+      {isCorner && (
+        <path d="M4 24 L10 18 L24 4" fill="none" stroke="#6b7280" strokeWidth="0.5" strokeDasharray="2,1"/>
+      )}
+    </svg>
   );
 }
 
