@@ -99,9 +99,9 @@ function DimensionLabel({ value, inputId, className, onFocus }: DimensionLabelPr
     <button
       onClick={handleClick}
       className={cn(
-        "bg-white/95 px-2 py-0.5 rounded text-xs font-medium text-trade-navy shadow-sm",
+        "bg-trade-navy/90 px-2.5 py-1 rounded text-xs font-bold text-white shadow-md",
         "hover:bg-trade-amber hover:text-white transition-colors cursor-pointer pointer-events-auto",
-        "border border-transparent hover:border-trade-amber",
+        "border border-white/20 hover:border-trade-amber",
         className
       )}
     >
