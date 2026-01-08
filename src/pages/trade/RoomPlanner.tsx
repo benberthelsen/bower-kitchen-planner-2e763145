@@ -370,8 +370,25 @@ export default function RoomPlanner() {
             <PlacementToolbar onSelectProduct={handleQuickAddProduct} />
           )}
 
-          {/* 3D Scene */}
-          <div className="flex-1 flex flex-col">
+          {/* 3D Scene with Drop Zone */}
+          <div 
+            className="flex-1 flex flex-col"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              try {
+                const data = JSON.parse(e.dataTransfer.getData('application/json'));
+                if (data.productId) {
+                  handleQuickAddProduct(data.productId);
+                }
+              } catch (err) {
+                // Ignore invalid drops
+              }
+            }}
+          >
             <PlannerScene
               room={currentRoom}
               cabinets={cabinets}
