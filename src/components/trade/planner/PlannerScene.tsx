@@ -1,12 +1,16 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import { ConfiguredCabinet, useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
 import * as THREE from 'three';
-import { WALL_THICKNESS } from '@/constants';
+import { WALL_THICKNESS, FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { calculateSnapPosition } from '@/utils/snapping';
 import { cabinetToPlacedItem, cabinetsToPlacedItems } from '@/utils/snapping/adapter';
-import { RoomConfig } from '@/types';
+import { RoomConfig, PlacedItem } from '@/types';
+import { useCatalogItem } from '@/hooks/useCatalog';
+import { useCabinetMaterials } from '@/hooks/useCabinetMaterials';
+import CabinetAssembler from '@/components/3d/CabinetAssembler';
+import { CabinetRenderConfig } from '@/types/cabinetConfig';
 
 interface PlannerSceneProps {
   room: TradeRoom;
@@ -17,7 +21,13 @@ interface PlannerSceneProps {
   className?: string;
 }
 
-// Simple cabinet mesh for trade planner with snapping support
+// Get default material options for trade planner
+const getDefaultFinish = () => FINISH_OPTIONS[0];
+const getDefaultBenchtop = () => BENCHTOP_OPTIONS[0];
+const getDefaultKick = () => KICK_OPTIONS[0];
+const getDefaultHandle = () => HANDLE_OPTIONS[0];
+
+// Full cabinet mesh for trade planner with proper rendering and snapping
 function TradeCabinetMesh({ 
   cabinet, 
   isSelected, 
@@ -31,12 +41,93 @@ function TradeCabinetMesh({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const dragOffset = useRef({ x: 0, z: 0 });
 
-  const width = cabinet.dimensions.width / 1000;
-  const height = cabinet.dimensions.height / 1000;
-  const depth = cabinet.dimensions.depth / 1000;
+  // Get catalog item for render config
+  const catalogItem = useCatalogItem(cabinet.definitionId);
+
+  // Get materials
+  const finishOption = getDefaultFinish();
+  const benchtopOption = getDefaultBenchtop();
+  const kickOption = getDefaultKick();
+  const handle = getDefaultHandle();
+  
+  const { materials } = useCabinetMaterials(finishOption, benchtopOption, kickOption);
+
+  const width = cabinet.dimensions.width;
+  const height = cabinet.dimensions.height;
+  const depth = cabinet.dimensions.depth;
   const rotation = cabinet.position?.rotation ?? 0;
+
+  // Convert to meters for Three.js
+  const widthM = width / 1000;
+  const heightM = height / 1000;
+  const depthM = depth / 1000;
+
+  // Create a PlacedItem-compatible object for CabinetAssembler
+  const placedItem: PlacedItem = useMemo(() => ({
+    instanceId: cabinet.instanceId,
+    definitionId: cabinet.definitionId,
+    x: cabinet.position?.x ?? 0,
+    y: cabinet.position?.y ?? 0,
+    z: cabinet.position?.z ?? 0,
+    width,
+    height,
+    depth,
+    rotation: rotation,
+    hinge: 'Left' as const,
+    itemType: 'Cabinet' as const,
+  }), [cabinet, width, height, depth, rotation]);
+
+  // Generate render config
+  const renderConfig: CabinetRenderConfig = useMemo(() => {
+    if (catalogItem?.renderConfig) {
+      return catalogItem.renderConfig;
+    }
+    
+    // Create a default config based on cabinet category
+    // Map Appliance to Accessory for CabinetRenderConfig compatibility
+    const categoryMap: Record<string, 'Base' | 'Wall' | 'Tall' | 'Accessory'> = {
+      Base: 'Base',
+      Wall: 'Wall',
+      Tall: 'Tall',
+      Appliance: 'Accessory',
+    };
+    const configCategory = categoryMap[cabinet.category] || 'Base';
+    const doorCount = cabinet.category === 'Wall' ? 2 : 1;
+    const drawerCount = 0;
+    
+    return {
+      productId: cabinet.definitionId,
+      productName: cabinet.productName,
+      category: configCategory,
+      cabinetType: 'Standard',
+      doorCount,
+      drawerCount,
+      isCorner: false,
+      isSink: false,
+      isBlind: false,
+      isPantry: cabinet.category === 'Tall',
+      isAppliance: cabinet.category === 'Appliance',
+      isOven: false,
+      isFridge: false,
+      isRangehood: false,
+      isDishwasher: false,
+      hasFalseFront: false,
+      hasAdjustableShelves: true,
+      shelfCount: cabinet.category === 'Tall' ? 4 : 1,
+      cornerType: null,
+      leftArmDepth: 575,
+      rightArmDepth: 575,
+      blindDepth: 150,
+      fillerWidth: 75,
+      hasReturnFiller: false,
+      defaultWidth: width,
+      defaultHeight: height,
+      defaultDepth: depth,
+    };
+  }, [catalogItem, cabinet, width, height, depth]);
 
   // Update position when cabinet.position changes (after snapping)
   useEffect(() => {
@@ -48,20 +139,22 @@ function TradeCabinetMesh({
   }, [cabinet.position?.x, cabinet.position?.z, cabinet.position?.rotation, isDragging]);
 
   const initialPosition: [number, number, number] = cabinet.position 
-    ? [cabinet.position.x / 1000, height / 2, cabinet.position.z / 1000]
-    : [1, height / 2, 1];
+    ? [cabinet.position.x / 1000, heightM / 2, cabinet.position.z / 1000]
+    : [1, heightM / 2, 1];
 
   const initialRotation: [number, number, number] = [0, -THREE.MathUtils.degToRad(rotation), 0];
 
-  // Get category-based color
-  const categoryColors: Record<string, string> = {
-    Base: '#3b82f6',
-    Wall: '#22c55e', 
-    Tall: '#a855f7',
-    Appliance: '#f97316',
-  };
-
-  const color = categoryColors[cabinet.category] || '#64748b';
+  // Show loading placeholder while materials are loading
+  if (!materials || !materials.gable) {
+    return (
+      <group position={initialPosition} rotation={initialRotation}>
+        <mesh>
+          <boxGeometry args={[widthM, heightM, depthM]} />
+          <meshBasicMaterial color="#9ca3af" wireframe opacity={0.5} transparent />
+        </mesh>
+      </group>
+    );
+  }
 
   return (
     <group 
@@ -69,11 +162,12 @@ function TradeCabinetMesh({
       position={initialPosition}
       rotation={initialRotation}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      onPointerOver={() => setHovered(true)}
+      onPointerOut={() => setHovered(false)}
       onPointerDown={(e) => {
         e.stopPropagation();
         if (e.button === 0 && groupRef.current) {
           setIsDragging(true);
-          // Store offset from click point to cabinet center
           dragOffset.current = {
             x: e.point.x - groupRef.current.position.x,
             z: e.point.z - groupRef.current.position.z
@@ -91,33 +185,24 @@ function TradeCabinetMesh({
       }}
       onPointerMove={(e) => {
         if (isDragging && groupRef.current) {
-          // Apply offset so cabinet doesn't jump to cursor
           groupRef.current.position.x = e.point.x - dragOffset.current.x;
           groupRef.current.position.z = e.point.z - dragOffset.current.z;
         }
       }}
     >
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial 
-          color={isSelected ? '#fbbf24' : color} 
-          roughness={0.6}
-          metalness={0.1}
-        />
-      </mesh>
-      
-      {/* Selection outline */}
-      {isSelected && (
-        <lineSegments>
-          <edgesGeometry args={[new THREE.BoxGeometry(width + 0.01, height + 0.01, depth + 0.01)]} />
-          <lineBasicMaterial color="#fbbf24" linewidth={2} />
-        </lineSegments>
-      )}
-
-      {/* Cabinet number label */}
-      <sprite position={[0, height / 2 + 0.15, 0]} scale={[0.3, 0.15, 1]}>
-        <spriteMaterial color="#fbbf24" />
-      </sprite>
+      <CabinetAssembler
+        item={placedItem}
+        config={renderConfig}
+        finishMaterial={finishOption}
+        benchtopMaterial={benchtopOption}
+        kickMaterial={kickOption}
+        handle={handle}
+        globalDimensions={DEFAULT_GLOBAL_DIMENSIONS}
+        materials={materials}
+        isSelected={isSelected}
+        isDragged={isDragging}
+        hovered={hovered}
+      />
     </group>
   );
 }
