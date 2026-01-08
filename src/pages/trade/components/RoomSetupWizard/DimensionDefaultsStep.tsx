@@ -1,4 +1,3 @@
-import React, { useRef } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -16,14 +15,11 @@ import {
 } from '@/components/ui/tooltip';
 import { RoomConfig } from './index';
 import kitchenDiagram from '@/assets/kitchen-dimensions-diagram.png';
-import { cn } from '@/lib/utils';
 
 interface DimensionDefaultsStepProps {
   config: RoomConfig;
   updateConfig: (updates: Partial<RoomConfig>) => void;
 }
-
-type DimensionKey = 'toeKickHeight' | 'shelfSetback' | 'baseHeight' | 'baseDepth' | 'wallHeight' | 'wallDepth' | 'tallHeight' | 'tallDepth';
 
 function DimensionInput({ 
   id,
@@ -33,7 +29,6 @@ function DimensionInput({
   tooltip,
   min = 0,
   max = 3000,
-  isHighlighted = false
 }: { 
   id: string;
   label: string;
@@ -42,13 +37,9 @@ function DimensionInput({
   tooltip?: string;
   min?: number;
   max?: number;
-  isHighlighted?: boolean;
 }) {
   return (
-    <div className={cn(
-      "flex items-center gap-3 p-2 -m-2 rounded-lg transition-all",
-      isHighlighted && "bg-trade-amber/10 ring-2 ring-trade-amber"
-    )}>
+    <div className="flex items-center gap-3">
       <Label htmlFor={id} className="text-trade-amber font-medium min-w-[140px] flex items-center gap-1.5">
         {label}
         {tooltip && (
@@ -78,46 +69,7 @@ function DimensionInput({
   );
 }
 
-interface DimensionLabelProps {
-  value: number;
-  inputId: string;
-  className: string;
-  onFocus: (id: string) => void;
-}
-
-function DimensionLabel({ value, inputId, className, onFocus }: DimensionLabelProps) {
-  const handleClick = () => {
-    onFocus(inputId);
-    const input = document.getElementById(inputId);
-    if (input) {
-      input.focus();
-      (input as HTMLInputElement).select();
-    }
-  };
-
-  return (
-    <button
-      onClick={handleClick}
-      className={cn(
-        "bg-trade-navy/90 px-2.5 py-1 rounded text-xs font-bold text-white shadow-md",
-        "hover:bg-trade-amber hover:text-white transition-colors cursor-pointer pointer-events-auto",
-        "border border-white/20 hover:border-trade-amber",
-        className
-      )}
-    >
-      {value}
-    </button>
-  );
-}
-
 export default function DimensionDefaultsStep({ config, updateConfig }: DimensionDefaultsStepProps) {
-  const [highlightedField, setHighlightedField] = React.useState<string | null>(null);
-
-  const handleLabelFocus = (id: string) => {
-    setHighlightedField(id);
-    setTimeout(() => setHighlightedField(null), 2000);
-  };
-
   return (
     <div className="max-w-5xl mx-auto">
       <p className="text-center text-trade-muted mb-6">
@@ -151,7 +103,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Height of the toe kick / plinth below base cabinets"
               min={100}
               max={200}
-              isHighlighted={highlightedField === 'toeKickHeight'}
             />
             <DimensionInput
               id="shelfSetback"
@@ -161,7 +112,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="How far shelves are set back from the front edge"
               min={0}
               max={50}
-              isHighlighted={highlightedField === 'shelfSetback'}
             />
           </div>
 
@@ -175,7 +125,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Default height of base cabinets (excluding toe kick)"
               min={600}
               max={900}
-              isHighlighted={highlightedField === 'baseHeight'}
             />
             <DimensionInput
               id="baseDepth"
@@ -185,7 +134,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Default depth of base cabinets"
               min={400}
               max={700}
-              isHighlighted={highlightedField === 'baseDepth'}
             />
           </div>
 
@@ -199,7 +147,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Default height of wall/upper cabinets"
               min={300}
               max={1200}
-              isHighlighted={highlightedField === 'wallHeight'}
             />
             <DimensionInput
               id="wallDepth"
@@ -209,7 +156,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Default depth of wall/upper cabinets"
               min={200}
               max={400}
-              isHighlighted={highlightedField === 'wallDepth'}
             />
           </div>
 
@@ -223,7 +169,6 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Default height of tall/pantry cabinets"
               min={1800}
               max={2400}
-              isHighlighted={highlightedField === 'tallHeight'}
             />
             <DimensionInput
               id="tallDepth"
@@ -233,77 +178,17 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               tooltip="Default depth of tall/pantry cabinets"
               min={400}
               max={700}
-              isHighlighted={highlightedField === 'tallDepth'}
             />
           </div>
         </div>
 
         {/* Visual Diagram */}
-        <div className="bg-trade-surface rounded-xl p-6 flex items-center justify-center relative">
+        <div className="bg-trade-surface rounded-xl p-6 flex items-center justify-center">
           <img 
             src={kitchenDiagram} 
             alt="Kitchen cabinet dimensions diagram"
-            className="w-full max-w-md object-contain"
+            className="w-full max-w-lg object-contain"
           />
-          {/* Overlay dimension labels - clickable, positioned to match the reference image */}
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Wall Cabinet Height - top right (700) */}
-            <DimensionLabel
-              value={config.wallHeight}
-              inputId="wallHeight"
-              onFocus={handleLabelFocus}
-              className="absolute top-[8%] right-[12%]"
-            />
-            {/* Wall Cabinet Depth - right side upper (300) */}
-            <DimensionLabel
-              value={config.wallDepth}
-              inputId="wallDepth"
-              onFocus={handleLabelFocus}
-              className="absolute top-[22%] right-[8%]"
-            />
-            {/* Tall Cabinet Height - left side vertical (2100) */}
-            <DimensionLabel
-              value={config.tallHeight}
-              inputId="tallHeight"
-              onFocus={handleLabelFocus}
-              className="absolute top-[38%] left-[2%]"
-            />
-            {/* Tall Cabinet Depth - middle left (590) */}
-            <DimensionLabel
-              value={config.tallDepth}
-              inputId="tallDepth"
-              onFocus={handleLabelFocus}
-              className="absolute top-[35%] left-[22%]"
-            />
-            {/* Shelf Setback - inside base cabinet (5) */}
-            <DimensionLabel
-              value={config.shelfSetback}
-              inputId="shelfSetback"
-              onFocus={handleLabelFocus}
-              className="absolute top-[58%] left-[18%]"
-            />
-            {/* Base Cabinet Depth - right side middle (560) */}
-            <DimensionLabel
-              value={config.baseDepth}
-              inputId="baseDepth"
-              onFocus={handleLabelFocus}
-              className="absolute top-[52%] right-[8%]"
-            />
-            {/* Base Cabinet Height - right side lower (720) */}
-            <DimensionLabel
-              value={config.baseHeight}
-              inputId="baseHeight"
-              onFocus={handleLabelFocus}
-              className="absolute top-[68%] right-[8%]"
-            />
-            {/* Toe Kick Height - bottom right (150) */}
-            <DimensionLabel
-              value={config.toeKickHeight}
-              inputId="toeKickHeight"
-              onFocus={handleLabelFocus}
-              className="absolute bottom-[12%] right-[12%]"
-            />
-          </div>
         </div>
       </div>
     </div>
