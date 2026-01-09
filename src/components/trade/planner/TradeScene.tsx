@@ -294,7 +294,7 @@ function TradeCabinetMesh({
   );
 }
 
-function CameraController({ room, controlsRef }: { room: TradeRoom; controlsRef: React.RefObject<any> }) {
+function CameraController({ room, controlsRef, isDragging }: { room: TradeRoom; controlsRef: React.RefObject<any>; isDragging: boolean }) {
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
 
@@ -318,6 +318,12 @@ function CameraController({ room, controlsRef }: { room: TradeRoom; controlsRef:
         zoomSpeed={0.8}
         minPolarAngle={0} 
         maxPolarAngle={Math.PI / 2.1}
+        enabled={!isDragging}
+        mouseButtons={{
+          LEFT: undefined, // Disable left-click for OrbitControls (reserved for selection/drag)
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.ROTATE
+        }}
       />
     </>
   );
@@ -431,7 +437,7 @@ export function TradeScene({
   return (
     <div className={`w-full h-full ${className || ''}`}>
       <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ cursor: cursorStyle, background: 'linear-gradient(to bottom, #f8fafc, #e2e8f0)' }}>
-        <CameraController room={room} controlsRef={controlsRef} />
+        <CameraController room={room} controlsRef={controlsRef} isDragging={!!draggedCabinetId} />
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0001} />
         <Environment preset="apartment" blur={0.8} background={false} />
@@ -449,9 +455,18 @@ export function TradeScene({
           isDraggingRef={isDraggingRef}
         />
 
-        <group onPointerMissed={() => onCabinetSelect(null)}>
-          {/* Floor */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[widthM / 2, -0.01, depthM / 2]} receiveShadow>
+        <group>
+          {/* Floor - click to deselect */}
+          <mesh 
+            rotation={[-Math.PI / 2, 0, 0]} 
+            position={[widthM / 2, -0.01, depthM / 2]} 
+            receiveShadow
+            onClick={(e) => {
+              if (e.button === 0) {
+                onCabinetSelect(null);
+              }
+            }}
+          >
             <planeGeometry args={[widthM + 2, depthM + 2]} />
             <meshStandardMaterial color="#f0f0f0" roughness={0.8} />
           </mesh>
