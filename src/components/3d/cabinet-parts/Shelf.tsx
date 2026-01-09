@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import EdgeOutline from './EdgeOutline';
 
 interface ShelfProps {
   width: number;      // Width in meters
@@ -12,6 +13,7 @@ interface ShelfProps {
   map?: THREE.Texture | null;
   setback?: number;   // How far back from front (meters)
   adjustable?: boolean;
+  showEdges?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ const Shelf: React.FC<ShelfProps> = ({
   map,
   setback = 0,
   adjustable = true,
+  showEdges = true,
 }) => {
   // Rotate texture for horizontal grain (front to back)
   const texture = React.useMemo(() => {
@@ -58,6 +61,13 @@ const Shelf: React.FC<ShelfProps> = ({
           map={texture}
         />
       </mesh>
+      
+      {/* Edge outline for technical drawing aesthetic */}
+      {showEdges && (
+        <group position={adjustedPosition}>
+          <EdgeOutline width={width} height={thickness} depth={adjustedDepth} />
+        </group>
+      )}
       
       {/* Adjustable shelf hole indicators (subtle indents on gables) */}
       {adjustable && (

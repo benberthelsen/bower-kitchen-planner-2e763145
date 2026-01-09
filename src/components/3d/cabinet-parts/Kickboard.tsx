@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import EdgeOutline from './EdgeOutline';
 
 interface KickboardProps {
   width: number;      // Width in meters
@@ -11,6 +12,7 @@ interface KickboardProps {
   metalness?: number;
   map?: THREE.Texture | null;
   setback?: number;   // How far back from front (meters)
+  showEdges?: boolean;
 }
 
 /**
@@ -27,6 +29,7 @@ const Kickboard: React.FC<KickboardProps> = ({
   metalness = 0.0,
   map,
   setback = 0.04, // Standard 40mm setback
+  showEdges = true,
 }) => {
   // Rotate texture for horizontal grain
   const texture = React.useMemo(() => {
@@ -43,16 +46,23 @@ const Kickboard: React.FC<KickboardProps> = ({
     }
   }, [map]);
 
+  const kickWidth = width - 0.002;
+
   return (
-    <mesh position={position}>
-      <boxGeometry args={[width - 0.002, height, thickness]} />
-      <meshStandardMaterial 
-        color={color}
-        roughness={roughness}
-        metalness={metalness}
-        map={texture}
-      />
-    </mesh>
+    <group position={position}>
+      <mesh>
+        <boxGeometry args={[kickWidth, height, thickness]} />
+        <meshStandardMaterial 
+          color={color}
+          roughness={roughness}
+          metalness={metalness}
+          map={texture}
+        />
+      </mesh>
+      {showEdges && (
+        <EdgeOutline width={kickWidth} height={height} depth={thickness} />
+      )}
+    </group>
   );
 };
 

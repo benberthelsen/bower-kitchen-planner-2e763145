@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import EdgeOutline from './EdgeOutline';
 
 interface GableProps {
   width: number;      // Thickness of gable (typically 18mm in meters)
@@ -11,6 +12,7 @@ interface GableProps {
   metalness?: number;
   map?: THREE.Texture | null;
   grainRotation?: number; // Radians to rotate grain (0 = vertical)
+  showEdges?: boolean;
 }
 
 /**
@@ -27,6 +29,7 @@ const Gable: React.FC<GableProps> = ({
   metalness = 0.0,
   map,
   grainRotation = 0,
+  showEdges = true,
 }) => {
   // Clone texture if needed to set rotation for this instance
   const texture = React.useMemo(() => {
@@ -44,15 +47,20 @@ const Gable: React.FC<GableProps> = ({
   }, [map, grainRotation]);
 
   return (
-    <mesh position={position}>
-      <boxGeometry args={[width, height, depth]} />
-      <meshStandardMaterial 
-        color={color}
-        roughness={roughness}
-        metalness={metalness}
-        map={texture}
-      />
-    </mesh>
+    <group position={position}>
+      <mesh>
+        <boxGeometry args={[width, height, depth]} />
+        <meshStandardMaterial 
+          color={color}
+          roughness={roughness}
+          metalness={metalness}
+          map={texture}
+        />
+      </mesh>
+      {showEdges && (
+        <EdgeOutline width={width} height={height} depth={depth} />
+      )}
+    </group>
   );
 };
 
