@@ -9,7 +9,7 @@ import { cabinetToPlacedItem, cabinetsToPlacedItems } from '@/utils/snapping/ada
 import { RoomConfig, PlacedItem } from '@/types';
 import { useCatalogItem } from '@/hooks/useCatalog';
 import { useCabinetMaterials } from '@/hooks/useCabinetMaterials';
-import CabinetAssembler from '@/components/3d/CabinetAssembler';
+import ProductRenderer from '@/components/3d/ProductRenderer';
 import { CabinetRenderConfig } from '@/types/cabinetConfig';
 
 interface PlannerSceneProps {
@@ -103,6 +103,8 @@ function TradeCabinetMesh({
       productName: cabinet.productName,
       category: configCategory,
       cabinetType: 'Standard',
+      productType: cabinet.category === 'Appliance' ? 'appliance' as const : 'cabinet' as const,
+      specGroup: cabinet.category === 'Appliance' ? 'Appliances' : 'Base Cabinets',
       doorCount,
       drawerCount,
       isCorner: false,
@@ -190,7 +192,7 @@ function TradeCabinetMesh({
         }
       }}
     >
-      <CabinetAssembler
+      <ProductRenderer
         item={placedItem}
         config={renderConfig}
         finishMaterial={finishOption}
