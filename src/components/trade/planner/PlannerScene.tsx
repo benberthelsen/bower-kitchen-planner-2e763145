@@ -76,7 +76,7 @@ function TradeCabinetMesh({
     height,
     depth,
     rotation: rotation,
-    hinge: 'Left' as const,
+    hinge: 'Left' as const, // Default hinge, can be overridden in cabinet config
     itemType: 'Cabinet' as const,
   }), [cabinet, width, height, depth, rotation]);
 

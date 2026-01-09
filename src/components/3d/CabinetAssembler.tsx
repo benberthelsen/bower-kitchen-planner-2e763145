@@ -220,24 +220,28 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     />
   );
 
-  // Render adjustable shelves
+  // Render adjustable shelves - always show at least one shelf for visual clarity
   const renderShelves = () => {
-    if (!config.hasAdjustableShelves || config.shelfCount === 0) return null;
+    // Skip shelves for corner cabinets (they have internal shelves in CornerCarcass)
+    if (isCornerCabinet) return null;
+    
+    // Determine shelf count - default to 1 if not specified
+    const shelfCount = config.shelfCount > 0 ? config.shelfCount : 1;
     
     const shelves = [];
     const usableHeight = carcassHeight - bottomThickness * 2;
-    const shelfSpacing = usableHeight / (config.shelfCount + 1);
+    const shelfSpacing = usableHeight / (shelfCount + 1);
     
-    for (let i = 1; i <= config.shelfCount; i++) {
+    for (let i = 1; i <= shelfCount; i++) {
       const shelfY = carcassYOffset - carcassHeight / 2 + bottomThickness + shelfSpacing * i;
       shelves.push(
         <Shelf
           key={`shelf-${i}`}
           width={interiorWidth - 0.004} // Slight gap for adjustment
-          depth={depthM - backPanelThickness - 0.01}
+          depth={depthM - backPanelThickness - 0.02}
           thickness={shelfThickness}
-          position={[0, shelfY, backPanelThickness / 2]}
-          color="#f5f5f5"
+          position={[0, shelfY, backPanelThickness / 2 + 0.005]}
+          color="#f0f0f0"
           map={null}
           setback={globalDimensions.shelfSetback / 1000}
           adjustable={true}
@@ -289,14 +293,17 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     ? carcassHeight - drawerSectionHeight - shelfThickness // Include divider
     : carcassHeight;
 
-  // Render doors - now handles combination cabinets
+  // Render doors - now handles combination cabinets and corner cabinets
   const renderDoors = () => {
-    // Skip if no doors OR if only drawers (and no doors)
+    // Skip if no doors
     if (config.doorCount === 0) return null;
-    // For drawer-only cabinets, skip doors
-    if (config.drawerCount > 0 && config.doorCount === 0) return null;
     
     const frontZ = depthM / 2 + 0.01;
+    
+    // For corner cabinets, render doors differently based on corner type
+    if (isCornerCabinet) {
+      return renderCornerDoors();
+    }
     
     // For combination cabinets, doors go in the bottom section
     const doorHeight = hasBothDoorsAndDrawers 
@@ -308,10 +315,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       ? carcassYOffset - carcassHeight / 2 + doorSectionHeight / 2
       : carcassYOffset - (config.isSink && config.hasFalseFront ? 0.05 : 0);
     
+    // Two door cabinet (pair doors)
     if (config.doorCount === 2) {
       const doorWidth = widthM / 2;
       return (
         <>
+          {/* Left door - hinge on left edge */}
           <DoorFront
             width={doorWidth}
             height={doorHeight}
@@ -321,13 +330,14 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             roughness={doorMat.roughness}
             map={doorMat.map}
             gap={doorGap}
-            hingeLeft={false}
+            hingeLeft={true}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
-            position={[-doorWidth + 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
+            position={[-doorGap / 2 - 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
           />
+          {/* Right door - hinge on right edge */}
           <DoorFront
             width={doorWidth}
             height={doorHeight}
@@ -337,18 +347,25 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             roughness={doorMat.roughness}
             map={doorMat.map}
             gap={doorGap}
-            hingeLeft={true}
+            hingeLeft={false}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
-            position={[doorWidth - 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
+            position={[doorGap / 2 + 0.04, doorY + (config.category === 'Wall' ? -doorHeight / 2 + 0.08 : doorHeight / 2 - 0.08), frontZ + doorThickness / 2 + 0.015]}
           />
         </>
       );
     }
     
-    // Single door
+    // Single door - position based on hinge side
+    // hingeLeft=true means hinge is on left, door opens from right, handle on right
+    // hingeLeft=false means hinge is on right, door opens from left, handle on left
+    const handleX = hingeLeft ? widthM / 2 - 0.04 : -widthM / 2 + 0.04;
+    const handleY = config.category === 'Wall' 
+      ? doorY - doorHeight / 2 + 0.08 
+      : doorY + doorHeight / 2 - 0.08;
+    
     return (
       <>
         <DoorFront
@@ -365,8 +382,124 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         <HandleMesh
           type={handle.type}
           color={handle.hex}
-          position={getHandlePosition(widthM, doorHeight, false)}
+          position={[handleX, handleY, frontZ + doorThickness / 2 + 0.015]}
           rotation={0}
+        />
+      </>
+    );
+  };
+
+  // Render doors for corner cabinets - special positioning for L-shape, blind, diagonal
+  const renderCornerDoors = () => {
+    const doorHeight = carcassHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0);
+    const doorY = carcassYOffset;
+    
+    // For L-shape corner: doors on both arm fronts (or bifold on diagonal)
+    if (cornerType === 'l-shape') {
+      // L-shape typically has either:
+      // - Two separate doors on each arm opening, or
+      // - A single bifold/pie-cut door across the diagonal
+      // We'll render two doors, one on each arm front
+      
+      const armFrontWidth = Math.min(leftArmDepthM, rightArmDepthM) * 0.8;
+      const cornerSize = widthM - armFrontWidth;
+      
+      return (
+        <>
+          {/* Left arm door - opens toward +X */}
+          <group position={[-widthM / 2 + armFrontWidth / 2, 0, leftArmDepthM / 2]} rotation={[0, Math.PI / 2, 0]}>
+            <DoorFront
+              width={leftArmDepthM - cornerSize - doorGap * 2}
+              height={doorHeight}
+              thickness={doorThickness}
+              position={[0, doorY, doorThickness / 2 + 0.01]}
+              color={doorMat.color}
+              roughness={doorMat.roughness}
+              map={doorMat.map}
+              gap={doorGap}
+              hingeLeft={true}
+            />
+            <HandleMesh
+              type={handle.type}
+              color={handle.hex}
+              position={[(leftArmDepthM - cornerSize) / 2 - 0.08, doorY + doorHeight / 2 - 0.08, doorThickness + 0.02]}
+            />
+          </group>
+          
+          {/* Right arm door - opens toward +Z */}
+          <group position={[rightArmDepthM / 2, 0, -depthM / 2 + armFrontWidth / 2]}>
+            <DoorFront
+              width={rightArmDepthM - cornerSize - doorGap * 2}
+              height={doorHeight}
+              thickness={doorThickness}
+              position={[0, doorY, doorThickness / 2 + 0.01]}
+              color={doorMat.color}
+              roughness={doorMat.roughness}
+              map={doorMat.map}
+              gap={doorGap}
+              hingeLeft={false}
+            />
+            <HandleMesh
+              type={handle.type}
+              color={handle.hex}
+              position={[-(rightArmDepthM - cornerSize) / 2 + 0.08, doorY + doorHeight / 2 - 0.08, doorThickness + 0.02]}
+            />
+          </group>
+        </>
+      );
+    }
+    
+    // Diagonal corner: angled door at 45 degrees
+    if (cornerType === 'diagonal') {
+      const diagonalDoorWidth = Math.sqrt(2) * widthM * 0.35;
+      
+      return (
+        <group position={[0, 0, depthM / 4]} rotation={[0, -Math.PI / 4, 0]}>
+          <DoorFront
+            width={diagonalDoorWidth}
+            height={doorHeight}
+            thickness={doorThickness}
+            position={[0, doorY, doorThickness / 2 + 0.01]}
+            color={doorMat.color}
+            roughness={doorMat.roughness}
+            map={doorMat.map}
+            gap={doorGap}
+            hingeLeft={true}
+          />
+          <HandleMesh
+            type={handle.type}
+            color={handle.hex}
+            position={[diagonalDoorWidth / 2 - 0.06, doorY + doorHeight / 2 - 0.08, doorThickness + 0.02]}
+          />
+        </group>
+      );
+    }
+    
+    // Blind corner: single door on accessible side
+    const blindIsLeft = item.blindSide === 'Left';
+    const frontZ = depthM / 2 + 0.01;
+    
+    // Door only on the accessible side (opposite of blind)
+    const doorX = blindIsLeft ? widthM / 4 : -widthM / 4;
+    const doorWidth = widthM / 2;
+    
+    return (
+      <>
+        <DoorFront
+          width={doorWidth}
+          height={doorHeight}
+          thickness={doorThickness}
+          position={[doorX, doorY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={doorGap}
+          hingeLeft={!blindIsLeft}
+        />
+        <HandleMesh
+          type={handle.type}
+          color={handle.hex}
+          position={[blindIsLeft ? doorX - doorWidth / 2 + 0.04 : doorX + doorWidth / 2 - 0.04, doorY + doorHeight / 2 - 0.08, frontZ + doorThickness / 2 + 0.015]}
         />
       </>
     );
