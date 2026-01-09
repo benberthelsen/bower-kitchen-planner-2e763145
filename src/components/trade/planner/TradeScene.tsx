@@ -526,7 +526,7 @@ export function TradeScene({
           <Wall 
             position={[widthM / 2, heightM / 2, 0]} 
             rotation={[0, 0, 0]} 
-            width={widthM + wt} 
+            width={widthM} 
             height={heightM} 
             thickness={wt} 
             roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
@@ -540,9 +540,25 @@ export function TradeScene({
             thickness={wt}
             roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
           />
-          {/* Corner piece */}
+          {/* Right wall (along Z axis at X=width) */}
+          <Wall 
+            position={[widthM, heightM / 2, depthM / 2]} 
+            rotation={[0, -Math.PI / 2, 0]} 
+            width={depthM} 
+            height={heightM} 
+            thickness={wt}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
+          {/* Left-back corner piece */}
           <WallCorner
             position={[0, heightM / 2, 0]}
+            height={heightM}
+            thickness={wt}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
+          {/* Right-back corner piece */}
+          <WallCorner
+            position={[widthM, heightM / 2, 0]}
             height={heightM}
             thickness={wt}
             roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
