@@ -96,274 +96,885 @@ export interface ConstructionRecipe {
   benchtop: BenchtopRecipe;
 }
 
+// ============= RECIPE HELPERS =============
+
+const BASE_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 };
+const WALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 };
+const TALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 };
+const BASE_TOEKICK: ToeKickRecipe = { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 };
+const WIDE_TOEKICK: ToeKickRecipe = { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 6 };
+const NO_TOEKICK: ToeKickRecipe = { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 };
+const BASE_BENCHTOP: BenchtopRecipe = { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 };
+const NO_BENCHTOP: BenchtopRecipe = { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 };
+
 // ============= RECIPE MAP =============
 
 export const MV_CONSTRUCTION_RECIPES: Record<string, ConstructionRecipe> = {
-  // ============= BASE CABINETS =============
+  // ============= BASE CABINETS - DOOR ONLY =============
   
-  // Standard base with door(s)
   'Base 1 Door': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 1 Door No Bottom': {
+    category: 'Base',
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: BASE_BENCHTOP,
   },
   
   'Base 2 Door': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Drawer bases
+  'Base 2 Door No Bottom': {
+    category: 'Base',
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 3 Door': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } }, // 3 doors rendered as 2+1
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // ============= BASE CABINETS - DRAWER ONLY =============
+  
+  'Base 1 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 1, ratios: [1.0], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.40, 0.60], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Bay Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.40, 0.60], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
   'Base 3 Drawer': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'DRAWERS', drawers: { drawerCount: 3, ratios: [0.25, 0.33, 0.42], gap: 2, showBox: true } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 3 Drawer Split Top Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 3, ratios: [0.25, 0.33, 0.42], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
   },
   
   'Base 4 Drawer': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 6 },
+    toeKick: WIDE_TOEKICK,
     fronts: { type: 'DRAWERS', drawers: { drawerCount: 4, ratios: [0.18, 0.24, 0.28, 0.30], gap: 2, showBox: true } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Combo cabinets (drawers + doors)
-  'Base 1 Drawer 1 Door': {
+  'Base 4 Drawer Split Top Drawer': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 4, ratios: [0.18, 0.24, 0.28, 0.30], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 5 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 5, ratios: [0.14, 0.18, 0.22, 0.22, 0.24], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // Waste bin drawers
+  'Base 1 Drawer Waste Bin': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 1, ratios: [1.0], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 1 Drawer Waste Bin With Top Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.25, 0.75], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Drawer Waste Bin': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.40, 0.60], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // Suspended drawers (no toe kick, no benchtop)
+  '1 Drawer Suspended Cabinet': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 1, ratios: [1.0], gap: 2, showBox: true } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  '2 Drawer Suspended Cabinet': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.40, 0.60], gap: 2, showBox: true } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= BASE CABINETS - COMBO (DOOR + DRAWER) =============
+  
+  'Base 1 Door 1 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'COMBO', combo: { topDrawers: 1, bottomDoors: 1, dividerThickness: 18 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  'Base 1 Drawer 2 Door': {
+  'Base 1 Door 1 Drawer Blind Corner': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 1 Door 2 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'COMBO', combo: { topDrawers: 2, bottomDoors: 1, dividerThickness: 18 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Door 1 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'COMBO', combo: { topDrawers: 1, bottomDoors: 2, dividerThickness: 18 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  'Base 2 Drawer 2 Door': {
+  'Base 2 Door 1 Drawer Blind Corner': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
-    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
-    fronts: { type: 'COMBO', combo: { topDrawers: 2, bottomDoors: 2, dividerThickness: 18 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Sink cabinets
+  'Base 2 Door 2 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'COMBO', combo: { topDrawers: 2, bottomDoors: 2, dividerThickness: 18 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Door 4 Drawer Cabinet': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'COMBO', combo: { topDrawers: 4, bottomDoors: 2, dividerThickness: 18 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Doors Middle 4 Drawer Cabinet': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'COMBO', combo: { topDrawers: 4, bottomDoors: 2, dividerThickness: 18 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 3 Drawer 2 Door Cabinet': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'COMBO', combo: { topDrawers: 3, bottomDoors: 2, dividerThickness: 18 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // ============= BASE CABINETS - SINK =============
+  
+  'Base 1 Door Sink': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: false, falseFrontHeight: 80, doorCount: 1 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 1 Door Sink With False Front': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: true, falseFrontHeight: 80, doorCount: 1 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Door Sink': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: false, falseFrontHeight: 80, doorCount: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Door Sink With False Front': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: true, falseFrontHeight: 80, doorCount: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Door ADA Sink': {
+    category: 'Base',
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: false, falseFrontHeight: 80, doorCount: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 2 Door ADA Sink With False Front': {
+    category: 'Base',
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: true, falseFrontHeight: 80, doorCount: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'ADA Sink Angled Frame': {
+    category: 'Base',
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'SINK', sink: { hasFalseFront: true, falseFrontHeight: 80, doorCount: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
   'Base Sink 1 Door': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'SINK', sink: { hasFalseFront: false, falseFrontHeight: 80, doorCount: 1 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
   'Base Sink 2 Door': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'SINK', sink: { hasFalseFront: false, falseFrontHeight: 80, doorCount: 2 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
   'Base Sink False Front 2 Door': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'SINK', sink: { hasFalseFront: true, falseFrontHeight: 80, doorCount: 2 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Corner cabinets - Blind
+  // ============= BASE CABINETS - CORNER =============
+  
   'Base Blind Corner Left': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
   'Base Blind Corner Right': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'right', blindDepth: 150, fillerWidth: 75 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Corner cabinets - L-Shape
+  'Base Blind Corner 1 Door': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
   'Base L Corner': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 6 },
+    toeKick: WIDE_TOEKICK,
     fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 575, rightArmDepth: 575 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Corner cabinets - Diagonal
   'Base Diagonal Corner': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'CORNER', corner: { render: 'DIAGONAL_FRONT_45' } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Appliance openings
+  'Base Diagonal Corner 1 Door': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'DIAGONAL_FRONT_45' } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Corner Pie Cut': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 900, rightArmDepth: 900 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Corner Lazy Susan': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 900, rightArmDepth: 900 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Corner Easy Reach': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 900, rightArmDepth: 900 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // ============= BASE CABINETS - APPLIANCE OPENINGS =============
+  
   'Base Dishwasher': {
     category: 'Base',
-    carcass: { hasBottomPanel: false, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Dishwasher With Drawer': {
+    category: 'Base',
+    carcass: { ...BASE_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 180 } },
+    benchtop: BASE_BENCHTOP,
   },
   
   'Base Microwave': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
-    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 180 } },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 180, openingHeight: 400 } },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // Open shelf base
+  'Base Oven': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 180, openingHeight: 600 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Cooktop': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.40, 0.60], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // ============= BASE CABINETS - OPEN SHELVES =============
+  
   'Base Open Shelf': {
     category: 'Base',
-    carcass: { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: BASE_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'OPEN' },
-    benchtop: { enabled: true, thickness: 20, frontOverhang: 20, sideOverhang: 0 },
+    benchtop: BASE_BENCHTOP,
   },
   
-  // ============= WALL CABINETS =============
+  'Base Open 2 Shelf': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'OPEN' },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Wine Rack': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'OPEN' },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  // ============= WALL CABINETS - DOOR ONLY =============
   
   'Upper 1 Door': {
     category: 'Wall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: WALL_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
   },
   
   'Upper 2 Door': {
     category: 'Wall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: WALL_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper 3 Door': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
   },
   
   'Upper Glass Door': {
     category: 'Wall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: WALL_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: true, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
   },
+  
+  'Upper 1 Door Glass': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: true, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper 2 Door Glass': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: true, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Lift Door': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Horizontal 1 Door': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Horizontal 2 Door': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= WALL CABINETS - CORNER =============
   
   'Upper Blind Corner Left': {
     category: 'Wall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: WALL_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 100, fillerWidth: 50 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Blind Corner Right': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'right', blindDepth: 100, fillerWidth: 50 } },
+    benchtop: NO_BENCHTOP,
   },
   
   'Upper Diagonal Corner': {
     category: 'Wall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: WALL_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'CORNER', corner: { render: 'DIAGONAL_FRONT_45' } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
   },
+  
+  'Upper Corner Pie Cut': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 600, rightArmDepth: 600 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper L Corner': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 400, rightArmDepth: 400 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= WALL CABINETS - OPEN & APPLIANCE =============
   
   'Upper Open Shelf': {
     category: 'Wall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: WALL_CARCASS,
     shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'OPEN' },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Open 2 Shelf': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'OPEN' },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Open 3 Shelf': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 3, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'OPEN' },
+    benchtop: NO_BENCHTOP,
   },
   
   'Upper Rangehood': {
     category: 'Wall',
-    carcass: { hasBottomPanel: false, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: { ...WALL_CARCASS, hasBottomPanel: false },
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 10 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
   },
   
-  // ============= TALL CABINETS =============
+  'Upper Rangehood Canopy': {
+    category: 'Wall',
+    carcass: { ...WALL_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Microwave': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false, openingHeight: 400 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Upper Refrigerator': {
+    category: 'Wall',
+    carcass: WALL_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 10 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= TALL CABINETS - PANTRY =============
+  
+  'Tall Pantry 1 Door': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 5, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
   
   'Tall Pantry 2 Door': {
     category: 'Tall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: TALL_CARCASS,
     shelves: { count: 5, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
   },
   
-  'Tall Oven Tower': {
+  'Tall Pantry 4 Door': {
     category: 'Tall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
-    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
-    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 200, openingHeight: 600 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    carcass: TALL_CARCASS,
+    shelves: { count: 5, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
   },
+  
+  'Tall Pantry Pullout': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 4, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Pantry Drawer': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 4, ratios: [0.20, 0.25, 0.27, 0.28], gap: 2, showBox: true } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= TALL CABINETS - UTILITY =============
   
   'Tall Broom': {
     category: 'Tall',
-    carcass: { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: TALL_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
-    toeKick: { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 },
+    toeKick: BASE_TOEKICK,
     fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Utility': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 3, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Wardrobe': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= TALL CABINETS - APPLIANCE =============
+  
+  'Tall Oven Tower': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 200, openingHeight: 600 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Double Oven': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 200, openingHeight: 1200 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Oven Microwave': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: true, topDrawerHeight: 180, openingHeight: 1000 } },
+    benchtop: NO_BENCHTOP,
   },
   
   'Tall Fridge': {
     category: 'Tall',
-    carcass: { hasBottomPanel: false, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 },
+    carcass: { ...TALL_CARCASS, hasBottomPanel: false },
     shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
-    toeKick: { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 },
+    toeKick: NO_TOEKICK,
     fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false } },
-    benchtop: { enabled: false, thickness: 0, frontOverhang: 0, sideOverhang: 0 },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Fridge Enclosure': {
+    category: 'Tall',
+    carcass: { ...TALL_CARCASS, hasBottomPanel: false },
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Fridge With Top Cabinet': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: NO_TOEKICK,
+    fronts: { type: 'APPLIANCE_OPENING', applianceOpening: { hasTopDrawer: false } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  // ============= TALL CABINETS - CORNER =============
+  
+  'Tall Blind Corner Left': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 4, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Blind Corner Right': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 4, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'right', blindDepth: 150, fillerWidth: 75 } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall Diagonal Corner': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 4, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'DIAGONAL_FRONT_45' } },
+    benchtop: NO_BENCHTOP,
+  },
+  
+  'Tall L Corner': {
+    category: 'Tall',
+    carcass: TALL_CARCASS,
+    shelves: { count: 4, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'CORNER', corner: { render: 'L_ARMS', leftArmDepth: 575, rightArmDepth: 575 } },
+    benchtop: NO_BENCHTOP,
   },
 };
 
