@@ -11,7 +11,7 @@ import { useCatalogItem } from '@/hooks/useCatalog';
 import { useCabinetMaterials } from '@/hooks/useCabinetMaterials';
 import ProductRenderer from '@/components/3d/ProductRenderer';
 import { CabinetRenderConfig } from '@/types/cabinetConfig';
-import Wall from '@/components/3d/Wall';
+import Wall, { WallCorner } from '@/components/3d/Wall';
 import SnapIndicators from '@/components/3d/SnapIndicators';
 import PlacementGhost from '@/components/3d/PlacementGhost';
 
@@ -521,23 +521,30 @@ export function TradeScene({
             fadeDistance={30} 
           />
 
-          {/* Walls - transparent when orbiting and in foreground */}
+          {/* Walls - fade when blocking view */}
+          {/* Back wall (along X axis at Z=0) */}
           <Wall 
-            position={[widthM / 2, heightM / 2, -wt / 2]} 
+            position={[widthM / 2, heightM / 2, 0]} 
             rotation={[0, 0, 0]} 
-            width={widthM} 
+            width={widthM + wt} 
             height={heightM} 
             thickness={wt} 
-            isOrbiting={isOrbiting} 
             roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
           />
+          {/* Left wall (along Z axis at X=0) */}
           <Wall 
-            position={[-wt / 2, heightM / 2, depthM / 2]} 
+            position={[0, heightM / 2, depthM / 2]} 
             rotation={[0, Math.PI / 2, 0]} 
             width={depthM} 
             height={heightM} 
-            thickness={wt} 
-            isOrbiting={isOrbiting}
+            thickness={wt}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
+          {/* Corner piece */}
+          <WallCorner
+            position={[0, heightM / 2, 0]}
+            height={heightM}
+            thickness={wt}
             roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
           />
 
