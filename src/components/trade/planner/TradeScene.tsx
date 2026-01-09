@@ -46,7 +46,9 @@ function DragManager({
   onSnapChange,
   onPositionUpdate,
   draggedCabinetId,
-  setDraggedCabinetId,
+  onDragEnd,
+  dragStartPos,
+  isDraggingRef,
 }: { 
   cabinets: ConfiguredCabinet[];
   roomConfig: RoomConfig;
@@ -54,11 +56,11 @@ function DragManager({
   onSnapChange: (state: SnapState) => void;
   onPositionUpdate: (id: string, x: number, z: number, rotation: number) => void;
   draggedCabinetId: string | null;
-  setDraggedCabinetId: (id: string | null) => void;
+  onDragEnd: () => void;
+  dragStartPos: React.MutableRefObject<{ x: number; z: number } | null>;
+  isDraggingRef: React.MutableRefObject<boolean>;
 }) {
   const { gl } = useThree();
-  const dragStartPos = useRef<{ x: number; z: number } | null>(null);
-  const isDraggingRef = useRef(false);
 
   const handlePointerMove = (e: any) => {
     if (!draggedCabinetId) return;
@@ -68,12 +70,14 @@ function DragManager({
     const rawX = point.x * 1000;
     const rawZ = point.z * 1000;
 
-    // Check drag threshold
-    if (dragStartPos.current && !isDraggingRef.current) {
-      const dx = rawX - dragStartPos.current.x;
-      const dz = rawZ - dragStartPos.current.z;
-      const distance = Math.sqrt(dx * dx + dz * dz);
-      if (distance < DRAG_THRESHOLD) return;
+    // Check drag threshold - only start moving after exceeding threshold
+    if (!isDraggingRef.current) {
+      if (dragStartPos.current) {
+        const dx = rawX - dragStartPos.current.x;
+        const dz = rawZ - dragStartPos.current.z;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance < DRAG_THRESHOLD) return;
+      }
       isDraggingRef.current = true;
     }
 
@@ -105,10 +109,7 @@ function DragManager({
 
   const handlePointerUp = () => {
     if (draggedCabinetId) {
-      setDraggedCabinetId(null);
-      onSnapChange({ snappedToItemId: null, snapEdge: undefined });
-      dragStartPos.current = null;
-      isDraggingRef.current = false;
+      onDragEnd();
     }
   };
 
@@ -116,10 +117,7 @@ function DragManager({
   useEffect(() => {
     const handleGlobalPointerUp = () => {
       if (draggedCabinetId) {
-        setDraggedCabinetId(null);
-        onSnapChange({ snappedToItemId: null, snapEdge: undefined });
-        dragStartPos.current = null;
-        isDraggingRef.current = false;
+        onDragEnd();
       }
     };
 
@@ -130,7 +128,7 @@ function DragManager({
       gl.domElement.removeEventListener('pointerup', handleGlobalPointerUp);
       gl.domElement.removeEventListener('pointerleave', handleGlobalPointerUp);
     };
-  }, [draggedCabinetId, gl, onSnapChange, setDraggedCabinetId]);
+  }, [draggedCabinetId, gl, onDragEnd]);
 
   return (
     <mesh 
@@ -260,10 +258,13 @@ function TradeCabinetMesh({
     );
   }
 
+  // Add half height so cabinet sits ON the floor, not IN it
+  const finalY = posY + heightM / 2;
+
   return (
     <group 
       ref={groupRef}
-      position={[posX, posY, posZ]}
+      position={[posX, finalY, posZ]}
       rotation={[0, -THREE.MathUtils.degToRad(rotation), 0]}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       onPointerOver={() => setHovered(true)}
@@ -271,8 +272,8 @@ function TradeCabinetMesh({
       onPointerDown={(e) => {
         e.stopPropagation();
         if (e.button === 0) {
+          onSelect(); // Select immediately on click
           onDragStart(cabinet.position?.x ?? 1000, cabinet.position?.z ?? 1000);
-          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
         }
       }}
     >
@@ -335,6 +336,10 @@ export function TradeScene({
   const [draggedCabinetId, setDraggedCabinetId] = useState<string | null>(null);
   const [snapState, setSnapState] = useState<SnapState>({ snappedToItemId: null, snapEdge: undefined });
   const [livePositions, setLivePositions] = useState<Map<string, { x: number; z: number; rotation: number }>>(new Map());
+  
+  // Refs for drag threshold (shared with DragManager)
+  const dragStartPos = useRef<{ x: number; z: number } | null>(null);
+  const isDraggingRef = useRef(false);
 
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
@@ -361,13 +366,13 @@ export function TradeScene({
     });
   }, []);
 
-  // Commit position when drag ends
-  const handleDragEnd = useCallback((id: string | null) => {
-    if (id) {
-      const livePos = livePositions.get(id);
+  // Commit position when drag ends - saves the snapped position BEFORE clearing state
+  const handleDragEnd = useCallback(() => {
+    if (draggedCabinetId) {
+      const livePos = livePositions.get(draggedCabinetId);
       if (livePos) {
-        const cabinet = cabinets.find(c => c.instanceId === id);
-        onCabinetPlace(id, {
+        const cabinet = cabinets.find(c => c.instanceId === draggedCabinetId);
+        onCabinetPlace(draggedCabinetId, {
           x: livePos.x,
           y: cabinet?.position?.y || 0,
           z: livePos.z,
@@ -375,9 +380,20 @@ export function TradeScene({
         });
       }
     }
+    // Clear state AFTER saving
     setLivePositions(new Map());
     setDraggedCabinetId(null);
-  }, [cabinets, livePositions, onCabinetPlace]);
+    setSnapState({ snappedToItemId: null, snapEdge: undefined });
+    dragStartPos.current = null;
+    isDraggingRef.current = false;
+  }, [draggedCabinetId, cabinets, livePositions, onCabinetPlace]);
+  
+  // Start drag handler - sets up threshold tracking
+  const handleDragStart = useCallback((id: string, x: number, z: number) => {
+    setDraggedCabinetId(id);
+    dragStartPos.current = { x, z };
+    isDraggingRef.current = false;
+  }, []);
 
   // Get cabinets with live positions applied
   const cabinetsWithLivePos = useMemo(() => {
@@ -426,7 +442,9 @@ export function TradeScene({
           onSnapChange={setSnapState}
           onPositionUpdate={handleLivePositionUpdate}
           draggedCabinetId={draggedCabinetId}
-          setDraggedCabinetId={handleDragEnd}
+          onDragEnd={handleDragEnd}
+          dragStartPos={dragStartPos}
+          isDraggingRef={isDraggingRef}
         />
 
         <group onPointerMissed={() => onCabinetSelect(null)}>
@@ -460,7 +478,7 @@ export function TradeScene({
               isSelected={selectedCabinetId === cabinet.instanceId}
               isDragged={draggedCabinetId === cabinet.instanceId}
               onSelect={() => onCabinetSelect(cabinet.instanceId)}
-              onDragStart={(x, z) => setDraggedCabinetId(cabinet.instanceId)}
+              onDragStart={(x, z) => handleDragStart(cabinet.instanceId, x, z)}
               globalDimensions={globalDimensions}
             />
           ))}
