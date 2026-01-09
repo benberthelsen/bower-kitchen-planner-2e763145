@@ -10,7 +10,7 @@ import {
   defaultMaterialDefaults,
   defaultHardwareDefaults
 } from '@/contexts/TradeRoomContext';
-import { PlannerScene } from '@/components/trade/planner/PlannerScene';
+import { TradeScene } from '@/components/trade/planner/TradeScene';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { PlacementToolbar } from '@/components/trade/planner/PlacementToolbar';
@@ -389,7 +389,7 @@ export default function RoomPlanner() {
               }
             }}
           >
-            <PlannerScene
+            <TradeScene
               room={currentRoom}
               cabinets={cabinets}
               onCabinetSelect={handleCabinetSelect}

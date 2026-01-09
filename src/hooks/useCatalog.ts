@@ -271,9 +271,10 @@ export function useCatalog(userType: UserType = 'standard') {
       
       // Apply visibility filters based on user type
       if (userType === 'standard') {
+        // Standard users see only featured products for a simpler experience
         query = query
           .eq('visible_to_standard', true)
-          .order('featured', { ascending: false })
+          .eq('featured', true)
           .order('display_order', { ascending: true })
           .order('name', { ascending: true });
       } else if (userType === 'trade') {
