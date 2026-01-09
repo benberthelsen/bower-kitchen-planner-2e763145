@@ -514,6 +514,7 @@ const Scene: React.FC<SceneProps> = ({ is3D = true, onCameraControlsReady }) => 
           snappedToItemId={snapState.snappedToItemId}
           snapEdge={snapState.snapEdge}
           items={items}
+          room={room}
         />
 
         {/* Debug overlay (toggle with D key) */}

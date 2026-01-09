@@ -3,13 +3,13 @@ import { Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { PlacedItem, RoomConfig } from '../../types';
 import { getRotatedBounds } from '../../utils/snapping';
-import { usePlanner } from '../../store/PlannerContext';
 
 interface SnapIndicatorsProps {
   draggedItem: PlacedItem | null;
   snappedToItemId: string | null;
   snapEdge: 'left' | 'right' | 'front' | 'back' | undefined;
   items: PlacedItem[];
+  room: RoomConfig;
 }
 
 // Wall snap indicator component
@@ -313,8 +313,8 @@ const SnapIndicators: React.FC<SnapIndicatorsProps> = ({
   snappedToItemId,
   snapEdge,
   items,
+  room,
 }) => {
-  const { room } = usePlanner();
   
   if (!draggedItem) return null;
 
