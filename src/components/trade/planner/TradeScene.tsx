@@ -522,8 +522,24 @@ export function TradeScene({
           />
 
           {/* Walls - transparent when orbiting and in foreground */}
-          <Wall position={[widthM / 2, heightM / 2, -wt / 2]} rotation={[0, 0, 0]} width={widthM} height={heightM} thickness={wt} isOrbiting={isOrbiting} />
-          <Wall position={[-wt / 2, heightM / 2, depthM / 2]} rotation={[0, Math.PI / 2, 0]} width={depthM} height={heightM} thickness={wt} isOrbiting={isOrbiting} />
+          <Wall 
+            position={[widthM / 2, heightM / 2, -wt / 2]} 
+            rotation={[0, 0, 0]} 
+            width={widthM} 
+            height={heightM} 
+            thickness={wt} 
+            isOrbiting={isOrbiting} 
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
+          <Wall 
+            position={[-wt / 2, heightM / 2, depthM / 2]} 
+            rotation={[0, Math.PI / 2, 0]} 
+            width={depthM} 
+            height={heightM} 
+            thickness={wt} 
+            isOrbiting={isOrbiting}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
 
           {/* Cabinets */}
           {cabinetsWithLivePos.filter(c => c.isPlaced).map((cabinet) => (
