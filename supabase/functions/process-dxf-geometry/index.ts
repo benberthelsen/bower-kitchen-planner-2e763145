@@ -36,6 +36,87 @@ interface CabinetGeometry {
   frontGeometry: object;
 }
 
+interface CabinetFeatures {
+  doorCount: number;
+  drawerCount: number;
+  isCorner: boolean;
+  isSink: boolean;
+  isBlind: boolean;
+  isOpen: boolean;
+  isLiftUp: boolean;
+  isDiagonal: boolean;
+  isPantry: boolean;
+  hasFalseFront: boolean;
+  cornerType: 'l-shape' | 'blind' | 'diagonal' | null;
+}
+
+// Parse product name to extract features
+function parseProductName(name: string): CabinetFeatures {
+  const n = name.toLowerCase();
+  
+  // Extract door count
+  const doorMatch = n.match(/(\d+)\s*door/);
+  let doorCount = doorMatch ? parseInt(doorMatch[1], 10) : 0;
+  if (doorCount === 0 && (n.includes('bi fold') || n.includes('bifold'))) doorCount = 2;
+  if (doorCount === 0 && n.includes('door') && !n.includes('drawer')) doorCount = 1;
+  
+  // Extract drawer count
+  const drawerMatch = n.match(/(\d+)\s*drawer/);
+  let drawerCount = drawerMatch ? parseInt(drawerMatch[1], 10) : 0;
+  if (drawerCount === 0 && n.includes('drawer') && !n.includes('door')) {
+    const bayMatch = n.match(/(\d+)\s*bay/);
+    drawerCount = bayMatch ? parseInt(bayMatch[1], 10) : 1;
+  }
+  
+  // Detect features
+  const isCorner = n.includes('corner') || n.includes('l-shape') || n.includes('l shape');
+  const isSink = n.includes('sink');
+  const isBlind = n.includes('blind');
+  const isOpen = n.includes('open') && !n.includes('open end');
+  const isLiftUp = n.includes('lift up') || n.includes('lift-up') || n.includes('bi fold') || n.includes('bifold');
+  const isDiagonal = n.includes('diagonal') || n.includes('angle');
+  const isPantry = n.includes('pantry') || n.includes('larder');
+  const hasFalseFront = n.includes('false front') || n.includes('false drawer') || isSink;
+  
+  // Determine corner type
+  let cornerType: 'l-shape' | 'blind' | 'diagonal' | null = null;
+  if (isBlind) cornerType = 'blind';
+  else if (isDiagonal) cornerType = 'diagonal';
+  else if (isCorner) cornerType = 'l-shape';
+  
+  // Open cabinets have no doors
+  if (isOpen) doorCount = 0;
+  
+  return {
+    doorCount,
+    drawerCount,
+    isCorner,
+    isSink,
+    isBlind,
+    isOpen,
+    isLiftUp,
+    isDiagonal,
+    isPantry,
+    hasFalseFront,
+    cornerType,
+  };
+}
+
+// Get variable drawer heights (larger at bottom)
+function getDrawerHeightRatios(count: number, totalHeight: number): number[] {
+  const distributions: Record<number, number[]> = {
+    1: [1.0],
+    2: [0.40, 0.60],
+    3: [0.25, 0.33, 0.42],
+    4: [0.18, 0.24, 0.28, 0.30],
+    5: [0.14, 0.18, 0.22, 0.22, 0.24],
+    6: [0.12, 0.14, 0.18, 0.18, 0.18, 0.20],
+  };
+  
+  const ratios = distributions[count] || Array(count).fill(1 / count);
+  return ratios.map(ratio => ratio * totalHeight);
+}
+
 // Simple DXF parser for edge function
 function parseDXFContent(content: string): DXFEntity[] {
   const entities: DXFEntity[] = [];
@@ -152,39 +233,19 @@ function calculateBounds(entities: DXFEntity[]): { width: number; height: number
   return { width: Math.round(width), height: Math.round(height), depth: 580 };
 }
 
-// Detect cabinet features from name
-function detectFeatures(name: string): { doorCount: number; drawerCount: number; isCorner: boolean; isSink: boolean } {
-  const nameLower = name.toLowerCase();
-  
-  let doorCount = 0;
-  let drawerCount = 0;
-  
-  // Detect drawers
-  const drawerMatch = nameLower.match(/(\d+)\s*dr(?:aw)?(?:er)?/);
-  if (drawerMatch) drawerCount = parseInt(drawerMatch[1], 10);
-  else if (nameLower.includes('drawer')) drawerCount = 1;
-  
-  // Detect doors
-  if (nameLower.includes('2 door') || nameLower.includes('double door')) doorCount = 2;
-  else if (nameLower.includes('door') || nameLower.includes('dr ')) doorCount = 1;
-  
-  // If no doors/drawers detected, infer from cabinet type
-  if (doorCount === 0 && drawerCount === 0) {
-    if (nameLower.includes('drawer')) drawerCount = 3;
-    else doorCount = 1;
-  }
-  
-  const isCorner = nameLower.includes('corner') || nameLower.includes('l-shape');
-  const isSink = nameLower.includes('sink');
-  
-  return { doorCount, drawerCount, isCorner, isSink };
-}
-
-// Generate SVG thumbnail
-function generateSVG(entities: DXFEntity[], bounds: { width: number; height: number }, features: ReturnType<typeof detectFeatures>): string {
+// Generate SVG thumbnail based on cabinet features
+function generateSVG(
+  _entities: DXFEntity[], 
+  bounds: { width: number; height: number }, 
+  features: CabinetFeatures,
+  productName: string
+): string {
   const svgWidth = 120;
   const svgHeight = 120;
   const padding = 8;
+  const strokeColor = '#374151';
+  const fillColor = '#f3f4f6';
+  const strokeWidth = 1.5;
   
   const availableWidth = svgWidth - padding * 2;
   const availableHeight = svgHeight - padding * 2;
@@ -203,10 +264,38 @@ function generateSVG(entities: DXFEntity[], bounds: { width: number; height: num
   const offsetX = padding + (availableWidth - cabinetWidth) / 2;
   const offsetY = padding + (availableHeight - cabinetHeight) / 2;
   
+  const { doorCount, drawerCount, isCorner, isSink, isOpen, isLiftUp, isDiagonal, isPantry, hasFalseFront, cornerType } = features;
+  
+  // Handle special cabinet types with dedicated SVG generators
+  if (isCorner && !isDiagonal) {
+    return generateCornerSVG(cabinetWidth, cabinetHeight, offsetX, offsetY, strokeColor, fillColor, strokeWidth, svgWidth, svgHeight, cornerType);
+  }
+  
+  if (isDiagonal) {
+    return generateDiagonalSVG(cabinetWidth, cabinetHeight, offsetX, offsetY, strokeColor, fillColor, strokeWidth, svgWidth, svgHeight);
+  }
+  
+  if (isOpen) {
+    return generateOpenCabinetSVG(cabinetWidth, cabinetHeight, offsetX, offsetY, strokeColor, fillColor, strokeWidth, svgWidth, svgHeight);
+  }
+  
+  if (isLiftUp) {
+    return generateLiftUpSVG(cabinetWidth, cabinetHeight, offsetX, offsetY, strokeColor, fillColor, strokeWidth, svgWidth, svgHeight, doorCount);
+  }
+  
+  if (isSink && hasFalseFront) {
+    return generateSinkSVG(cabinetWidth, cabinetHeight, offsetX, offsetY, strokeColor, fillColor, strokeWidth, svgWidth, svgHeight, doorCount);
+  }
+  
+  if (isPantry) {
+    return generatePantrySVG(cabinetWidth, cabinetHeight, offsetX, offsetY, strokeColor, fillColor, strokeWidth, svgWidth, svgHeight);
+  }
+  
+  // Standard cabinet rendering
   const elements: string[] = [];
   
   // Cabinet outline
-  elements.push(`<rect x="${offsetX}" y="${offsetY}" width="${cabinetWidth}" height="${cabinetHeight}" fill="#f3f4f6" stroke="#374151" stroke-width="1.5"/>`);
+  elements.push(`<rect x="${offsetX}" y="${offsetY}" width="${cabinetWidth}" height="${cabinetHeight}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
   
   const gap = 2;
   const innerWidth = cabinetWidth - gap * 2;
@@ -214,58 +303,223 @@ function generateSVG(entities: DXFEntity[], bounds: { width: number; height: num
   const innerX = offsetX + gap;
   const innerY = offsetY + gap;
   
-  const { doorCount, drawerCount, isSink } = features;
-  
   if (drawerCount > 0 && doorCount === 0) {
-    const drawerHeight = innerHeight / drawerCount;
+    // All drawers - variable heights
+    const drawerHeights = getDrawerHeightRatios(drawerCount, innerHeight);
+    let currentY = innerY;
+    
     for (let i = 0; i < drawerCount; i++) {
-      const dy = innerY + i * drawerHeight + gap / 2;
-      const dh = drawerHeight - gap;
-      elements.push(`<rect x="${innerX}" y="${dy}" width="${innerWidth}" height="${dh}" fill="none" stroke="#374151" stroke-width="1"/>`);
-      const handleY = dy + dh * 0.3;
-      elements.push(`<line x1="${innerX + innerWidth * 0.3}" y1="${handleY}" x2="${innerX + innerWidth * 0.7}" y2="${handleY}" stroke="#374151" stroke-width="0.75"/>`);
+      const dy = currentY + gap / 2;
+      const dh = drawerHeights[i] - gap;
+      elements.push(`<rect x="${innerX}" y="${dy}" width="${innerWidth}" height="${dh}" fill="none" stroke="${strokeColor}" stroke-width="1"/>`);
+      const handleY = dy + Math.min(dh * 0.25, 12);
+      elements.push(`<line x1="${innerX + innerWidth * 0.3}" y1="${handleY}" x2="${innerX + innerWidth * 0.7}" y2="${handleY}" stroke="${strokeColor}" stroke-width="0.75"/>`);
+      currentY += drawerHeights[i];
     }
   } else if (doorCount > 0 && drawerCount === 0) {
+    // All doors
     const doorWidth = innerWidth / doorCount;
     for (let i = 0; i < doorCount; i++) {
       const dx = innerX + i * doorWidth + gap / 2;
       const dw = doorWidth - gap;
-      elements.push(`<rect x="${dx}" y="${innerY}" width="${dw}" height="${innerHeight}" fill="none" stroke="#374151" stroke-width="1"/>`);
+      elements.push(`<rect x="${dx}" y="${innerY}" width="${dw}" height="${innerHeight}" fill="none" stroke="${strokeColor}" stroke-width="1"/>`);
       const handleX = i === 0 ? dx + dw * 0.85 : dx + dw * 0.15;
-      elements.push(`<circle cx="${handleX}" cy="${innerY + innerHeight * 0.5}" r="2" fill="#374151"/>`);
+      elements.push(`<circle cx="${handleX}" cy="${innerY + innerHeight * 0.5}" r="2" fill="${strokeColor}"/>`);
     }
   } else if (doorCount > 0 && drawerCount > 0) {
-    const drawerTotalHeight = innerHeight * 0.3;
-    const doorHeight = innerHeight - drawerTotalHeight - gap;
+    // Drawers on top, doors below
+    const drawerSectionHeight = Math.min(innerHeight * 0.35, drawerCount * (innerHeight / 5));
+    const doorHeight = innerHeight - drawerSectionHeight - gap;
     
-    const drawerHeight = drawerTotalHeight / drawerCount;
+    const drawerHeights = getDrawerHeightRatios(drawerCount, drawerSectionHeight);
+    let currentY = innerY;
     for (let i = 0; i < drawerCount; i++) {
-      const dy = innerY + i * drawerHeight + gap / 2;
-      const dh = drawerHeight - gap;
-      elements.push(`<rect x="${innerX}" y="${dy}" width="${innerWidth}" height="${dh}" fill="none" stroke="#374151" stroke-width="1"/>`);
+      const dy = currentY + gap / 2;
+      const dh = drawerHeights[i] - gap;
+      elements.push(`<rect x="${innerX}" y="${dy}" width="${innerWidth}" height="${dh}" fill="none" stroke="${strokeColor}" stroke-width="1"/>`);
+      const handleY = dy + Math.min(dh * 0.25, 8);
+      elements.push(`<line x1="${innerX + innerWidth * 0.35}" y1="${handleY}" x2="${innerX + innerWidth * 0.65}" y2="${handleY}" stroke="${strokeColor}" stroke-width="0.5"/>`);
+      currentY += drawerHeights[i];
     }
     
     const doorWidth = innerWidth / doorCount;
-    const doorY = innerY + drawerTotalHeight + gap;
+    const doorY = innerY + drawerSectionHeight + gap;
     for (let i = 0; i < doorCount; i++) {
       const dx = innerX + i * doorWidth + gap / 2;
       const dw = doorWidth - gap;
-      elements.push(`<rect x="${dx}" y="${doorY}" width="${dw}" height="${doorHeight}" fill="none" stroke="#374151" stroke-width="1"/>`);
+      elements.push(`<rect x="${dx}" y="${doorY}" width="${dw}" height="${doorHeight}" fill="none" stroke="${strokeColor}" stroke-width="1"/>`);
+      const handleX = i === 0 ? dx + dw * 0.85 : dx + dw * 0.15;
+      elements.push(`<circle cx="${handleX}" cy="${doorY + doorHeight * 0.2}" r="1.5" fill="${strokeColor}"/>`);
     }
   }
   
-  if (isSink) {
+  if (isSink && !hasFalseFront) {
     const sinkWidth = innerWidth * 0.6;
     const sinkHeight = innerHeight * 0.12;
     const sinkX = innerX + (innerWidth - sinkWidth) / 2;
     const sinkY = offsetY + cabinetHeight * 0.08;
-    elements.push(`<ellipse cx="${sinkX + sinkWidth / 2}" cy="${sinkY + sinkHeight / 2}" rx="${sinkWidth / 2}" ry="${sinkHeight / 2}" fill="none" stroke="#374151" stroke-width="0.75" stroke-dasharray="2,2"/>`);
+    elements.push(`<ellipse cx="${sinkX + sinkWidth / 2}" cy="${sinkY + sinkHeight / 2}" rx="${sinkWidth / 2}" ry="${sinkHeight / 2}" fill="none" stroke="${strokeColor}" stroke-width="0.75" stroke-dasharray="2,2"/>`);
   }
   
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}">
   <rect width="100%" height="100%" fill="transparent"/>
   ${elements.join('\n  ')}
 </svg>`;
+}
+
+function generateCornerSVG(
+  width: number, height: number, offsetX: number, offsetY: number,
+  strokeColor: string, fillColor: string, strokeWidth: number,
+  svgWidth: number, svgHeight: number,
+  cornerType: 'l-shape' | 'blind' | 'diagonal' | null
+): string {
+  const elements: string[] = [];
+  const armWidth = width * 0.45;
+  const cutoutSize = width * 0.4;
+  
+  const path = `M ${offsetX} ${offsetY} L ${offsetX + width} ${offsetY} L ${offsetX + width} ${offsetY + height - cutoutSize} L ${offsetX + armWidth} ${offsetY + height - cutoutSize} L ${offsetX + armWidth} ${offsetY + height} L ${offsetX} ${offsetY + height} Z`;
+  elements.push(`<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
+  
+  const diagonalPath = `M ${offsetX + armWidth - 2} ${offsetY + height - cutoutSize + 4} L ${offsetX + width - 4} ${offsetY + height - cutoutSize - (cutoutSize * 0.3)}`;
+  elements.push(`<path d="${diagonalPath}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}" stroke-dasharray="3,2"/>`);
+  
+  if (cornerType) {
+    elements.push(`<text x="${offsetX + width/2}" y="${offsetY + height - 8}" font-size="7" fill="${strokeColor}" text-anchor="middle" font-family="sans-serif">${cornerType}</text>`);
+  }
+  
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><rect width="100%" height="100%" fill="transparent"/>${elements.join('\n')}</svg>`;
+}
+
+function generateDiagonalSVG(
+  width: number, height: number, offsetX: number, offsetY: number,
+  strokeColor: string, fillColor: string, strokeWidth: number,
+  svgWidth: number, svgHeight: number
+): string {
+  const elements: string[] = [];
+  const cutDepth = width * 0.25;
+  
+  const path = `M ${offsetX} ${offsetY} L ${offsetX + width - cutDepth} ${offsetY} L ${offsetX + width} ${offsetY + cutDepth} L ${offsetX + width} ${offsetY + height} L ${offsetX} ${offsetY + height} Z`;
+  elements.push(`<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
+  
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><rect width="100%" height="100%" fill="transparent"/>${elements.join('\n')}</svg>`;
+}
+
+function generateOpenCabinetSVG(
+  width: number, height: number, offsetX: number, offsetY: number,
+  strokeColor: string, fillColor: string, strokeWidth: number,
+  svgWidth: number, svgHeight: number
+): string {
+  const elements: string[] = [];
+  elements.push(`<rect x="${offsetX}" y="${offsetY}" width="${width}" height="${height}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
+  
+  const shelfCount = 3;
+  const shelfGap = height / (shelfCount + 1);
+  for (let i = 1; i <= shelfCount; i++) {
+    const shelfY = offsetY + shelfGap * i;
+    elements.push(`<line x1="${offsetX + 3}" y1="${shelfY}" x2="${offsetX + width - 3}" y2="${shelfY}" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.5}"/>`);
+  }
+  
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><rect width="100%" height="100%" fill="transparent"/>${elements.join('\n')}</svg>`;
+}
+
+function generateLiftUpSVG(
+  width: number, height: number, offsetX: number, offsetY: number,
+  strokeColor: string, fillColor: string, strokeWidth: number,
+  svgWidth: number, svgHeight: number, doorCount: number
+): string {
+  const elements: string[] = [];
+  elements.push(`<rect x="${offsetX}" y="${offsetY}" width="${width}" height="${height}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
+  
+  const gap = 2;
+  const innerWidth = width - gap * 2;
+  const innerHeight = height - gap * 2;
+  const innerX = offsetX + gap;
+  const innerY = offsetY + gap;
+  
+  if (doorCount === 2) {
+    const panelWidth = innerWidth / 2;
+    elements.push(`<rect x="${innerX}" y="${innerY}" width="${panelWidth - gap/2}" height="${innerHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+    elements.push(`<rect x="${innerX + panelWidth + gap/2}" y="${innerY}" width="${panelWidth - gap/2}" height="${innerHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+    elements.push(`<line x1="${innerX + panelWidth}" y1="${innerY}" x2="${innerX + panelWidth}" y2="${innerY + innerHeight}" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.5}" stroke-dasharray="2,2"/>`);
+  } else {
+    elements.push(`<rect x="${innerX}" y="${innerY}" width="${innerWidth}" height="${innerHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+  }
+  
+  const arrowY = innerY + 6;
+  const arrowX = innerX + innerWidth / 2;
+  elements.push(`<path d="M ${arrowX - 6} ${arrowY + 4} L ${arrowX} ${arrowY} L ${arrowX + 6} ${arrowY + 4}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}" stroke-linecap="round" stroke-linejoin="round"/>`);
+  
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><rect width="100%" height="100%" fill="transparent"/>${elements.join('\n')}</svg>`;
+}
+
+function generateSinkSVG(
+  width: number, height: number, offsetX: number, offsetY: number,
+  strokeColor: string, fillColor: string, strokeWidth: number,
+  svgWidth: number, svgHeight: number, doorCount: number
+): string {
+  const elements: string[] = [];
+  elements.push(`<rect x="${offsetX}" y="${offsetY}" width="${width}" height="${height}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
+  
+  const gap = 2;
+  const innerWidth = width - gap * 2;
+  const innerX = offsetX + gap;
+  const innerY = offsetY + gap;
+  
+  const falseFrontHeight = height * 0.12;
+  elements.push(`<rect x="${innerX}" y="${innerY}" width="${innerWidth}" height="${falseFrontHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+  const handleY = innerY + falseFrontHeight / 2;
+  elements.push(`<line x1="${innerX + innerWidth * 0.35}" y1="${handleY}" x2="${innerX + innerWidth * 0.65}" y2="${handleY}" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.5}"/>`);
+  
+  const doorY = innerY + falseFrontHeight + gap;
+  const doorHeight = height - gap * 2 - falseFrontHeight - gap;
+  const doorsToRender = doorCount || 2;
+  const doorWidth = innerWidth / doorsToRender;
+  
+  for (let i = 0; i < doorsToRender; i++) {
+    const dx = innerX + i * doorWidth + gap / 2;
+    const dw = doorWidth - gap;
+    elements.push(`<rect x="${dx}" y="${doorY}" width="${dw}" height="${doorHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+    const handleX = i === 0 ? dx + dw * 0.85 : dx + dw * 0.15;
+    elements.push(`<circle cx="${handleX}" cy="${doorY + doorHeight * 0.15}" r="1.5" fill="${strokeColor}"/>`);
+  }
+  
+  const sinkWidth = innerWidth * 0.5;
+  const sinkX = innerX + (innerWidth - sinkWidth) / 2;
+  elements.push(`<ellipse cx="${sinkX + sinkWidth / 2}" cy="${innerY - 4}" rx="${sinkWidth / 2}" ry="4" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.5}" stroke-dasharray="2,2"/>`);
+  
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><rect width="100%" height="100%" fill="transparent"/>${elements.join('\n')}</svg>`;
+}
+
+function generatePantrySVG(
+  width: number, height: number, offsetX: number, offsetY: number,
+  strokeColor: string, fillColor: string, strokeWidth: number,
+  svgWidth: number, svgHeight: number
+): string {
+  const elements: string[] = [];
+  elements.push(`<rect x="${offsetX}" y="${offsetY}" width="${width}" height="${height}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}"/>`);
+  
+  const gap = 2;
+  const innerWidth = width - gap * 2;
+  const innerX = offsetX + gap;
+  const innerY = offsetY + gap;
+  const doorWidth = innerWidth / 2;
+  const doorHeight = height - gap * 2;
+  
+  elements.push(`<rect x="${innerX}" y="${innerY}" width="${doorWidth - gap/2}" height="${doorHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+  elements.push(`<rect x="${innerX + doorWidth + gap/2}" y="${innerY}" width="${doorWidth - gap/2}" height="${doorHeight}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.75}"/>`);
+  
+  const basketCount = 5;
+  const basketSpacing = doorHeight / (basketCount + 1);
+  for (let i = 1; i <= basketCount; i++) {
+    const basketY = innerY + basketSpacing * i;
+    elements.push(`<line x1="${innerX + 4}" y1="${basketY}" x2="${innerX + doorWidth - gap - 4}" y2="${basketY}" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.3}" stroke-dasharray="2,2"/>`);
+    elements.push(`<line x1="${innerX + doorWidth + gap + 4}" y1="${basketY}" x2="${innerX + innerWidth - 4}" y2="${basketY}" stroke="${strokeColor}" stroke-width="${strokeWidth * 0.3}" stroke-dasharray="2,2"/>`);
+  }
+  
+  elements.push(`<circle cx="${innerX + doorWidth - gap - 4}" cy="${innerY + doorHeight * 0.5}" r="1.5" fill="${strokeColor}"/>`);
+  elements.push(`<circle cx="${innerX + doorWidth + gap + 4}" cy="${innerY + doorHeight * 0.5}" r="1.5" fill="${strokeColor}"/>`);
+  
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><rect width="100%" height="100%" fill="transparent"/>${elements.join('\n')}</svg>`;
 }
 
 // Process a single DXF file
@@ -275,16 +529,19 @@ function processDXF(content: string, filename: string): CabinetGeometry {
   
   // Clean filename for cabinet name
   const name = filename.replace(/\.dxf$/i, '').replace(/_/g, ' ').trim();
-  const features = detectFeatures(name);
+  const features = parseProductName(name);
   
-  const thumbnailSvg = generateSVG(entities, bounds, features);
+  const thumbnailSvg = generateSVG(entities, bounds, features, name);
   
   return {
     name,
     width: bounds.width || 600,
     height: bounds.height || 870,
     depth: bounds.depth,
-    ...features,
+    doorCount: features.doorCount,
+    drawerCount: features.drawerCount,
+    isCorner: features.isCorner,
+    isSink: features.isSink,
     thumbnailSvg,
     frontGeometry: {
       doors: [],
@@ -347,11 +604,10 @@ serve(async (req) => {
     const { zipUrl, action } = body;
 
     if (action === 'generate-from-products') {
-      // Generate thumbnails for existing products without geometry
+      // Generate thumbnails for all products (not just those without geometry)
       const { data: products, error: fetchError } = await supabase
         .from('microvellum_products')
-        .select('id, name, default_width, default_height, default_depth, door_count, drawer_count, is_corner, is_sink')
-        .eq('has_dxf_geometry', false);
+        .select('id, name, default_width, default_height, default_depth, door_count, drawer_count, is_corner, is_sink, is_blind, has_false_front, corner_type');
 
       if (fetchError) throw fetchError;
 
@@ -359,11 +615,19 @@ serve(async (req) => {
 
       let updated = 0;
       for (const product of products || []) {
-        const features = {
-          doorCount: product.door_count || 0,
-          drawerCount: product.drawer_count || 0,
-          isCorner: product.is_corner || false,
-          isSink: product.is_sink || false,
+        // Parse features from product name for more accurate thumbnails
+        const features = parseProductName(product.name);
+        
+        // Override with database values where available
+        const finalFeatures: CabinetFeatures = {
+          ...features,
+          doorCount: product.door_count ?? features.doorCount,
+          drawerCount: product.drawer_count ?? features.drawerCount,
+          isCorner: product.is_corner ?? features.isCorner,
+          isSink: product.is_sink ?? features.isSink,
+          isBlind: product.is_blind ?? features.isBlind,
+          hasFalseFront: product.has_false_front ?? features.hasFalseFront,
+          cornerType: (product.corner_type as 'l-shape' | 'blind' | 'diagonal' | null) ?? features.cornerType,
         };
 
         const bounds = {
@@ -371,7 +635,7 @@ serve(async (req) => {
           height: product.default_height || 870,
         };
 
-        const thumbnailSvg = generateSVG([], bounds, features);
+        const thumbnailSvg = generateSVG([], bounds, finalFeatures, product.name);
 
         const { error: updateError } = await supabase
           .from('microvellum_products')
@@ -382,8 +646,8 @@ serve(async (req) => {
               drawers: [],
               handles: [],
               generated: true,
+              features: finalFeatures,
             },
-            has_dxf_geometry: false,
           })
           .eq('id', product.id);
 
