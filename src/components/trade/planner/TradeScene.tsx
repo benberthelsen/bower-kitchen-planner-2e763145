@@ -563,6 +563,29 @@ export function TradeScene({
             thickness={wt}
             roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
           />
+          {/* Front wall (along X axis at Z=depth) */}
+          <Wall 
+            position={[widthM / 2, heightM / 2, depthM]} 
+            rotation={[0, Math.PI, 0]} 
+            width={widthM} 
+            height={heightM} 
+            thickness={wt}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
+          {/* Left-front corner piece */}
+          <WallCorner
+            position={[0, heightM / 2, depthM]}
+            height={heightM}
+            thickness={wt}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
+          {/* Right-front corner piece */}
+          <WallCorner
+            position={[widthM, heightM / 2, depthM]}
+            height={heightM}
+            thickness={wt}
+            roomCenter={[widthM / 2, heightM / 2, depthM / 2]}
+          />
 
           {/* Cabinets */}
           {cabinetsWithLivePos.filter(c => c.isPlaced).map((cabinet) => (
