@@ -17,6 +17,8 @@ import {
   CornerCarcass,
   TopPanel,
   DividerPanel,
+  CabinetLegs,
+  EdgeOutline,
 } from './cabinet-parts';
 
 interface MaterialProps {
@@ -615,19 +617,28 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     );
   };
 
-  // Render kickboard
+  // Render kickboard and legs
   const renderKickboard = () => {
     if (!hasKick) return null;
     
     return (
-      <Kickboard
-        width={widthM}
-        height={kickHeight}
-        position={[0, -heightM / 2 + kickHeight / 2, depthM / 2 - 0.04]}
-        color={kickMat.color}
-        roughness={kickMat.roughness}
-        map={kickMat.map}
-      />
+      <>
+        {/* Cabinet legs - visible under kick */}
+        <CabinetLegs
+          width={widthM}
+          depth={depthM}
+          height={kickHeight}
+        />
+        {/* Kickboard panel */}
+        <Kickboard
+          width={widthM}
+          height={kickHeight}
+          position={[0, -heightM / 2 + kickHeight / 2, depthM / 2 - 0.04]}
+          color={kickMat.color}
+          roughness={kickMat.roughness}
+          map={kickMat.map}
+        />
+      </>
     );
   };
 
@@ -753,11 +764,19 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         </mesh>
       )}
       
-      {/* Carcass interior (visible through gaps) */}
-      <mesh position={[0, carcassYOffset, 0]}>
-        <boxGeometry args={[interiorWidth - 0.002, carcassHeight - 0.002, depthM - backPanelThickness - 0.002]} />
-        <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
-      </mesh>
+      {/* Carcass interior (visible through gaps) - with edge outline */}
+      <group position={[0, carcassYOffset, 0]}>
+        <mesh>
+          <boxGeometry args={[interiorWidth - 0.002, carcassHeight - 0.002, depthM - backPanelThickness - 0.002]} />
+          <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
+        </mesh>
+        <EdgeOutline 
+          width={interiorWidth - 0.002} 
+          height={carcassHeight - 0.002} 
+          depth={depthM - backPanelThickness - 0.002}
+          color="#888888"
+        />
+      </group>
       
       {/* Cabinet structure */}
       {renderGables()}

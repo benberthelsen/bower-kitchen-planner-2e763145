@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import EdgeOutline from './EdgeOutline';
 
 interface DoorFrontProps {
   width: number;      // Width in meters
@@ -12,6 +13,7 @@ interface DoorFrontProps {
   map?: THREE.Texture | null;
   gap?: number;       // Gap around door in meters
   hingeLeft?: boolean; // Which side hinges are on
+  showEdges?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ const DoorFront: React.FC<DoorFrontProps> = ({
   map,
   gap = 0.002,
   hingeLeft = true,
+  showEdges = true,
 }) => {
   // No rotation for vertical grain
   const texture = React.useMemo(() => {
@@ -65,6 +68,11 @@ const DoorFront: React.FC<DoorFrontProps> = ({
           map={texture}
         />
       </mesh>
+      
+      {/* Edge outline for technical drawing aesthetic */}
+      {showEdges && (
+        <EdgeOutline width={actualWidth} height={actualHeight} depth={thickness} />
+      )}
       
       {/* Hinge cups (on back of door) */}
       <mesh position={[hingeX, hingeTopY, -thickness / 2 - 0.005]}>

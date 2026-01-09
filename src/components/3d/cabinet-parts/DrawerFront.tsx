@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import EdgeOutline from './EdgeOutline';
 
 interface DrawerFrontProps {
   width: number;      // Width in meters
@@ -12,6 +13,7 @@ interface DrawerFrontProps {
   map?: THREE.Texture | null;
   gap?: number;       // Gap around drawer in meters
   showBox?: boolean;  // Show inner drawer box outline
+  showEdges?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   map,
   gap = 0.002,
   showBox = true,
+  showEdges = true,
 }) => {
   // Rotate texture 90 degrees for horizontal grain
   const texture = React.useMemo(() => {
@@ -66,16 +69,27 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
         />
       </mesh>
       
+      {/* Edge outline for technical drawing aesthetic */}
+      {showEdges && (
+        <EdgeOutline width={actualWidth} height={actualHeight} depth={thickness} />
+      )}
+      
       {/* Drawer box outline (visible from side/behind) */}
       {showBox && (
-        <mesh position={[0, 0, -boxDepth / 2 - thickness / 2]}>
-          <boxGeometry args={[boxWidth, boxHeight * 0.8, boxDepth]} />
-          <meshStandardMaterial 
-            color="#f0f0f0" 
-            roughness={0.7}
-            metalness={0.0}
-          />
-        </mesh>
+        <group position={[0, 0, -boxDepth / 2 - thickness / 2]}>
+          <mesh>
+            <boxGeometry args={[boxWidth, boxHeight * 0.8, boxDepth]} />
+            <meshStandardMaterial 
+              color="#f0f0f0" 
+              roughness={0.7}
+              metalness={0.0}
+            />
+          </mesh>
+          {/* Drawer box edges */}
+          {showEdges && (
+            <EdgeOutline width={boxWidth} height={boxHeight * 0.8} depth={boxDepth} color="#777777" />
+          )}
+        </group>
       )}
       
       {/* Runner indicators (sides of drawer) */}
