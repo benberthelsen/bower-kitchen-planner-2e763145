@@ -390,6 +390,8 @@ export function TradeScene({
   
   // Start drag handler - sets up threshold tracking
   const handleDragStart = useCallback((id: string, x: number, z: number) => {
+    // Clear any previous drag state first
+    setLivePositions(new Map());
     setDraggedCabinetId(id);
     dragStartPos.current = { x, z };
     isDraggingRef.current = false;
