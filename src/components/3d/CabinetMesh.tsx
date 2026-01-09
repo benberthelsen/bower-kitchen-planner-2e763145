@@ -54,6 +54,8 @@ const CabinetMesh: React.FC<Props> = ({ item }) => {
       productName: 'Cabinet',
       category: 'Base',
       cabinetType: 'Standard',
+      productType: 'cabinet' as const,
+      specGroup: 'Base Cabinets',
       doorCount: 1,
       drawerCount: 0,
       isCorner: false,

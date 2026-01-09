@@ -5,6 +5,11 @@ export type CornerType = 'blind' | 'diagonal' | 'l-shape' | null;
 export type CabinetCategory = 'Base' | 'Wall' | 'Tall' | 'Accessory';
 
 /**
+ * Product types determine which renderer to use
+ */
+export type ProductType = 'cabinet' | 'countertop' | 'appliance' | 'panel' | 'accessory' | 'prop';
+
+/**
  * Render configuration derived from Microvellum product metadata
  * Determines exactly how a cabinet should be rendered in 3D
  */
@@ -14,6 +19,10 @@ export interface CabinetRenderConfig {
   productName: string;
   category: CabinetCategory;
   cabinetType: string; // e.g., 'Drawer', 'Door', 'Corner', 'Sink'
+  
+  // Product type for renderer routing
+  productType: ProductType;
+  specGroup: string;
   
   // Door/Drawer counts from Microvellum data
   doorCount: number;
@@ -108,6 +117,45 @@ export const CONSTRUCTION_STANDARDS = {
 /**
  * Parse Microvellum product name to extract render configuration
  */
+/**
+ * Determine product type from spec_group and product name
+ */
+function determineProductType(specGroup: string | null, name: string): ProductType {
+  const sg = (specGroup || '').toLowerCase();
+  const n = name.toLowerCase();
+  
+  // Countertops
+  if (sg.includes('countertop') || n.includes('benchtop') || n.includes('countertop')) {
+    return 'countertop';
+  }
+  
+  // Appliances
+  if (sg.includes('appliance') || n.includes('fridge') || n.includes('dishwasher') || 
+      n.includes('oven') || n.includes('rangehood') || n.includes('range hood') ||
+      n.includes('cooktop') || n.includes('microwave')) {
+    return 'appliance';
+  }
+  
+  // Props (decorative items, not functional cabinets)
+  if (sg.includes('prop')) {
+    return 'prop';
+  }
+  
+  // Parts/Panels
+  if (sg.includes('part') || n.includes('panel') || n.includes('filler') || 
+      n.includes('kick strip') || n.includes('scribe')) {
+    return 'panel';
+  }
+  
+  // Accessories
+  if (sg.includes('accessor') && !sg.includes('cabinet')) {
+    return 'accessory';
+  }
+  
+  // Everything else is a cabinet
+  return 'cabinet';
+}
+
 export function parseProductToRenderConfig(product: {
   id: string;
   name: string;
@@ -135,9 +183,13 @@ export function parseProductToRenderConfig(product: {
   thumbnail_svg?: string | null;
   front_geometry?: unknown;
   has_dxf_geometry?: boolean | null;
+  // Spec group for product type detection
+  spec_group?: string | null;
 }): CabinetRenderConfig {
   const name = product.name.toLowerCase();
   const category = (product.category as CabinetCategory) || 'Base';
+  const specGroup = product.spec_group || '';
+  const productType = determineProductType(specGroup, product.name);
   
   // Use database columns if available, otherwise parse from name
   const hasFalseFront = product.has_false_front ?? 
@@ -181,6 +233,8 @@ export function parseProductToRenderConfig(product: {
     productName: product.name,
     category,
     cabinetType: product.cabinet_type || 'Standard',
+    productType,
+    specGroup,
     
     doorCount: product.door_count || 0,
     drawerCount: product.drawer_count || 0,
