@@ -471,6 +471,7 @@ export function TradeScene({
             snappedToItemId={snapState.snappedToItemId}
             snapEdge={snapState.snapEdge}
             items={placedItems}
+            room={roomConfig}
           />
         </group>
       </Canvas>
