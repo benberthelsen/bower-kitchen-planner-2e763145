@@ -31,30 +31,33 @@ const Wall: React.FC<WallProps> = ({
     return normal;
   }, [rotation]);
 
+  // Reusable vectors to avoid per-frame allocations
+  const wallPos = useMemo(() => new THREE.Vector3(...position), [position]);
+  const roomCenterVec = useMemo(
+    () => new THREE.Vector3(roomCenter[0], roomCenter[1], roomCenter[2]),
+    [roomCenter]
+  );
+  const tmpCamVec = useMemo(() => new THREE.Vector3(), []);
+  const tmpCenterVec = useMemo(() => new THREE.Vector3(), []);
+
   useFrame(({ camera }) => {
     if (!meshRef.current || !materialRef.current || !fadeWhenBlocking) return;
-    
-    const wallPos = new THREE.Vector3(...position);
-    const roomCenterVec = new THREE.Vector3(roomCenter[0], roomCenter[1], roomCenter[2]);
-    
-    // Vector from wall to camera
-    const toCamera = new THREE.Vector3().subVectors(camera.position, wallPos);
-    // Vector from wall to room center
-    const toCenter = new THREE.Vector3().subVectors(roomCenterVec, wallPos);
-    
-    // Check which side of the wall the camera and room center are on
-    const cameraDot = toCamera.dot(wallNormal);
-    const centerDot = toCenter.dot(wallNormal);
-    
-    // Wall is blocking if camera is on opposite side from room center
-    // (camera behind wall, room center in front of wall)
-    const isBlocking = cameraDot < 0 && centerDot > 0;
-    
+
+    // Signed distance to the wall plane: d(p) = (p - wallPos) · n
+    // Wall blocks the view *into the room* if camera and room center lie on opposite
+    // sides of the wall plane (i.e. the wall separates them).
+    const camDist = tmpCamVec.subVectors(camera.position, wallPos).dot(wallNormal);
+    const centerDist = tmpCenterVec.subVectors(roomCenterVec, wallPos).dot(wallNormal);
+
+    const separatesCameraAndRoom = camDist * centerDist < 0;
+
+    // When blocking, fade (but keep slightly visible). When not blocking, fully opaque.
+    const targetOpacity = separatesCameraAndRoom ? 0.12 : 1;
+
     // Smoothly transition opacity
-    const targetOpacity = isBlocking ? 0 : 1;
     const currentOpacity = materialRef.current.opacity;
     const newOpacity = THREE.MathUtils.lerp(currentOpacity, targetOpacity, 0.15);
-    
+
     materialRef.current.opacity = newOpacity;
     materialRef.current.depthWrite = newOpacity > 0.5;
     materialRef.current.visible = newOpacity > 0.01;
@@ -85,23 +88,28 @@ export const WallCorner: React.FC<{
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
 
+  const cornerPos = useMemo(() => new THREE.Vector3(...position), [position]);
+  const roomCenterVec = useMemo(
+    () => new THREE.Vector3(roomCenter[0], roomCenter[1], roomCenter[2]),
+    [roomCenter]
+  );
+
   useFrame(({ camera }) => {
     if (!meshRef.current || !materialRef.current || !fadeWhenBlocking) return;
-    
-    const cornerPos = new THREE.Vector3(...position);
-    const roomCenterVec = new THREE.Vector3(roomCenter[0], roomCenter[1], roomCenter[2]);
-    
-    // For corner, check if camera is "outside" the corner (negative X and negative Z from corner)
-    const toCamera = new THREE.Vector3().subVectors(camera.position, cornerPos);
-    const toCenter = new THREE.Vector3().subVectors(roomCenterVec, cornerPos);
-    
-    // Corner is blocking if camera is in the "outside" quadrant
-    const isBlocking = (toCamera.x < 0 && toCenter.x > 0) || (toCamera.z < 0 && toCenter.z > 0);
-    
-    const targetOpacity = isBlocking ? 0 : 1;
+
+    // Treat the corner as a join between two wall planes (x = cornerPos.x) and (z = cornerPos.z).
+    // Fade it only when it separates camera and room center on either axis.
+    const separatesX =
+      (camera.position.x - cornerPos.x) * (roomCenterVec.x - cornerPos.x) < 0;
+    const separatesZ =
+      (camera.position.z - cornerPos.z) * (roomCenterVec.z - cornerPos.z) < 0;
+
+    const isBlocking = separatesX || separatesZ;
+
+    const targetOpacity = isBlocking ? 0.12 : 1;
     const currentOpacity = materialRef.current.opacity;
     const newOpacity = THREE.MathUtils.lerp(currentOpacity, targetOpacity, 0.15);
-    
+
     materialRef.current.opacity = newOpacity;
     materialRef.current.depthWrite = newOpacity > 0.5;
     materialRef.current.visible = newOpacity > 0.01;
