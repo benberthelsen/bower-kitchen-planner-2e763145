@@ -294,7 +294,20 @@ function TradeCabinetMesh({
   );
 }
 
-function CameraController({ room, controlsRef, isDragging }: { room: TradeRoom; controlsRef: React.RefObject<any>; isDragging: boolean }) {
+function CameraController({ 
+  room, 
+  controlsRef, 
+  isDragging, 
+  onOrbitStart, 
+  onOrbitEnd 
+}: { 
+  room: TradeRoom; 
+  controlsRef: React.RefObject<any>; 
+  isDragging: boolean;
+  onOrbitStart: () => void;
+  onOrbitEnd: () => void;
+}) {
+  const { gl } = useThree();
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
 
@@ -304,6 +317,26 @@ function CameraController({ room, controlsRef, isDragging }: { room: TradeRoom; 
       controlsRef.current.update();
     }
   }, [widthM, depthM, controlsRef]);
+
+  // Track right-click hold for orbiting
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) onOrbitStart();
+    };
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) onOrbitEnd();
+    };
+    
+    gl.domElement.addEventListener('mousedown', handleMouseDown);
+    gl.domElement.addEventListener('mouseup', handleMouseUp);
+    gl.domElement.addEventListener('mouseleave', onOrbitEnd);
+    
+    return () => {
+      gl.domElement.removeEventListener('mousedown', handleMouseDown);
+      gl.domElement.removeEventListener('mouseup', handleMouseUp);
+      gl.domElement.removeEventListener('mouseleave', onOrbitEnd);
+    };
+  }, [gl, onOrbitStart, onOrbitEnd]);
 
   return (
     <>
@@ -342,10 +375,15 @@ export function TradeScene({
   const [draggedCabinetId, setDraggedCabinetId] = useState<string | null>(null);
   const [snapState, setSnapState] = useState<SnapState>({ snappedToItemId: null, snapEdge: undefined });
   const [livePositions, setLivePositions] = useState<Map<string, { x: number; z: number; rotation: number }>>(new Map());
+  const [isOrbiting, setIsOrbiting] = useState(false);
   
   // Refs for drag threshold (shared with DragManager)
   const dragStartPos = useRef<{ x: number; z: number } | null>(null);
   const isDraggingRef = useRef(false);
+  
+  // Callbacks for orbit tracking
+  const handleOrbitStart = useCallback(() => setIsOrbiting(true), []);
+  const handleOrbitEnd = useCallback(() => setIsOrbiting(false), []);
 
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
@@ -437,7 +475,7 @@ export function TradeScene({
   return (
     <div className={`w-full h-full ${className || ''}`}>
       <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ cursor: cursorStyle, background: 'linear-gradient(to bottom, #f8fafc, #e2e8f0)' }}>
-        <CameraController room={room} controlsRef={controlsRef} isDragging={!!draggedCabinetId} />
+        <CameraController room={room} controlsRef={controlsRef} isDragging={!!draggedCabinetId} onOrbitStart={handleOrbitStart} onOrbitEnd={handleOrbitEnd} />
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0001} />
         <Environment preset="apartment" blur={0.8} background={false} />
@@ -483,9 +521,9 @@ export function TradeScene({
             fadeDistance={30} 
           />
 
-          {/* Walls */}
-          <Wall position={[widthM / 2, heightM / 2, -wt / 2]} rotation={[0, 0, 0]} width={widthM} height={heightM} thickness={wt} />
-          <Wall position={[-wt / 2, heightM / 2, depthM / 2]} rotation={[0, Math.PI / 2, 0]} width={depthM} height={heightM} thickness={wt} />
+          {/* Walls - transparent when orbiting and in foreground */}
+          <Wall position={[widthM / 2, heightM / 2, -wt / 2]} rotation={[0, 0, 0]} width={widthM} height={heightM} thickness={wt} isOrbiting={isOrbiting} />
+          <Wall position={[-wt / 2, heightM / 2, depthM / 2]} rotation={[0, Math.PI / 2, 0]} width={depthM} height={heightM} thickness={wt} isOrbiting={isOrbiting} />
 
           {/* Cabinets */}
           {cabinetsWithLivePos.filter(c => c.isPlaced).map((cabinet) => (
