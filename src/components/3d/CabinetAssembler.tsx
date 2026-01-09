@@ -20,6 +20,12 @@ import {
   CabinetLegs,
   EdgeOutline,
 } from './cabinet-parts';
+import { 
+  ConstructionRecipe, 
+  getConstructionRecipe, 
+  mergeRecipeWithOverrides,
+  MV_CONSTRUCTION_RECIPES 
+} from '@/lib/microvellum/constructionRecipes';
 
 interface MaterialProps {
   color: string;
@@ -57,7 +63,7 @@ interface CabinetAssemblerProps {
 
 /**
  * Cabinet Assembler - Factory component that builds complete cabinet assemblies
- * from modular parts based on Microvellum product configuration
+ * from modular parts based on Microvellum construction recipes
  */
 const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   item,
@@ -78,6 +84,30 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     return null;
   }
 
+  // Get construction recipe from product name
+  const recipe = useMemo(() => {
+    // Try to get recipe by product name
+    const baseRecipe = getConstructionRecipe(config.productName, MV_CONSTRUCTION_RECIPES);
+    
+    if (baseRecipe) {
+      // Merge with any database overrides from the config
+      return mergeRecipeWithOverrides(baseRecipe, {
+        doorCount: config.doorCount,
+        drawerCount: config.drawerCount,
+        shelfCount: config.shelfCount,
+        hasFalseFront: config.hasFalseFront,
+        cornerType: config.cornerType || undefined,
+        leftArmDepth: config.leftArmDepth,
+        rightArmDepth: config.rightArmDepth,
+        blindDepth: config.blindDepth,
+        fillerWidth: config.fillerWidth,
+      });
+    }
+    
+    // Generate fallback recipe from config/name patterns
+    return getConstructionRecipe(config.productName);
+  }, [config]);
+
   // Validate item dimensions
   const safeWidth = item.width && item.width > 0 ? item.width : 600;
   const safeHeight = item.height && item.height > 0 ? item.height : 720;
@@ -88,23 +118,28 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const heightM = safeHeight / 1000;
   const depthM = safeDepth / 1000;
   
-  // Construction constants in meters
-  const gableThickness = CONSTRUCTION_STANDARDS.gableThickness / 1000;
-  const shelfThickness = CONSTRUCTION_STANDARDS.shelfThickness / 1000;
+  // Use recipe construction values or fall back to standards
+  const gableThickness = (recipe?.carcass.gableThickness || CONSTRUCTION_STANDARDS.gableThickness) / 1000;
+  const shelfThickness = (recipe?.shelves.thickness || CONSTRUCTION_STANDARDS.shelfThickness) / 1000;
   const doorThickness = CONSTRUCTION_STANDARDS.doorThickness / 1000;
-  const backPanelThickness = CONSTRUCTION_STANDARDS.backPanelThickness / 1000;
+  const backPanelThickness = (recipe?.carcass.backPanelThickness || CONSTRUCTION_STANDARDS.backPanelThickness) / 1000;
   const bottomThickness = CONSTRUCTION_STANDARDS.bottomPanelThickness / 1000;
   
-  // Global dimensions in meters with safe defaults
-  const kickHeight = ((globalDimensions?.toeKickHeight) || 135) / 1000;
-  const btThickness = ((globalDimensions?.benchtopThickness) || 33) / 1000;
-  const btOverhang = ((globalDimensions?.benchtopOverhang) || 0) / 1000;
-  const doorGap = ((globalDimensions?.doorGap) || 2) / 1000;
-  const drawerGap = ((globalDimensions?.drawerGap) || 2) / 1000;
+  // Toe kick from recipe or global dimensions
+  const kickHeight = recipe?.toeKick.enabled 
+    ? (recipe.toeKick.height / 1000) 
+    : ((globalDimensions?.toeKickHeight || 135) / 1000);
+  const hasKick = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
   
-  // Determine if cabinet has kick (base/tall, not panels)
-  const isBaseOrTall = config.category === 'Base' || config.category === 'Tall';
-  const hasKick = isBaseOrTall && !config.productName?.toLowerCase()?.includes('panel');
+  // Other global dimensions
+  const btThickness = recipe?.benchtop.thickness 
+    ? (recipe.benchtop.thickness / 1000)
+    : ((globalDimensions?.benchtopThickness || 33) / 1000);
+  const btOverhang = recipe?.benchtop.frontOverhang 
+    ? (recipe.benchtop.frontOverhang / 1000)
+    : ((globalDimensions?.benchtopOverhang || 0) / 1000);
+  const doorGap = (recipe?.fronts.doors?.gap || recipe?.fronts.drawers?.gap || globalDimensions?.doorGap || 2) / 1000;
+  const drawerGap = (recipe?.fronts.drawers?.gap || globalDimensions?.drawerGap || 2) / 1000;
   
   // Calculate carcass dimensions (excluding kick)
   const carcassHeight = hasKick ? heightM - kickHeight : heightM;
@@ -121,27 +156,19 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Determine hinge side from item or default
   const hingeLeft = item.hinge !== 'Right';
 
-  // Calculate handle position based on cabinet type
-  const getHandlePosition = (doorWidth: number, doorHeight: number, isDrawer: boolean): [number, number, number] => {
-    if (isDrawer) {
-      return [0, 0, doorThickness / 2 + 0.015];
-    }
-    const handleX = hingeLeft ? doorWidth / 2 - 0.04 : -doorWidth / 2 + 0.04;
-    const handleY = config.category === 'Wall' 
-      ? -doorHeight / 2 + 0.08 
-      : doorHeight / 2 - 0.08;
-    return [handleX, handleY, doorThickness / 2 + 0.015];
-  };
-
-  // Check if this is a corner cabinet
-  const isCornerCabinet = config.isCorner || config.cornerType !== null;
-  const cornerType = config.cornerType || (config.isBlind ? 'blind' : 'l-shape');
+  // Check if this is a corner cabinet based on recipe
+  const isCornerCabinet = recipe?.fronts.type === 'CORNER' || config.isCorner || config.cornerType !== null;
+  const cornerRender = recipe?.fronts.corner?.render || 
+    (config.cornerType === 'diagonal' ? 'DIAGONAL_FRONT_45' : 
+     config.cornerType === 'l-shape' ? 'L_ARMS' : 'BLIND_EXTENSION');
+  const cornerType = cornerRender === 'L_ARMS' ? 'l-shape' : 
+                     cornerRender === 'DIAGONAL_FRONT_45' ? 'diagonal' : 'blind';
   
-  // Corner dimensions from config and item overrides (convert mm to meters)
-  const leftArmDepthM = (item.leftCarcaseDepth || config.leftArmDepth || 575) / 1000;
-  const rightArmDepthM = (item.rightCarcaseDepth || config.rightArmDepth || 575) / 1000;
-  const blindDepthM = (config.blindDepth || 150) / 1000;
-  const fillerWidthM = (config.fillerWidth || 75) / 1000;
+  // Corner dimensions from recipe or config (convert mm to meters)
+  const leftArmDepthM = (recipe?.fronts.corner?.leftArmDepth || item.leftCarcaseDepth || config.leftArmDepth || 575) / 1000;
+  const rightArmDepthM = (recipe?.fronts.corner?.rightArmDepth || item.rightCarcaseDepth || config.rightArmDepth || 575) / 1000;
+  const blindDepthM = (recipe?.fronts.corner?.blindDepth || config.blindDepth || 150) / 1000;
+  const fillerWidthM = (recipe?.fronts.corner?.fillerWidth || config.fillerWidth || 75) / 1000;
 
   // Render gables (side panels) - skip for corner cabinets which use CornerCarcass
   const renderGables = () => {
@@ -222,13 +249,17 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     />
   );
 
-  // Render adjustable shelves - always show at least one shelf for visual clarity
+  // Render adjustable shelves based on recipe
   const renderShelves = () => {
     // Skip shelves for corner cabinets (they have internal shelves in CornerCarcass)
     if (isCornerCabinet) return null;
     
-    // Determine shelf count - default to 1 if not specified
-    const shelfCount = config.shelfCount > 0 ? config.shelfCount : 1;
+    // Use recipe shelf count, or fall back to config
+    const shelfCount = recipe?.shelves.count ?? (config.shelfCount > 0 ? config.shelfCount : 1);
+    if (shelfCount === 0) return null;
+    
+    const isAdjustable = recipe?.shelves.adjustable ?? true;
+    const shelfSetback = (recipe?.shelves.setback ?? globalDimensions.shelfSetback ?? 20) / 1000;
     
     const shelves = [];
     const usableHeight = carcassHeight - bottomThickness * 2;
@@ -240,13 +271,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         <Shelf
           key={`shelf-${i}`}
           width={interiorWidth - 0.004} // Slight gap for adjustment
-          depth={depthM - backPanelThickness - 0.02}
+          depth={depthM - backPanelThickness - shelfSetback}
           thickness={shelfThickness}
           position={[0, shelfY, backPanelThickness / 2 + 0.005]}
           color="#f0f0f0"
           map={null}
-          setback={globalDimensions.shelfSetback / 1000}
-          adjustable={true}
+          setback={shelfSetback}
+          adjustable={isAdjustable}
         />
       );
     }
