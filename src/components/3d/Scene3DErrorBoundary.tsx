@@ -2,6 +2,8 @@ import React, { Component, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+const IS_DEV = import.meta.env.DEV;
+
 interface Props {
   children: ReactNode;
   onSwitch2D?: () => void;
@@ -42,10 +44,17 @@ class Scene3DErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      const err = this.state.error;
+      const detailsText = !err
+        ? ''
+        : IS_DEV
+          ? `${err.name}: ${err.message}${err.stack ? `\n\n${err.stack}` : ''}`
+          : err.message;
+
       return (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/80 backdrop-blur-sm">
           <div className="bg-card p-8 rounded-lg shadow-lg border border-border max-w-md text-center">
-            <AlertTriangle className="h-16 w-16 text-amber-500 mx-auto mb-4" />
+            <AlertTriangle className="h-16 w-16 text-primary mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-foreground mb-2">
               3D Rendering Error
             </h2>
@@ -53,13 +62,18 @@ class Scene3DErrorBoundary extends Component<Props, State> {
               The 3D scene encountered an error. This could be due to WebGL
               compatibility or a rendering issue.
             </p>
-            
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <div className="bg-destructive/10 text-destructive text-xs p-3 rounded mb-4 text-left font-mono overflow-auto max-h-32">
-                {this.state.error.message}
-              </div>
+
+            {err && (
+              <details className="mb-4 text-left">
+                <summary className="cursor-pointer text-sm text-muted-foreground select-none">
+                  Details
+                </summary>
+                <pre className="mt-2 bg-muted text-foreground text-xs p-3 rounded font-mono overflow-auto max-h-40 whitespace-pre-wrap">
+                  {detailsText}
+                </pre>
+              </details>
             )}
-            
+
             <div className="flex gap-3 justify-center">
               <Button onClick={this.handleRetry} variant="default" size="sm">
                 <RefreshCw className="h-4 w-4 mr-2" />
