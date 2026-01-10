@@ -1,19 +1,26 @@
 import React from 'react';
-import { usePlanner } from '../../store/PlannerContext';
-import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
+import { useCatalogItem } from '../../hooks/useCatalog';
+import { GlobalDimensions } from '../../types';
 
 interface PlacementGhostProps {
   position: [number, number, number];
   rotation: number;
   isValid: boolean;
+  placementItemId: string | null;
+  globalDimensions: GlobalDimensions;
 }
 
-const PlacementGhost: React.FC<PlacementGhostProps> = ({ position, rotation, isValid }) => {
-  const { placementItemId, globalDimensions } = usePlanner();
+const PlacementGhost: React.FC<PlacementGhostProps> = ({
+  position,
+  rotation,
+  isValid,
+  placementItemId,
+  globalDimensions,
+}) => {
   const def = useCatalogItem(placementItemId);
 
-  if (!def) return null;
+  if (!placementItemId || !def) return null;
 
   // Calculate dimensions based on category
   let width = def.defaultWidth;
@@ -28,8 +35,11 @@ const PlacementGhost: React.FC<PlacementGhostProps> = ({ position, rotation, isV
     } else if (def.category === 'Wall') {
       height = globalDimensions.wallHeight;
       depth = globalDimensions.wallDepth;
-      posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight + 
-             globalDimensions.benchtopThickness + globalDimensions.splashbackHeight;
+      posY =
+        globalDimensions.toeKickHeight +
+        globalDimensions.baseHeight +
+        globalDimensions.benchtopThickness +
+        globalDimensions.splashbackHeight;
     } else if (def.category === 'Tall') {
       height = globalDimensions.tallHeight;
       depth = globalDimensions.tallDepth;
@@ -44,26 +54,32 @@ const PlacementGhost: React.FC<PlacementGhostProps> = ({ position, rotation, isV
   const color = isValid ? '#22c55e' : '#ef4444';
 
   return (
-    <group position={[position[0], posYM, position[2]]} rotation={[0, -THREE.MathUtils.degToRad(rotation), 0]}>
+    <group
+      position={[position[0], posYM, position[2]]}
+      rotation={[0, -THREE.MathUtils.degToRad(rotation), 0]}
+    >
       {/* Ghost mesh */}
       <mesh>
         <boxGeometry args={[widthM, heightM, depthM]} />
-        <meshStandardMaterial 
-          color={color} 
-          transparent 
+        <meshStandardMaterial
+          color={color}
+          transparent
           opacity={0.4}
           depthWrite={false}
         />
       </mesh>
-      
+
       {/* Wireframe outline */}
       <mesh>
         <boxGeometry args={[widthM + 0.01, heightM + 0.01, depthM + 0.01]} />
         <meshBasicMaterial color={color} wireframe transparent opacity={0.8} />
       </mesh>
-      
+
       {/* Ground indicator */}
-      <mesh position={[0, -heightM / 2 + 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh
+        position={[0, -heightM / 2 + 0.01, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
         <circleGeometry args={[Math.max(widthM, depthM) * 0.6, 32]} />
         <meshBasicMaterial color={color} transparent opacity={0.2} />
       </mesh>
@@ -72,3 +88,4 @@ const PlacementGhost: React.FC<PlacementGhostProps> = ({ position, rotation, isV
 };
 
 export default PlacementGhost;
+
