@@ -6,6 +6,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '@/constants';
 import { calculateSnapPosition, SnapResult, checkCollision } from '@/utils/snapping';
 import { RoomConfig, PlacedItem, GlobalDimensions, CatalogItemDefinition, MaterialOption } from '@/types';
+import { FINISH_OPTIONS } from '@/constants';
 import { useCatalog } from '@/hooks/useCatalog';
 import CabinetMesh from './CabinetMesh';
 import ApplianceMesh from './ApplianceMesh';
@@ -383,17 +384,20 @@ function DragManager({
     };
   }, [draggedItemId, onDragEnd, onSnapChange, onSnapResultChange, gl]);
 
+  // Drag plane must be raycastable to receive pointer events.
+  // We make it transparent but visible so onPointerMove fires.
+  const planeWidth = room.width / 1000 + 4;
+  const planeDepth = room.depth / 1000 + 4;
+
   return (
     <mesh 
       rotation={[-Math.PI / 2, 0, 0]} 
-      position={[room.width / 2000, -0.01, room.depth / 2000]} 
-      scale={[100, 100, 1]} 
+      position={[room.width / 2000, 0.001, room.depth / 2000]} 
       onPointerMove={handlePointerMove} 
-      onPointerUp={handlePointerUp} 
-      visible={false}
+      onPointerUp={handlePointerUp}
     >
-      <planeGeometry />
-      <meshBasicMaterial transparent opacity={0} />
+      <planeGeometry args={[planeWidth, planeDepth]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
     </mesh>
   );
 }
@@ -638,15 +642,73 @@ export function UnifiedScene({
           fadeStrength={1}
         />
 
-        {/* Walls */}
-        <Wall position={[-wt / 2, heightM / 2, depthM / 2]} rotation={[0, 0, 0]} width={wt} height={heightM} />
-        <Wall position={[widthM / 2, heightM / 2, -wt / 2]} rotation={[0, Math.PI / 2, 0]} width={depthM + wt} height={heightM} />
+        {/* Walls - four walls forming room perimeter */}
+        {/* Back wall (along X axis at z = -wt/2) */}
+        <Wall 
+          position={[widthM / 2, heightM / 2, -wt / 2]} 
+          rotation={[0, 0, 0]} 
+          width={widthM + wt * 2} 
+          height={heightM} 
+          thickness={wt}
+          roomCenter={[widthM / 2, 0, depthM / 2]}
+        />
+        {/* Left wall (along Z axis at x = -wt/2) */}
+        <Wall 
+          position={[-wt / 2, heightM / 2, depthM / 2]} 
+          rotation={[0, Math.PI / 2, 0]} 
+          width={depthM + wt * 2} 
+          height={heightM} 
+          thickness={wt}
+          roomCenter={[widthM / 2, 0, depthM / 2]}
+        />
+        {/* Right wall (along Z axis at x = widthM + wt/2) - optional, can be disabled */}
+        <Wall 
+          position={[widthM + wt / 2, heightM / 2, depthM / 2]} 
+          rotation={[0, Math.PI / 2, 0]} 
+          width={depthM + wt * 2} 
+          height={heightM} 
+          thickness={wt}
+          roomCenter={[widthM / 2, 0, depthM / 2]}
+          fadeWhenBlocking
+        />
+        {/* Front wall (along X axis at z = depthM + wt/2) - typically open but shown faded */}
+        <Wall 
+          position={[widthM / 2, heightM / 2, depthM + wt / 2]} 
+          rotation={[0, 0, 0]} 
+          width={widthM + wt * 2} 
+          height={heightM} 
+          thickness={wt}
+          roomCenter={[widthM / 2, 0, depthM / 2]}
+          fadeWhenBlocking
+        />
+        {/* Corners */}
+        <WallCorner position={[-wt / 2, heightM / 2, -wt / 2]} height={heightM} thickness={wt} roomCenter={[widthM / 2, 0, depthM / 2]} />
+        <WallCorner position={[widthM + wt / 2, heightM / 2, -wt / 2]} height={heightM} thickness={wt} roomCenter={[widthM / 2, 0, depthM / 2]} />
 
         {room.shape === 'LShape' && (
           <>
-            <Wall position={[room.cutoutWidth / 1000 + wt / 2, heightM / 2, (depthM + (room.depth - room.cutoutDepth) / 1000) / 2]} rotation={[0, 0, 0]} width={wt} height={heightM} />
-            <Wall position={[(room.cutoutWidth / 1000 + widthM + wt) / 2, heightM / 2, (room.depth - room.cutoutDepth) / 1000 - wt / 2]} rotation={[0, Math.PI / 2, 0]} width={widthM - room.cutoutWidth / 1000 + wt} height={heightM} />
-            <WallCorner position={[room.cutoutWidth / 1000, heightM / 2, (room.depth - room.cutoutDepth) / 1000]} height={heightM} thickness={wt} />
+            <Wall 
+              position={[room.cutoutWidth / 1000 + wt / 2, heightM / 2, (depthM + (room.depth - room.cutoutDepth) / 1000) / 2]} 
+              rotation={[0, Math.PI / 2, 0]} 
+              width={(depthM - (room.depth - room.cutoutDepth) / 1000)} 
+              height={heightM} 
+              thickness={wt}
+              roomCenter={[widthM / 2, 0, depthM / 2]}
+            />
+            <Wall 
+              position={[(room.cutoutWidth / 1000 + widthM + wt) / 2, heightM / 2, (room.depth - room.cutoutDepth) / 1000 - wt / 2]} 
+              rotation={[0, 0, 0]} 
+              width={widthM - room.cutoutWidth / 1000 + wt} 
+              height={heightM} 
+              thickness={wt}
+              roomCenter={[widthM / 2, 0, depthM / 2]}
+            />
+            <WallCorner 
+              position={[room.cutoutWidth / 1000, heightM / 2, (room.depth - room.cutoutDepth) / 1000]} 
+              height={heightM} 
+              thickness={wt} 
+              roomCenter={[widthM / 2, 0, depthM / 2]}
+            />
           </>
         )}
 
@@ -680,11 +742,21 @@ export function UnifiedScene({
             );
           }
           // Default: Cabinet
+          // Resolve finish/handle from item properties if available
+          const itemFinish = item.finishColor 
+            ? FINISH_OPTIONS.find(f => f.id === item.finishColor) 
+            : undefined;
+          const itemHandle = item.handleType
+            ? { handleId: item.handleType }
+            : undefined;
+          
           return (
             <CabinetMesh 
               key={key} 
               item={item} 
               globalDimensions={globalDimensions}
+              selectedFinish={itemFinish}
+              hardwareOptions={itemHandle}
               {...commonProps}
             />
           );

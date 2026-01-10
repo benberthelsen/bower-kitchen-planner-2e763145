@@ -107,6 +107,9 @@ export default function RoomPlanner() {
       height: cabinet.dimensions.height,
       hinge: 'Left' as const,
       cabinetNumber: cabinet.cabinetNumber,
+      // Pass material/hardware selections so CabinetMesh can render with correct finishes
+      finishColor: cabinet.materials?.exteriorFinish,
+      handleType: cabinet.hardware?.handleType,
     }));
   }, [cabinets]);
 

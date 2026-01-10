@@ -14,7 +14,8 @@ interface CabinetMeshProps {
   selectedBenchtop?: MaterialOption;
   selectedKick?: MaterialOption;
   globalDimensions?: GlobalDimensions;
-  hardwareOptions?: HardwareOptions;
+  // Only handleId is typically used, so we accept a partial
+  hardwareOptions?: Partial<HardwareOptions>;
   isSelected?: boolean;
   isDragged?: boolean;
   onSelect?: (id: string) => void;
@@ -46,7 +47,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   const selectedBenchtop = benchtopProp ?? BENCHTOP_OPTIONS[0];
   const selectedKick = kickProp ?? KICK_OPTIONS[0];
   const globalDimensions = dimensionsProp ?? DEFAULT_GLOBAL_DIMENSIONS;
-  const hardwareOptions = hardwareProp ?? { handleId: HANDLE_OPTIONS[0].id };
+  const hardwareOptions = { handleId: hardwareProp?.handleId ?? HANDLE_OPTIONS[0].id };
 
   const isSelected = isSelectedProp ?? false;
   const isDragged = isDraggedProp ?? false;
