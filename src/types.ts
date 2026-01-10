@@ -127,6 +127,18 @@ export interface GlobalDimensions {
   
   /** Gap between cabinet back and wall for installation tolerance (mm) */
   wallGap: number;
+  
+  // Construction parameters (Microvellum-style)
+  /** Board thickness for gables/shelves (mm) - typically 16, 18, 25, 32 */
+  boardThickness: number;
+  /** Back panel setback for hanging rails (mm) - typically 16 */
+  backPanelSetback: number;
+  /** Top reveal gap above doors (mm) - typically 3 */
+  topReveal: number;
+  /** Side reveal gap beside doors (mm) - typically 2 */
+  sideReveal: number;
+  /** 32mm system handle drill spacing (mm) - 32, 64, 96, 128 */
+  handleDrillSpacing: number;
 }
 
 export interface HardwareOptions {

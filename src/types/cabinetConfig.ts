@@ -88,11 +88,13 @@ export type BoardThickness = typeof BOARD_THICKNESS_OPTIONS[number];
 
 /**
  * Standard construction dimensions (in mm)
+ * Based on Microvellum manufacturing standards
  */
 export const CONSTRUCTION_STANDARDS = {
+  // Board thicknesses (mm)
   gableThickness: 18,
   shelfThickness: 18,
-  backPanelThickness: 3,
+  backPanelThickness: 3,       // Backing board
   doorThickness: 18,
   drawerFrontThickness: 18,
   bottomPanelThickness: 18,
@@ -100,18 +102,28 @@ export const CONSTRUCTION_STANDARDS = {
   kickboardThickness: 16,
   edgeBanding: 0.4,
   
-  // Gaps
-  doorGap: 2,
-  drawerGap: 2,
-  backPanelSetback: 18, // From front of cabinet
+  // Gaps & Reveals (mm) - Microvellum standard
+  doorGap: 2,                  // Between doors
+  drawerGap: 2,                // Between drawers
+  topReveal: 3,                // Gap from carcass top to door
+  bottomReveal: 2,             // Gap from carcass bottom to door
+  sideReveal: 2,               // Gap from gable to door edge
   
-  // Hinge/hardware positions
-  hingeInset: 100, // From top/bottom
-  handleInset: 40, // From edge
+  // Setbacks (mm)
+  backPanelSetback: 16,        // Recessed for hanging rails (industry standard)
+  backPanelInset: 9,           // Inset from gable edges (dado depth)
   
-  // Shelf hole spacing
-  shelfHoleSpacing: 32,
-  shelfHoleFromEdge: 37,
+  // 32mm System drilling pattern
+  shelfHoleSpacing: 32,        // Standard 32mm system
+  shelfHoleFromEdge: 37,       // Distance from front/back edge
+  hingeInset: 100,             // From top/bottom of door
+  handleInset: 40,             // From edge of door
+  handleCenterFromEdge: 40,    // Standard handle position
+  handleDrillPattern: 32,      // 32mm, 64mm, 96mm, 128mm centers
+  
+  // Toe kick dimensions
+  toeKickHeight: 135,
+  toeKickSetback: 50,
 } as const;
 
 /**

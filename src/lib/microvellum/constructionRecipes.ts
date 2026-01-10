@@ -98,9 +98,10 @@ export interface ConstructionRecipe {
 
 // ============= RECIPE HELPERS =============
 
-const BASE_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 };
-const WALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 };
-const TALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 18 };
+// Back panel setback: 16mm for hanging rails (Microvellum standard)
+const BASE_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 16 };
+const WALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 16 };
+const TALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 16 };
 const BASE_TOEKICK: ToeKickRecipe = { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 };
 const WIDE_TOEKICK: ToeKickRecipe = { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 6 };
 const NO_TOEKICK: ToeKickRecipe = { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 };

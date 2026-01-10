@@ -75,5 +75,12 @@ export const DEFAULT_GLOBAL_DIMENSIONS: GlobalDimensions = {
   rightGap: 1.5,
   topMargin: 0,
   bottomMargin: 0,
-  wallGap: 10, // 10mm gap between cabinet back and wall for installation tolerance
+  wallGap: 10,
+  
+  // Construction parameters (Microvellum-style defaults)
+  boardThickness: 18,        // Standard 18mm board
+  backPanelSetback: 16,      // 16mm setback for hanging rails
+  topReveal: 3,              // 3mm gap above doors
+  sideReveal: 2,             // 2mm gap beside doors
+  handleDrillSpacing: 32,    // 32mm system
 };

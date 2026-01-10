@@ -3,11 +3,13 @@ import { SnapResult, SnapContext } from './types';
 import { getRotatedBounds, getEffectiveDimensions, checkCollision } from './bounds';
 import { findWallSnap, detectCorner, WALL_SNAP_THRESHOLD } from './wallSnapping';
 import { findCabinetSnapPoints, CABINET_SNAP_THRESHOLD } from './cabinetSnapping';
+import { findGableSnapPoints, getBestGableSnap, calculateHandlePosition } from './gableSnapping';
 
 // Re-export for backwards compatibility
 export { checkCollision, getRotatedBounds } from './bounds';
 export { CABINET_SNAP_THRESHOLD } from './cabinetSnapping';
 export { WALL_SNAP_THRESHOLD } from './wallSnapping';
+export { findGableSnapPoints, getBestGableSnap, calculateHandlePosition } from './gableSnapping';
 export type { SnapResult, BoundingBox } from './types';
 
 /**
@@ -42,7 +44,13 @@ export function calculateSnapPosition(
     rightGap: 1.5,
     topMargin: 0,
     bottomMargin: 0,
-    wallGap: 10, // 10mm gap between cabinet back and wall
+    wallGap: 10,
+    // Construction parameters
+    boardThickness: 18,
+    backPanelSetback: 16,
+    topReveal: 3,
+    sideReveal: 2,
+    handleDrillSpacing: 32,
   };
 
   // Start with grid-snapped position

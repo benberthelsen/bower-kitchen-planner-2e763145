@@ -138,8 +138,15 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const btOverhang = recipe?.benchtop.frontOverhang 
     ? (recipe.benchtop.frontOverhang / 1000)
     : ((globalDimensions?.benchtopOverhang || 0) / 1000);
-  const doorGap = (recipe?.fronts.doors?.gap || recipe?.fronts.drawers?.gap || globalDimensions?.doorGap || 2) / 1000;
-  const drawerGap = (recipe?.fronts.drawers?.gap || globalDimensions?.drawerGap || 2) / 1000;
+  
+  // Reveals (gaps around doors/drawers) - from global dimensions or recipe
+  const doorGap = (globalDimensions?.doorGap || recipe?.fronts.doors?.gap || 2) / 1000;
+  const drawerGap = (globalDimensions?.drawerGap || recipe?.fronts.drawers?.gap || 2) / 1000;
+  const topReveal = (globalDimensions?.topReveal || 3) / 1000;
+  const sideReveal = (globalDimensions?.sideReveal || 2) / 1000;
+  
+  // Back panel setback for hanging rails (16mm standard)
+  const backSetback = (globalDimensions?.backPanelSetback || recipe?.carcass.backPanelSetback || 16) / 1000;
   
   // Calculate carcass dimensions (excluding kick)
   const carcassHeight = hasKick ? heightM - kickHeight : heightM;
@@ -240,12 +247,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     />
   );
 
-  // Render back panel
+  // Render back panel (with 16mm setback for hanging rails)
   const renderBack = () => (
     <BackPanel
       width={interiorWidth}
       height={carcassHeight - bottomThickness * 2}
-      position={[0, carcassYOffset, -depthM / 2 + backPanelThickness / 2]}
+      position={[0, carcassYOffset, -depthM / 2 + backSetback + backPanelThickness / 2]}
+      setback={backSetback}
     />
   );
 
