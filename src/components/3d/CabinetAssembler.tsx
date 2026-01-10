@@ -494,27 +494,25 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const renderCornerDoors = () => {
     const doorHeight = carcassHeight - topReveal - bottomReveal;
     const doorY = carcassYOffset;
-    const armOpeningWidth = 0.45; // 450mm standard opening width (matches CornerCarcass)
+    const armWidth = 0.45; // 450mm standard arm opening (matches CornerCarcass)
     
     // For L-shape corner: doors on both arm fronts
     if (cornerType === 'l-shape') {
-      // Left arm door - at the front of the left arm (positive Z side)
-      // The left arm has its opening facing +Z
-      const leftDoorWidth = armOpeningWidth - sideReveal * 2;
-      const leftDoorZ = -depthM / 2 + leftArmDepthM + doorThickness / 2 + 0.002;
-      const leftDoorX = -widthM / 2 + armOpeningWidth / 2 + gableThickness / 2;
+      const doorWidth = armWidth - sideReveal * 2;
       
-      // Right arm door - at the front of the right arm (positive X side)  
-      // The right arm has its opening facing +X
-      const rightDoorWidth = armOpeningWidth - sideReveal * 2;
-      const rightDoorX = -widthM / 2 + rightArmDepthM + doorThickness / 2 + 0.002;
-      const rightDoorZ = -depthM / 2 + armOpeningWidth / 2 + gableThickness / 2;
+      // Left arm door - at front of left arm (positive Z)
+      const leftDoorX = -widthM / 2 + armWidth / 2 + gableThickness / 2;
+      const leftDoorZ = leftArmDepthM / 2 + doorThickness / 2 + 0.002;
+      
+      // Right arm door - at front of right arm (positive X, rotated)
+      const rightDoorX = rightArmDepthM / 2 + doorThickness / 2 + 0.002;
+      const rightDoorZ = -depthM / 2 + armWidth / 2 + gableThickness / 2;
       
       return (
         <>
           {/* Left arm door - faces +Z direction */}
           <DoorFront
-            width={leftDoorWidth}
+            width={doorWidth}
             height={doorHeight}
             thickness={doorThickness}
             position={[leftDoorX, doorY, leftDoorZ]}
@@ -528,8 +526,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             type={handle.type}
             color={handle.hex}
             position={[
-              leftDoorX + leftDoorWidth / 2 - 0.04, 
-              doorY + doorHeight / 2 - 0.096, 
+              leftDoorX + doorWidth / 2 - 0.04,
+              doorY + doorHeight / 2 - 0.096,
               leftDoorZ + doorThickness / 2 + 0.015
             ]}
           />
@@ -537,7 +535,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           {/* Right arm door - faces +X direction (rotated 90 degrees) */}
           <group position={[rightDoorX, doorY, rightDoorZ]} rotation={[0, -Math.PI / 2, 0]}>
             <DoorFront
-              width={rightDoorWidth}
+              width={doorWidth}
               height={doorHeight}
               thickness={doorThickness}
               position={[0, 0, 0]}
@@ -551,8 +549,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
               type={handle.type}
               color={handle.hex}
               position={[
-                -rightDoorWidth / 2 + 0.04, 
-                doorHeight / 2 - 0.096, 
+                -doorWidth / 2 + 0.04,
+                doorHeight / 2 - 0.096,
                 doorThickness / 2 + 0.015
               ]}
             />
