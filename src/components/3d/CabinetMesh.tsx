@@ -122,11 +122,33 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
     return null;
   }
 
-  // Show loading placeholder while catalog is loading
+  // Calculate cabinet position based on category
+  // - Base cabinets: positioned on floor
+  // - Wall cabinets: auto-elevated to hang above benchtop (standard: 870mm base + 33mm bench + 450mm splash = 1353mm)
+  // - Tall cabinets: positioned on floor
   const widthM = safeWidth / 1000;
   const heightM = safeHeight / 1000;
   const depthM = safeDepth / 1000;
-  const position: [number, number, number] = [item.x / 1000, (item.y / 1000) + (heightM / 2), item.z / 1000];
+  
+  // Wall cabinet elevation: standard mounting height above floor
+  // Uses item.y if explicitly set, otherwise auto-calculates based on category
+  const isWallCabinet = renderConfig.category === 'Wall';
+  const WALL_CABINET_MOUNT_HEIGHT = 1350; // mm from floor to bottom of wall cabinet
+  
+  // Calculate Y position
+  // For wall cabinets without explicit Y, mount at standard height
+  // Otherwise use the item's Y position (which is floor level for base/tall)
+  const baseY = item.y || 0;
+  const autoElevatedY = isWallCabinet && baseY === 0 
+    ? WALL_CABINET_MOUNT_HEIGHT 
+    : baseY;
+  
+  // Position is center of cabinet, so add half height
+  const position: [number, number, number] = [
+    item.x / 1000, 
+    (autoElevatedY / 1000) + (heightM / 2), 
+    item.z / 1000
+  ];
 
   if (catalogLoading && !catalogItem) {
     return (

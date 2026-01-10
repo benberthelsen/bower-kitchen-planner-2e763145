@@ -364,9 +364,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Render doors - now handles combination cabinets and corner cabinets
   // Uses physical shadow gap and 32mm system handle positioning
+  // FIXED: Proper door height calculation based on opening, not arbitrary reductions
   const renderDoors = () => {
-    // Skip if no doors
-    if (config.doorCount === 0) return null;
+    // Skip if no doors (unless it's a sink cabinet which always has doors)
+    if (config.doorCount === 0 && !config.isSink) return null;
+    const actualDoorCount = config.doorCount > 0 ? config.doorCount : (config.isSink ? 2 : 0);
+    if (actualDoorCount === 0) return null;
     
     // Physical shadow gap: doors sit in front of carcass with real 3D gap
     const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
@@ -376,32 +379,37 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       return renderCornerDoors();
     }
     
-    // For combination cabinets, doors go in the bottom section
-    const doorHeight = hasBothDoorsAndDrawers 
-      ? doorSectionHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0)
-      : carcassHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0);
+    // Calculate available opening height for doors
+    // For combo cabinets: opening is from bottom of carcass to bottom of drawer divider
+    // For standard: full carcass height minus false front if present
+    const falseFrontH = (config.isSink && config.hasFalseFront) ? 0.08 : 0; // 80mm false front
+    const openingHeight = hasBothDoorsAndDrawers 
+      ? doorSectionHeight
+      : carcassHeight - falseFrontH;
     
-    // Apply reveals: door is smaller than opening
-    const effectiveDoorHeight = doorHeight - topReveal - sideReveal;
+    // Door fills opening minus reveals on all sides
+    // Top reveal: gap between door top and carcass top (or divider bottom)
+    // Bottom reveal: gap between door bottom and carcass bottom
+    const effectiveDoorHeight = openingHeight - topReveal - bottomReveal;
     
-    // Position: for combo cabinets, doors are below the drawers
-    const doorY = hasBothDoorsAndDrawers
-      ? carcassYOffset - carcassHeight / 2 + doorSectionHeight / 2
-      : carcassYOffset - (config.isSink && config.hasFalseFront ? 0.05 : 0);
+    // Center doors vertically in their opening
+    const openingCenterY = hasBothDoorsAndDrawers
+      ? carcassYOffset - carcassHeight / 2 + doorSectionHeight / 2  // Center of door section
+      : carcassYOffset - falseFrontH / 2;  // Shifted down if false front present
+    
+    const doorY = openingCenterY;
     
     // Two door cabinet (pair doors)
-    if (config.doorCount === 2) {
-      const doorWidth = (widthM - sideReveal * 2) / 2 - doorGap / 2;
+    if (actualDoorCount >= 2) {
+      // Each door is half the interior width minus gap between them minus side reveals
+      const totalDoorWidth = widthM - sideReveal * 2;
+      const doorWidth = (totalDoorWidth - doorGap) / 2;
       
-      // 32mm system handle positions (use default handle length of 128mm)
-      const leftHandlePos = calculateHandlePosition(
-        effectiveDoorHeight * 1000, doorWidth * 1000, 
-        config.category, true, 128
-      );
-      const rightHandlePos = calculateHandlePosition(
-        effectiveDoorHeight * 1000, doorWidth * 1000, 
-        config.category, false, 128
-      );
+      // 32mm system handle positions
+      const handleOffset = 0.032; // 32mm from door edge
+      const handleY = config.category === 'Base' 
+        ? effectiveDoorHeight / 2 - 0.096  // 96mm from top for base
+        : -effectiveDoorHeight / 2 + 0.096; // 96mm from bottom for wall
       
       return (
         <>
@@ -414,15 +422,15 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             color={doorMat.color}
             roughness={doorMat.roughness}
             map={doorMat.map}
-            gap={doorGap}
+            gap={0} // Gap already accounted for in positioning
             hingeLeft={true}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
             position={[
-              -doorGap / 2 + rightHandlePos.x / 1000,  // Right side of left door
-              doorY + leftHandlePos.y / 1000,
+              doorWidth / 2 - handleOffset - doorGap / 2,  // Near right edge of left door
+              doorY + handleY,
               frontZ + doorThickness / 2 + 0.015
             ]}
           />
@@ -435,15 +443,15 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             color={doorMat.color}
             roughness={doorMat.roughness}
             map={doorMat.map}
-            gap={doorGap}
+            gap={0}
             hingeLeft={false}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
             position={[
-              doorGap / 2 - rightHandlePos.x / 1000,  // Left side of right door
-              doorY + rightHandlePos.y / 1000,
+              -doorWidth / 2 + handleOffset + doorGap / 2,  // Near left edge of right door
+              doorY + handleY,
               frontZ + doorThickness / 2 + 0.015
             ]}
           />
@@ -451,12 +459,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       );
     }
     
-    // Single door - position based on hinge side with 32mm system
+    // Single door - fills full width minus side reveals
     const doorWidth = widthM - sideReveal * 2;
-    const handlePos = calculateHandlePosition(
-      effectiveDoorHeight * 1000, doorWidth * 1000,
-      config.category, hingeLeft, 128
-    );
+    const handleOffset = 0.032; // 32mm from edge
+    const handleX = hingeLeft ? doorWidth / 2 - handleOffset : -doorWidth / 2 + handleOffset;
+    const handleY = config.category === 'Base' 
+      ? effectiveDoorHeight / 2 - 0.096 
+      : -effectiveDoorHeight / 2 + 0.096;
     
     return (
       <>
@@ -468,13 +477,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           color={doorMat.color}
           roughness={doorMat.roughness}
           map={doorMat.map}
-          gap={doorGap}
+          gap={0}
           hingeLeft={hingeLeft}
         />
         <HandleMesh
           type={handle.type}
           color={handle.hex}
-          position={[handlePos.x / 1000, doorY + handlePos.y / 1000, frontZ + doorThickness / 2 + 0.015]}
+          position={[handleX, doorY + handleY, frontZ + doorThickness / 2 + 0.015]}
           rotation={0}
         />
       </>
@@ -599,6 +608,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Render drawers with variable heights (Microvellum-compliant)
   // Uses physical shadow gap and reveals
+  // FIXED: Proper drawer positioning that fills the opening correctly
   const renderDrawers = () => {
     if (config.drawerCount === 0) return null;
     
@@ -609,20 +619,27 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     const drawerWidth = widthM - sideReveal * 2;
     
     // For combination cabinets, drawers use only the drawer section
-    const totalDrawerHeight = hasBothDoorsAndDrawers ? drawerSectionHeight : carcassHeight;
-    const drawerHeights = getDrawerHeights(config.drawerCount, totalDrawerHeight);
+    // Total available height for drawers (minus top and bottom reveals)
+    const totalOpeningHeight = hasBothDoorsAndDrawers ? drawerSectionHeight : carcassHeight;
+    const usableHeight = totalOpeningHeight - topReveal - bottomReveal;
     
-    // Starting Y position - top of drawer section (accounting for top reveal)
-    const drawerTopY = hasBothDoorsAndDrawers
-      ? carcassYOffset + carcassHeight / 2 - topReveal
-      : carcassYOffset + carcassHeight / 2 - topReveal;
+    // Get proportional heights for each drawer
+    const drawerHeights = getDrawerHeights(config.drawerCount, usableHeight);
     
-    let currentY = drawerTopY;
+    // Starting Y position - top of usable area
+    // For combo: from top of carcass down to divider
+    // For drawer-only: from top of carcass down
+    const topOfDrawers = carcassYOffset + carcassHeight / 2 - topReveal;
+    
+    let currentY = topOfDrawers;
     
     return drawerHeights.map((drawerHeight, i) => {
-      // Apply gap between drawers
-      const effectiveHeight = drawerHeight - drawerGap;
-      const drawerY = currentY - effectiveHeight / 2;
+      // Each drawer has a gap above it (except first which has topReveal)
+      const gapAbove = i > 0 ? drawerGap : 0;
+      const effectiveHeight = drawerHeight - gapAbove;
+      
+      // Position drawer centered in its slot
+      const drawerCenterY = currentY - gapAbove - effectiveHeight / 2;
       currentY -= drawerHeight;
       
       return (
@@ -631,17 +648,17 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             width={drawerWidth}
             height={effectiveHeight}
             thickness={doorThickness}
-            position={[0, drawerY, frontZ]}
+            position={[0, drawerCenterY, frontZ]}
             color={drawerMat.color}
             roughness={drawerMat.roughness}
             map={drawerMat.map}
-            gap={drawerGap}
+            gap={0} // Gap already accounted for
             showBox={true}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
-            position={[0, drawerY, frontZ + doorThickness / 2 + 0.015]}
+            position={[0, drawerCenterY, frontZ + doorThickness / 2 + 0.015]}
             rotation={Math.PI / 2}
           />
         </React.Fragment>
