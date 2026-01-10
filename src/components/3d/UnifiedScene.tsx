@@ -1,16 +1,20 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
-import { WALL_THICKNESS, SNAP_INCREMENT, FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, HANDLE_OPTIONS } from '@/constants';
+import { WALL_THICKNESS, SNAP_INCREMENT } from '@/constants';
 import { calculateSnapPosition, SnapResult, checkCollision } from '@/utils/snapping';
-import { RoomConfig, PlacedItem, GlobalDimensions, CatalogItemDefinition } from '@/types';
-import { useCabinetMaterials } from '@/hooks/useCabinetMaterials';
-import { useCatalogItem, useCatalog } from '@/hooks/useCatalog';
-import ProductRenderer from './ProductRenderer';
+import { RoomConfig, PlacedItem, GlobalDimensions, CatalogItemDefinition, MaterialOption } from '@/types';
+import { useCatalog } from '@/hooks/useCatalog';
+import CabinetMesh from './CabinetMesh';
+import ApplianceMesh from './ApplianceMesh';
+import StructureMesh from './StructureMesh';
 import Wall, { WallCorner } from './Wall';
 import SnapIndicators from './SnapIndicators';
-import { CabinetRenderConfig } from '@/types/cabinetConfig';
+import SnapDebugOverlay from './SnapDebugOverlay';
+import SmartDimensions from './SmartDimensions';
+import InteractionHandles from './InteractionHandles';
+import PlacementGhost from './PlacementGhost';
 
 // Drag threshold in mm - must move at least this much before dragging starts
 const DRAG_THRESHOLD = 20;
@@ -31,6 +35,11 @@ export interface UnifiedSceneProps {
   items: PlacedItem[];
   room: RoomConfig;
   globalDimensions: GlobalDimensions;
+  
+  // Materials (from context)
+  selectedFinish?: MaterialOption;
+  selectedBenchtop?: MaterialOption;
+  selectedKick?: MaterialOption;
   
   // Selection & interaction
   selectedItemId: string | null;
@@ -67,12 +76,6 @@ export interface UnifiedSceneProps {
   // Catalog for placement ghost
   catalog?: CatalogItemDefinition[];
 }
-
-// Get default material options
-const getDefaultFinish = () => FINISH_OPTIONS[0];
-const getDefaultBenchtop = () => BENCHTOP_OPTIONS[0];
-const getDefaultKick = () => KICK_OPTIONS[0];
-const getDefaultHandle = () => HANDLE_OPTIONS[0];
 
 // Placement mode handler - follows cursor and places on click
 function PlacementHandler({
@@ -394,126 +397,7 @@ function DragManager({
   );
 }
 
-// Individual item mesh
-function ItemMesh({
-  item,
-  isSelected,
-  isDragged,
-  globalDimensions,
-  onSelect,
-  onDragStart,
-}: {
-  item: PlacedItem;
-  isSelected: boolean;
-  isDragged: boolean;
-  globalDimensions: GlobalDimensions;
-  onSelect: () => void;
-  onDragStart: (x: number, z: number) => void;
-}) {
-  const groupRef = useRef<THREE.Group>(null);
-  const [hovered, setHovered] = useState(false);
-
-  const catalogItem = useCatalogItem(item.definitionId);
-  const finishOption = getDefaultFinish();
-  const benchtopOption = getDefaultBenchtop();
-  const kickOption = getDefaultKick();
-  const handle = getDefaultHandle();
-  const { materials } = useCabinetMaterials(finishOption, benchtopOption, kickOption);
-
-  const widthM = item.width / 1000;
-  const heightM = item.height / 1000;
-  const depthM = item.depth / 1000;
-
-  const renderConfig: CabinetRenderConfig = useMemo(() => {
-    if (catalogItem?.renderConfig) return catalogItem.renderConfig;
-    
-    const categoryMap: Record<string, 'Base' | 'Wall' | 'Tall' | 'Accessory'> = {
-      Base: 'Base', Wall: 'Wall', Tall: 'Tall', Appliance: 'Accessory',
-    };
-    const category = catalogItem?.category || 'Base';
-    const configCategory = categoryMap[category] || 'Base';
-    
-    return {
-      productId: item.definitionId,
-      productName: catalogItem?.name || 'Cabinet',
-      category: configCategory,
-      cabinetType: 'Standard',
-      productType: 'cabinet' as const,
-      specGroup: 'Base Cabinets',
-      doorCount: 1,
-      drawerCount: 0,
-      isCorner: false,
-      isSink: false,
-      isBlind: false,
-      isPantry: category === 'Tall',
-      isAppliance: false,
-      isOven: false, isFridge: false, isRangehood: false, isDishwasher: false,
-      hasFalseFront: false,
-      hasAdjustableShelves: true,
-      shelfCount: 1,
-      cornerType: null,
-      leftArmDepth: 575, rightArmDepth: 575, blindDepth: 150, fillerWidth: 75,
-      hasReturnFiller: false,
-      defaultWidth: item.width, defaultHeight: item.height, defaultDepth: item.depth,
-    };
-  }, [catalogItem, item]);
-
-  // Position in meters
-  const posX = item.x / 1000;
-  const posZ = item.z / 1000;
-  
-  // Y position based on cabinet type
-  let posY = item.y / 1000;
-  if (catalogItem?.category === 'Wall' && posY === 0) {
-    posY = (globalDimensions.toeKickHeight + globalDimensions.baseHeight + 
-            globalDimensions.benchtopThickness + globalDimensions.splashbackHeight) / 1000;
-  }
-
-  if (!materials || !materials.gable) {
-    return (
-      <group position={[posX, posY + heightM / 2, posZ]}>
-        <mesh>
-          <boxGeometry args={[widthM, heightM, depthM]} />
-          <meshBasicMaterial color="#9ca3af" wireframe opacity={0.5} transparent />
-        </mesh>
-      </group>
-    );
-  }
-
-  const finalY = posY + heightM / 2;
-
-  return (
-    <group 
-      ref={groupRef}
-      position={[posX, finalY, posZ]}
-      rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
-      onPointerOver={() => setHovered(true)}
-      onPointerOut={() => setHovered(false)}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        if (e.button === 0) {
-          onSelect();
-          onDragStart(item.x, item.z);
-        }
-      }}
-    >
-      <ProductRenderer
-        item={item}
-        config={renderConfig}
-        finishMaterial={finishOption}
-        benchtopMaterial={benchtopOption}
-        kickMaterial={kickOption}
-        handle={handle}
-        globalDimensions={globalDimensions}
-        materials={materials}
-        isSelected={isSelected}
-        isDragged={isDragged}
-        hovered={hovered}
-      />
-    </group>
-  );
-}
+// No ItemMesh component needed - we use CabinetMesh, ApplianceMesh, StructureMesh directly
 
 // Camera controller
 function CameraController({
@@ -761,27 +645,26 @@ export function UnifiedScene({
           </>
         )}
 
-        {/* Render items */}
-        {items.map(item => (
-          <ItemMesh
-            key={item.instanceId}
-            item={item}
-            isSelected={selectedItemId === item.instanceId}
-            isDragged={draggedItemId === item.instanceId}
-            globalDimensions={globalDimensions}
-            onSelect={() => onItemSelect(item.instanceId)}
-            onDragStart={(x, z) => handleDragStart(item.instanceId, x, z)}
-          />
-        ))}
+        {/* Render items using proper component dispatch */}
+        {items.map(item => {
+          const key = item.instanceId;
+          if (item.itemType === 'Appliance') {
+            return <ApplianceMesh key={key} item={item} />;
+          }
+          if (item.itemType === 'Structure') {
+            return <StructureMesh key={key} item={item} />;
+          }
+          // Default: Cabinet
+          return <CabinetMesh key={key} item={item} />;
+        })}
 
-        {/* Placement ghost - uses context internally */}
+        {/* Placement ghost */}
         {placementItemId && (
-          <group position={placementState.position} rotation={[0, -THREE.MathUtils.degToRad(placementState.rotation), 0]}>
-            <mesh>
-              <boxGeometry args={[0.6, 0.72, 0.58]} />
-              <meshStandardMaterial color={placementState.isValid ? '#22c55e' : '#ef4444'} transparent opacity={0.4} />
-            </mesh>
-          </group>
+          <PlacementGhost
+            position={placementState.position}
+            rotation={placementState.rotation}
+            isValid={placementState.isValid}
+          />
         )}
 
         {/* Snap indicators */}
@@ -794,6 +677,22 @@ export function UnifiedScene({
             room={room}
           />
         )}
+
+        {/* Smart dimensions */}
+        <SmartDimensions />
+
+        {/* Interaction handles */}
+        <InteractionHandles />
+
+        {/* Snap debug overlay */}
+        <SnapDebugOverlay
+          items={items}
+          room={room}
+          globalDimensions={globalDimensions}
+          draggedItem={draggedItem}
+          snapResult={currentSnapResult}
+          visible={debugOverlay}
+        />
       </group>
     </Canvas>
   );
