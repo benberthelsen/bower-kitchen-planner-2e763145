@@ -1,10 +1,11 @@
-import React, { Suspense, useState, useCallback, useEffect } from "react";
+import React, { Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { PlannerProvider, usePlanner } from "../store/PlannerContext";
-import Sidebar from "../components/Layout/Sidebar";
+import { UnifiedCatalog } from "../components/shared/UnifiedCatalog";
 import PropertiesPanel from "../components/Layout/PropertiesPanel";
-import Scene from "../components/3d/Scene";
+import UnifiedScene from "../components/3d/UnifiedScene";
 import Scene3DErrorBoundary from "../components/3d/Scene3DErrorBoundary";
+import type { CameraControls } from "@react-three/drei";
 import CameraToolbar from "../components/3d/CameraToolbar";
 import SelectionToolbar from "../components/3d/SelectionToolbar";
 import StatusBar from "../components/3d/StatusBar";
@@ -47,9 +48,10 @@ function AppInner() {
     undo, redo, canUndo, canRedo, 
     selectedItemId, items, room,
     removeItem, duplicateItem, updateItem, recordHistory,
-    placementItemId, draggedItemId,
+    placementItemId, draggedItemId, setDraggedItem,
     selectedFinish, selectedBenchtop, selectedKick,
-    projectSettings, globalDimensions, hardwareOptions, totalPrice
+    projectSettings, globalDimensions, hardwareOptions, totalPrice,
+    addItem, selectItem, setPlacementItem, dragState, startDrag, confirmDrag
   } = usePlanner();
   const { user, loading: authLoading, signOut, isAdmin, userType } = useAuth();
   const { catalog } = useCatalog('standard');
@@ -58,12 +60,8 @@ function AppInner() {
   const [saving, setSaving] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveDialogMode, setSaveDialogMode] = useState<'save' | 'quote'>('save');
-  const [cameraControls, setCameraControls] = useState<{
-    zoomIn: () => void;
-    zoomOut: () => void;
-    resetView: () => void;
-    fitAll: () => void;
-  } | null>(null);
+  const cameraControlsRef = useRef<CameraControls>(null);
+  const [cameraControlsReady, setCameraControlsReady] = useState(false);
   
   // External design sync for shared backend
   const { trackPageView } = useExternalDesignSync();
@@ -289,7 +287,12 @@ function AppInner() {
 
       <div className="hidden md:flex h-full pt-14">
         <ResizableSidebar side="left" title="Popular Cabinets">
-          <Sidebar userType="standard" />
+          <UnifiedCatalog 
+            userType="standard" 
+            onSelectProduct={(id) => setPlacementItem(id)}
+            placementItemId={placementItemId}
+            onCancelPlacement={() => setPlacementItem(null)}
+          />
         </ResizableSidebar>
       </div>
 
@@ -297,7 +300,27 @@ function AppInner() {
         <div className="flex-1 relative bg-gray-100">
           <Scene3DErrorBoundary onSwitch2D={setIs2D}>
             <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
-              <Scene is3D={is3D} onCameraControlsReady={setCameraControls} />
+              <UnifiedScene 
+                items={items}
+                room={room}
+                globalDimensions={globalDimensions}
+                selectedItemId={selectedItemId}
+                draggedItemId={draggedItemId}
+                placementItemId={placementItemId}
+                onItemSelect={selectItem}
+                onItemMove={(id, updates) => updateItem(id, updates)}
+                onItemAdd={(defId, x, z, rot) => {
+                  addItem(defId, x, z, rot);
+                  setPlacementItem(null);
+                }}
+                onDragStart={(id) => setDraggedItem(id)}
+                onDragEnd={() => setDraggedItem(null)}
+                onDragConfirm={confirmDrag}
+                dragState={dragState}
+                is3D={is3D}
+                catalog={catalog}
+                onCameraControlsReady={() => setCameraControlsReady(true)}
+              />
             </Suspense>
           </Scene3DErrorBoundary>
 
@@ -314,12 +337,12 @@ function AppInner() {
           )}
 
           {/* Camera toolbar */}
-          {cameraControls && (
+          {cameraControlsReady && cameraControlsRef.current && (
             <CameraToolbar
-              onZoomIn={cameraControls.zoomIn}
-              onZoomOut={cameraControls.zoomOut}
-              onResetView={cameraControls.resetView}
-              onFitAll={cameraControls.fitAll}
+              onZoomIn={() => cameraControlsRef.current?.dolly(-1, true)}
+              onZoomOut={() => cameraControlsRef.current?.dolly(1, true)}
+              onResetView={() => cameraControlsRef.current?.reset(true)}
+              onFitAll={() => cameraControlsRef.current?.reset(true)}
               is3D={is3D}
               onToggleView={() => setIs3D(!is3D)}
             />
