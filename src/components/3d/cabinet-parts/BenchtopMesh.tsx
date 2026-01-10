@@ -63,32 +63,36 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
     map: texture,
   };
 
-  // L-shape corner benchtop: two perpendicular slabs
+  // L-shape corner benchtop: two perpendicular slabs matching CornerCarcass geometry
+  // Left arm runs along left wall (X = -width/2), extends in Z direction
+  // Right arm runs along back wall (Z = -depth/2), extends in X direction
   if (isCorner && cornerType === 'l-shape') {
-    const armWidth = 0.45; // 450mm standard arm width (matches CornerCarcass)
+    const armOpeningWidth = 0.45; // 450mm arm opening (matches CornerCarcass)
     const frontOverhang = overhang;
     
-    // Left arm benchtop slab
-    const leftSlabWidth = armWidth + frontOverhang;
+    // Left arm benchtop slab - covers left arm carcass + overhang
+    // Positioned at left side, extending from back to front with overhang
+    const leftSlabWidth = armOpeningWidth;
     const leftSlabDepth = leftArmDepth + frontOverhang;
-    const leftSlabX = -width / 2 + armWidth / 2;
-    const leftSlabZ = frontOverhang / 2;
+    const leftSlabX = -width / 2 + armOpeningWidth / 2;
+    const leftSlabZ = (-leftArmDepth / 2) + (leftSlabDepth / 2); // Shift forward for overhang
     
-    // Right arm benchtop slab
-    const rightSlabWidth = rightArmDepth - armWidth + frontOverhang;
-    const rightSlabDepth = armWidth + frontOverhang;
-    const rightSlabX = armWidth / 2 + rightSlabWidth / 2 - armWidth / 2;
-    const rightSlabZ = -depth / 2 + armWidth / 2;
+    // Right arm benchtop slab - covers right arm carcass + overhang
+    // Extends from corner junction rightward along back wall
+    const rightSlabWidth = rightArmDepth - armOpeningWidth + frontOverhang; // Width extends in X
+    const rightSlabDepth = armOpeningWidth;
+    const rightSlabX = armOpeningWidth / 2 + (rightSlabWidth / 2); // Right of the corner junction
+    const rightSlabZ = -depth / 2 + armOpeningWidth / 2;
     
     return (
       <group position={position}>
-        {/* Left arm benchtop slab */}
+        {/* Left arm benchtop slab - along left wall */}
         <mesh position={[leftSlabX, 0, leftSlabZ]}>
           <boxGeometry args={[leftSlabWidth, thickness, leftSlabDepth]} />
           <meshStandardMaterial {...materialProps} />
         </mesh>
         
-        {/* Right arm benchtop slab */}
+        {/* Right arm benchtop slab - along back wall */}
         <mesh position={[rightSlabX, 0, rightSlabZ]}>
           <boxGeometry args={[rightSlabWidth, thickness, rightSlabDepth]} />
           <meshStandardMaterial {...materialProps} />

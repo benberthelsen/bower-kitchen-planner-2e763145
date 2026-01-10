@@ -760,7 +760,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         <Kickboard
           width={widthM}
           height={kickHeight}
-          position={[0, -heightM / 2 + kickHeight / 2, depthM / 2 - 0.04]}
+          position={[0, -heightM / 2 + kickHeight / 2, isCornerCabinet ? 0 : depthM / 2 - 0.04]}
           color={kickMat.color}
           roughness={kickMat.roughness}
           map={kickMat.map}
