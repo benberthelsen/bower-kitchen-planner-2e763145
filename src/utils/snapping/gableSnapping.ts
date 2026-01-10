@@ -135,7 +135,7 @@ export function getBestGableSnap(
 export function calculateHandlePosition(
   doorHeight: number,
   doorWidth: number,
-  category: 'Base' | 'Wall' | 'Tall',
+  category: 'Base' | 'Wall' | 'Tall' | 'Accessory' | string,
   hingeLeft: boolean,
   handleLength: number = 128,
   handleDrillPattern: number = 32
@@ -148,7 +148,7 @@ export function calculateHandlePosition(
     : -doorWidth / 2 + handleInset;
   
   // Y position: depends on cabinet type
-  // Base/Tall: handles near top (easier reach)
+  // Base/Tall/Accessory: handles near top (easier reach)
   // Wall: handles near bottom (easier reach from below)
   let y: number;
   
@@ -157,7 +157,7 @@ export function calculateHandlePosition(
     const rawY = -doorHeight / 2 + handleInset;
     y = Math.round(rawY / handleDrillPattern) * handleDrillPattern;
   } else {
-    // Base/Tall: handle near top, snap to 32mm grid
+    // Base/Tall/Accessory: handle near top, snap to 32mm grid
     const rawY = doorHeight / 2 - handleInset;
     y = Math.round(rawY / handleDrillPattern) * handleDrillPattern;
   }
