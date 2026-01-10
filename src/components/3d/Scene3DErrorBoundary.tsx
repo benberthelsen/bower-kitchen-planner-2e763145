@@ -12,6 +12,7 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  showDetails: boolean;
 }
 
 /**
@@ -21,11 +22,12 @@ interface State {
 class Scene3DErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, showDetails: false };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    // Default to showing details so users can copy/paste the error.
+    return { hasError: true, error, showDetails: true };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
@@ -34,12 +36,16 @@ class Scene3DErrorBoundary extends Component<Props, State> {
   }
 
   handleRetry = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, showDetails: false });
   };
 
   handleSwitch2D = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, showDetails: false });
     this.props.onSwitch2D?.();
+  };
+
+  toggleDetails = () => {
+    this.setState(prev => ({ ...prev, showDetails: !prev.showDetails }));
   };
 
   render() {
@@ -64,14 +70,21 @@ class Scene3DErrorBoundary extends Component<Props, State> {
             </p>
 
             {err && (
-              <details className="mb-4 text-left">
-                <summary className="cursor-pointer text-sm text-muted-foreground select-none">
-                  Details
-                </summary>
-                <pre className="mt-2 bg-muted text-foreground text-xs p-3 rounded font-mono overflow-auto max-h-40 whitespace-pre-wrap">
-                  {detailsText}
-                </pre>
-              </details>
+              <div className="mb-4 text-left">
+                <Button
+                  onClick={this.toggleDetails}
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                >
+                  {this.state.showDetails ? 'Hide error details' : 'Show error details'}
+                </Button>
+                {this.state.showDetails && (
+                  <pre className="mt-2 bg-muted text-foreground text-xs p-3 rounded font-mono overflow-auto max-h-40 whitespace-pre-wrap">
+                    {detailsText}
+                  </pre>
+                )}
+              </div>
             )}
 
             <div className="flex gap-3 justify-center">
