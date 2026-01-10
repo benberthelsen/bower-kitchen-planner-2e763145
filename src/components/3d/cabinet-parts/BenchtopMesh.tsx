@@ -65,20 +65,20 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
 
   // L-shape corner benchtop: two perpendicular slabs
   if (isCorner && cornerType === 'l-shape') {
-    const armOpeningWidth = 0.45; // 450mm standard opening (matches CornerCarcass)
+    const armWidth = 0.45; // 450mm standard arm width (matches CornerCarcass)
     const frontOverhang = overhang;
     
     // Left arm benchtop slab
-    const leftSlabWidth = armOpeningWidth + frontOverhang;
+    const leftSlabWidth = armWidth + frontOverhang;
     const leftSlabDepth = leftArmDepth + frontOverhang;
-    const leftSlabX = -width / 2 + armOpeningWidth / 2;
-    const leftSlabZ = -depth / 2 + leftArmDepth / 2 + frontOverhang / 2;
+    const leftSlabX = -width / 2 + armWidth / 2;
+    const leftSlabZ = frontOverhang / 2;
     
-    // Right arm benchtop slab (extends from corner junction)
-    const rightSlabWidth = rightArmDepth - armOpeningWidth + frontOverhang;
-    const rightSlabDepth = armOpeningWidth + frontOverhang;
-    const rightSlabX = -width / 2 + armOpeningWidth + rightSlabWidth / 2;
-    const rightSlabZ = -depth / 2 + armOpeningWidth / 2;
+    // Right arm benchtop slab
+    const rightSlabWidth = rightArmDepth - armWidth + frontOverhang;
+    const rightSlabDepth = armWidth + frontOverhang;
+    const rightSlabX = armWidth / 2 + rightSlabWidth / 2 - armWidth / 2;
+    const rightSlabZ = -depth / 2 + armWidth / 2;
     
     return (
       <group position={position}>

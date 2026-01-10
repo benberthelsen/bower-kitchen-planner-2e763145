@@ -39,25 +39,23 @@ const CabinetLegs: React.FC<CabinetLegsProps> = ({
     const yBase = -height / 2 + 0.01;
     
     // L-shape corner cabinet: legs follow the L pattern
-    // Matches the CornerCarcass coordinate system
     if (isCorner && cornerType === 'l-shape') {
-      const armOpeningWidth = 0.45; // 450mm standard opening
+      const armWidth = 0.45; // 450mm standard arm width
       
-      // L-shaped leg placement matching CornerCarcass:
-      // - Left arm runs along Z axis from back to front
-      // - Right arm runs along X axis from left to right
+      // L-shaped leg placement matching simplified CornerCarcass:
+      // Left arm at left side, right arm at back
       return [
-        // Left arm legs (along the left arm's depth)
-        [-width / 2 + setback, yBase, -depth / 2 + setback],                    // Back-left corner
-        [-width / 2 + setback, yBase, -depth / 2 + leftArmDepth - setback],     // Front-left corner
-        [-width / 2 + armOpeningWidth - setback, yBase, -depth / 2 + leftArmDepth - setback], // Inner front
+        // Left arm legs
+        [-width / 2 + setback, yBase, -leftArmDepth / 2 + setback],           // Back-left
+        [-width / 2 + setback, yBase, leftArmDepth / 2 - setback],            // Front-left
+        [-width / 2 + armWidth - setback, yBase, leftArmDepth / 2 - setback], // Front-inner
         
-        // Right arm legs (along the right arm's depth)
-        [-width / 2 + rightArmDepth - setback, yBase, -depth / 2 + setback],    // Back-right corner
-        [-width / 2 + rightArmDepth - setback, yBase, -depth / 2 + armOpeningWidth - setback], // Inner right
+        // Right arm legs  
+        [rightArmDepth / 2 - setback, yBase, -depth / 2 + setback],           // Back-right
+        [rightArmDepth / 2 - setback, yBase, -depth / 2 + armWidth - setback], // Front-inner
         
-        // Corner junction leg
-        [-width / 2 + armOpeningWidth - setback, yBase, -depth / 2 + armOpeningWidth - setback],
+        // Corner junction
+        [-width / 2 + armWidth - setback, yBase, -depth / 2 + armWidth - setback],
       ];
     }
     
