@@ -742,6 +742,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           width={widthM}
           depth={depthM}
           height={kickHeight}
+          isCorner={isCornerCabinet}
+          cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
+          leftArmDepth={leftArmDepthM}
+          rightArmDepth={rightArmDepthM}
         />
         {/* Kickboard panel */}
         <Kickboard
@@ -751,6 +755,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           color={kickMat.color}
           roughness={kickMat.roughness}
           map={kickMat.map}
+          isCorner={isCornerCabinet}
+          cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
+          depth={depthM}
+          leftArmDepth={leftArmDepthM}
+          rightArmDepth={rightArmDepthM}
         />
       </>
     );
