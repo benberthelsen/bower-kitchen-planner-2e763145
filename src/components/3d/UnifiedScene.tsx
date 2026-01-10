@@ -696,6 +696,8 @@ export function UnifiedScene({
             position={placementState.position}
             rotation={placementState.rotation}
             isValid={placementState.isValid}
+            placementItemId={placementItemId}
+            globalDimensions={globalDimensions}
           />
         )}
 
@@ -711,10 +713,20 @@ export function UnifiedScene({
         )}
 
         {/* Smart dimensions */}
-        <SmartDimensions />
+        <SmartDimensions
+          items={items}
+          selectedItemId={selectedItemId}
+          draggedItemId={draggedItemId}
+          room={room}
+        />
 
         {/* Interaction handles */}
-        <InteractionHandles />
+        <InteractionHandles
+          items={items}
+          selectedItemId={selectedItemId}
+          onItemMove={onItemMove}
+          viewMode={viewMode}
+        />
 
         {/* Snap debug overlay */}
         <SnapDebugOverlay
