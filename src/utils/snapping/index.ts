@@ -1,16 +1,29 @@
 import { PlacedItem, RoomConfig, GlobalDimensions } from '../../types';
-import { SnapResult, SnapContext } from './types';
+import { SnapResult, SnapContext, GableSnapResult } from './types';
 import { getRotatedBounds, getEffectiveDimensions, checkCollision } from './bounds';
-import { findWallSnap, detectCorner, WALL_SNAP_THRESHOLD } from './wallSnapping';
+import { findWallSnap, detectCorner, WALL_SNAP_THRESHOLD, getWallSurfaces } from './wallSnapping';
 import { findCabinetSnapPoints, CABINET_SNAP_THRESHOLD } from './cabinetSnapping';
-import { findGableSnapPoints, getBestGableSnap, calculateHandlePosition } from './gableSnapping';
+import { findGableSnapPoints, getBestGableSnap, calculateHandlePosition, getGableEdges } from './gableSnapping';
+import { CONSTRUCTION_STANDARDS } from '@/types/cabinetConfig';
 
 // Re-export for backwards compatibility
 export { checkCollision, getRotatedBounds } from './bounds';
 export { CABINET_SNAP_THRESHOLD } from './cabinetSnapping';
-export { WALL_SNAP_THRESHOLD } from './wallSnapping';
-export { findGableSnapPoints, getBestGableSnap, calculateHandlePosition } from './gableSnapping';
-export type { SnapResult, BoundingBox } from './types';
+export { WALL_SNAP_THRESHOLD, getWallSurfaces, findNearestWallSurface } from './wallSnapping';
+export { 
+  findGableSnapPoints, 
+  getBestGableSnap, 
+  calculateHandlePosition, 
+  getGableEdges,
+  calculateCornerPosition,
+  getEffectiveFillerWidth,
+  getEffectiveStileWidth
+} from './gableSnapping';
+export type { SnapResult, BoundingBox, GableSnapResult, CornerCabinetConfig } from './types';
+export type { CornerSnapConfig, GableEdges, GableSnapPoint } from './gableSnapping';
+
+// Gable snap threshold - tighter than bounding box snap for precision
+export const GABLE_SNAP_THRESHOLD = 50; // mm
 
 /**
  * Main snapping calculation function
@@ -122,54 +135,86 @@ export function calculateSnapPosition(
     }
   }
 
-  // 3. Check cabinet-to-cabinet snapping
-  // Use the effective rotation AFTER wall snap (if any) for cabinet snapping
+  // 3. Check gable-to-gable snapping (Microvellum-style precision)
+  // This takes priority over bounding-box cabinet snapping for flush runs
   const effectiveRotation = snappedTo === 'wall' ? rotation : draggedItem.rotation;
   const tempItem: PlacedItem = { ...draggedItem, x, z, rotation: effectiveRotation };
-  const cabinetSnapPoints = findCabinetSnapPoints(tempItem, allItems, CABINET_SNAP_THRESHOLD);
-
-  if (cabinetSnapPoints.length > 0) {
-    const best = cabinetSnapPoints[0];
+  
+  const gableThickness = dims.boardThickness ?? CONSTRUCTION_STANDARDS.gableThickness;
+  const gableSnaps = findGableSnapPoints(tempItem, allItems, gableThickness, GABLE_SNAP_THRESHOLD);
+  
+  let usedGableSnap = false;
+  if (gableSnaps.length > 0) {
+    const bestGable = gableSnaps[0];
     
-    // If wall-snapped, only apply cabinet snap along the wall axis
+    // If wall-snapped, only apply gable snap along the wall axis
     if (snappedTo === 'wall') {
-      // For horizontal walls (back/front), we can snap X to cabinets
-      if ((wallId === 'back' || wallId === 'front') && (best.edge === 'left' || best.edge === 'right')) {
-        x = best.x;
-        snappedItemId = best.targetId;
-        snapEdge = best.edge;
-        // Also inherit Z alignment if available (back alignment within wall run)
-        if (best.alignedZ) {
-          z = best.z;
-        }
-      }
-      // For vertical walls (left/right), we can snap Z to cabinets
-      else if ((wallId === 'left' || wallId === 'right') && (best.edge === 'front' || best.edge === 'back')) {
-        z = best.z;
-        snappedItemId = best.targetId;
-        snapEdge = best.edge;
-        // Also inherit X alignment if available
-        if (best.alignedX) {
-          x = best.x;
-        }
+      if (wallId === 'back' || wallId === 'front') {
+        x = bestGable.snapX;
+        z = bestGable.snapZ;
+        snappedItemId = bestGable.targetItem.instanceId;
+        snapEdge = bestGable.edge === 'left-to-right' ? 'left' : 'right';
+        usedGableSnap = true;
       }
     } else {
-      // Not wall-snapped, apply full cabinet snap
-      x = best.x;
-      z = best.z;
+      // Not wall-snapped, apply full gable snap
+      x = bestGable.snapX;
+      z = bestGable.snapZ;
       snappedTo = 'cabinet';
-      snapEdge = best.edge;
-      snappedItemId = best.targetId;
+      snapEdge = bestGable.edge === 'left-to-right' ? 'left' : 'right';
+      snappedItemId = bestGable.targetItem.instanceId;
+      rotation = bestGable.targetItem.rotation;
+      usedGableSnap = true;
+    }
+  }
+
+  // 4. Fall back to bounding-box cabinet snapping if no gable snap
+  if (!usedGableSnap) {
+    const cabinetSnapPoints = findCabinetSnapPoints(tempItem, allItems, CABINET_SNAP_THRESHOLD);
+
+    if (cabinetSnapPoints.length > 0) {
+      const best = cabinetSnapPoints[0];
       
-      // Inherit rotation from target cabinet if it's wall-aligned
-      const targetCabinet = allItems.find(item => item.instanceId === best.targetId);
-      if (targetCabinet && isWallAligned(targetCabinet, room, dims)) {
-        rotation = targetCabinet.rotation;
+      // If wall-snapped, only apply cabinet snap along the wall axis
+      if (snappedTo === 'wall') {
+        // For horizontal walls (back/front), we can snap X to cabinets
+        if ((wallId === 'back' || wallId === 'front') && (best.edge === 'left' || best.edge === 'right')) {
+          x = best.x;
+          snappedItemId = best.targetId;
+          snapEdge = best.edge;
+          // Also inherit Z alignment if available (back alignment within wall run)
+          if (best.alignedZ) {
+            z = best.z;
+          }
+        }
+        // For vertical walls (left/right), we can snap Z to cabinets
+        else if ((wallId === 'left' || wallId === 'right') && (best.edge === 'front' || best.edge === 'back')) {
+          z = best.z;
+          snappedItemId = best.targetId;
+          snapEdge = best.edge;
+          // Also inherit X alignment if available
+          if (best.alignedX) {
+            x = best.x;
+          }
+        }
+      } else {
+        // Not wall-snapped, apply full cabinet snap
+        x = best.x;
+        z = best.z;
+        snappedTo = 'cabinet';
+        snapEdge = best.edge;
+        snappedItemId = best.targetId;
+        
+        // Inherit rotation from target cabinet if it's wall-aligned
+        const targetCabinet = allItems.find(item => item.instanceId === best.targetId);
+        if (targetCabinet && isWallAligned(targetCabinet, room, dims)) {
+          rotation = targetCabinet.rotation;
+        }
       }
     }
   }
 
-  // 4. Clamp to room bounds using POST-SNAP rotation
+  // 5. Clamp to room bounds using POST-SNAP rotation
   const effDims = getEffectiveDimensions({ ...draggedItem, rotation });
   const effectiveWidth = effDims.width;
   const effectiveDepth = effDims.depth;
@@ -177,7 +222,7 @@ export function calculateSnapPosition(
   x = Math.max(effectiveWidth / 2 + wallGap, Math.min(room.width - effectiveWidth / 2 - wallGap, x));
   z = Math.max(effectiveDepth / 2 + wallGap, Math.min(room.depth - effectiveDepth / 2 - wallGap, z));
 
-  // 5. Collision resolution - push away from overlapping items
+  // 6. Collision resolution - push away from overlapping items
   const testItem: PlacedItem = { ...draggedItem, x, z, rotation };
   for (const other of allItems) {
     if (other.instanceId === draggedItem.instanceId) continue;

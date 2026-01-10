@@ -49,6 +49,11 @@ export interface PlacedItem {
   leftCarcaseDepth?: number;
   tapId?: string;
   applianceId?: string;
+  
+  // Corner cabinet configuration (Phase 3)
+  cornerFillerWidth?: number;   // Gap between blind panel and wall (mm)
+  cornerStileWidth?: number;    // Face frame stile width (mm)
+  blindPullDistance?: number;   // How far blind extends past face (mm)
 }
 
 export type RoomShape = 'Rectangle' | 'LShape';
@@ -139,6 +144,12 @@ export interface GlobalDimensions {
   sideReveal: number;
   /** 32mm system handle drill spacing (mm) - 32, 64, 96, 128 */
   handleDrillSpacing: number;
+  
+  // Corner cabinet defaults
+  /** Default filler width for blind corner cabinets (mm) */
+  cornerFillerWidth?: number;
+  /** Default stile width for corner cabinets (mm) */
+  cornerStileWidth?: number;
 }
 
 export interface HardwareOptions {

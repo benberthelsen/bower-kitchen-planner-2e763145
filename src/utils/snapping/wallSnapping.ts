@@ -177,3 +177,96 @@ export function shouldMaintainWallAlignment(item: PlacedItem, room: RoomConfig):
 
   return isBackAligned || isLeftAligned || isRightAligned || isFrontAligned;
 }
+
+/**
+ * Wall surface definition for advanced snapping
+ */
+export interface WallSurface {
+  id: 'back' | 'left' | 'right' | 'front';
+  startX: number;
+  startZ: number;
+  endX: number;
+  endZ: number;
+  normal: { x: number; z: number }; // Inward-facing normal
+  rotationForAlignment: number; // Rotation to face away from wall
+}
+
+/**
+ * Get all wall surfaces from room geometry
+ * Returns surfaces with their positions and inward-facing normals
+ */
+export function getWallSurfaces(room: RoomConfig): WallSurface[] {
+  return [
+    {
+      id: 'back',
+      startX: 0,
+      startZ: 0,
+      endX: room.width,
+      endZ: 0,
+      normal: { x: 0, z: 1 }, // Points into room
+      rotationForAlignment: 0,
+    },
+    {
+      id: 'left',
+      startX: 0,
+      startZ: 0,
+      endX: 0,
+      endZ: room.depth,
+      normal: { x: 1, z: 0 }, // Points into room
+      rotationForAlignment: 270,
+    },
+    {
+      id: 'right',
+      startX: room.width,
+      startZ: 0,
+      endX: room.width,
+      endZ: room.depth,
+      normal: { x: -1, z: 0 }, // Points into room
+      rotationForAlignment: 90,
+    },
+    {
+      id: 'front',
+      startX: 0,
+      startZ: room.depth,
+      endX: room.width,
+      endZ: room.depth,
+      normal: { x: 0, z: -1 }, // Points into room
+      rotationForAlignment: 180,
+    },
+  ];
+}
+
+/**
+ * Find the nearest wall surface to a point
+ */
+export function findNearestWallSurface(
+  x: number,
+  z: number,
+  room: RoomConfig
+): { surface: WallSurface; distance: number } {
+  const surfaces = getWallSurfaces(room);
+  
+  let nearest = surfaces[0];
+  let minDist = Infinity;
+  
+  for (const surface of surfaces) {
+    let distance: number;
+    
+    if (surface.id === 'back') {
+      distance = z;
+    } else if (surface.id === 'front') {
+      distance = room.depth - z;
+    } else if (surface.id === 'left') {
+      distance = x;
+    } else {
+      distance = room.width - x;
+    }
+    
+    if (distance < minDist) {
+      minDist = distance;
+      nearest = surface;
+    }
+  }
+  
+  return { surface: nearest, distance: minDist };
+}
