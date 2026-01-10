@@ -16,11 +16,18 @@ interface BenchtopMeshProps {
   hasSinkCutout?: boolean;
   sinkCutoutWidth?: number;
   sinkCutoutDepth?: number;
+  
+  // Corner cabinet support
+  isCorner?: boolean;
+  cornerType?: 'l-shape' | 'blind' | 'diagonal';
+  leftArmDepth?: number;
+  rightArmDepth?: number;
 }
 
 /**
  * Benchtop/countertop component for base cabinets
  * Extends over cabinet with configurable overhang
+ * Supports L-shaped corner cabinet benchtops
  */
 const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
   width,
@@ -37,6 +44,10 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
   hasSinkCutout = false,
   sinkCutoutWidth = 0.5,
   sinkCutoutDepth = 0.4,
+  isCorner = false,
+  cornerType = 'blind',
+  leftArmDepth = 0.575,
+  rightArmDepth = 0.575,
 }) => {
   const texture = React.useMemo(() => {
     if (!map) return null;
@@ -45,19 +56,54 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
     return cloned;
   }, [map]);
 
-  const totalWidth = width + leftOverhang + rightOverhang;
-  const totalDepth = depth + overhang;
-  
-  // Position offset to account for overhangs
-  const xOffset = (rightOverhang - leftOverhang) / 2;
-  const zOffset = overhang / 2;
-
   const materialProps = {
     color,
     roughness,
     metalness,
     map: texture,
   };
+
+  // L-shape corner benchtop: two perpendicular slabs
+  if (isCorner && cornerType === 'l-shape') {
+    const armOpeningWidth = 0.45; // 450mm standard opening (matches CornerCarcass)
+    const frontOverhang = overhang;
+    
+    // Left arm benchtop slab
+    const leftSlabWidth = armOpeningWidth + frontOverhang;
+    const leftSlabDepth = leftArmDepth + frontOverhang;
+    const leftSlabX = -width / 2 + armOpeningWidth / 2;
+    const leftSlabZ = -depth / 2 + leftArmDepth / 2 + frontOverhang / 2;
+    
+    // Right arm benchtop slab (extends from corner junction)
+    const rightSlabWidth = rightArmDepth - armOpeningWidth + frontOverhang;
+    const rightSlabDepth = armOpeningWidth + frontOverhang;
+    const rightSlabX = -width / 2 + armOpeningWidth + rightSlabWidth / 2;
+    const rightSlabZ = -depth / 2 + armOpeningWidth / 2;
+    
+    return (
+      <group position={position}>
+        {/* Left arm benchtop slab */}
+        <mesh position={[leftSlabX, 0, leftSlabZ]}>
+          <boxGeometry args={[leftSlabWidth, thickness, leftSlabDepth]} />
+          <meshStandardMaterial {...materialProps} />
+        </mesh>
+        
+        {/* Right arm benchtop slab */}
+        <mesh position={[rightSlabX, 0, rightSlabZ]}>
+          <boxGeometry args={[rightSlabWidth, thickness, rightSlabDepth]} />
+          <meshStandardMaterial {...materialProps} />
+        </mesh>
+      </group>
+    );
+  }
+
+  // Standard rectangular benchtop
+  const totalWidth = width + leftOverhang + rightOverhang;
+  const totalDepth = depth + overhang;
+  
+  // Position offset to account for overhangs
+  const xOffset = (rightOverhang - leftOverhang) / 2;
+  const zOffset = overhang / 2;
 
   if (hasSinkCutout) {
     // Create benchtop with sink cutout using shape geometry

@@ -492,58 +492,69 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Render doors for corner cabinets - special positioning for L-shape, blind, diagonal
   const renderCornerDoors = () => {
-    const doorHeight = carcassHeight - (config.isSink && config.hasFalseFront ? 0.1 : 0);
+    const doorHeight = carcassHeight - topReveal - bottomReveal;
     const doorY = carcassYOffset;
+    const armOpeningWidth = 0.45; // 450mm standard opening width (matches CornerCarcass)
     
-    // For L-shape corner: doors on both arm fronts (or bifold on diagonal)
+    // For L-shape corner: doors on both arm fronts
     if (cornerType === 'l-shape') {
-      // L-shape typically has either:
-      // - Two separate doors on each arm opening, or
-      // - A single bifold/pie-cut door across the diagonal
-      // We'll render two doors, one on each arm front
+      // Left arm door - at the front of the left arm (positive Z side)
+      // The left arm has its opening facing +Z
+      const leftDoorWidth = armOpeningWidth - sideReveal * 2;
+      const leftDoorZ = -depthM / 2 + leftArmDepthM + doorThickness / 2 + 0.002;
+      const leftDoorX = -widthM / 2 + armOpeningWidth / 2 + gableThickness / 2;
       
-      const armFrontWidth = Math.min(leftArmDepthM, rightArmDepthM) * 0.8;
-      const cornerSize = widthM - armFrontWidth;
+      // Right arm door - at the front of the right arm (positive X side)  
+      // The right arm has its opening facing +X
+      const rightDoorWidth = armOpeningWidth - sideReveal * 2;
+      const rightDoorX = -widthM / 2 + rightArmDepthM + doorThickness / 2 + 0.002;
+      const rightDoorZ = -depthM / 2 + armOpeningWidth / 2 + gableThickness / 2;
       
       return (
         <>
-          {/* Left arm door - opens toward +X */}
-          <group position={[-widthM / 2 + armFrontWidth / 2, 0, leftArmDepthM / 2]} rotation={[0, Math.PI / 2, 0]}>
-            <DoorFront
-              width={leftArmDepthM - cornerSize - doorGap * 2}
-              height={doorHeight}
-              thickness={doorThickness}
-              position={[0, doorY, doorThickness / 2 + 0.01]}
-              color={doorMat.color}
-              roughness={doorMat.roughness}
-              map={doorMat.map}
-              gap={doorGap}
-              hingeLeft={true}
-            />
-            <HandleMesh
-              type={handle.type}
-              color={handle.hex}
-              position={[(leftArmDepthM - cornerSize) / 2 - 0.08, doorY + doorHeight / 2 - 0.08, doorThickness + 0.02]}
-            />
-          </group>
+          {/* Left arm door - faces +Z direction */}
+          <DoorFront
+            width={leftDoorWidth}
+            height={doorHeight}
+            thickness={doorThickness}
+            position={[leftDoorX, doorY, leftDoorZ]}
+            color={doorMat.color}
+            roughness={doorMat.roughness}
+            map={doorMat.map}
+            gap={0}
+            hingeLeft={true}
+          />
+          <HandleMesh
+            type={handle.type}
+            color={handle.hex}
+            position={[
+              leftDoorX + leftDoorWidth / 2 - 0.04, 
+              doorY + doorHeight / 2 - 0.096, 
+              leftDoorZ + doorThickness / 2 + 0.015
+            ]}
+          />
           
-          {/* Right arm door - opens toward +Z */}
-          <group position={[rightArmDepthM / 2, 0, -depthM / 2 + armFrontWidth / 2]}>
+          {/* Right arm door - faces +X direction (rotated 90 degrees) */}
+          <group position={[rightDoorX, doorY, rightDoorZ]} rotation={[0, -Math.PI / 2, 0]}>
             <DoorFront
-              width={rightArmDepthM - cornerSize - doorGap * 2}
+              width={rightDoorWidth}
               height={doorHeight}
               thickness={doorThickness}
-              position={[0, doorY, doorThickness / 2 + 0.01]}
+              position={[0, 0, 0]}
               color={doorMat.color}
               roughness={doorMat.roughness}
               map={doorMat.map}
-              gap={doorGap}
+              gap={0}
               hingeLeft={false}
             />
             <HandleMesh
               type={handle.type}
               color={handle.hex}
-              position={[-(rightArmDepthM - cornerSize) / 2 + 0.08, doorY + doorHeight / 2 - 0.08, doorThickness + 0.02]}
+              position={[
+                -rightDoorWidth / 2 + 0.04, 
+                doorHeight / 2 - 0.096, 
+                doorThickness / 2 + 0.015
+              ]}
             />
           </group>
         </>
@@ -785,6 +796,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         leftOverhang={fillerLeftM}
         rightOverhang={fillerRightM}
         hasSinkCutout={config.isSink}
+        isCorner={isCornerCabinet}
+        cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
+        leftArmDepth={leftArmDepthM}
+        rightArmDepth={rightArmDepthM}
       />
     );
   };

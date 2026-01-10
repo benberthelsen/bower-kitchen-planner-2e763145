@@ -60,27 +60,26 @@ const Kickboard: React.FC<KickboardProps> = ({
   }, [map]);
 
   // L-shape corner cabinet: render kickboards on both arm fronts
+  // Matches CornerCarcass coordinate system
   if (isCorner && cornerType === 'l-shape') {
-    const armFrontWidth = Math.min(leftArmDepth, rightArmDepth) * 0.8;
-    const cornerSize = width - armFrontWidth;
+    const armOpeningWidth = 0.45; // 450mm standard opening
     
-    // Calculate kickboard lengths for each arm (excluding corner overlap)
-    const leftKickLength = leftArmDepth - cornerSize - setback;
-    const rightKickLength = rightArmDepth - cornerSize - setback;
+    // Left arm kickboard - at the front of left arm (positive Z edge)
+    const leftKickWidth = armOpeningWidth - 0.002;
+    const leftKickX = -width / 2 + armOpeningWidth / 2 + 0.009;
+    const leftKickZ = -depth / 2 + leftArmDepth - setback;
+    
+    // Right arm kickboard - at the front of right arm (positive X edge)
+    const rightKickWidth = armOpeningWidth - 0.002;
+    const rightKickX = -width / 2 + rightArmDepth - setback;
+    const rightKickZ = -depth / 2 + armOpeningWidth / 2 + 0.009;
     
     return (
       <group position={position}>
-        {/* Left arm kickboard - faces +X direction (along left wall) */}
-        <group 
-          position={[
-            -width / 2 + armFrontWidth - setback - thickness / 2,
-            0,
-            leftArmDepth / 2 - leftKickLength / 2 - setback
-          ]}
-          rotation={[0, Math.PI / 2, 0]}
-        >
+        {/* Left arm kickboard - faces +Z direction */}
+        <group position={[leftKickX, 0, leftKickZ]}>
           <mesh>
-            <boxGeometry args={[leftKickLength, height, thickness]} />
+            <boxGeometry args={[leftKickWidth, height, thickness]} />
             <meshStandardMaterial 
               color={color}
               roughness={roughness}
@@ -89,20 +88,14 @@ const Kickboard: React.FC<KickboardProps> = ({
             />
           </mesh>
           {showEdges && (
-            <EdgeOutline width={leftKickLength} height={height} depth={thickness} />
+            <EdgeOutline width={leftKickWidth} height={height} depth={thickness} />
           )}
         </group>
         
-        {/* Right arm kickboard - faces +Z direction (along back wall) */}
-        <group 
-          position={[
-            rightArmDepth / 2 - rightKickLength / 2 - setback,
-            0,
-            -depth / 2 + armFrontWidth - setback - thickness / 2
-          ]}
-        >
+        {/* Right arm kickboard - faces +X direction (rotated 90 degrees) */}
+        <group position={[rightKickX, 0, rightKickZ]} rotation={[0, -Math.PI / 2, 0]}>
           <mesh>
-            <boxGeometry args={[rightKickLength, height, thickness]} />
+            <boxGeometry args={[rightKickWidth, height, thickness]} />
             <meshStandardMaterial 
               color={color}
               roughness={roughness}
@@ -111,7 +104,7 @@ const Kickboard: React.FC<KickboardProps> = ({
             />
           </mesh>
           {showEdges && (
-            <EdgeOutline width={rightKickLength} height={height} depth={thickness} />
+            <EdgeOutline width={rightKickWidth} height={height} depth={thickness} />
           )}
         </group>
       </group>

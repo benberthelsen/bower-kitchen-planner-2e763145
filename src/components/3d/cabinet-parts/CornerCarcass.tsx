@@ -114,65 +114,84 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
   };
   
   // L-shape corner: Two perpendicular arms forming an L that sits in room corner
+  // The cabinet is positioned with its center at origin
+  // Left arm extends from back-left corner toward front (positive Z)
+  // Right arm extends from back-left corner toward right (positive X)
   if (cornerType === 'l-shape') {
-    // Standard L-shape corner cabinet dimensions:
-    // - Each arm is typically 575mm deep and ~450mm wide at the front opening
-    // - Total footprint is roughly 900x900mm (width x width)
-    // - Arms meet at an internal corner, leaving a diagonal opening
+    // L-shape corner cabinet geometry:
+    // Viewed from above (Y looking down):
+    //
+    //        ← width →
+    //    ┌─────────────┐ ↑
+    //    │ LEFT ARM    │ │ leftDepth  
+    //    │             │ │ 
+    //    └────┬────────┘ ↓
+    //         │ CORNER │──────────┐
+    //         │  POST  │ RIGHT    │ 
+    //         │        │   ARM    │
+    //         └────────┴──────────┘
+    //                   ← rightDepth →
+    //
+    // The cabinet origin (0,0,0) is at the CENTER of the bounding box
     
-    // Arm front opening widths (narrower than total cabinet width)
-    const armFrontWidth = Math.min(leftDepth, rightDepth) * 0.8; // ~460mm front opening
-    const cornerSize = width - armFrontWidth; // Size of internal corner post
+    // For a standard 900x900 corner cabinet with 575mm arm depths:
+    // - Width (X extent) = max(armOpeningWidth, rightDepth) 
+    // - Depth (Z extent) = max(armOpeningWidth, leftDepth)
+    
+    const armOpeningWidth = 0.45; // 450mm standard opening width for each arm
+    
+    // Gable positions for the L-shape (all relative to center)
+    // The L creates an internal corner and two arms
     
     return (
       <group>
-        {/* ===== LEFT ARM - runs along left wall, opens toward +X ===== */}
+        {/* ===== LEFT ARM - extends along Z axis (front-to-back on left side) ===== */}
         
-        {/* Left arm outer gable (against left wall, full length) */}
+        {/* Left arm - outer gable (leftmost edge, runs full leftDepth) */}
         <mesh position={[
           -width / 2 + gableThickness / 2,
           0,
-          0
+          -depth / 2 + leftDepth / 2
         ]}>
           <boxGeometry args={[gableThickness, height, leftDepth]} />
           <meshStandardMaterial {...materialProps} map={verticalTexture} />
         </mesh>
         
-        {/* Left arm inner gable (partial, up to corner) */}
+        {/* Left arm - inner gable (right edge of left arm opening) */}
         <mesh position={[
-          -width / 2 + armFrontWidth - gableThickness / 2,
+          -width / 2 + armOpeningWidth + gableThickness / 2,
           0,
-          leftDepth / 2 - cornerSize / 2
+          -depth / 2 + leftDepth / 2
         ]}>
-          <boxGeometry args={[gableThickness, height, leftDepth - cornerSize]} />
+          <boxGeometry args={[gableThickness, height, leftDepth]} />
           <meshStandardMaterial {...materialProps} map={verticalTexture} />
         </mesh>
         
-        {/* Left arm bottom panel */}
+        {/* Left arm - back panel */}
         <mesh position={[
-          -width / 2 + armFrontWidth / 2,
-          -height / 2 + bottomThickness / 2,
-          leftDepth / 2 - cornerSize / 2
-        ]}>
-          <boxGeometry args={[armFrontWidth - gableThickness * 2, bottomThickness, leftDepth - cornerSize - gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
-        </mesh>
-        
-        {/* Left arm back panel (against left wall) */}
-        <mesh position={[
-          -width / 2 + gableThickness + backThickness / 2,
+          -width / 2 + armOpeningWidth / 2 + gableThickness / 2,
           0,
-          leftDepth / 2 - cornerSize / 2
+          -depth / 2 + backThickness / 2
         ]}>
-          <boxGeometry args={[backThickness, height - bottomThickness * 2, leftDepth - cornerSize - gableThickness]} />
+          <boxGeometry args={[armOpeningWidth - gableThickness, height - bottomThickness * 2, backThickness]} />
           <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
         </mesh>
         
-        {/* ===== RIGHT ARM - runs along back wall, opens toward +Z ===== */}
-        
-        {/* Right arm outer gable (against back wall, full length) */}
+        {/* Left arm - bottom panel */}
         <mesh position={[
-          0,
+          -width / 2 + armOpeningWidth / 2 + gableThickness / 2,
+          -height / 2 + bottomThickness / 2,
+          -depth / 2 + leftDepth / 2
+        ]}>
+          <boxGeometry args={[armOpeningWidth - gableThickness, bottomThickness, leftDepth - backThickness]} />
+          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+        </mesh>
+        
+        {/* ===== RIGHT ARM - extends along X axis (left-to-right at back) ===== */}
+        
+        {/* Right arm - outer gable (backmost edge, runs full rightDepth) */}
+        <mesh position={[
+          -width / 2 + rightDepth / 2,
           0,
           -depth / 2 + gableThickness / 2
         ]}>
@@ -180,68 +199,58 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
           <meshStandardMaterial {...materialProps} map={verticalTexture} />
         </mesh>
         
-        {/* Right arm inner gable (partial, up to corner) */}
+        {/* Right arm - inner gable (front edge of right arm opening) */}
         <mesh position={[
-          rightDepth / 2 - cornerSize / 2,
+          -width / 2 + rightDepth / 2,
           0,
-          -depth / 2 + armFrontWidth - gableThickness / 2
+          -depth / 2 + armOpeningWidth + gableThickness / 2
         ]}>
-          <boxGeometry args={[rightDepth - cornerSize, height, gableThickness]} />
+          <boxGeometry args={[rightDepth - armOpeningWidth - gableThickness, height, gableThickness]} />
           <meshStandardMaterial {...materialProps} map={verticalTexture} />
         </mesh>
         
-        {/* Right arm bottom panel */}
+        {/* Right arm - back panel (against wall) */}
         <mesh position={[
-          rightDepth / 2 - cornerSize / 2,
-          -height / 2 + bottomThickness / 2,
-          -depth / 2 + armFrontWidth / 2
-        ]}>
-          <boxGeometry args={[rightDepth - cornerSize - gableThickness, bottomThickness, armFrontWidth - gableThickness * 2]} />
-          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
-        </mesh>
-        
-        {/* Right arm back panel (against back wall) */}
-        <mesh position={[
-          rightDepth / 2 - cornerSize / 2,
+          -width / 2 + armOpeningWidth + (rightDepth - armOpeningWidth) / 2,
           0,
           -depth / 2 + gableThickness + backThickness / 2
         ]}>
-          <boxGeometry args={[rightDepth - cornerSize - gableThickness, height - bottomThickness * 2, backThickness]} />
+          <boxGeometry args={[rightDepth - armOpeningWidth - gableThickness, height - bottomThickness * 2, backThickness]} />
           <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
         </mesh>
         
-        {/* ===== CORNER POST & INTERNAL STRUCTURE ===== */}
-        
-        {/* Corner post where arms meet */}
+        {/* Right arm - bottom panel */}
         <mesh position={[
-          -width / 2 + armFrontWidth - gableThickness / 2,
-          0,
-          -depth / 2 + armFrontWidth - gableThickness / 2
-        ]}>
-          <boxGeometry args={[gableThickness, height, gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
-        </mesh>
-        
-        {/* Internal corner bottom panel (where arms meet) */}
-        <mesh position={[
-          -width / 2 + armFrontWidth / 2 + cornerSize / 4,
+          -width / 2 + armOpeningWidth + (rightDepth - armOpeningWidth) / 2,
           -height / 2 + bottomThickness / 2,
-          -depth / 2 + armFrontWidth / 2 + cornerSize / 4
+          -depth / 2 + armOpeningWidth / 2 + gableThickness / 2
         ]}>
-          <boxGeometry args={[cornerSize, bottomThickness, cornerSize]} />
+          <boxGeometry args={[rightDepth - armOpeningWidth - gableThickness - backThickness, bottomThickness, armOpeningWidth - gableThickness]} />
           <meshStandardMaterial {...materialProps} map={horizontalTexture} />
         </mesh>
         
-        {/* ===== INTERIOR SHELF (visible through front openings) ===== */}
+        {/* ===== CORNER JUNCTION - the internal corner where arms meet ===== */}
+        
+        {/* Corner bottom panel (fills the corner space) */}
         <mesh position={[
-          -cornerSize / 4,
+          -width / 2 + armOpeningWidth / 2 + gableThickness / 2,
+          -height / 2 + bottomThickness / 2,
+          -depth / 2 + armOpeningWidth / 2 + gableThickness / 2
+        ]}>
+          <boxGeometry args={[armOpeningWidth - gableThickness, bottomThickness, armOpeningWidth - gableThickness]} />
+          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+        </mesh>
+        
+        {/* Optional: interior shelf spanning the corner */}
+        <mesh position={[
+          -width / 2 + armOpeningWidth / 2 + gableThickness,
           0,
-          -cornerSize / 4
+          -depth / 2 + armOpeningWidth / 2 + gableThickness
         ]}>
           <boxGeometry args={[
-            Math.min(rightDepth, leftDepth) * 0.6, 
+            Math.max(rightDepth - armOpeningWidth - gableThickness * 2, 0.3), 
             0.018, 
-            Math.min(rightDepth, leftDepth) * 0.6
+            Math.max(leftDepth - gableThickness * 2, 0.3)
           ]} />
           <meshStandardMaterial color="#f0f0f0" roughness={0.6} />
         </mesh>

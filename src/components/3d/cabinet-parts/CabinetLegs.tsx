@@ -39,30 +39,25 @@ const CabinetLegs: React.FC<CabinetLegsProps> = ({
     const yBase = -height / 2 + 0.01;
     
     // L-shape corner cabinet: legs follow the L pattern
+    // Matches the CornerCarcass coordinate system
     if (isCorner && cornerType === 'l-shape') {
-      const armFrontWidth = Math.min(leftArmDepth, rightArmDepth) * 0.8;
-      const cornerSize = width - armFrontWidth;
+      const armOpeningWidth = 0.45; // 450mm standard opening
       
-      // L-shaped leg placement:
-      // - Left arm runs along left wall (back at -X, front opens +X)
-      // - Right arm runs along back wall (back at -Z, front opens +Z)
+      // L-shaped leg placement matching CornerCarcass:
+      // - Left arm runs along Z axis from back to front
+      // - Right arm runs along X axis from left to right
       return [
-        // Left arm - outer wall side
-        [-width / 2 + setback, yBase, leftArmDepth / 2 - setback],          // Front outer left
-        [-width / 2 + setback, yBase, -cornerSize / 2 + setback],            // Back outer left
+        // Left arm legs (along the left arm's depth)
+        [-width / 2 + setback, yBase, -depth / 2 + setback],                    // Back-left corner
+        [-width / 2 + setback, yBase, -depth / 2 + leftArmDepth - setback],     // Front-left corner
+        [-width / 2 + armOpeningWidth - setback, yBase, -depth / 2 + leftArmDepth - setback], // Inner front
         
-        // Left arm - inner side (before corner)
-        [-width / 2 + armFrontWidth - setback, yBase, leftArmDepth / 2 - setback], // Front inner left
+        // Right arm legs (along the right arm's depth)
+        [-width / 2 + rightArmDepth - setback, yBase, -depth / 2 + setback],    // Back-right corner
+        [-width / 2 + rightArmDepth - setback, yBase, -depth / 2 + armOpeningWidth - setback], // Inner right
         
-        // Right arm - outer wall side  
-        [rightArmDepth / 2 - setback, yBase, -depth / 2 + setback],          // Back outer right
-        [-cornerSize / 2 + setback, yBase, -depth / 2 + setback],            // Back inner right (near corner)
-        
-        // Right arm - inner side (at front)
-        [rightArmDepth / 2 - setback, yBase, -depth / 2 + armFrontWidth - setback], // Front inner right
-        
-        // Corner junction
-        [-width / 2 + armFrontWidth - setback, yBase, -depth / 2 + armFrontWidth - setback], // Corner post
+        // Corner junction leg
+        [-width / 2 + armOpeningWidth - setback, yBase, -depth / 2 + armOpeningWidth - setback],
       ];
     }
     
