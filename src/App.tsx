@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import TradePlanner from "./pages/TradePlanner";
@@ -38,50 +39,52 @@ const App = () => (
       <BrowserRouter>
         <div className="flex flex-col min-h-screen">
           <DevNavBar />
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<Auth />} />
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/auth" element={<Auth />} />
+              
+              {/* Legacy Trade Planner (3D Scene) */}
+              <Route path="/trade-planner" element={<TradePlanner />} />
+              
+              {/* New Trade Dashboard Routes */}
+              <Route path="/trade" element={<Navigate to="/trade/dashboard" replace />} />
+              <Route path="/trade/dashboard" element={<TradeDashboard />} />
+              <Route path="/trade/jobs" element={<MyJobs />} />
+              <Route path="/trade/job/:jobId" element={<JobEditor />} />
+              <Route path="/trade/catalog" element={<ProductCatalog />} />
+              <Route path="/trade/job/:jobId/room/:roomId/configure/:productId" element={<ProductConfigurator />} />
+              <Route path="/trade/job/:jobId/room/:roomId/planner" element={<RoomPlanner />} />
+              <Route path="/trade/job/:jobId/room/:roomId/catalog" element={<ProductCatalog />} />
+              <Route path="/trade/hardware" element={<HardwareStore />} />
+              <Route path="/trade/settings" element={<TradeSettings />} />
             
-            {/* Legacy Trade Planner (3D Scene) */}
-            <Route path="/trade-planner" element={<TradePlanner />} />
+            {/* Admin Routes */}
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<AdminDashboard />} />
+              <Route path="jobs" element={<AdminJobs />} />
+              <Route path="jobs/:id" element={<AdminJobDetail />} />
+              <Route path="customers" element={<AdminCustomers />} />
+              <Route path="products" element={<ProductVisibility />} />
+              <Route path="prices" element={<AdminPrices />} />
+              <Route path="settings" element={<AdminSettings />} />
+              {/* Pricing Management Routes */}
+              <Route path="pricing/parts" element={<PartsPricing />} />
+              <Route path="pricing/hardware" element={<HardwarePricing />} />
+              <Route path="pricing/materials" element={<MaterialPricing />} />
+              <Route path="pricing/edges" element={<EdgePricing />} />
+              <Route path="pricing/stone" element={<StonePricing />} />
+              <Route path="pricing/doors" element={<DoorDrawerPricing />} />
+              <Route path="pricing/labor" element={<LaborRates />} />
+              <Route path="pricing/markups" element={<ClientMarkups />} />
+              <Route path="pricing/microvellum" element={<MicrovellumImport />} />
+              <Route path="pricing/dxf-import" element={<DXFImport />} />
+            </Route>
             
-            {/* New Trade Dashboard Routes */}
-            <Route path="/trade" element={<Navigate to="/trade/dashboard" replace />} />
-            <Route path="/trade/dashboard" element={<TradeDashboard />} />
-            <Route path="/trade/jobs" element={<MyJobs />} />
-            <Route path="/trade/job/:jobId" element={<JobEditor />} />
-            <Route path="/trade/catalog" element={<ProductCatalog />} />
-            <Route path="/trade/job/:jobId/room/:roomId/configure/:productId" element={<ProductConfigurator />} />
-            <Route path="/trade/job/:jobId/room/:roomId/planner" element={<RoomPlanner />} />
-            <Route path="/trade/job/:jobId/room/:roomId/catalog" element={<ProductCatalog />} />
-            <Route path="/trade/hardware" element={<HardwareStore />} />
-            <Route path="/trade/settings" element={<TradeSettings />} />
-          
-          {/* Admin Routes */}
-          <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<AdminDashboard />} />
-            <Route path="jobs" element={<AdminJobs />} />
-            <Route path="jobs/:id" element={<AdminJobDetail />} />
-            <Route path="customers" element={<AdminCustomers />} />
-            <Route path="products" element={<ProductVisibility />} />
-            <Route path="prices" element={<AdminPrices />} />
-            <Route path="settings" element={<AdminSettings />} />
-            {/* Pricing Management Routes */}
-            <Route path="pricing/parts" element={<PartsPricing />} />
-            <Route path="pricing/hardware" element={<HardwarePricing />} />
-            <Route path="pricing/materials" element={<MaterialPricing />} />
-            <Route path="pricing/edges" element={<EdgePricing />} />
-            <Route path="pricing/stone" element={<StonePricing />} />
-            <Route path="pricing/doors" element={<DoorDrawerPricing />} />
-            <Route path="pricing/labor" element={<LaborRates />} />
-            <Route path="pricing/markups" element={<ClientMarkups />} />
-            <Route path="pricing/microvellum" element={<MicrovellumImport />} />
-            <Route path="pricing/dxf-import" element={<DXFImport />} />
-          </Route>
-          
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-          </Routes>
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+            </Routes>
+          </ErrorBoundary>
         </div>
       </BrowserRouter>
     </TooltipProvider>

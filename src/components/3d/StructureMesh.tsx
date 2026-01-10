@@ -4,15 +4,6 @@ import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 
-// Optional context import - only used if props not provided
-let usePlannerContext: (() => any) | null = null;
-try {
-  const plannerModule = require('../../store/PlannerContext');
-  usePlannerContext = plannerModule.usePlanner;
-} catch {
-  // PlannerContext not available
-}
-
 interface StructureMeshProps {
   item: PlacedItem;
   // Optional props - if provided, these override context values
@@ -29,22 +20,11 @@ const StructureMesh: React.FC<StructureMeshProps> = ({
   onSelect,
   onDragStart,
 }) => {
-  // Try to get context values if available
-  let contextValues: any = null;
-  try {
-    if (usePlannerContext) {
-      contextValues = usePlannerContext();
-    }
-  } catch {
-    // Context not available - will use props
-  }
-  
-  // Use props if provided, otherwise fall back to context
-  const isSelected = isSelectedProp ?? (contextValues?.selectedItemId === item.instanceId);
-  const isDragged = isDraggedProp ?? (contextValues?.draggedItemId === item.instanceId);
-  
-  const handleSelect = onSelect ?? contextValues?.selectItem;
-  const handleDragStart = onDragStart ?? contextValues?.startDrag;
+  const isSelected = isSelectedProp ?? false;
+  const isDragged = isDraggedProp ?? false;
+
+  const handleSelect = onSelect;
+  const handleDragStart = onDragStart;
 
   const [hovered, setHovered] = useState(false);
   const def = useCatalogItem(item.definitionId);
