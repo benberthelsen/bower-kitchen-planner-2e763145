@@ -13,7 +13,12 @@ export interface CarcassRecipe {
   hasTopPanel: boolean;       // Usually only for Wall cabinets
   gableThickness: number;     // mm - typically 18
   backPanelThickness: number; // mm - typically 3
-  backPanelSetback: number;   // mm - typically 18 from rear
+  backPanelSetback: number;   // mm - typically 16 from rear (for hanging rails)
+  
+  // Reveals & Gaps (Microvellum Phase 6)
+  topReveal: number;          // mm - gap from carcass top to door (typically 3)
+  bottomReveal: number;       // mm - gap from carcass bottom to door (typically 2)
+  sideReveal: number;         // mm - gap from gable to door edge (typically 2)
 }
 
 export interface ShelvesRecipe {
@@ -98,10 +103,45 @@ export interface ConstructionRecipe {
 
 // ============= RECIPE HELPERS =============
 
-// Back panel setback: 16mm for hanging rails (Microvellum standard)
-const BASE_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: false, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 16 };
-const WALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 16 };
-const TALL_CARCASS: CarcassRecipe = { hasBottomPanel: true, hasTopPanel: true, gableThickness: 18, backPanelThickness: 3, backPanelSetback: 16 };
+// Standard reveal values (Microvellum defaults)
+const STANDARD_REVEALS = {
+  topReveal: 3,      // 3mm gap above doors
+  bottomReveal: 2,   // 2mm gap below doors
+  sideReveal: 2,     // 2mm gap beside doors
+};
+
+// Base carcass: bottom panel, no top panel, 16mm back setback for hanging rails
+const BASE_CARCASS: CarcassRecipe = { 
+  hasBottomPanel: true, 
+  hasTopPanel: false, 
+  gableThickness: 18, 
+  backPanelThickness: 3, 
+  backPanelSetback: 16,
+  ...STANDARD_REVEALS,
+};
+
+// Wall carcass: both bottom and top panels, standard reveals
+const WALL_CARCASS: CarcassRecipe = { 
+  hasBottomPanel: true, 
+  hasTopPanel: true, 
+  gableThickness: 18, 
+  backPanelThickness: 3, 
+  backPanelSetback: 16,
+  ...STANDARD_REVEALS,
+};
+
+// Tall carcass: both panels, slightly larger top reveal for tall doors
+const TALL_CARCASS: CarcassRecipe = { 
+  hasBottomPanel: true, 
+  hasTopPanel: true, 
+  gableThickness: 18, 
+  backPanelThickness: 3, 
+  backPanelSetback: 16,
+  topReveal: 3,
+  bottomReveal: 2,
+  sideReveal: 2,
+};
+
 const BASE_TOEKICK: ToeKickRecipe = { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 4 };
 const WIDE_TOEKICK: ToeKickRecipe = { enabled: true, height: 135, setback: 50, kickboardThickness: 16, legCount: 6 };
 const NO_TOEKICK: ToeKickRecipe = { enabled: false, height: 0, setback: 0, kickboardThickness: 0, legCount: 0 };
@@ -1053,7 +1093,10 @@ function getRecipeFromPatterns(name: string): ConstructionRecipe {
       hasTopPanel: category === 'Wall' || category === 'Tall',
       gableThickness: 18,
       backPanelThickness: 3,
-      backPanelSetback: 18,
+      backPanelSetback: 16,
+      topReveal: 3,
+      bottomReveal: 2,
+      sideReveal: 2,
     },
     shelves: {
       count: category === 'Tall' ? 5 : category === 'Wall' ? 2 : 1,
@@ -1215,4 +1258,60 @@ export function mergeRecipeWithOverrides(
   }
   
   return merged;
+}
+
+// ============= REVEAL HELPERS =============
+
+/**
+ * Standard reveal values exported for use in rendering
+ */
+export const DEFAULT_REVEALS = {
+  topReveal: 3,      // 3mm gap above doors
+  bottomReveal: 2,   // 2mm gap below doors
+  sideReveal: 2,     // 2mm gap beside doors
+  doorGap: 2,        // 2mm gap between doors
+  drawerGap: 2,      // 2mm gap between drawers
+} as const;
+
+/**
+ * Get reveal values from a construction recipe
+ * Falls back to defaults if not specified
+ */
+export function getRecipeReveals(recipe: ConstructionRecipe): {
+  topReveal: number;
+  bottomReveal: number;
+  sideReveal: number;
+  doorGap: number;
+  drawerGap: number;
+} {
+  return {
+    topReveal: recipe.carcass.topReveal ?? DEFAULT_REVEALS.topReveal,
+    bottomReveal: recipe.carcass.bottomReveal ?? DEFAULT_REVEALS.bottomReveal,
+    sideReveal: recipe.carcass.sideReveal ?? DEFAULT_REVEALS.sideReveal,
+    doorGap: recipe.fronts.doors?.gap ?? DEFAULT_REVEALS.doorGap,
+    drawerGap: recipe.fronts.drawers?.gap ?? DEFAULT_REVEALS.drawerGap,
+  };
+}
+
+/**
+ * Get reveal values for a category with sensible defaults
+ */
+export function getCategoryReveals(category: 'Base' | 'Wall' | 'Tall' | 'Accessory'): {
+  topReveal: number;
+  bottomReveal: number;
+  sideReveal: number;
+} {
+  switch (category) {
+    case 'Wall':
+      // Wall cabinets: slightly tighter reveals since they're at eye level
+      return { topReveal: 3, bottomReveal: 2, sideReveal: 2 };
+    case 'Tall':
+      // Tall cabinets: standard reveals
+      return { topReveal: 3, bottomReveal: 2, sideReveal: 2 };
+    case 'Base':
+    case 'Accessory':
+    default:
+      // Base/Accessory: standard reveals
+      return { topReveal: 3, bottomReveal: 2, sideReveal: 2 };
+  }
 }

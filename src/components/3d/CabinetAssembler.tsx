@@ -24,7 +24,9 @@ import {
   ConstructionRecipe, 
   getConstructionRecipe, 
   mergeRecipeWithOverrides,
-  MV_CONSTRUCTION_RECIPES 
+  MV_CONSTRUCTION_RECIPES,
+  getRecipeReveals,
+  DEFAULT_REVEALS,
 } from '@/lib/microvellum/constructionRecipes';
 import { calculateHandlePosition } from '@/utils/snapping/gableSnapping';
 
@@ -142,11 +144,14 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     ? (recipe.benchtop.frontOverhang / 1000)
     : ((globalDimensions?.benchtopOverhang || 0) / 1000);
   
-  // Reveals (gaps around doors/drawers) - from global dimensions or recipe
-  const doorGap = (globalDimensions?.doorGap || recipe?.fronts.doors?.gap || 2) / 1000;
-  const drawerGap = (globalDimensions?.drawerGap || recipe?.fronts.drawers?.gap || 2) / 1000;
-  const topReveal = (globalDimensions?.topReveal || 3) / 1000;
-  const sideReveal = (globalDimensions?.sideReveal || 2) / 1000;
+  // Reveals (gaps around doors/drawers) - priority: global dimensions > recipe > defaults
+  // Recipe reveals allow per-cabinet-type customization
+  const recipeReveals = recipe ? getRecipeReveals(recipe) : DEFAULT_REVEALS;
+  const doorGap = (globalDimensions?.doorGap ?? recipeReveals.doorGap) / 1000;
+  const drawerGap = (globalDimensions?.drawerGap ?? recipeReveals.drawerGap) / 1000;
+  const topReveal = (globalDimensions?.topReveal ?? recipeReveals.topReveal) / 1000;
+  const sideReveal = (globalDimensions?.sideReveal ?? recipeReveals.sideReveal) / 1000;
+  const bottomReveal = recipeReveals.bottomReveal / 1000;
   
   // Back panel setback for hanging rails (16mm standard)
   const backSetback = (globalDimensions?.backPanelSetback || recipe?.carcass.backPanelSetback || 16) / 1000;
