@@ -648,14 +648,41 @@ export function UnifiedScene({
         {/* Render items using proper component dispatch */}
         {items.map(item => {
           const key = item.instanceId;
+          const commonProps = {
+            isSelected: selectedItemId === item.instanceId,
+            isDragged: draggedItemId === item.instanceId,
+            onSelect: onItemSelect,
+            onDragStart: handleDragStart,
+          };
+          
           if (item.itemType === 'Appliance') {
-            return <ApplianceMesh key={key} item={item} />;
+            return (
+              <ApplianceMesh 
+                key={key} 
+                item={item} 
+                globalDimensions={globalDimensions}
+                {...commonProps}
+              />
+            );
           }
           if (item.itemType === 'Structure') {
-            return <StructureMesh key={key} item={item} />;
+            return (
+              <StructureMesh 
+                key={key} 
+                item={item} 
+                {...commonProps}
+              />
+            );
           }
           // Default: Cabinet
-          return <CabinetMesh key={key} item={item} />;
+          return (
+            <CabinetMesh 
+              key={key} 
+              item={item} 
+              globalDimensions={globalDimensions}
+              {...commonProps}
+            />
+          );
         })}
 
         {/* Placement ghost */}
