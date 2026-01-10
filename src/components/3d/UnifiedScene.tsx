@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '@/constants';
 import { calculateSnapPosition, SnapResult, checkCollision } from '@/utils/snapping';
 import { RoomConfig, PlacedItem, GlobalDimensions, CatalogItemDefinition, MaterialOption } from '@/types';
@@ -587,8 +588,12 @@ export function UnifiedScene({
       <CameraController controlsRef={controlsRef} room={room} viewMode={viewMode} isInteracting={isInteracting} />
       <ambientLight intensity={0.5} />
       <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0001} />
-      <Environment preset="apartment" blur={0.8} background={false} />
-      <ContactShadows resolution={1024} scale={Math.max(widthM, depthM) * 2} blur={2} opacity={0.4} far={10} color="#000000" />
+
+      {/* Optional scene enhancements (can fail on some GPUs / networks) */}
+      <ErrorBoundary fallback={null}>
+        <Environment preset="apartment" blur={0.8} background={false} />
+        <ContactShadows resolution={1024} scale={Math.max(widthM, depthM) * 2} blur={2} opacity={0.4} far={10} color="#000000" />
+      </ErrorBoundary>
       
       <DropZone items={items} room={room} globalDimensions={globalDimensions} catalog={catalog} onItemAdd={onItemAdd} />
       <DragManager 
