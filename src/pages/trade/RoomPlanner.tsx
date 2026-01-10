@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import TradeLayout from './components/TradeLayout';
 import { Button } from '@/components/ui/button';
@@ -10,13 +10,14 @@ import {
   defaultMaterialDefaults,
   defaultHardwareDefaults
 } from '@/contexts/TradeRoomContext';
-import { TradeScene } from '@/components/trade/planner/TradeScene';
+import UnifiedScene from '@/components/3d/UnifiedScene';
+import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
-import { PlacementToolbar } from '@/components/trade/planner/PlacementToolbar';
 import { useCatalog } from '@/hooks/useCatalog';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
+import { PlacedItem } from '@/types';
 import {
   ArrowLeft, 
   Save, 
@@ -87,6 +88,36 @@ export default function RoomPlanner() {
 
   const selectedCabinet = getSelectedCabinet();
   const cabinets = currentRoom ? getCabinetsByRoom(currentRoom.id) : [];
+  const [placementItemId, setPlacementItemId] = useState<string | null>(null);
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+
+  // Convert ConfiguredCabinets to PlacedItems for UnifiedScene
+  const placedItems: PlacedItem[] = useMemo(() => {
+    return cabinets.filter(c => c.isPlaced && c.position).map(cabinet => ({
+      instanceId: cabinet.instanceId,
+      definitionId: cabinet.definitionId,
+      itemType: cabinet.category === 'Appliance' ? 'Appliance' : 'Cabinet' as const,
+      x: cabinet.position!.x,
+      y: 0,
+      z: cabinet.position!.z,
+      rotation: cabinet.position!.rotation,
+      width: cabinet.dimensions.width,
+      depth: cabinet.dimensions.depth,
+      height: cabinet.dimensions.height,
+      hinge: 'Left' as const,
+      cabinetNumber: cabinet.cabinetNumber,
+    }));
+  }, [cabinets]);
+
+  // Convert room config
+  const roomConfig = useMemo(() => ({
+    width: currentRoom?.config.width || 4000,
+    depth: currentRoom?.config.depth || 3000,
+    height: currentRoom?.config.height || 2400,
+    shape: 'Rectangle' as const,
+    cutoutWidth: currentRoom?.config.cutoutWidth || 0,
+    cutoutDepth: currentRoom?.config.cutoutDepth || 0,
+  }), [currentRoom]);
 
   // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((
@@ -149,6 +180,20 @@ export default function RoomPlanner() {
       placeCabinet(currentRoom.id, instanceId, position);
     }
   };
+
+  // Handle item move from UnifiedScene
+  const handleItemMove = useCallback((id: string, updates: Partial<PlacedItem>) => {
+    if (!currentRoom) return;
+    const cabinet = cabinets.find(c => c.instanceId === id);
+    if (cabinet && updates.x !== undefined && updates.z !== undefined) {
+      placeCabinet(currentRoom.id, id, {
+        x: updates.x,
+        y: 0,
+        z: updates.z,
+        rotation: updates.rotation ?? cabinet.position?.rotation ?? 0
+      });
+    }
+  }, [currentRoom, cabinets, placeCabinet]);
 
   // Quick add product - places cabinet immediately and opens edit dialog
   const handleQuickAddProduct = useCallback((productId: string) => {
@@ -367,7 +412,14 @@ export default function RoomPlanner() {
         <div className="flex-1 flex overflow-hidden">
           {/* Catalog Sidebar */}
           {showCatalog && (
-            <PlacementToolbar onSelectProduct={handleQuickAddProduct} />
+            <div className="w-64 border-r">
+              <UnifiedCatalog 
+                userType="trade" 
+                onSelectProduct={handleQuickAddProduct}
+                placementItemId={placementItemId}
+                onCancelPlacement={() => setPlacementItemId(null)}
+              />
+            </div>
           )}
 
           {/* 3D Scene with Drop Zone */}
@@ -389,12 +441,19 @@ export default function RoomPlanner() {
               }
             }}
           >
-            <TradeScene
-              room={currentRoom}
-              cabinets={cabinets}
-              onCabinetSelect={handleCabinetSelect}
-              onCabinetPlace={handleCabinetPlace}
-              className="flex-1"
+            <UnifiedScene
+              items={placedItems}
+              room={roomConfig}
+              globalDimensions={currentRoom?.dimensions || DEFAULT_GLOBAL_DIMENSIONS}
+              selectedItemId={selectedCabinetId}
+              draggedItemId={draggedItemId}
+              placementItemId={null}
+              onItemSelect={handleCabinetSelect}
+              onItemMove={handleItemMove}
+              onDragStart={(id) => setDraggedItemId(id)}
+              onDragEnd={() => setDraggedItemId(null)}
+              is3D={true}
+              catalog={catalog}
             />
           </div>
 
