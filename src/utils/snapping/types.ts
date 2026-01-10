@@ -48,3 +48,17 @@ export interface CabinetSnapPoint {
   alignedZ: boolean;
   alignedX: boolean;
 }
+
+export interface GableSnapResult {
+  x: number;
+  z: number;
+  targetId: string;
+  edge: 'left-to-right' | 'right-to-left';
+  isGableSnap: true;
+}
+
+export interface CornerCabinetConfig {
+  fillerWidth: number;      // Gap between blind panel and wall (50-150mm)
+  stileWidth: number;       // Face frame stile width (38-50mm)
+  blindPullDistance: number; // How far blind extends past face
+}

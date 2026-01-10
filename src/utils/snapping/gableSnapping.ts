@@ -44,10 +44,18 @@ export function getGableEdges(
 
 /**
  * Check if two rotations are aligned (same wall direction)
+ * Works with both radians and degrees
  */
-function rotationsAligned(rot1: number, rot2: number, tolerance: number = 0.1): boolean {
-  const normalizedDiff = Math.abs(((rot1 - rot2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2));
-  return normalizedDiff < tolerance || Math.abs(normalizedDiff - Math.PI * 2) < tolerance;
+function rotationsAligned(rot1: number, rot2: number, tolerance: number = 5): boolean {
+  // Normalize to degrees if they look like radians
+  const isRadians = Math.abs(rot1) <= Math.PI * 2 && Math.abs(rot2) <= Math.PI * 2;
+  const r1 = isRadians ? (rot1 * 180 / Math.PI) : rot1;
+  const r2 = isRadians ? (rot2 * 180 / Math.PI) : rot2;
+  
+  const norm1 = ((r1 % 360) + 360) % 360;
+  const norm2 = ((r2 % 360) + 360) % 360;
+  
+  return Math.abs(norm1 - norm2) < tolerance;
 }
 
 /**
@@ -163,4 +171,103 @@ export function calculateHandlePosition(
   }
   
   return { x, y };
+}
+
+/**
+ * Corner cabinet snap configuration
+ * Used for positioning blind corner and L-shape cabinets
+ */
+export interface CornerSnapConfig {
+  fillerWidth: number;      // Gap between blind panel and wall (50-150mm)
+  stileWidth: number;       // Face frame stile width (38-50mm)
+  blindPullDistance: number; // How far blind extends past face
+  cornerType: 'blind-left' | 'blind-right' | 'l-shape' | 'diagonal';
+}
+
+/**
+ * Calculate corner cabinet position with proper filler and overlap
+ * Handles blind corners with configurable filler widths
+ */
+export function calculateCornerPosition(
+  adjacentCabinetX: number,
+  adjacentCabinetZ: number,
+  adjacentWidth: number,
+  adjacentDepth: number,
+  cornerCabinetWidth: number,
+  cornerCabinetDepth: number,
+  config: CornerSnapConfig,
+  wallId: 'back' | 'left' | 'right' | 'front'
+): { x: number; z: number; rotation: number } {
+  const { fillerWidth, blindPullDistance, cornerType } = config;
+  
+  // Calculate position based on corner type and wall
+  let x: number;
+  let z: number;
+  let rotation: number;
+  
+  if (cornerType === 'blind-left' || cornerType === 'blind-right') {
+    // Blind corner positioning
+    // The blind extends past the adjacent cabinet by blindPullDistance
+    // Plus the filler width gap from the wall
+    
+    if (wallId === 'back') {
+      // Adjacent cabinet on back wall, corner goes to left or right wall
+      if (cornerType === 'blind-left') {
+        x = fillerWidth + cornerCabinetDepth / 2;
+        z = adjacentCabinetZ;
+        rotation = 270; // Face right
+      } else {
+        x = adjacentCabinetX + adjacentWidth / 2 - blindPullDistance + cornerCabinetWidth / 2;
+        z = adjacentCabinetZ;
+        rotation = 0;
+      }
+    } else if (wallId === 'left') {
+      if (cornerType === 'blind-left') {
+        x = adjacentCabinetX;
+        z = fillerWidth + cornerCabinetDepth / 2;
+        rotation = 0;
+      } else {
+        x = adjacentCabinetX;
+        z = adjacentCabinetZ + adjacentDepth / 2 - blindPullDistance + cornerCabinetDepth / 2;
+        rotation = 270;
+      }
+    } else {
+      // Default positioning
+      x = adjacentCabinetX;
+      z = adjacentCabinetZ;
+      rotation = 0;
+    }
+  } else if (cornerType === 'l-shape') {
+    // L-shape corner: both arms extend from corner
+    x = adjacentCabinetX - adjacentWidth / 2 + cornerCabinetWidth / 2;
+    z = adjacentCabinetZ + adjacentDepth / 2 + cornerCabinetDepth / 2;
+    rotation = 0;
+  } else {
+    // Diagonal corner
+    x = adjacentCabinetX;
+    z = adjacentCabinetZ;
+    rotation = 45;
+  }
+  
+  return { x, z, rotation };
+}
+
+/**
+ * Get effective filler width considering cabinet overrides and global defaults
+ */
+export function getEffectiveFillerWidth(
+  itemFillerWidth: number | undefined,
+  globalFillerWidth: number | undefined
+): number {
+  return itemFillerWidth ?? globalFillerWidth ?? CONSTRUCTION_STANDARDS.defaultFillerWidth;
+}
+
+/**
+ * Get effective stile width considering cabinet overrides and global defaults
+ */
+export function getEffectiveStileWidth(
+  itemStileWidth: number | undefined,
+  globalStileWidth: number | undefined
+): number {
+  return itemStileWidth ?? globalStileWidth ?? CONSTRUCTION_STANDARDS.defaultStileWidth;
 }

@@ -83,4 +83,8 @@ export const DEFAULT_GLOBAL_DIMENSIONS: GlobalDimensions = {
   topReveal: 3,              // 3mm gap above doors
   sideReveal: 2,             // 2mm gap beside doors
   handleDrillSpacing: 32,    // 32mm system
+  
+  // Corner cabinet defaults
+  cornerFillerWidth: 75,     // 75mm filler for blind corners
+  cornerStileWidth: 45,      // 45mm face frame stile
 };

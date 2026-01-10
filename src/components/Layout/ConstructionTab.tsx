@@ -4,9 +4,10 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { RotateCcw, Ruler, Layers, Settings2 } from 'lucide-react';
+import { RotateCcw, Ruler, Layers, Settings2, CornerDownRight } from 'lucide-react';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { Separator } from '@/components/ui/separator';
+import { CONSTRUCTION_STANDARDS } from '@/types/cabinetConfig';
 
 /**
  * ConstructionTab - Controls global manufacturing variables (Microvellum-style)
@@ -29,6 +30,8 @@ const ConstructionTab: React.FC = () => {
       handleDrillSpacing: DEFAULT_GLOBAL_DIMENSIONS.handleDrillSpacing,
       doorGap: DEFAULT_GLOBAL_DIMENSIONS.doorGap,
       drawerGap: DEFAULT_GLOBAL_DIMENSIONS.drawerGap,
+      cornerFillerWidth: DEFAULT_GLOBAL_DIMENSIONS.cornerFillerWidth,
+      cornerStileWidth: DEFAULT_GLOBAL_DIMENSIONS.cornerStileWidth,
     });
   };
 
@@ -202,6 +205,56 @@ const ConstructionTab: React.FC = () => {
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">Center-to-center handle hole spacing</p>
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Corner Cabinet Settings */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <CornerDownRight className="h-4 w-4 text-muted-foreground" />
+          <h4 className="text-sm font-medium">Corner Cabinets</h4>
+        </div>
+
+        <div className="space-y-4">
+          {/* Filler Width */}
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-xs">Blind Filler Width</Label>
+              <span className="text-xs text-muted-foreground">
+                {globalDimensions.cornerFillerWidth ?? CONSTRUCTION_STANDARDS.defaultFillerWidth}mm
+              </span>
+            </div>
+            <Slider
+              value={[globalDimensions.cornerFillerWidth ?? CONSTRUCTION_STANDARDS.defaultFillerWidth]}
+              onValueChange={([v]) => handleChange('cornerFillerWidth', v)}
+              min={50}
+              max={150}
+              step={5}
+              className="w-full"
+            />
+            <p className="text-[10px] text-muted-foreground">Gap between blind panel and wall</p>
+          </div>
+
+          {/* Stile Width */}
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-xs">Stile Width</Label>
+              <span className="text-xs text-muted-foreground">
+                {globalDimensions.cornerStileWidth ?? CONSTRUCTION_STANDARDS.defaultStileWidth}mm
+              </span>
+            </div>
+            <Slider
+              value={[globalDimensions.cornerStileWidth ?? CONSTRUCTION_STANDARDS.defaultStileWidth]}
+              onValueChange={([v]) => handleChange('cornerStileWidth', v)}
+              min={38}
+              max={75}
+              step={1}
+              className="w-full"
+            />
+            <p className="text-[10px] text-muted-foreground">Face frame stile width for framed cabinets</p>
           </div>
         </div>
       </div>

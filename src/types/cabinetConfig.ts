@@ -124,6 +124,12 @@ export const CONSTRUCTION_STANDARDS = {
   // Toe kick dimensions
   toeKickHeight: 135,
   toeKickSetback: 50,
+  
+  // Corner cabinet defaults (mm)
+  defaultFillerWidth: 75,        // Gap between blind panel and wall
+  defaultStileWidth: 45,         // Face frame stile width
+  defaultBlindPullDistance: 100, // How far blind extends past face
+  cornerOverlap: 50,             // Overlap for L-shape corners
 } as const;
 
 /**
