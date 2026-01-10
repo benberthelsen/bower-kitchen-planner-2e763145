@@ -2,6 +2,7 @@ import React, { Component, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+// Always show full details (including stack) in the UI to simplify support.
 const IS_DEV = import.meta.env.DEV;
 
 interface Props {
@@ -13,6 +14,7 @@ interface State {
   hasError: boolean;
   error: Error | null;
   showDetails: boolean;
+  componentStack?: string;
 }
 
 /**
@@ -22,25 +24,27 @@ interface State {
 class Scene3DErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null, showDetails: false };
+    this.state = { hasError: false, error: null, showDetails: false, componentStack: undefined };
   }
 
   static getDerivedStateFromError(error: Error): State {
     // Default to showing details so users can copy/paste the error.
-    return { hasError: true, error, showDetails: true };
+    return { hasError: true, error, showDetails: true, componentStack: undefined };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // Persist stack in UI so users can copy/paste it even in production builds.
+    this.setState({ componentStack: errorInfo.componentStack });
     console.error('3D Scene Error:', error);
     console.error('Component Stack:', errorInfo.componentStack);
   }
 
   handleRetry = () => {
-    this.setState({ hasError: false, error: null, showDetails: false });
+    this.setState({ hasError: false, error: null, showDetails: false, componentStack: undefined });
   };
 
   handleSwitch2D = () => {
-    this.setState({ hasError: false, error: null, showDetails: false });
+    this.setState({ hasError: false, error: null, showDetails: false, componentStack: undefined });
     this.props.onSwitch2D?.();
   };
 
@@ -51,11 +55,13 @@ class Scene3DErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       const err = this.state.error;
-      const detailsText = !err
-        ? ''
-        : IS_DEV
-          ? `${err.name}: ${err.message}${err.stack ? `\n\n${err.stack}` : ''}`
-          : err.message;
+
+      const stackText = err?.stack ? `\n\n${err.stack}` : '';
+      const componentStackText = this.state.componentStack
+        ? `\n\nComponent stack:\n${this.state.componentStack}`
+        : '';
+
+      const detailsText = err ? `${err.name}: ${err.message}${stackText}${componentStackText}` : '';
 
       return (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/80 backdrop-blur-sm">
