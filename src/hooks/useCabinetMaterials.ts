@@ -84,8 +84,18 @@ export function useCabinetMaterials(
 
     // Generate all materials with error handling
     try {
+      // Interior material for gables (inside cabinet) - typically white melamine
+      const gableInterior: MaterialProps = {
+        color: '#f5f5f5', // White melamine for interior
+        roughness: 0.6,
+        metalness: 0.0,
+        map: null, // No grain for interior melamine
+      };
+
       return {
         gable: getPartMaterial(finishOption, 'gable'),
+        gableInterior, // NEW: Interior face material for exposed end panels
+        gableExterior: getPartMaterial(finishOption, 'endPanel'), // Finished exterior
         door: getPartMaterial(finishOption, 'door'),
         drawer: getPartMaterial(finishOption, 'drawerFront'),
         shelf: getPartMaterial(finishOption, 'shelf'),
@@ -100,8 +110,16 @@ export function useCabinetMaterials(
       console.error('Failed to generate cabinet materials:', error);
       // Return fallback materials for all parts
       const fallback = createFallbackMaterial(finishOption.hex);
+      const interiorFallback: MaterialProps = {
+        color: '#f5f5f5',
+        roughness: 0.6,
+        metalness: 0.0,
+        map: null,
+      };
       return {
         gable: fallback,
+        gableInterior: interiorFallback,
+        gableExterior: fallback,
         door: fallback,
         drawer: fallback,
         shelf: fallback,

@@ -14,6 +14,8 @@ interface MaterialProps {
 
 interface CabinetMaterials {
   gable: MaterialProps;
+  gableInterior: MaterialProps;  // Interior face (white melamine)
+  gableExterior: MaterialProps;  // Exterior face (door finish)
   door: MaterialProps;
   drawer: MaterialProps;
   shelf: MaterialProps;
