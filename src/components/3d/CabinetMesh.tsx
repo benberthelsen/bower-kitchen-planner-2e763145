@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useContext } from 'react';
+import React, { useState, useMemo } from 'react';
 import * as THREE from 'three';
 import { PlacedItem, MaterialOption, GlobalDimensions, HardwareOptions } from '../../types';
 import { HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS } from '../../constants';
@@ -6,15 +6,6 @@ import { useCatalogItem, useCatalog } from '../../hooks/useCatalog';
 import { useCabinetMaterials } from '../../hooks/useCabinetMaterials';
 import CabinetAssembler from './CabinetAssembler';
 import { CabinetRenderConfig } from '../../types/cabinetConfig';
-
-// Optional context import - only used if props not provided
-let usePlannerContext: (() => any) | null = null;
-try {
-  const plannerModule = require('../../store/PlannerContext');
-  usePlannerContext = plannerModule.usePlanner;
-} catch {
-  // PlannerContext not available
-}
 
 interface CabinetMeshProps {
   item: PlacedItem;
@@ -50,28 +41,18 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   onSelect,
   onDragStart,
 }) => {
-  // Try to get context values if available
-  let contextValues: any = null;
-  try {
-    if (usePlannerContext) {
-      contextValues = usePlannerContext();
-    }
-  } catch {
-    // Context not available - will use props
-  }
-  
-  // Use props if provided, otherwise fall back to context, then defaults
-  const selectedFinish = finishProp ?? contextValues?.selectedFinish ?? FINISH_OPTIONS[0];
-  const selectedBenchtop = benchtopProp ?? contextValues?.selectedBenchtop ?? BENCHTOP_OPTIONS[0];
-  const selectedKick = kickProp ?? contextValues?.selectedKick ?? KICK_OPTIONS[0];
-  const globalDimensions = dimensionsProp ?? contextValues?.globalDimensions ?? DEFAULT_GLOBAL_DIMENSIONS;
-  const hardwareOptions = hardwareProp ?? contextValues?.hardwareOptions ?? { handleId: HANDLE_OPTIONS[0].id };
-  
-  const isSelected = isSelectedProp ?? (contextValues?.selectedItemId === item.instanceId);
-  const isDragged = isDraggedProp ?? (contextValues?.draggedItemId === item.instanceId);
-  
-  const handleSelect = onSelect ?? contextValues?.selectItem;
-  const handleDragStart = onDragStart ?? contextValues?.startDrag;
+  // Props-first: this component is used by both planners, so it must not rely on PlannerContext.
+  const selectedFinish = finishProp ?? FINISH_OPTIONS[0];
+  const selectedBenchtop = benchtopProp ?? BENCHTOP_OPTIONS[0];
+  const selectedKick = kickProp ?? KICK_OPTIONS[0];
+  const globalDimensions = dimensionsProp ?? DEFAULT_GLOBAL_DIMENSIONS;
+  const hardwareOptions = hardwareProp ?? { handleId: HANDLE_OPTIONS[0].id };
+
+  const isSelected = isSelectedProp ?? false;
+  const isDragged = isDraggedProp ?? false;
+
+  const handleSelect = onSelect;
+  const handleDragStart = onDragStart;
   
   // Get catalog with loading state
   const { isLoading: catalogLoading } = useCatalog('admin');

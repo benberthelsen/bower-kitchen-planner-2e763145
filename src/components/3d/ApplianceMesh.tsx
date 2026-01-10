@@ -4,15 +4,6 @@ import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 
-// Optional context import - only used if props not provided
-let usePlannerContext: (() => any) | null = null;
-try {
-  const plannerModule = require('../../store/PlannerContext');
-  usePlannerContext = plannerModule.usePlanner;
-} catch {
-  // PlannerContext not available
-}
-
 interface ApplianceMeshProps {
   item: PlacedItem;
   // Optional props - if provided, these override context values
@@ -31,23 +22,12 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   onSelect,
   onDragStart,
 }) => {
-  // Try to get context values if available
-  let contextValues: any = null;
-  try {
-    if (usePlannerContext) {
-      contextValues = usePlannerContext();
-    }
-  } catch {
-    // Context not available - will use props
-  }
-  
-  // Use props if provided, otherwise fall back to context, then defaults
-  const globalDimensions = dimensionsProp ?? contextValues?.globalDimensions ?? DEFAULT_GLOBAL_DIMENSIONS;
-  const isSelected = isSelectedProp ?? (contextValues?.selectedItemId === item.instanceId);
-  const isDragged = isDraggedProp ?? (contextValues?.draggedItemId === item.instanceId);
-  
-  const handleSelect = onSelect ?? contextValues?.selectItem;
-  const handleDragStart = onDragStart ?? contextValues?.startDrag;
+  const globalDimensions = dimensionsProp ?? DEFAULT_GLOBAL_DIMENSIONS;
+  const isSelected = isSelectedProp ?? false;
+  const isDragged = isDraggedProp ?? false;
+
+  const handleSelect = onSelect;
+  const handleDragStart = onDragStart;
 
   const def = useCatalogItem(item.definitionId);
   const [hovered, setHovered] = useState(false);
