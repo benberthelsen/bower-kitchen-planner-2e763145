@@ -1,19 +1,55 @@
 import React, { useState } from 'react';
-import { usePlanner } from '../../store/PlannerContext';
-import { PlacedItem } from '../../types';
-import { TAP_OPTIONS } from '../../constants';
+import { PlacedItem, GlobalDimensions } from '../../types';
+import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 
-interface Props {
-  item: PlacedItem;
+// Optional context import - only used if props not provided
+let usePlannerContext: (() => any) | null = null;
+try {
+  const plannerModule = require('../../store/PlannerContext');
+  usePlannerContext = plannerModule.usePlanner;
+} catch {
+  // PlannerContext not available
 }
 
-const ApplianceMesh: React.FC<Props> = ({ item }) => {
-  const { selectItem, selectedItemId, draggedItemId, startDrag, globalDimensions } = usePlanner();
+interface ApplianceMeshProps {
+  item: PlacedItem;
+  // Optional props - if provided, these override context values
+  globalDimensions?: GlobalDimensions;
+  isSelected?: boolean;
+  isDragged?: boolean;
+  onSelect?: (id: string) => void;
+  onDragStart?: (id: string, x: number, z: number) => void;
+}
+
+const ApplianceMesh: React.FC<ApplianceMeshProps> = ({ 
+  item,
+  globalDimensions: dimensionsProp,
+  isSelected: isSelectedProp,
+  isDragged: isDraggedProp,
+  onSelect,
+  onDragStart,
+}) => {
+  // Try to get context values if available
+  let contextValues: any = null;
+  try {
+    if (usePlannerContext) {
+      contextValues = usePlannerContext();
+    }
+  } catch {
+    // Context not available - will use props
+  }
+  
+  // Use props if provided, otherwise fall back to context, then defaults
+  const globalDimensions = dimensionsProp ?? contextValues?.globalDimensions ?? DEFAULT_GLOBAL_DIMENSIONS;
+  const isSelected = isSelectedProp ?? (contextValues?.selectedItemId === item.instanceId);
+  const isDragged = isDraggedProp ?? (contextValues?.draggedItemId === item.instanceId);
+  
+  const handleSelect = onSelect ?? contextValues?.selectItem;
+  const handleDragStart = onDragStart ?? contextValues?.startDrag;
+
   const def = useCatalogItem(item.definitionId);
-  const isSelected = selectedItemId === item.instanceId;
-  const isDragged = draggedItemId === item.instanceId;
   const [hovered, setHovered] = useState(false);
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
@@ -35,8 +71,8 @@ const ApplianceMesh: React.FC<Props> = ({ item }) => {
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();
-    selectItem(item.instanceId);
-    startDrag(item.instanceId, item.x, item.z);
+    handleSelect?.(item.instanceId);
+    handleDragStart?.(item.instanceId, item.x, item.z);
   };
 
   return (

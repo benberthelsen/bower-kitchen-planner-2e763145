@@ -1,16 +1,51 @@
 import React, { useState } from 'react';
-import { usePlanner } from '../../store/PlannerContext';
 import { PlacedItem } from '../../types';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 
-interface Props {
-  item: PlacedItem;
+// Optional context import - only used if props not provided
+let usePlannerContext: (() => any) | null = null;
+try {
+  const plannerModule = require('../../store/PlannerContext');
+  usePlannerContext = plannerModule.usePlanner;
+} catch {
+  // PlannerContext not available
 }
 
-const StructureMesh: React.FC<Props> = ({ item }) => {
-  const { selectItem, selectedItemId, draggedItemId, startDrag } = usePlanner();
+interface StructureMeshProps {
+  item: PlacedItem;
+  // Optional props - if provided, these override context values
+  isSelected?: boolean;
+  isDragged?: boolean;
+  onSelect?: (id: string) => void;
+  onDragStart?: (id: string, x: number, z: number) => void;
+}
+
+const StructureMesh: React.FC<StructureMeshProps> = ({ 
+  item,
+  isSelected: isSelectedProp,
+  isDragged: isDraggedProp,
+  onSelect,
+  onDragStart,
+}) => {
+  // Try to get context values if available
+  let contextValues: any = null;
+  try {
+    if (usePlannerContext) {
+      contextValues = usePlannerContext();
+    }
+  } catch {
+    // Context not available - will use props
+  }
+  
+  // Use props if provided, otherwise fall back to context
+  const isSelected = isSelectedProp ?? (contextValues?.selectedItemId === item.instanceId);
+  const isDragged = isDraggedProp ?? (contextValues?.draggedItemId === item.instanceId);
+  
+  const handleSelect = onSelect ?? contextValues?.selectItem;
+  const handleDragStart = onDragStart ?? contextValues?.startDrag;
+
   const [hovered, setHovered] = useState(false);
   const def = useCatalogItem(item.definitionId);
 
@@ -19,15 +54,13 @@ const StructureMesh: React.FC<Props> = ({ item }) => {
   const widthM = item.width / 1000;
   const heightM = item.height / 1000;
   const depthM = item.depth / 1000;
-  const isSelected = selectedItemId === item.instanceId;
-  const isDragged = draggedItemId === item.instanceId;
 
   const position: [number, number, number] = [item.x / 1000, (item.y / 1000) + (heightM / 2), item.z / 1000];
 
   const handlePointerDown = (e: any) => {
     e.stopPropagation();
-    selectItem(item.instanceId);
-    startDrag(item.instanceId, item.x, item.z);
+    handleSelect?.(item.instanceId);
+    handleDragStart?.(item.instanceId, item.x, item.z);
   };
 
   const isWindow = def.sku.includes('WIN');
