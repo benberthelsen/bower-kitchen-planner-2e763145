@@ -1,9 +1,9 @@
 import React, { Suspense, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { PlannerProvider, usePlanner } from "../store/PlannerContext";
-import Sidebar from "../components/Layout/Sidebar";
+import { UnifiedCatalog } from "../components/shared/UnifiedCatalog";
 import PropertiesPanel from "../components/Layout/PropertiesPanel";
-import Scene from "../components/3d/Scene";
+import UnifiedScene from "../components/3d/UnifiedScene";
 import Scene3DErrorBoundary from "../components/3d/Scene3DErrorBoundary";
 import CameraToolbar from "../components/3d/CameraToolbar";
 import SelectionToolbar from "../components/3d/SelectionToolbar";
@@ -46,9 +46,11 @@ function TradePlannerContent() {
     undo, redo, canUndo, canRedo, 
     selectedItemId, items, room,
     removeItem, duplicateItem, updateItem, recordHistory,
-    placementItemId, draggedItemId,
+    placementItemId, draggedItemId, setDraggedItem,
     selectedFinish, selectedBenchtop, selectedKick,
-    projectSettings, globalDimensions, hardwareOptions, totalPrice
+    projectSettings, globalDimensions, hardwareOptions, totalPrice,
+    addItem, selectItem, setPlacementItem, dragState, startDrag, confirmDrag,
+    loadSampleKitchen, sampleKitchens
   } = usePlanner();
   const { user, loading: authLoading, signOut, isAdmin } = useAuth();
   const { catalog } = useCatalog('trade');
@@ -244,7 +246,14 @@ function TradePlannerContent() {
 
       <div className="hidden md:flex h-full pt-14">
         <ResizableSidebar side="left" title="Full Cabinet Library">
-          <Sidebar userType="trade" />
+          <UnifiedCatalog 
+            userType="trade" 
+            onSelectProduct={(id) => setPlacementItem(id)}
+            placementItemId={placementItemId}
+            onCancelPlacement={() => setPlacementItem(null)}
+            onLoadSampleKitchen={loadSampleKitchen}
+            sampleKitchens={sampleKitchens}
+          />
         </ResizableSidebar>
       </div>
 
@@ -252,7 +261,26 @@ function TradePlannerContent() {
         <div className="flex-1 relative bg-gray-100 h-full min-h-0">
           <Scene3DErrorBoundary onSwitch2D={setIs2D}>
             <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}>
-              <Scene is3D={is3D} onCameraControlsReady={setCameraControls} />
+              <UnifiedScene 
+                items={items}
+                room={room}
+                globalDimensions={globalDimensions}
+                selectedItemId={selectedItemId}
+                draggedItemId={draggedItemId}
+                placementItemId={placementItemId}
+                onItemSelect={selectItem}
+                onItemMove={(id, updates) => updateItem(id, updates)}
+                onItemAdd={(defId, x, z, rot) => {
+                  addItem(defId, x, z, rot);
+                  setPlacementItem(null);
+                }}
+                onDragStart={(id) => setDraggedItem(id)}
+                onDragEnd={() => setDraggedItem(null)}
+                onDragConfirm={confirmDrag}
+                dragState={dragState}
+                is3D={is3D}
+                onCameraControlsReady={setCameraControls}
+              />
             </Suspense>
           </Scene3DErrorBoundary>
 

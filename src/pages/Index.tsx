@@ -51,7 +51,8 @@ function AppInner() {
     placementItemId, draggedItemId, setDraggedItem,
     selectedFinish, selectedBenchtop, selectedKick,
     projectSettings, globalDimensions, hardwareOptions, totalPrice,
-    addItem, selectItem, setPlacementItem, dragState, startDrag, confirmDrag
+    addItem, selectItem, setPlacementItem, dragState, startDrag, confirmDrag,
+    loadSampleKitchen, sampleKitchens
   } = usePlanner();
   const { user, loading: authLoading, signOut, isAdmin, userType } = useAuth();
   const { catalog } = useCatalog('standard');
@@ -292,6 +293,8 @@ function AppInner() {
             onSelectProduct={(id) => setPlacementItem(id)}
             placementItemId={placementItemId}
             onCancelPlacement={() => setPlacementItem(null)}
+            onLoadSampleKitchen={loadSampleKitchen}
+            sampleKitchens={sampleKitchens}
           />
         </ResizableSidebar>
       </div>
