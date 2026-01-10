@@ -14,6 +14,7 @@ import UnifiedScene from '@/components/3d/UnifiedScene';
 import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
+import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { useCatalog } from '@/hooks/useCatalog';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
