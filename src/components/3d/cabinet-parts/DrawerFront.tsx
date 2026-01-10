@@ -52,9 +52,13 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   const actualHeight = height - gap * 2;
   
   // Drawer box dimensions (behind the front)
-  const boxWidth = actualWidth - 0.036; // Allow for side runners
-  const boxHeight = height - 0.03; // Slightly smaller
-  const boxDepth = 0.45; // Standard drawer depth
+  // Standard Blum/Hettich runner clearance: 13mm each side
+  const runnerClearance = 0.013;
+  const boxSideThickness = 0.016; // 16mm drawer sides
+  const boxWidth = actualWidth - (runnerClearance + boxSideThickness) * 2;
+  const boxHeight = Math.max(0.08, actualHeight * 0.7); // Drawer box is ~70% of front height, min 80mm
+  const boxDepth = 0.45; // Standard 450mm drawer depth
+  const boxBottomThickness = 0.010; // 10mm drawer bottom
 
   return (
     <group position={position}>
@@ -74,34 +78,48 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
         <EdgeOutline width={actualWidth} height={actualHeight} depth={thickness} />
       )}
       
-      {/* Drawer box outline (visible from side/behind) */}
+      {/* Drawer box (visible from side/behind) - more realistic construction */}
       {showBox && (
-        <group position={[0, 0, -boxDepth / 2 - thickness / 2]}>
-          <mesh>
-            <boxGeometry args={[boxWidth, boxHeight * 0.8, boxDepth]} />
-            <meshStandardMaterial 
-              color="#f0f0f0" 
-              roughness={0.7}
-              metalness={0.0}
-            />
+        <group position={[0, -actualHeight / 2 + boxHeight / 2 + 0.01, -boxDepth / 2 - thickness / 2]}>
+          {/* Left drawer side */}
+          <mesh position={[-boxWidth / 2 - boxSideThickness / 2, 0, 0]}>
+            <boxGeometry args={[boxSideThickness, boxHeight, boxDepth]} />
+            <meshStandardMaterial color="#f0f0f0" roughness={0.7} metalness={0.0} />
+          </mesh>
+          {/* Right drawer side */}
+          <mesh position={[boxWidth / 2 + boxSideThickness / 2, 0, 0]}>
+            <boxGeometry args={[boxSideThickness, boxHeight, boxDepth]} />
+            <meshStandardMaterial color="#f0f0f0" roughness={0.7} metalness={0.0} />
+          </mesh>
+          {/* Drawer back */}
+          <mesh position={[0, 0, -boxDepth / 2 + boxSideThickness / 2]}>
+            <boxGeometry args={[boxWidth, boxHeight, boxSideThickness]} />
+            <meshStandardMaterial color="#f0f0f0" roughness={0.7} metalness={0.0} />
+          </mesh>
+          {/* Drawer bottom */}
+          <mesh position={[0, -boxHeight / 2 + boxBottomThickness / 2, 0]}>
+            <boxGeometry args={[boxWidth + boxSideThickness * 2, boxBottomThickness, boxDepth]} />
+            <meshStandardMaterial color="#e8e8e8" roughness={0.8} metalness={0.0} />
           </mesh>
           {/* Drawer box edges */}
           {showEdges && (
-            <EdgeOutline width={boxWidth} height={boxHeight * 0.8} depth={boxDepth} color="#777777" />
+            <EdgeOutline width={boxWidth + boxSideThickness * 2} height={boxHeight} depth={boxDepth} color="#999999" />
           )}
         </group>
       )}
       
-      {/* Runner indicators (sides of drawer) */}
+      {/* Runner indicators (visible metallic runners on sides) */}
       {showBox && (
         <>
-          <mesh position={[-actualWidth / 2 + 0.01, 0, -0.1]}>
-            <boxGeometry args={[0.012, 0.03, 0.2]} />
-            <meshStandardMaterial color="#555555" metalness={0.6} roughness={0.4} />
+          {/* Left runner */}
+          <mesh position={[-actualWidth / 2 + 0.006, -actualHeight / 2 + boxHeight / 2, -0.15]}>
+            <boxGeometry args={[0.012, 0.040, 0.35]} />
+            <meshStandardMaterial color="#888888" metalness={0.7} roughness={0.3} />
           </mesh>
-          <mesh position={[actualWidth / 2 - 0.01, 0, -0.1]}>
-            <boxGeometry args={[0.012, 0.03, 0.2]} />
-            <meshStandardMaterial color="#555555" metalness={0.6} roughness={0.4} />
+          {/* Right runner */}
+          <mesh position={[actualWidth / 2 - 0.006, -actualHeight / 2 + boxHeight / 2, -0.15]}>
+            <boxGeometry args={[0.012, 0.040, 0.35]} />
+            <meshStandardMaterial color="#888888" metalness={0.7} roughness={0.3} />
           </mesh>
         </>
       )}

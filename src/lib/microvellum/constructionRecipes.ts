@@ -644,6 +644,78 @@ export const MV_CONSTRUCTION_RECIPES: Record<string, ConstructionRecipe> = {
     benchtop: BASE_BENCHTOP,
   },
   
+  'Base Open 1 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'COMBO', combo: { topDrawers: 1, bottomDoors: 0, dividerThickness: 18 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Open 2 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 2, ratios: [0.40, 0.60], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 6 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 6, ratios: [0.12, 0.15, 0.17, 0.18, 0.19, 0.19], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base 7 Drawer': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DRAWERS', drawers: { drawerCount: 7, ratios: [0.10, 0.12, 0.14, 0.15, 0.16, 0.16, 0.17], gap: 2, showBox: true } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Winerack': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 0, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'OPEN' },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Pullout': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 4, adjustable: false, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Starter': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: BASE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 1, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
+  'Base Folding Door': {
+    category: 'Base',
+    carcass: BASE_CARCASS,
+    shelves: { count: 2, adjustable: true, thickness: 18, setback: 20 },
+    toeKick: WIDE_TOEKICK,
+    fronts: { type: 'DOORS', doors: { doorCount: 2, glassDoor: false, overlay: 'full', gap: 2 } },
+    benchtop: BASE_BENCHTOP,
+  },
+  
   'Base Wine Rack': {
     category: 'Base',
     carcass: BASE_CARCASS,
@@ -1022,31 +1094,95 @@ export const MV_CONSTRUCTION_RECIPES: Record<string, ConstructionRecipe> = {
 // ============= RECIPE LOOKUP FUNCTION =============
 
 /**
+ * Normalize a product name for matching
+ * - lowercase
+ * - collapse multiple spaces
+ * - remove special characters
+ * - standardize common variations
+ */
+function normalizeProductName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')           // Collapse multiple spaces
+    .replace(/[_-]/g, ' ')          // Replace underscores and hyphens with spaces
+    .replace(/cabinet/gi, '')       // Remove redundant "cabinet" word
+    .replace(/\s+/g, ' ')           // Collapse again after removals
+    .trim();
+}
+
+/**
+ * Calculate similarity score between two strings (0-1)
+ * Uses word overlap scoring for fuzzy matching
+ */
+function calculateMatchScore(name1: string, name2: string): number {
+  const words1 = name1.split(' ').filter(w => w.length > 1);
+  const words2 = name2.split(' ').filter(w => w.length > 1);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  let matchedWords = 0;
+  let partialMatches = 0;
+  
+  for (const word1 of words1) {
+    for (const word2 of words2) {
+      if (word1 === word2) {
+        matchedWords++;
+        break;
+      } else if (word1.includes(word2) || word2.includes(word1)) {
+        partialMatches += 0.5;
+        break;
+      }
+    }
+  }
+  
+  // Score based on matches relative to total words
+  const totalWords = Math.max(words1.length, words2.length);
+  return (matchedWords + partialMatches) / totalWords;
+}
+
+/**
  * Get construction recipe for a product by name
- * Uses fuzzy matching to find the best recipe
+ * Uses improved fuzzy matching with scoring to find the best recipe
  */
 export function getConstructionRecipe(
   productName: string,
   recipes: Record<string, ConstructionRecipe> = MV_CONSTRUCTION_RECIPES
 ): ConstructionRecipe | null {
+  if (!productName) return null;
+  
   // Normalize product name
-  const normalizedName = productName.toLowerCase().trim();
+  const normalizedName = normalizeProductName(productName);
   
-  // 1. Try exact match first
+  // 1. Try exact match first (case-insensitive, normalized)
   for (const [key, recipe] of Object.entries(recipes)) {
-    if (key.toLowerCase() === normalizedName) {
+    const normalizedKey = normalizeProductName(key);
+    if (normalizedKey === normalizedName) {
       return recipe;
     }
   }
   
-  // 2. Try partial match
+  // 2. Try best fuzzy match with scoring
+  let bestMatch: { recipe: ConstructionRecipe; score: number; key: string } | null = null;
+  
   for (const [key, recipe] of Object.entries(recipes)) {
-    if (normalizedName.includes(key.toLowerCase())) {
-      return recipe;
+    const normalizedKey = normalizeProductName(key);
+    const score = calculateMatchScore(normalizedName, normalizedKey);
+    
+    // Also check if either contains the other (for partial matches)
+    const containsBonus = normalizedName.includes(normalizedKey) || normalizedKey.includes(normalizedName) ? 0.3 : 0;
+    const totalScore = score + containsBonus;
+    
+    if (totalScore > 0.5 && (!bestMatch || totalScore > bestMatch.score)) {
+      bestMatch = { recipe, score: totalScore, key };
     }
   }
   
-  // 3. Pattern-based matching
+  if (bestMatch) {
+    return bestMatch.recipe;
+  }
+  
+  // 3. Pattern-based matching as fallback
   return getRecipeFromPatterns(normalizedName);
 }
 
