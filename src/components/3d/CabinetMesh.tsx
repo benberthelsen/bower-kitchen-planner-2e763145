@@ -151,13 +151,13 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
     handleDragStart?.(item.instanceId, item.x, item.z);
   };
 
-  // Create safe item with validated dimensions
-  const safeItem = useMemo(() => ({
+  // Create safe item with validated dimensions (no hook to avoid hook-order issues)
+  const safeItem = {
     ...item,
     width: safeWidth,
     height: safeHeight,
     depth: safeDepth,
-  }), [item, safeWidth, safeHeight, safeDepth]);
+  };
 
   return (
     <group 
