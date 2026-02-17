@@ -38,7 +38,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <div className="flex flex-col min-h-screen">
-          <DevNavBar />
+          {import.meta.env.DEV && <DevNavBar />}
           <ErrorBoundary>
             <Routes>
               <Route path="/" element={<Index />} />
