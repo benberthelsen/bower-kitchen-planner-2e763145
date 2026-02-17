@@ -25,7 +25,7 @@ const WallSnapLine: React.FC<{
   let linePoints: [THREE.Vector3, THREE.Vector3];
   let verticalPoints: [THREE.Vector3, THREE.Vector3];
   let labelPosition: [number, number, number];
-  let labelText = 'WALL';
+  const labelText = 'WALL';
 
   const widthM = room.width / 1000;
   const depthM = room.depth / 1000;

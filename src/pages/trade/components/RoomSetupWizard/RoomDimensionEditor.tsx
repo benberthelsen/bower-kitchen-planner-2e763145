@@ -152,7 +152,7 @@ export default function RoomDimensionEditor({
           </svg>
         );
 
-      case 'l-shaped':
+      case 'l-shaped': {
         const cw = (dimensions.cutoutWidth || 2000) * scale;
         const cd = (dimensions.cutoutDepth || 2000) * scale;
         return (
@@ -180,12 +180,12 @@ export default function RoomDimensionEditor({
               Cutout: {dimensions.cutoutWidth}×{dimensions.cutoutDepth}
             </text>
           </svg>
-        );
+                );
+      }
 
-      case 'u-shaped':
+      case 'u-shaped': {
         const lw = (dimensions.leftWingDepth || 1500) * scale;
         const rw = (dimensions.rightWingDepth || 1500) * scale;
-        const uOpeningWidth = w - lw - rw;
         return (
           <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-48">
             {/* U-shape */}
@@ -206,9 +206,10 @@ export default function RoomDimensionEditor({
               {dimensions.roomWidth}mm
             </text>
           </svg>
-        );
+                );
+      }
 
-      case 'galley':
+      case 'galley': {
         const corridorW = (dimensions.corridorWidth || 1200) * scale;
         return (
           <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-48">
@@ -237,9 +238,10 @@ export default function RoomDimensionEditor({
               Corridor: {dimensions.corridorWidth}mm
             </text>
           </svg>
-        );
+                );
+      }
 
-      case 'peninsula':
+      case 'peninsula': {
         const pl = (dimensions.peninsulaLength || 1800) * scale;
         const pw = (dimensions.peninsulaWidth || 600) * scale;
         return (
@@ -268,9 +270,10 @@ export default function RoomDimensionEditor({
               {dimensions.peninsulaLength}×{dimensions.peninsulaWidth}
             </text>
           </svg>
-        );
+                );
+      }
 
-      case 'island':
+      case 'island': {
         const iw = (dimensions.islandWidth || 2000) * scale;
         const id = (dimensions.islandDepth || 900) * scale;
         return (
@@ -299,7 +302,8 @@ export default function RoomDimensionEditor({
               Island: {dimensions.islandWidth}×{dimensions.islandDepth}
             </text>
           </svg>
-        );
+                );
+      }
 
       default:
         return null;
