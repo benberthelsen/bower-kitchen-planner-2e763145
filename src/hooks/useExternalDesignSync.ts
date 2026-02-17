@@ -7,6 +7,18 @@ import { externalSupabase, KitchenDesign, WebsiteAnalytics, Lead } from '@/integ
 import { usePlanner } from '@/store/PlannerContext';
 import { toast } from 'sonner';
 
+
+const isExpectedExternalError = (error: { code?: string | null; message?: string | null } | null) => {
+  if (!error) return false;
+
+  // RLS/auth errors are expected for anonymous sessions in some deployments.
+  if (error.code === '42501') return true;
+
+  const message = (error.message || '').toLowerCase();
+  return message.includes('failed to fetch') || message.includes('networkerror');
+};
+
+
 // Get or create session ID for analytics
 const getSessionId = (): string => {
   let sessionId = sessionStorage.getItem('designer_session_id');
@@ -104,7 +116,7 @@ export function useExternalDesignSync() {
       .from('website_analytics')
       .insert(analytics);
 
-    if (error) {
+    if (error && !isExpectedExternalError(error)) {
       console.error('Failed to track page view:', error);
     }
   }, []);

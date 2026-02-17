@@ -46,6 +46,8 @@ export interface ExtendedCatalogItem extends CatalogItemDefinition {
   renderConfig: CabinetRenderConfig;
   microvellumProduct?: MicrovellumProduct;
   specGroup?: string | null;
+  displayOrder?: number | null;
+  microvellumLinkId?: string | null;
 }
 
 function mapCategoryToItemType(category: string | null, specGroup: string | null): ItemType {
@@ -100,7 +102,7 @@ function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem
   const category = mapCategoryToCabinetType(product.category, product.spec_group);
   
   // Default dimensions based on category
-  let defaultWidth = product.default_width || 600;
+  const defaultWidth = product.default_width || 600;
   let defaultDepth = product.default_depth || 575;
   let defaultHeight = product.default_height || 870;
   
@@ -128,6 +130,8 @@ function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem
     renderConfig,
     microvellumProduct: product,
     specGroup: product.spec_group,
+    displayOrder: product.display_order,
+    microvellumLinkId: product.microvellum_link_id,
   };
 }
 
@@ -280,12 +284,12 @@ export function useCatalog(userType: UserType = 'standard') {
       } else if (userType === 'trade') {
         query = query
           .eq('visible_to_trade', true)
-          .order('category', { ascending: true })
+          .order('display_order', { ascending: true, nullsFirst: false })
           .order('name', { ascending: true });
       } else {
         // Admin sees everything
         query = query
-          .order('category', { ascending: true })
+          .order('display_order', { ascending: true, nullsFirst: false })
           .order('name', { ascending: true });
       }
       

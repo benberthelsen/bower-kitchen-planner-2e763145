@@ -52,8 +52,9 @@ function TradePlannerContent() {
     addItem, selectItem, setPlacementItem, dragState, startDrag, confirmDrag,
     loadSampleKitchen, sampleKitchens
   } = usePlanner();
-  const { user, loading: authLoading, signOut, isAdmin } = useAuth();
-  const { catalog } = useCatalog('trade');
+  const { user, loading: authLoading, signOut, isAdmin, userType } = useAuth();
+  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
+  const { catalog } = useCatalog(catalogMode);
   const [is3D, setIs3D] = useState(true);
   const setIs2D = useCallback(() => setIs3D(false), []);
   const [saving, setSaving] = useState(false);
@@ -247,7 +248,7 @@ function TradePlannerContent() {
       <div className="hidden md:flex h-full pt-14">
         <ResizableSidebar side="left" title="Full Cabinet Library">
           <UnifiedCatalog 
-            userType="trade" 
+            userType={catalogMode} 
             onSelectProduct={(id) => setPlacementItem(id)}
             placementItemId={placementItemId}
             onCancelPlacement={() => setPlacementItem(null)}
@@ -318,7 +319,7 @@ function TradePlannerContent() {
 
         <div className="hidden md:flex h-full">
           <ResizableSidebar side="right" title="Cabinet Schedule">
-            <PropertiesPanel userType="trade" />
+            <PropertiesPanel userType={catalogMode} />
           </ResizableSidebar>
         </div>
       </div>
