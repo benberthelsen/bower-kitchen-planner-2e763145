@@ -130,7 +130,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const kickHeight = recipe?.toeKick.enabled 
     ? (recipe.toeKick.height / 1000) 
     : ((globalDimensions?.toeKickHeight || 135) / 1000);
-  const hasKick = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
+
+  // Wall cabinets should never render base/tall toe-kick construction even if recipe data is noisy
+  const recipeKickEnabled = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
+  const hasKick = config.category === 'Wall' ? false : recipeKickEnabled;
   
   // Other global dimensions
   const btThickness = recipe?.benchtop.thickness 
