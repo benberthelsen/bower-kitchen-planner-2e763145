@@ -23,6 +23,7 @@ import { PlacedItem } from '@/types';
 import {
   ArrowLeft, 
   Save, 
+  FileDown, 
   FileDown,
   Undo2,
   Redo2,
@@ -376,51 +377,6 @@ export default function RoomPlanner() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* View Controls */}
-            <div className="flex items-center gap-1 border rounded-md p-1 mr-2">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7"
-                onClick={() => toast.info('Undo', { description: 'Coming soon' })}
-              >
-                <Undo2 className="w-4 h-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7"
-                onClick={() => toast.info('Redo', { description: 'Coming soon' })}
-              >
-                <Redo2 className="w-4 h-4" />
-              </Button>
-              <div className="w-px h-4 bg-border mx-1" />
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7"
-                onClick={() => toast.info('Zoom In', { description: 'Use scroll wheel to zoom' })}
-              >
-                <ZoomIn className="w-4 h-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7"
-                onClick={() => toast.info('Zoom Out', { description: 'Use scroll wheel to zoom' })}
-              >
-                <ZoomOut className="w-4 h-4" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7"
-                onClick={() => toast.info('Fit to View', { description: 'Coming soon' })}
-              >
-                <Maximize className="w-4 h-4" />
-              </Button>
-            </div>
-
             {/* Toggle Catalog */}
             <Button
               variant="outline"
