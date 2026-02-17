@@ -1,5 +1,4 @@
-import React, { useState, useRef } from 'react';
-import { X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -180,6 +179,7 @@ export default function RoomDimensionEditor({
               Cutout: {dimensions.cutoutWidth}×{dimensions.cutoutDepth}
             </text>
           </svg>
+        );
                 );
       }
 
@@ -206,6 +206,7 @@ export default function RoomDimensionEditor({
               {dimensions.roomWidth}mm
             </text>
           </svg>
+        );
                 );
       }
 
@@ -238,6 +239,7 @@ export default function RoomDimensionEditor({
               Corridor: {dimensions.corridorWidth}mm
             </text>
           </svg>
+        );
                 );
       }
 
@@ -270,6 +272,7 @@ export default function RoomDimensionEditor({
               {dimensions.peninsulaLength}×{dimensions.peninsulaWidth}
             </text>
           </svg>
+        );
                 );
       }
 
@@ -302,6 +305,7 @@ export default function RoomDimensionEditor({
               Island: {dimensions.islandWidth}×{dimensions.islandDepth}
             </text>
           </svg>
+        );
                 );
       }
 
