@@ -29,7 +29,15 @@ import DXFImport from "./pages/admin/pricing/DXFImport";
 import NotFound from "./pages/NotFound";
 import DevNavBar from "./components/DevNavBar";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Avoid repeated noisy retries in offline/restricted environments.
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
