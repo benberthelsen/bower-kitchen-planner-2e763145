@@ -75,7 +75,7 @@ export default function AdminReports() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.rpc('admin_generate_report_export', {
+      const { data, error } = await (supabase.rpc as any)('admin_generate_report_export', {
         p_report_type: reportType,
         p_start_date: startDate,
         p_end_date: endDate,
