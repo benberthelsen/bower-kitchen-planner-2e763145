@@ -167,7 +167,8 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
       return;
     }
     recordHistory();
-    let width = def.defaultWidth, depth = def.defaultDepth, height = def.defaultHeight, posY = 0;
+    const width = def.defaultWidth;
+    let depth = def.defaultDepth, height = def.defaultHeight, posY = 0;
     if (def.itemType === 'Cabinet') {
       if (def.category === 'Base') { 
         height = globalDimensions.baseHeight + globalDimensions.toeKickHeight; 
