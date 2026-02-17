@@ -102,7 +102,7 @@ function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem
   const category = mapCategoryToCabinetType(product.category, product.spec_group);
   
   // Default dimensions based on category
-  let defaultWidth = product.default_width || 600;
+  const defaultWidth = product.default_width || 600;
   let defaultDepth = product.default_depth || 575;
   let defaultHeight = product.default_height || 870;
   

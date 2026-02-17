@@ -23,7 +23,7 @@ const PlacementGhost: React.FC<PlacementGhostProps> = ({
   if (!placementItemId || !def) return null;
 
   // Calculate dimensions based on category
-  let width = def.defaultWidth;
+  const width = def.defaultWidth;
   let depth = def.defaultDepth;
   let height = def.defaultHeight;
   let posY = 0;

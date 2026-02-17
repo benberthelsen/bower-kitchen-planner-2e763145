@@ -96,7 +96,7 @@ function generateMicrovellumXML(data: {
   const createdDate = new Date(job.created_at).toISOString().split('T')[0];
 
   let cabinetXML = '';
-  let hardwareItems: { sku: string; qty: number; desc: string }[] = [];
+  const hardwareItems: { sku: string; qty: number; desc: string }[] = [];
 
   cabinets.forEach((cab, index) => {
     const cabNum = cab.cabinetNumber || `C${String(index + 1).padStart(2, '0')}`;
