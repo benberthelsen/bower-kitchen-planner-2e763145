@@ -23,9 +23,6 @@ import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import {
   ArrowLeft,
   Save,
-  ArrowLeft, 
-  Save, 
-  FileDown, 
   FileDown,
   Undo2,
   Redo2,
@@ -35,25 +32,18 @@ import {
   Box,
   PanelLeft,
   PanelLeftClose,
-  PanelLeftClose
 } from 'lucide-react';
 
 export default function RoomPlanner() {
   const { jobId, roomId } = useParams();
   const navigate = useNavigate();
-  const { catalog } = useCatalog('trade');
+  const { userType } = useAuth();
+  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
+  const { catalog } = useCatalog(catalogMode);
   const {
     currentRoom,
     setCurrentRoom,
     rooms,
-    hydrateRooms,
-  const { userType } = useAuth();
-  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
-  const { catalog } = useCatalog(catalogMode);
-  const { 
-    currentRoom, 
-    setCurrentRoom, 
-    rooms, 
     addRoom,
     addCabinet,
     placeCabinet,
@@ -61,6 +51,7 @@ export default function RoomPlanner() {
     selectCabinet,
     getSelectedCabinet,
     getCabinetsByRoom,
+    hydrateRooms,
   } = useTradeRoom();
 
   const { jobQuery, roomsFromServer, upsertCabinet, upsertJob, exportJobPdf } = useTradeJobPersistence(jobId);
@@ -85,6 +76,16 @@ export default function RoomPlanner() {
   const cabinets = currentRoom ? getCabinetsByRoom(currentRoom.id) : [];
   const [placementItemId, setPlacementItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+
+  const defaultHardwareDefaults = {
+    handleType: 'bar',
+    handleColor: 'matte-black',
+    hingeType: 'soft-close',
+    drawerType: 'soft-close',
+    softClose: true,
+    supplyHardware: true,
+    adjustableLegs: true,
+  };
 
   const {
     quoteBOM,
@@ -133,45 +134,10 @@ export default function RoomPlanner() {
   const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
     const catalogItem = catalogById.get(cabinet.definitionId);
     if (!catalogItem) return 0;
-
     const basePrice = catalogItem.price ?? 0;
     const widthScale = cabinet.dimensions.width / (catalogItem.defaultWidth || cabinet.dimensions.width || 1);
     return Math.max(0, basePrice * widthScale);
   }, [catalogById]);
-
-  const handleExportPlan = useCallback(() => {
-    if (!currentRoom) return;
-
-    const exportPayload = {
-      exportedAt: new Date().toISOString(),
-      jobId: jobId ?? null,
-      room: {
-        id: currentRoom.id,
-        name: currentRoom.name,
-        config: currentRoom.config,
-        dimensions: currentRoom.dimensions,
-      },
-      cabinets: cabinets.map((cabinet) => ({
-        ...cabinet,
-        estimatedPrice: getCabinetPrice(cabinet),
-      })),
-      totals: {
-        cabinets: cabinets.length,
-        estimatedPrice: cabinets.reduce((sum, c) => sum + getCabinetPrice(c), 0),
-      },
-    };
-
-    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${currentRoom.name.replace(/\s+/g, '-').toLowerCase() || 'kitchen-plan'}-${new Date().toISOString().split('T')[0]}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-
-    toast.success('Plan exported', { description: 'Downloaded room plan JSON' });
-  }, [currentRoom, cabinets, getCabinetPrice, jobId]);
-
 
   // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((
@@ -180,17 +146,14 @@ export default function RoomPlanner() {
     newCabinetWidth: number
   ) => {
     const placedCabinets = existingCabinets.filter(c => c.isPlaced && c.position);
-
     if (placedCabinets.length === 0) {
       return { x: room.config.width / 2 - newCabinetWidth / 2, y: 0, z: 50, rotation: 0 };
     }
-
     const sortedByX = [...placedCabinets].sort((a, b) =>
       (b.position!.x + b.dimensions.width) - (a.position!.x + a.dimensions.width)
     );
     const lastCabinet = sortedByX[0];
     const newX = lastCabinet.position!.x + lastCabinet.dimensions.width + 10;
-
     if (newX + newCabinetWidth > room.config.width - 50) {
       const sortedByZ = [...placedCabinets].sort((a, b) =>
         (b.position!.z + b.dimensions.depth) - (a.position!.z + a.dimensions.depth)
@@ -198,7 +161,6 @@ export default function RoomPlanner() {
       const frontCabinet = sortedByZ[0];
       return { x: 50, y: 0, z: frontCabinet.position!.z + frontCabinet.dimensions.depth + 100, rotation: 0 };
     }
-
     return { x: newX, y: 0, z: lastCabinet.position!.z, rotation: lastCabinet.position!.rotation };
   }, []);
 
@@ -231,7 +193,6 @@ export default function RoomPlanner() {
 
   const handleQuickAddProduct = useCallback(async (productId: string) => {
     if (!currentRoom) return;
-
     const catalogItem = catalog.find(item => item.id === productId);
     if (!catalogItem) {
       toast.error('Product not found');
@@ -241,19 +202,9 @@ export default function RoomPlanner() {
     const defaultWidth = catalogItem.defaultWidth || 600;
     const defaultHeight = catalogItem.defaultHeight || 720;
     const defaultDepth = catalogItem.defaultDepth || 580;
+
     const position = calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
 
-    const category = catalogItem.itemType === 'Appliance'
-      ? 'Appliance'
-      : getCategoryFromSpecGroup(catalogItem.specGroup) || catalogItem.category || 'Base';
-    // Calculate smart position
-    const position = calculateDefaultPosition(
-      currentRoom, 
-      cabinets, 
-      defaultWidth
-    );
-
-    // Determine category from Microvellum-derived render config first for accurate geometry
     const category = catalogItem.itemType === 'Appliance'
       ? 'Appliance'
       : catalogItem.renderConfig?.category
@@ -314,9 +265,7 @@ export default function RoomPlanner() {
 
   const handleExportPlan = useCallback(() => {
     if (!currentRoom) return;
-
     const exportedAt = new Date().toISOString();
-
     const exportPayload = {
       exportType: 'trade-room-plan',
       exportedAt,
@@ -422,30 +371,11 @@ export default function RoomPlanner() {
               Catalog
             </Button>
 
-            <Button variant="outline" size="sm" onClick={exportJobPdf}>
-            {/* Toggle Catalog */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowCatalog(!showCatalog)}
-            >
-              {showCatalog ? (
-                <PanelLeftClose className="w-4 h-4 mr-1" />
-              ) : (
-                <PanelLeft className="w-4 h-4 mr-1" />
-              )}
-              Catalog
-            </Button>
-
-            {/* Actions */}
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={handleExportPlan}
-            >
+            <Button variant="outline" size="sm" onClick={handleExportPlan}>
               <FileDown className="w-4 h-4 mr-1" />
               Export PDF
             </Button>
+
             <Button
               size="sm"
               className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
@@ -469,9 +399,7 @@ export default function RoomPlanner() {
           {showCatalog && (
             <div className="w-64 border-r">
               <UnifiedCatalog
-                userType="trade"
-              <UnifiedCatalog 
-                userType={catalogMode} 
+                userType={catalogMode}
                 onSelectProduct={handleQuickAddProduct}
                 placementItemId={placementItemId}
                 onCancelPlacement={() => setPlacementItemId(null)}

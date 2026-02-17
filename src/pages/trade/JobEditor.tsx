@@ -39,9 +39,9 @@ const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   drawerGap: room.dimensions.drawerGap,
   leftGap: room.dimensions.leftGap,
   rightGap: room.dimensions.rightGap,
-  upperTopMargin: room.dimensions.upperTopMargin,
-  upperBottomMargin: room.dimensions.upperBottomMargin,
-  baseTopMargin: room.dimensions.baseTopMargin,
+  upperTopMargin: room.dimensions.topMargin,
+  upperBottomMargin: room.dimensions.bottomMargin,
+  baseTopMargin: room.dimensions.topMargin,
 });
 
 export default function JobEditor() {
