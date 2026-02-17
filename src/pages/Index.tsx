@@ -55,7 +55,8 @@ function AppInner() {
     loadSampleKitchen, sampleKitchens
   } = usePlanner();
   const { user, loading: authLoading, signOut, isAdmin, userType } = useAuth();
-  const { catalog } = useCatalog('standard');
+  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
+  const { catalog } = useCatalog(catalogMode);
   const [is3D, setIs3D] = useState(true);
   const setIs2D = useCallback(() => setIs3D(false), []);
   const [saving, setSaving] = useState(false);
@@ -289,7 +290,7 @@ function AppInner() {
       <div className="hidden md:flex h-full pt-14">
         <ResizableSidebar side="left" title="Popular Cabinets">
           <UnifiedCatalog 
-            userType="standard" 
+            userType={catalogMode} 
             onSelectProduct={(id) => setPlacementItem(id)}
             placementItemId={placementItemId}
             onCancelPlacement={() => setPlacementItem(null)}
@@ -361,7 +362,7 @@ function AppInner() {
 
         <div className="hidden md:flex h-full">
           <ResizableSidebar side="right" title="Your Kitchen">
-            <PropertiesPanel userType="standard" />
+            <PropertiesPanel userType={catalogMode} />
           </ResizableSidebar>
         </div>
       </div>

@@ -16,6 +16,7 @@ import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
@@ -38,7 +39,9 @@ import {
 export default function RoomPlanner() {
   const { jobId, roomId } = useParams();
   const navigate = useNavigate();
-  const { catalog } = useCatalog('trade');
+  const { userType } = useAuth();
+  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
+  const { catalog } = useCatalog(catalogMode);
   const { 
     currentRoom, 
     setCurrentRoom, 
@@ -418,7 +421,7 @@ export default function RoomPlanner() {
           {showCatalog && (
             <div className="w-64 border-r">
               <UnifiedCatalog 
-                userType="trade" 
+                userType={catalogMode} 
                 onSelectProduct={handleQuickAddProduct}
                 placementItemId={placementItemId}
                 onCancelPlacement={() => setPlacementItemId(null)}
