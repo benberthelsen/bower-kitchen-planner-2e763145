@@ -19,7 +19,8 @@ import {
   DoorOpen,
   Clock,
   Percent,
-  FileCode
+  FileCode,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -31,6 +32,7 @@ const navItems = [
   { path: '/admin/products', label: 'Product Visibility', icon: Box },
   { path: '/admin/prices', label: 'Legacy Prices', icon: DollarSign },
   { path: '/admin/settings', label: 'Settings', icon: Settings },
+  { path: '/admin/reports', label: 'Reports', icon: FileSpreadsheet },
 ];
 
 const pricingItems = [
