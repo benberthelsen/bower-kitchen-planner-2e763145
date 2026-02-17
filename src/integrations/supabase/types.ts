@@ -748,6 +748,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_generate_report_export: {
+        Args: {
+          p_end_date: string
+          p_format?: string
+          p_report_type: string
+          p_start_date: string
+          p_tenant_company: string
+        }
+        Returns: {
+          filename: string
+          generated_at: string
+          mime_type: string
+          payload: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

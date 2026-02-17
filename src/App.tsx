@@ -15,6 +15,7 @@ import AdminJobDetail from "./pages/admin/JobDetail";
 import AdminCustomers from "./pages/admin/Customers";
 import AdminPrices from "./pages/admin/Prices";
 import AdminSettings from "./pages/admin/Settings";
+import AdminReports from "./pages/admin/Reports";
 import ProductVisibility from "./pages/admin/ProductVisibility";
 import PartsPricing from "./pages/admin/pricing/PartsPricing";
 import HardwarePricing from "./pages/admin/pricing/HardwarePricing";
@@ -76,6 +77,7 @@ const App = () => (
               <Route path="products" element={<ProductVisibility />} />
               <Route path="prices" element={<AdminPrices />} />
               <Route path="settings" element={<AdminSettings />} />
+              <Route path="reports" element={<AdminReports />} />
               {/* Pricing Management Routes */}
               <Route path="pricing/parts" element={<PartsPricing />} />
               <Route path="pricing/hardware" element={<HardwarePricing />} />
