@@ -1,7 +1,7 @@
 import { PlacedItem, RoomConfig, GlobalDimensions } from '../../types';
 import { SnapResult, SnapContext, GableSnapResult } from './types';
 import { getRotatedBounds, getEffectiveDimensions, checkCollision } from './bounds';
-import { findWallSnap, detectCorner, WALL_SNAP_THRESHOLD, getWallSurfaces } from './wallSnapping';
+import { findWallSnap, detectCorner, WALL_SNAP_THRESHOLD, getWallSurfaces, shouldMaintainWallAlignment } from './wallSnapping';
 import { findCabinetSnapPoints, CABINET_SNAP_THRESHOLD } from './cabinetSnapping';
 import { findGableSnapPoints, getBestGableSnap, calculateHandlePosition, getGableEdges } from './gableSnapping';
 import { CONSTRUCTION_STANDARDS } from '@/types/cabinetConfig';
@@ -24,6 +24,12 @@ export type { CornerSnapConfig, GableEdges, GableSnapPoint } from './gableSnappi
 
 // Gable snap threshold - tighter than bounding box snap for precision
 export const GABLE_SNAP_THRESHOLD = 50; // mm
+
+function normalizeToRightAngle(rotation: number): number {
+  const normalized = ((rotation % 360) + 360) % 360;
+  const snapped = Math.round(normalized / 90) * 90;
+  return snapped === 360 ? 0 : snapped;
+}
 
 /**
  * Main snapping calculation function
@@ -69,7 +75,7 @@ export function calculateSnapPosition(
   // Start with grid-snapped position
   let x = Math.round(rawX / gridSnap) * gridSnap;
   let z = Math.round(rawZ / gridSnap) * gridSnap;
-  let rotation = draggedItem.rotation;
+  let rotation = normalizeToRightAngle(draggedItem.rotation);
   let snappedTo: SnapResult['snappedTo'] = 'grid';
   let snapEdge: SnapResult['snapEdge'] = undefined;
   let snappedItemId: string | undefined = undefined;
@@ -86,11 +92,14 @@ export function calculateSnapPosition(
     z = corner.position.z;
     rotation = corner.rotation;
     snappedTo = 'corner';
-    return { x, z, rotation, snappedTo, snapEdge, snappedItemId, wallId };
+    rotation = normalizeToRightAngle(rotation);
+
+  return { x, z, rotation, snappedTo, snapEdge, snappedItemId, wallId };
   }
 
   // 2. Check wall snapping
-  const wallSnap = findWallSnap(rawX, rawZ, draggedItem, room, dims);
+  const maintainWallAlignment = shouldMaintainWallAlignment(draggedItem, room);
+  const wallSnap = findWallSnap(rawX, rawZ, draggedItem, room, dims, maintainWallAlignment);
   if (wallSnap?.snapped) {
     const wall = wallSnap.wall;
     wallId = wall.id;
@@ -170,7 +179,8 @@ export function calculateSnapPosition(
 
   // 4. Fall back to bounding-box cabinet snapping if no gable snap
   if (!usedGableSnap) {
-    const cabinetSnapPoints = findCabinetSnapPoints(tempItem, allItems, CABINET_SNAP_THRESHOLD);
+    const dynamicSnapThreshold = Math.max(CABINET_SNAP_THRESHOLD, Math.round(Math.min(draggedItem.width, draggedItem.depth) * 0.45));
+    const cabinetSnapPoints = findCabinetSnapPoints(tempItem, allItems, dynamicSnapThreshold);
 
     if (cabinetSnapPoints.length > 0) {
       const best = cabinetSnapPoints[0];
@@ -205,10 +215,12 @@ export function calculateSnapPosition(
         snapEdge = best.edge;
         snappedItemId = best.targetId;
         
-        // Inherit rotation from target cabinet if it's wall-aligned
+        // Inherit orientation from target cabinet for cleaner product-to-product runs
         const targetCabinet = allItems.find(item => item.instanceId === best.targetId);
-        if (targetCabinet && isWallAligned(targetCabinet, room, dims)) {
-          rotation = targetCabinet.rotation;
+        if (targetCabinet) {
+          if (isWallAligned(targetCabinet, room, dims) || best.edge === 'left' || best.edge === 'right') {
+            rotation = normalizeToRightAngle(targetCabinet.rotation);
+          }
         }
       }
     }
@@ -259,6 +271,8 @@ export function calculateSnapPosition(
   const finalEffDims = getEffectiveDimensions(testItem);
   x = Math.max(finalEffDims.width / 2 + wallGap, Math.min(room.width - finalEffDims.width / 2 - wallGap, x));
   z = Math.max(finalEffDims.depth / 2 + wallGap, Math.min(room.depth - finalEffDims.depth / 2 - wallGap, z));
+
+  rotation = normalizeToRightAngle(rotation);
 
   return { x, z, rotation, snappedTo, snapEdge, snappedItemId, wallId };
 }

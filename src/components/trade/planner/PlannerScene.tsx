@@ -25,24 +25,29 @@ interface PlannerSceneProps {
 const getDefaultFinish = () => FINISH_OPTIONS[0];
 const getDefaultBenchtop = () => BENCHTOP_OPTIONS[0];
 const getDefaultKick = () => KICK_OPTIONS[0];
-const getDefaultHandle = () => HANDLE_OPTIONS[0];
 
 // Full cabinet mesh for trade planner with proper rendering and snapping
 function TradeCabinetMesh({ 
   cabinet, 
   isSelected, 
   onSelect,
-  onDragEnd
+  onDragEnd,
+  handleId,
+  onInteractionChange
 }: { 
   cabinet: ConfiguredCabinet; 
   isSelected: boolean;
   onSelect: () => void;
   onDragEnd: (position: { x: number; z: number }) => void;
+  handleId?: string;
+  onInteractionChange: (isInteracting: boolean) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hovered, setHovered] = useState(false);
   const dragOffset = useRef({ x: 0, z: 0 });
+  const dragPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const dragPoint = useRef(new THREE.Vector3());
 
   // Get catalog item for render config
   const catalogItem = useCatalogItem(cabinet.definitionId);
@@ -51,7 +56,7 @@ function TradeCabinetMesh({
   const finishOption = getDefaultFinish();
   const benchtopOption = getDefaultBenchtop();
   const kickOption = getDefaultKick();
-  const handle = getDefaultHandle();
+  const handle = HANDLE_OPTIONS.find((option) => option.id === handleId) || HANDLE_OPTIONS[0];
   
   const { materials } = useCabinetMaterials(finishOption, benchtopOption, kickOption);
 
@@ -146,6 +151,10 @@ function TradeCabinetMesh({
 
   const initialRotation: [number, number, number] = [0, -THREE.MathUtils.degToRad(rotation), 0];
 
+  useEffect(() => () => {
+    document.body.style.cursor = 'default';
+  }, []);
+
   // Show loading placeholder while materials are loading
   if (!materials || !materials.gable) {
     return (
@@ -164,31 +173,52 @@ function TradeCabinetMesh({
       position={initialPosition}
       rotation={initialRotation}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
-      onPointerOver={() => setHovered(true)}
-      onPointerOut={() => setHovered(false)}
+      onPointerOver={() => {
+        setHovered(true);
+        document.body.style.cursor = isDragging ? 'grabbing' : 'grab';
+      }}
+      onPointerOut={() => {
+        setHovered(false);
+        if (!isDragging) document.body.style.cursor = 'default';
+      }}
       onPointerDown={(e) => {
         e.stopPropagation();
+        onSelect();
+
         if (e.button === 0 && groupRef.current) {
           setIsDragging(true);
-          dragOffset.current = {
-            x: e.point.x - groupRef.current.position.x,
-            z: e.point.z - groupRef.current.position.z
-          };
-          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          onInteractionChange(true);
+          document.body.style.cursor = 'grabbing';
+
+          dragPlane.current = new THREE.Plane(new THREE.Vector3(0, 1, 0), -groupRef.current.position.y);
+          if (e.ray.intersectPlane(dragPlane.current, dragPoint.current)) {
+            dragOffset.current = {
+              x: dragPoint.current.x - groupRef.current.position.x,
+              z: dragPoint.current.z - groupRef.current.position.z,
+            };
+          }
+
+          e.currentTarget.setPointerCapture(e.pointerId);
         }
       }}
       onPointerUp={(e) => {
         if (isDragging && groupRef.current) {
           setIsDragging(false);
+          onInteractionChange(false);
+          document.body.style.cursor = hovered ? 'grab' : 'default';
+
           const pos = groupRef.current.position;
           onDragEnd({ x: pos.x * 1000, z: pos.z * 1000 });
-          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+          e.currentTarget.releasePointerCapture(e.pointerId);
         }
       }}
       onPointerMove={(e) => {
         if (isDragging && groupRef.current) {
-          groupRef.current.position.x = e.point.x - dragOffset.current.x;
-          groupRef.current.position.z = e.point.z - dragOffset.current.z;
+          e.stopPropagation();
+          if (e.ray.intersectPlane(dragPlane.current, dragPoint.current)) {
+            groupRef.current.position.x = dragPoint.current.x - dragOffset.current.x;
+            groupRef.current.position.z = dragPoint.current.z - dragOffset.current.z;
+          }
         }
       }}
     >
@@ -209,7 +239,7 @@ function TradeCabinetMesh({
   );
 }
 
-function CameraController({ room, controlsRef }: { room: TradeRoom; controlsRef: React.RefObject<any> }) {
+function CameraController({ room, controlsRef, orbitEnabled }: { room: TradeRoom; controlsRef: React.RefObject<any>; orbitEnabled: boolean }) {
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
 
@@ -224,6 +254,7 @@ function CameraController({ room, controlsRef }: { room: TradeRoom; controlsRef:
     <>
       <PerspectiveCamera makeDefault position={[widthM * 1.5, 5, depthM * 1.5]} fov={45} />
       <OrbitControls 
+        enabled={orbitEnabled}
         ref={controlsRef} 
         makeDefault 
         enableDamping 
@@ -270,6 +301,7 @@ export function PlannerScene({
 }: PlannerSceneProps) {
   const { selectedCabinetId } = useTradeRoom();
   const controlsRef = useRef<any>(null);
+  const [orbitEnabled, setOrbitEnabled] = useState(true);
 
   const widthM = room.config.width / 1000;
   const depthM = room.config.depth / 1000;
@@ -314,7 +346,7 @@ export function PlannerScene({
   return (
     <div className={`w-full h-full ${className || ''}`}>
       <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ background: 'linear-gradient(to bottom, #f8fafc, #e2e8f0)' }}>
-        <CameraController room={room} controlsRef={controlsRef} />
+        <CameraController room={room} controlsRef={controlsRef} orbitEnabled={orbitEnabled} />
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} />
         <Environment preset="apartment" blur={0.8} background={false} />
@@ -349,6 +381,8 @@ export function PlannerScene({
               isSelected={selectedCabinetId === cabinet.instanceId}
               onSelect={() => onCabinetSelect(cabinet.instanceId)}
               onDragEnd={(pos) => handleCabinetDragEnd(cabinet.instanceId, pos)}
+              handleId={room.hardwareDefaults.handleType}
+              onInteractionChange={(isInteracting) => setOrbitEnabled(!isInteracting)}
             />
           ))}
         </group>
