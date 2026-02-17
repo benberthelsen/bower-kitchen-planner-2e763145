@@ -1,5 +1,4 @@
-import React, { useState, useRef } from 'react';
-import { X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
