@@ -180,7 +180,6 @@ export default function RoomDimensionEditor({
             </text>
           </svg>
         );
-                );
       }
 
       case 'u-shaped': {
@@ -207,7 +206,6 @@ export default function RoomDimensionEditor({
             </text>
           </svg>
         );
-                );
       }
 
       case 'galley': {
@@ -240,7 +238,6 @@ export default function RoomDimensionEditor({
             </text>
           </svg>
         );
-                );
       }
 
       case 'peninsula': {
@@ -273,7 +270,6 @@ export default function RoomDimensionEditor({
             </text>
           </svg>
         );
-                );
       }
 
       case 'island': {
@@ -306,7 +302,6 @@ export default function RoomDimensionEditor({
             </text>
           </svg>
         );
-                );
       }
 
       default:

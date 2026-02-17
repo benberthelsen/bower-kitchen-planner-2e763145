@@ -70,12 +70,12 @@ export function useTradeJobPersistence(jobId?: string) {
         design_data: {
           tradeRooms: serializeRooms(input.rooms),
           lastSyncedAt: new Date().toISOString(),
-        } as PersistedTradeDesignData,
+        } as unknown as PersistedTradeDesignData,
       };
 
       const { data, error } = await supabase
         .from('jobs')
-        .upsert(payload)
+        .upsert(payload as any)
         .select('id, name, status, design_data, updated_at')
         .single();
 
@@ -155,7 +155,7 @@ export function useTradeJobPersistence(jobId?: string) {
 
   const exportJobPdf = useCallback(() => {
     if (!jobQuery.data) return;
-    const data = (jobQuery.data.design_data || {}) as PersistedTradeDesignData;
+    const data = (jobQuery.data.design_data || {}) as unknown as PersistedTradeDesignData;
     const rooms = normalizeRooms((data.tradeRooms || []) as TradeRoom[]);
 
     const doc = new jsPDF();
