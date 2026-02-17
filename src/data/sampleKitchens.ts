@@ -21,7 +21,8 @@ export interface SampleKitchenPreset {
 function createPlacedItem(
   preset: { definitionId: string; x: number; z: number; rotation: number },
   index: number,
-  globalDimensions: GlobalDimensions
+  globalDimensions: GlobalDimensions,
+  room: RoomConfig
 ): PlacedItem {
   // Use default dimensions for sample kitchens (will be overridden when loading from database)
   const defaultDimensions: Record<string, { width: number; depth: number; height: number; category?: string }> = {
@@ -34,7 +35,7 @@ function createPlacedItem(
     'tall-600-2d': { width: 600, depth: 600, height: 2200, category: 'Tall' },
     'wall-600-2d': { width: 600, depth: 350, height: 720, category: 'Wall' },
     'wall-600-1d': { width: 600, depth: 350, height: 720, category: 'Wall' },
-    'wall-900-rh': { width: 900, depth: 350, height: 400, category: 'Wall' },
+    'wall-900-rh': { width: 900, depth: 350, height: 720, category: 'Wall' },
     'base-900-2d': { width: 900, depth: 575, height: 870, category: 'Base' },
     'tall-450-1d': { width: 450, depth: 600, height: 2200, category: 'Tall' },
     'wall-900-2d': { width: 900, depth: 350, height: 720, category: 'Wall' },
@@ -62,15 +63,36 @@ function createPlacedItem(
 
   const itemType = dims.category === 'Base' || dims.category === 'Wall' || dims.category === 'Tall' ? 'Cabinet' : 'Appliance';
 
+  const normalizedRotation = ((preset.rotation % 360) + 360) % 360;
+  const wallGap = globalDimensions.wallGap;
+
+  let x = preset.x;
+  let z = preset.z;
+
+  // Ensure sample presets are always wall-aligned by orientation
+  if (normalizedRotation === 0) {
+    z = depth / 2 + wallGap;
+  } else if (normalizedRotation === 180) {
+    z = room.depth - depth / 2 - wallGap;
+  } else if (normalizedRotation === 90) {
+    x = room.width - depth / 2 - wallGap;
+  } else if (normalizedRotation === 270) {
+    x = depth / 2 + wallGap;
+  }
+
+  // Clamp final position inside room bounds
+  x = Math.max(width / 2 + wallGap, Math.min(room.width - width / 2 - wallGap, x));
+  z = Math.max(depth / 2 + wallGap, Math.min(room.depth - depth / 2 - wallGap, z));
+
   return {
     instanceId: `sample_${index}_${Math.random().toString(36).substr(2, 6)}`,
     definitionId: preset.definitionId,
     itemType,
     cabinetNumber: itemType === 'Cabinet' ? `C${String(index + 1).padStart(2, '0')}` : undefined,
-    x: preset.x,
+    x,
     y: posY,
-    z: preset.z,
-    rotation: preset.rotation,
+    z,
+    rotation: normalizedRotation,
     width,
     depth,
     height,
@@ -255,7 +277,7 @@ export function loadSampleKitchen(kitchenId: string): {
   if (!preset) return null;
 
   const items = preset.items.map((item, index) => 
-    createPlacedItem(item, index, preset.globalDimensions)
+    createPlacedItem(item, index, preset.globalDimensions, preset.room)
   );
 
   return {
