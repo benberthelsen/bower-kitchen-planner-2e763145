@@ -180,7 +180,7 @@ export default function RoomDimensionEditor({
               Cutout: {dimensions.cutoutWidth}×{dimensions.cutoutDepth}
             </text>
           </svg>
-                );
+        );
       }
 
       case 'u-shaped': {
@@ -206,7 +206,7 @@ export default function RoomDimensionEditor({
               {dimensions.roomWidth}mm
             </text>
           </svg>
-                );
+        );
       }
 
       case 'galley': {
@@ -238,7 +238,7 @@ export default function RoomDimensionEditor({
               Corridor: {dimensions.corridorWidth}mm
             </text>
           </svg>
-                );
+        );
       }
 
       case 'peninsula': {
@@ -270,7 +270,7 @@ export default function RoomDimensionEditor({
               {dimensions.peninsulaLength}×{dimensions.peninsulaWidth}
             </text>
           </svg>
-                );
+        );
       }
 
       case 'island': {
@@ -302,7 +302,7 @@ export default function RoomDimensionEditor({
               Island: {dimensions.islandWidth}×{dimensions.islandDepth}
             </text>
           </svg>
-                );
+        );
       }
 
       default:
