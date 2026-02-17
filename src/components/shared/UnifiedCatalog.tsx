@@ -262,26 +262,33 @@ export function UnifiedCatalog({
 
         {/* Sample Kitchen Loader - Only for non-trade users */}
         {!isTrade && sampleKitchens && onLoadSampleKitchen && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="w-full justify-start gap-2">
-                <FolderOpen size={14} />
-                Load Sample Kitchen
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {Object.entries(sampleKitchens).map(([id, preset]) => (
-                <DropdownMenuItem 
-                  key={id} 
-                  onClick={() => onLoadSampleKitchen(id)}
-                  className="flex flex-col items-start"
-                >
-                  <span className="font-medium">{preset.name}</span>
-                  <span className="text-xs text-muted-foreground">{preset.cabinetCount} cabinets</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <>
+            <div className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1.5">
+              <p className="text-[10px] font-medium text-blue-900">Guided workflow</p>
+              <p className="text-[10px] text-blue-700">Pick a starter layout, then customise cabinets, finishes, and hardware.</p>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
+                  <FolderOpen size={14} />
+                  Load Layout Preset
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                {Object.entries(sampleKitchens).map(([id, preset]) => (
+                  <DropdownMenuItem 
+                    key={id} 
+                    onClick={() => onLoadSampleKitchen(id)}
+                    className="flex flex-col items-start"
+                  >
+                    <span className="font-medium">{preset.name}</span>
+                    <span className="text-xs text-muted-foreground">{preset.cabinetCount} cabinets</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         )}
 
         {/* Search */}
@@ -314,6 +321,11 @@ export function UnifiedCatalog({
         <p className="text-[10px] text-muted-foreground">
           Click to add or drag into scene
         </p>
+        {!isTrade && (
+          <p className="text-[10px] text-muted-foreground">
+            Built with original assets and naming. No affiliation with third-party planner brands.
+          </p>
+        )}
       </div>
 
       {/* Product List */}
