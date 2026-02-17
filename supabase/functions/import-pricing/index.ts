@@ -116,7 +116,7 @@ serve(async (req) => {
     // Batch insert/update
     const batchSize = 100;
     let inserted = 0;
-    let updated = 0;
+    const updated = 0;
     const errors: string[] = [];
 
     for (let i = 0; i < processedRecords.length; i += batchSize) {

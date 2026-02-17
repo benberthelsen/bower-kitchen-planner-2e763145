@@ -190,13 +190,24 @@ export function UnifiedCatalog({
 
   // Group by specGroup, filtering out hidden groups
   const groupedProducts = useMemo(() => {
-    return catalog.reduce((acc, product) => {
+    const grouped = catalog.reduce((acc, product) => {
       const group = product.specGroup || (isTrade ? 'Other' : product.category || 'Other');
       if (HIDDEN_SPEC_GROUPS.includes(group)) return acc;
       if (!acc[group]) acc[group] = [];
       acc[group].push(product);
       return acc;
     }, {} as Record<string, ExtendedCatalogItem[]>);
+
+    Object.keys(grouped).forEach((group) => {
+      grouped[group].sort((a, b) => {
+        const orderA = a.displayOrder ?? Number.MAX_SAFE_INTEGER;
+        const orderB = b.displayOrder ?? Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      });
+    });
+
+    return grouped;
   }, [catalog, isTrade]);
 
   // Filter by search
@@ -262,26 +273,33 @@ export function UnifiedCatalog({
 
         {/* Sample Kitchen Loader - Only for non-trade users */}
         {!isTrade && sampleKitchens && onLoadSampleKitchen && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="w-full justify-start gap-2">
-                <FolderOpen size={14} />
-                Load Sample Kitchen
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {Object.entries(sampleKitchens).map(([id, preset]) => (
-                <DropdownMenuItem 
-                  key={id} 
-                  onClick={() => onLoadSampleKitchen(id)}
-                  className="flex flex-col items-start"
-                >
-                  <span className="font-medium">{preset.name}</span>
-                  <span className="text-xs text-muted-foreground">{preset.cabinetCount} cabinets</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <>
+            <div className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1.5">
+              <p className="text-[10px] font-medium text-blue-900">Guided workflow</p>
+              <p className="text-[10px] text-blue-700">Pick a starter layout, then customise cabinets, finishes, and hardware.</p>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
+                  <FolderOpen size={14} />
+                  Load Layout Preset
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                {Object.entries(sampleKitchens).map(([id, preset]) => (
+                  <DropdownMenuItem 
+                    key={id} 
+                    onClick={() => onLoadSampleKitchen(id)}
+                    className="flex flex-col items-start"
+                  >
+                    <span className="font-medium">{preset.name}</span>
+                    <span className="text-xs text-muted-foreground">{preset.cabinetCount} cabinets</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         )}
 
         {/* Search */}
@@ -314,6 +332,11 @@ export function UnifiedCatalog({
         <p className="text-[10px] text-muted-foreground">
           Click to add or drag into scene
         </p>
+        {!isTrade && (
+          <p className="text-[10px] text-muted-foreground">
+            Built with original assets and naming. No affiliation with third-party planner brands.
+          </p>
+        )}
       </div>
 
       {/* Product List */}
