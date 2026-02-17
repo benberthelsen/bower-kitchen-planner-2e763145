@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -56,17 +57,35 @@ const App = () => (
               {/* Legacy Trade Planner (3D Scene) */}
               <Route path="/trade-planner" element={<TradePlanner />} />
               
+              {/* Consumer / DIY Routes */}
+              <Route path="/consumer" element={<Navigate to="/consumer/dashboard" replace />} />
+              <Route
+                path="/consumer/dashboard"
+                element={(
+                  <ProtectedRoute requireUserType="consumer">
+                    <Index />
+                  </ProtectedRoute>
+                )}
+              />
+
               {/* New Trade Dashboard Routes */}
-              <Route path="/trade" element={<Navigate to="/trade/dashboard" replace />} />
-              <Route path="/trade/dashboard" element={<TradeDashboard />} />
-              <Route path="/trade/jobs" element={<MyJobs />} />
-              <Route path="/trade/job/:jobId" element={<JobEditor />} />
-              <Route path="/trade/catalog" element={<ProductCatalog />} />
-              <Route path="/trade/job/:jobId/room/:roomId/configure/:productId" element={<ProductConfigurator />} />
-              <Route path="/trade/job/:jobId/room/:roomId/planner" element={<RoomPlanner />} />
-              <Route path="/trade/job/:jobId/room/:roomId/catalog" element={<ProductCatalog />} />
-              <Route path="/trade/hardware" element={<HardwareStore />} />
-              <Route path="/trade/settings" element={<TradeSettings />} />
+              <Route
+                path="/trade"
+                element={(
+                  <ProtectedRoute requireUserType="trade">
+                    <Navigate to="/trade/dashboard" replace />
+                  </ProtectedRoute>
+                )}
+              />
+              <Route path="/trade/dashboard" element={<ProtectedRoute requireUserType="trade"><TradeDashboard /></ProtectedRoute>} />
+              <Route path="/trade/jobs" element={<ProtectedRoute requireUserType="trade"><MyJobs /></ProtectedRoute>} />
+              <Route path="/trade/job/:jobId" element={<ProtectedRoute requireUserType="trade"><JobEditor /></ProtectedRoute>} />
+              <Route path="/trade/catalog" element={<ProtectedRoute requireUserType="trade"><ProductCatalog /></ProtectedRoute>} />
+              <Route path="/trade/job/:jobId/room/:roomId/configure/:productId" element={<ProtectedRoute requireUserType="trade"><ProductConfigurator /></ProtectedRoute>} />
+              <Route path="/trade/job/:jobId/room/:roomId/planner" element={<ProtectedRoute requireUserType="trade"><RoomPlanner /></ProtectedRoute>} />
+              <Route path="/trade/job/:jobId/room/:roomId/catalog" element={<ProtectedRoute requireUserType="trade"><ProductCatalog /></ProtectedRoute>} />
+              <Route path="/trade/hardware" element={<ProtectedRoute requireUserType="trade"><HardwareStore /></ProtectedRoute>} />
+              <Route path="/trade/settings" element={<ProtectedRoute requireUserType="trade"><TradeSettings /></ProtectedRoute>} />
             
             {/* Admin Routes */}
             <Route path="/admin" element={<AdminLayout />}>

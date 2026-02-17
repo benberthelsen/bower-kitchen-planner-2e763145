@@ -19,6 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import TradeLayout from './components/TradeLayout';
 import { useCatalog, ExtendedCatalogItem } from '@/hooks/useCatalog';
+import { useAuth } from '@/hooks/useAuth';
 
 type ViewMode = 'grid' | 'list';
 
@@ -56,7 +57,9 @@ const SPEC_GROUP_ICONS: Record<string, React.ReactNode> = {
 export default function ProductCatalog() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { catalog, groupedBySpecGroup, specGroups, isLoading } = useCatalog('trade');
+  const { userType } = useAuth();
+  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
+  const { catalog, groupedBySpecGroup, specGroups, isLoading } = useCatalog(catalogMode);
   
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
