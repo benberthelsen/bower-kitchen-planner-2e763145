@@ -190,13 +190,24 @@ export function UnifiedCatalog({
 
   // Group by specGroup, filtering out hidden groups
   const groupedProducts = useMemo(() => {
-    return catalog.reduce((acc, product) => {
+    const grouped = catalog.reduce((acc, product) => {
       const group = product.specGroup || (isTrade ? 'Other' : product.category || 'Other');
       if (HIDDEN_SPEC_GROUPS.includes(group)) return acc;
       if (!acc[group]) acc[group] = [];
       acc[group].push(product);
       return acc;
     }, {} as Record<string, ExtendedCatalogItem[]>);
+
+    Object.keys(grouped).forEach((group) => {
+      grouped[group].sort((a, b) => {
+        const orderA = a.displayOrder ?? Number.MAX_SAFE_INTEGER;
+        const orderB = b.displayOrder ?? Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      });
+    });
+
+    return grouped;
   }, [catalog, isTrade]);
 
   // Filter by search

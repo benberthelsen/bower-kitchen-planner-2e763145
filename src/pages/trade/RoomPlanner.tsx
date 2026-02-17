@@ -22,8 +22,7 @@ import { PlacedItem } from '@/types';
 import {
   ArrowLeft, 
   Save, 
-  FileDown, 
-  RotateCcw,
+  FileDown,
   Undo2,
   Redo2,
   ZoomIn,
@@ -31,8 +30,7 @@ import {
   Maximize,
   Box,
   PanelLeft,
-  PanelLeftClose,
-  Plus
+  PanelLeftClose
 } from 'lucide-react';
 
 export default function RoomPlanner() {
@@ -45,7 +43,6 @@ export default function RoomPlanner() {
     rooms, 
     addRoom,
     addCabinet,
-    updateCabinet,
     placeCabinet,
     selectedCabinetId,
     selectCabinet,
@@ -123,6 +120,51 @@ export default function RoomPlanner() {
     cutoutDepth: currentRoom?.config.cutoutDepth || 0,
   }), [currentRoom]);
 
+  const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
+
+  const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
+    const catalogItem = catalogById.get(cabinet.definitionId);
+    if (!catalogItem) return 0;
+
+    const basePrice = catalogItem.price ?? 0;
+    const widthScale = cabinet.dimensions.width / (catalogItem.defaultWidth || cabinet.dimensions.width || 1);
+    return Math.max(0, basePrice * widthScale);
+  }, [catalogById]);
+
+  const handleExportPlan = useCallback(() => {
+    if (!currentRoom) return;
+
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      jobId: jobId ?? null,
+      room: {
+        id: currentRoom.id,
+        name: currentRoom.name,
+        config: currentRoom.config,
+        dimensions: currentRoom.dimensions,
+      },
+      cabinets: cabinets.map((cabinet) => ({
+        ...cabinet,
+        estimatedPrice: getCabinetPrice(cabinet),
+      })),
+      totals: {
+        cabinets: cabinets.length,
+        estimatedPrice: cabinets.reduce((sum, c) => sum + getCabinetPrice(c), 0),
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${currentRoom.name.replace(/\s+/g, '-').toLowerCase() || 'kitchen-plan'}-${new Date().toISOString().split('T')[0]}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+
+    toast.success('Plan exported', { description: 'Downloaded room plan JSON' });
+  }, [currentRoom, cabinets, getCabinetPrice, jobId]);
+
+
   // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((
     room: TradeRoom,
@@ -179,11 +221,6 @@ export default function RoomPlanner() {
     selectCabinet(instanceId);
   };
 
-  const handleCabinetPlace = (instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
-    if (currentRoom) {
-      placeCabinet(currentRoom.id, instanceId, position);
-    }
-  };
 
   // Handle item move from UnifiedScene
   const handleItemMove = useCallback((id: string, updates: Partial<PlacedItem>) => {
@@ -221,10 +258,13 @@ export default function RoomPlanner() {
       defaultWidth
     );
 
-    // Determine category from specGroup (Appliances, Wall/Upper, Tall, or Base)
-    const category = catalogItem.itemType === 'Appliance' 
-      ? 'Appliance' 
-      : getCategoryFromSpecGroup(catalogItem.specGroup) || catalogItem.category || 'Base';
+    // Determine category from Microvellum-derived render config first for accurate geometry
+    const category = catalogItem.itemType === 'Appliance'
+      ? 'Appliance'
+      : catalogItem.renderConfig?.category
+        || getCategoryFromSpecGroup(catalogItem.specGroup)
+        || catalogItem.category
+        || 'Base';
 
     // Create cabinet with placement
     const newCabinet = addCabinet(currentRoom.id, {
@@ -396,7 +436,7 @@ export default function RoomPlanner() {
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => toast.info('Export PDF', { description: 'Coming soon' })}
+              onClick={handleExportPlan}
             >
               <FileDown className="w-4 h-4 mr-1" />
               Export
@@ -467,6 +507,7 @@ export default function RoomPlanner() {
           <CabinetListPanel
             roomId={currentRoom.id}
             cabinets={cabinets}
+            getCabinetPrice={getCabinetPrice}
             onEditCabinet={handleEditCabinet}
             onSelectCabinet={handleCabinetSelect}
             className="w-72"
