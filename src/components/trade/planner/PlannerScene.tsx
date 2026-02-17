@@ -32,15 +32,22 @@ function TradeCabinetMesh({
   isSelected, 
   onSelect,
   onDragEnd,
+<<<<<<< codex/fix-errors-in-pull-requests-6a5hko
   handleId,
   onInteractionChange
+=======
+  handleId
+>>>>>>> main
 }: { 
   cabinet: ConfiguredCabinet; 
   isSelected: boolean;
   onSelect: () => void;
   onDragEnd: (position: { x: number; z: number }) => void;
   handleId?: string;
+<<<<<<< codex/fix-errors-in-pull-requests-6a5hko
   onInteractionChange: (isInteracting: boolean) => void;
+=======
+>>>>>>> main
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -382,7 +389,10 @@ export function PlannerScene({
               onSelect={() => onCabinetSelect(cabinet.instanceId)}
               onDragEnd={(pos) => handleCabinetDragEnd(cabinet.instanceId, pos)}
               handleId={room.hardwareDefaults.handleType}
+<<<<<<< codex/fix-errors-in-pull-requests-6a5hko
               onInteractionChange={(isInteracting) => setOrbitEnabled(!isInteracting)}
+=======
+>>>>>>> main
             />
           ))}
         </group>
