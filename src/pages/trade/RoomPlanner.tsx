@@ -16,6 +16,7 @@ import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useTradeRoomPricing } from '@/hooks/useTradeRoomPricing';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
@@ -91,6 +92,19 @@ export default function RoomPlanner() {
   const cabinets = currentRoom ? getCabinetsByRoom(currentRoom.id) : [];
   const [placementItemId, setPlacementItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+
+  const {
+    quoteBOM,
+    perCabinetTotals,
+    roomTotal,
+    pricingVersion,
+    pricingHash,
+  } = useTradeRoomPricing({
+    cabinets,
+    dimensions: currentRoom?.dimensions || DEFAULT_GLOBAL_DIMENSIONS,
+    materialDefaults: currentRoom?.materialDefaults,
+    hardwareDefaults: currentRoom?.hardwareDefaults || defaultHardwareDefaults,
+  });
 
   // Convert ConfiguredCabinets to PlacedItems for UnifiedScene
   const placedItems: PlacedItem[] = useMemo(() => {
@@ -287,6 +301,61 @@ export default function RoomPlanner() {
     }
   };
 
+  const handleExportPlan = useCallback(() => {
+    if (!currentRoom) return;
+
+    const exportedAt = new Date().toISOString();
+
+    const exportPayload = {
+      exportType: 'trade-room-plan',
+      exportedAt,
+      pricing: {
+        source: 'bom',
+        version: pricingVersion ?? `trade-bom-${exportedAt}`,
+        hash: pricingHash,
+        roomTotal,
+        perCabinetTotals,
+      },
+      room: {
+        id: currentRoom.id,
+        name: currentRoom.name,
+        config: currentRoom.config,
+        dimensions: currentRoom.dimensions,
+        materialDefaults: currentRoom.materialDefaults,
+        hardwareDefaults: currentRoom.hardwareDefaults,
+      },
+      cabinets: cabinets.map((cabinet) => {
+        const catalogItem = catalog.find((item) => item.id === cabinet.definitionId);
+        return {
+          ...cabinet,
+          estimatedTotal: perCabinetTotals[cabinet.instanceId] ?? 0,
+          catalogPrice: catalogItem?.price ?? null,
+        };
+      }),
+      bomSummary: quoteBOM
+        ? {
+            grandTotal: quoteBOM.grandTotal,
+            consolidatedSheets: quoteBOM.consolidatedSheets,
+            consolidatedEdgeTape: quoteBOM.consolidatedEdgeTape,
+            consolidatedHardware: quoteBOM.consolidatedHardware,
+            cabinets: quoteBOM.cabinets,
+          }
+        : null,
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${currentRoom.name.replace(/\s+/g, '-').toLowerCase()}-plan-export.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    toast.success('Plan exported', {
+      description: `Room total ${new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(roomTotal)}`,
+    });
+  }, [cabinets, catalog, currentRoom, perCabinetTotals, pricingHash, pricingVersion, quoteBOM, roomTotal]);
+
   // Sync dialog cabinet with latest state when cabinet updates
   useEffect(() => {
     if (editDialogOpen && editDialogCabinet) {
@@ -396,7 +465,7 @@ export default function RoomPlanner() {
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => toast.info('Export PDF', { description: 'Coming soon' })}
+              onClick={handleExportPlan}
             >
               <FileDown className="w-4 h-4 mr-1" />
               Export
