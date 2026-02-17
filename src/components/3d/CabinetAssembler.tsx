@@ -83,11 +83,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   isDragged,
   hovered,
 }) => {
-  // Defensive checks for materials
-  if (!materials || !materials.gable) {
-    console.warn('CabinetAssembler: Invalid materials');
-    return null;
-  }
+  const hasValidMaterials = Boolean(materials?.gable);
 
   // Get construction recipe from product name
   const recipe = useMemo(() => {
@@ -134,7 +130,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const kickHeight = recipe?.toeKick.enabled 
     ? (recipe.toeKick.height / 1000) 
     : ((globalDimensions?.toeKickHeight || 135) / 1000);
-  const hasKick = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
+
+  // Wall cabinets should never render base/tall toe-kick construction even if recipe data is noisy
+  const recipeKickEnabled = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
+  const hasKick = config.category === 'Wall' ? false : recipeKickEnabled;
   
   // Other global dimensions
   const btThickness = recipe?.benchtop.thickness 
@@ -163,6 +162,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Interior width (between gables)
   const interiorWidth = widthM - gableThickness * 2;
   
+  if (!hasValidMaterials) {
+    console.warn('CabinetAssembler: Invalid materials');
+    return null;
+  }
+
   // Use material props from hook (already has correct grain direction per part)
   const { gable: gableMat, gableInterior: gableIntMat, gableExterior: gableExtMat,
           door: doorMat, drawer: drawerMat, shelf: shelfMat, 

@@ -25,19 +25,20 @@ interface PlannerSceneProps {
 const getDefaultFinish = () => FINISH_OPTIONS[0];
 const getDefaultBenchtop = () => BENCHTOP_OPTIONS[0];
 const getDefaultKick = () => KICK_OPTIONS[0];
-const getDefaultHandle = () => HANDLE_OPTIONS[0];
 
 // Full cabinet mesh for trade planner with proper rendering and snapping
 function TradeCabinetMesh({ 
   cabinet, 
   isSelected, 
   onSelect,
-  onDragEnd
+  onDragEnd,
+  handleId
 }: { 
   cabinet: ConfiguredCabinet; 
   isSelected: boolean;
   onSelect: () => void;
   onDragEnd: (position: { x: number; z: number }) => void;
+  handleId?: string;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -51,7 +52,7 @@ function TradeCabinetMesh({
   const finishOption = getDefaultFinish();
   const benchtopOption = getDefaultBenchtop();
   const kickOption = getDefaultKick();
-  const handle = getDefaultHandle();
+  const handle = HANDLE_OPTIONS.find((option) => option.id === handleId) || HANDLE_OPTIONS[0];
   
   const { materials } = useCabinetMaterials(finishOption, benchtopOption, kickOption);
 
@@ -349,6 +350,7 @@ export function PlannerScene({
               isSelected={selectedCabinetId === cabinet.instanceId}
               onSelect={() => onCabinetSelect(cabinet.instanceId)}
               onDragEnd={(pos) => handleCabinetDragEnd(cabinet.instanceId, pos)}
+              handleId={room.hardwareDefaults.handleType}
             />
           ))}
         </group>
