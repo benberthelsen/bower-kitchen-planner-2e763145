@@ -6,21 +6,28 @@ import { Loader2 } from 'lucide-react';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requireAdmin?: boolean;
+  requireUserType?: 'consumer' | 'trade';
 }
 
-export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
-  const { user, loading, isAdmin } = useAuth();
+function getUserTypeRedirectPath(requiredType: 'consumer' | 'trade'): string {
+  return requiredType === 'trade' ? '/consumer/dashboard' : '/trade/dashboard';
+}
+
+export function ProtectedRoute({ children, requireAdmin = false, requireUserType }: ProtectedRouteProps) {
+  const { user, loading, isAdmin, userType } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!loading) {
       if (!user) {
         navigate('/auth');
+      } else if (requireUserType && userType !== requireUserType) {
+        navigate(getUserTypeRedirectPath(requireUserType));
       } else if (requireAdmin && !isAdmin) {
         navigate('/');
       }
     }
-  }, [user, loading, isAdmin, requireAdmin, navigate]);
+  }, [user, loading, isAdmin, requireAdmin, requireUserType, userType, navigate]);
 
   if (loading) {
     return (
@@ -31,6 +38,7 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
   }
 
   if (!user) return null;
+  if (requireUserType && userType !== requireUserType) return null;
   if (requireAdmin && !isAdmin) return null;
 
   return <>{children}</>;

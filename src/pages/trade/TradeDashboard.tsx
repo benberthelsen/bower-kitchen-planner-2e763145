@@ -1,18 +1,18 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Plus, 
-  Pencil, 
-  FileText, 
-  Clock, 
-  CheckCircle2, 
+import {
+  Plus,
+  Pencil,
+  FileText,
+  Clock,
+  CheckCircle2,
   TrendingUp,
   Search,
   MoreHorizontal,
   Copy,
   Trash2,
   Eye,
-  Download
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,36 +23,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuth } from '@/hooks/useAuth';
+import { TradeJob, useTradeJobs } from '@/hooks/useTradeJobs';
 import TradeLayout from './components/TradeLayout';
 
-// Mock data for jobs - will be replaced with Supabase data
-const mockQuotedJobs = [
-  { id: '527714', name: 'Kitchen Renovation', cost: 4528.88, updatedAt: '7th of January 2026 at 04:13 PM', status: 'quoted' },
-  { id: '518253', name: 'Modern Kitchen', cost: 1528.88, updatedAt: '21st of November 2025 at 08:42 PM', status: 'quoted' },
-  { id: '470560', name: 'Laundry Cabinets', cost: 882.57, updatedAt: '13th of June 2025 at 02:22 PM', status: 'quoted' },
-  { id: '463538', name: 'Bathroom Vanity', cost: 445.00, updatedAt: '16th of May 2025 at 03:36 PM', status: 'quoted' },
-];
-
-const mockCompletedJobs = [
-  { id: '370464', name: 'Smith Kitchen', cost: 9731.59, updatedAt: '25th of March 2025 at 09:30 AM', status: 'completed' },
-  { id: '369503', name: 'Johnson Laundry', cost: 10345.37, updatedAt: '25th of March 2025 at 09:29 AM', status: 'completed' },
-];
-
-function StatCard({ icon: Icon, label, value, trend }: { 
-  icon: React.ElementType; 
-  label: string; 
-  value: string | number;
-  trend?: string;
-}) {
+function StatCard({ icon: Icon, label, value, trend }: { icon: React.ElementType; label: string; value: string | number; trend?: string }) {
   return (
     <div className="bg-trade-surface-elevated rounded-xl p-5 border border-trade-border shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
@@ -74,11 +50,7 @@ function StatCard({ icon: Icon, label, value, trend }: {
   );
 }
 
-function JobsTable({ jobs, title, showViewAll = true }: { 
-  jobs: typeof mockQuotedJobs; 
-  title: string;
-  showViewAll?: boolean;
-}) {
+function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
   const navigate = useNavigate();
 
   const getStatusBadge = (status: string) => {
@@ -98,16 +70,11 @@ function JobsTable({ jobs, title, showViewAll = true }: {
     <div className="bg-trade-surface-elevated rounded-xl border border-trade-border shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-trade-border flex items-center justify-between">
         <h3 className="font-display font-semibold text-trade-navy">{title}</h3>
-        {showViewAll && (
-          <Button variant="ghost" size="sm" className="text-trade-amber hover:text-trade-amber hover:bg-trade-amber/5">
-            View All
-          </Button>
-        )}
       </div>
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent border-trade-border">
-            <TableHead className="text-trade-muted font-medium">Job ID</TableHead>
+            <TableHead className="text-trade-muted font-medium">Job #</TableHead>
             <TableHead className="text-trade-muted font-medium">Job Name</TableHead>
             <TableHead className="text-trade-muted font-medium text-right">Cost (incl. Tax)</TableHead>
             <TableHead className="text-trade-muted font-medium">Last Updated</TableHead>
@@ -117,15 +84,11 @@ function JobsTable({ jobs, title, showViewAll = true }: {
         </TableHeader>
         <TableBody>
           {jobs.map((job) => (
-            <TableRow 
-              key={job.id} 
-              className="cursor-pointer hover:bg-trade-surface/50 border-trade-border"
-              onClick={() => navigate(`/trade/job/${job.id}`)}
-            >
-              <TableCell className="font-medium text-trade-navy">#{job.id}</TableCell>
+            <TableRow key={job.id} className="cursor-pointer hover:bg-trade-surface/50 border-trade-border" onClick={() => navigate(`/trade/job/${job.id}`)}>
+              <TableCell className="font-medium text-trade-navy">#{job.jobNumber}</TableCell>
               <TableCell>{job.name}</TableCell>
               <TableCell className="text-right font-medium">${job.cost.toLocaleString('en-AU', { minimumFractionDigits: 2 })}</TableCell>
-              <TableCell className="text-trade-muted text-sm">{job.updatedAt}</TableCell>
+              <TableCell className="text-trade-muted text-sm">{job.updatedAt ? new Date(job.updatedAt).toLocaleString('en-AU') : '-'}</TableCell>
               <TableCell>{getStatusBadge(job.status)}</TableCell>
               <TableCell>
                 <DropdownMenu>
@@ -147,10 +110,7 @@ function JobsTable({ jobs, title, showViewAll = true }: {
                       <Download className="h-4 w-4 mr-2" />
                       Export PDF
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-destructive focus:text-destructive"
-                    >
+                    <DropdownMenuItem onClick={(e) => e.stopPropagation()} className="text-destructive focus:text-destructive">
                       <Trash2 className="h-4 w-4 mr-2" />
                       Delete
                     </DropdownMenuItem>
@@ -168,10 +128,20 @@ function JobsTable({ jobs, title, showViewAll = true }: {
 export default function TradeDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { jobs, loading, error, stats } = useTradeJobs(user?.id);
   const [searchQuery, setSearchQuery] = useState('');
 
   const userName = user?.email?.split('@')[0] || 'Trade User';
   const greeting = getGreeting();
+
+  const filteredJobs = useMemo(
+    () => jobs.filter((job) => job.name.toLowerCase().includes(searchQuery.toLowerCase()) || `${job.jobNumber}`.includes(searchQuery)),
+    [jobs, searchQuery],
+  );
+
+  const quotedJobs = filteredJobs.filter((job) => job.status === 'quoted' || job.status === 'in_progress' || job.status === 'draft');
+  const completedJobs = filteredJobs.filter((job) => job.status === 'completed');
+  const latestJob = jobs[0];
 
   function getGreeting() {
     const hour = new Date().getHours();
@@ -183,7 +153,6 @@ export default function TradeDashboard() {
   return (
     <TradeLayout>
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl md:text-3xl font-display font-bold text-trade-navy">
@@ -194,22 +163,13 @@ export default function TradeDashboard() {
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-trade-muted" />
-              <Input 
-                placeholder="Search jobs..." 
-                className="pl-9 w-64 bg-trade-surface-elevated border-trade-border"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+              <Input placeholder="Search jobs..." className="pl-9 w-64 bg-trade-surface-elevated border-trade-border" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             </div>
           </div>
         </div>
 
-        {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          <button 
-            onClick={() => navigate('/trade/job/new')}
-            className="group flex items-center gap-4 p-5 bg-trade-navy rounded-xl text-white hover:bg-trade-navy-light transition-colors"
-          >
+          <button onClick={() => navigate('/trade/job/new')} className="group flex items-center gap-4 p-5 bg-trade-navy rounded-xl text-white hover:bg-trade-navy-light transition-colors">
             <div className="p-3 bg-white/10 rounded-lg group-hover:bg-white/20 transition-colors">
               <Plus className="h-6 w-6" />
             </div>
@@ -218,34 +178,41 @@ export default function TradeDashboard() {
               <span className="text-white/70 text-sm">Start a new cabinet order</span>
             </div>
           </button>
-          
-          <button 
-            onClick={() => navigate('/trade/job/527714')}
-            className="group flex items-center gap-4 p-5 bg-trade-surface-elevated border-2 border-trade-amber/30 rounded-xl hover:border-trade-amber transition-colors"
-          >
-            <div className="p-3 bg-trade-amber/10 rounded-lg group-hover:bg-trade-amber/20 transition-colors">
-              <Pencil className="h-6 w-6 text-trade-amber" />
-            </div>
-            <div className="text-left">
-              <span className="font-display font-semibold text-lg block text-trade-navy">Continue Editing</span>
-              <span className="text-trade-muted text-sm">Last Job: #527714</span>
-            </div>
-          </button>
+
+          {latestJob ? (
+            <button
+              onClick={() => navigate(`/trade/job/${latestJob.id}`)}
+              className="group flex items-center gap-4 p-5 bg-trade-surface-elevated border-2 border-trade-amber/30 rounded-xl hover:border-trade-amber transition-colors"
+            >
+              <div className="p-3 bg-trade-amber/10 rounded-lg group-hover:bg-trade-amber/20 transition-colors">
+                <Pencil className="h-6 w-6 text-trade-amber" />
+              </div>
+              <div className="text-left">
+                <span className="font-display font-semibold text-lg block text-trade-navy">Continue Editing</span>
+                <span className="text-trade-muted text-sm">Last Job: #{latestJob.jobNumber}</span>
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center p-5 border rounded-xl bg-muted/30 text-muted-foreground">Create your first job to continue editing later.</div>
+          )}
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard icon={FileText} label="Total Jobs" value={12} trend="+3 this month" />
-          <StatCard icon={Clock} label="In Progress" value={4} />
-          <StatCard icon={CheckCircle2} label="Completed" value={8} />
-          <StatCard icon={TrendingUp} label="Total Value" value="$45,231" trend="+12%" />
+          <StatCard icon={FileText} label="Total Jobs" value={stats.total} />
+          <StatCard icon={Clock} label="In Progress" value={stats.inProgress} />
+          <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} />
+          <StatCard icon={TrendingUp} label="Total Value" value={`$${stats.totalValue.toLocaleString('en-AU', { maximumFractionDigits: 0 })}`} />
         </div>
 
-        {/* Jobs Tables */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <JobsTable jobs={mockQuotedJobs} title="Quoted Jobs" />
-          <JobsTable jobs={mockCompletedJobs} title="Completed Jobs" />
-        </div>
+        {loading && <div className="text-sm text-muted-foreground">Loading jobs…</div>}
+        {error && <div className="text-sm text-destructive">Failed to load jobs: {error}</div>}
+
+        {!loading && !error && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <JobsTable jobs={quotedJobs} title="Quoted & Active Jobs" />
+            <JobsTable jobs={completedJobs} title="Completed Jobs" />
+          </div>
+        )}
       </div>
     </TradeLayout>
   );

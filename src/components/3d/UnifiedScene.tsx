@@ -120,7 +120,7 @@ function PlacementHandler({
       if (!def) return;
 
       // Get dimensions for the ghost item
-      let width = def.defaultWidth;
+      const width = def.defaultWidth;
       let depth = def.defaultDepth;
       if (def.itemType === 'Cabinet') {
         if (def.category === 'Base') depth = globalDimensions.baseDepth;
@@ -244,7 +244,7 @@ function DropZone({
         const def = catalog.find(c => c.id === definitionId);
         if (!def) return;
 
-        let width = def.defaultWidth;
+        const width = def.defaultWidth;
         let depth = def.defaultDepth;
         if (def.itemType === 'Cabinet') {
           if (def.category === 'Base') depth = globalDimensions.baseDepth;

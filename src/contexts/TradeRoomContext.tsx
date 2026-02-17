@@ -92,6 +92,7 @@ interface TradeRoomContextType {
   
   // Room management
   rooms: TradeRoom[];
+  hydrateRooms: (nextRooms: TradeRoom[]) => void;
   addRoom: (room: Omit<TradeRoom, 'id' | 'cabinets' | 'createdAt' | 'updatedAt'>) => TradeRoom;
   updateRoom: (roomId: string, updates: Partial<TradeRoom>) => void;
   deleteRoom: (roomId: string) => void;
@@ -175,6 +176,14 @@ export function TradeRoomProvider({ children }: { children: ReactNode }) {
   });
   const [currentRoom, setCurrentRoom] = useState<TradeRoom | null>(null);
   const [selectedCabinetId, setSelectedCabinetId] = useState<string | null>(null);
+
+  const hydrateRooms = useCallback((nextRooms: TradeRoom[]) => {
+    setRooms(nextRooms);
+    setCurrentRoom(prev => {
+      if (!prev) return null;
+      return nextRooms.find(room => room.id === prev.id) || null;
+    });
+  }, []);
 
   // Persist rooms to localStorage whenever they change
   useEffect(() => {
@@ -344,6 +353,7 @@ export function TradeRoomProvider({ children }: { children: ReactNode }) {
     currentRoom,
     setCurrentRoom,
     rooms,
+    hydrateRooms,
     addRoom,
     updateRoom,
     deleteRoom,
@@ -363,6 +373,7 @@ export function TradeRoomProvider({ children }: { children: ReactNode }) {
   }), [
     currentRoom,
     rooms,
+    hydrateRooms,
     addRoom,
     updateRoom,
     deleteRoom,
