@@ -42,7 +42,7 @@ function createPlacedItem(
 
   const dims = defaultDimensions[preset.definitionId] || { width: 600, depth: 575, height: 870, category: 'Base' };
   
-  let width = dims.width;
+  const width = dims.width;
   let depth = dims.depth;
   let height = dims.height;
   let posY = 0;

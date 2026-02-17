@@ -28,6 +28,7 @@ import {
 interface CabinetListPanelProps {
   roomId: string;
   cabinets: ConfiguredCabinet[];
+  getCabinetPrice?: (cabinet: ConfiguredCabinet) => number;
   onEditCabinet: (cabinet: ConfiguredCabinet) => void;
   onSelectCabinet: (instanceId: string | null) => void;
   className?: string;
@@ -75,6 +76,7 @@ const CATEGORY_CONFIG: Record<string, {
 export function CabinetListPanel({
   roomId,
   cabinets,
+  getCabinetPrice,
   onEditCabinet,
   onSelectCabinet,
   className,
@@ -87,6 +89,10 @@ export function CabinetListPanel({
   } = useTradeRoom();
 
   const totals = getRoomTotals(roomId);
+  const estimatedTotal = useMemo(
+    () => cabinets.reduce((sum, cabinet) => sum + (getCabinetPrice?.(cabinet) ?? 0), 0),
+    [cabinets, getCabinetPrice]
+  );
   
   // Track expanded categories
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
@@ -224,6 +230,7 @@ export function CabinetListPanel({
                       <CabinetListItem
                         key={cabinet.instanceId}
                         cabinet={cabinet}
+                        price={getCabinetPrice?.(cabinet)}
                         isSelected={selectedCabinetId === cabinet.instanceId}
                         onSelect={() => onSelectCabinet(cabinet.instanceId)}
                         onEdit={() => onEditCabinet(cabinet)}
@@ -242,6 +249,12 @@ export function CabinetListPanel({
       {/* Summary */}
       {cabinets.length > 0 && (
         <div className="p-4 border-t bg-muted/30">
+          <div className="flex items-center justify-between text-sm mb-1">
+            <span className="text-muted-foreground">Est. Total</span>
+            <span className="font-semibold text-trade-navy">
+              {new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(estimatedTotal)}
+            </span>
+          </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Total Cabinets</span>
             <span className="font-semibold text-trade-navy">{cabinets.length}</span>
@@ -254,6 +267,7 @@ export function CabinetListPanel({
 
 interface CabinetListItemProps {
   cabinet: ConfiguredCabinet;
+  price?: number;
   isSelected: boolean;
   onSelect: () => void;
   onEdit: () => void;
@@ -263,6 +277,7 @@ interface CabinetListItemProps {
 
 function CabinetListItem({
   cabinet,
+  price,
   isSelected,
   onSelect,
   onEdit,
@@ -296,6 +311,11 @@ function CabinetListItem({
           <span className="text-xs text-muted-foreground">
             {cabinet.dimensions.width} × {cabinet.dimensions.depth}mm
           </span>
+          {price !== undefined && (
+            <span className="text-[10px] font-medium text-trade-navy/80">
+              {new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(price)}
+            </span>
+          )}
           {cabinet.isPlaced ? (
             <span className="flex items-center gap-0.5 text-[10px] text-green-600">
               <Check className="w-3 h-3" />

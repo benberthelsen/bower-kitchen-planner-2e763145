@@ -2,69 +2,82 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import TradeLayout from './components/TradeLayout';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Settings, User, Bell, Palette } from 'lucide-react';
+import { ArrowLeft, Save } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useTradeSettings } from '@/hooks/useTradeSettings';
+import { useHardwareDefaults } from '@/hooks/useHardwareDefaults';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
 
 export default function TradeSettings() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { settings, updateSettings, markupProfiles, loadingProfiles } = useTradeSettings(user?.id);
+  const { hardware } = useHardwareDefaults();
 
   return (
     <TradeLayout>
-      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+      <div className="p-6 lg:p-8 max-w-4xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => navigate('/trade/dashboard')}
-          >
+          <Button variant="ghost" size="icon" onClick={() => navigate('/trade/dashboard')}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-display font-bold text-trade-navy">Settings</h1>
-            <p className="text-trade-muted text-sm">Manage your account and preferences</p>
+            <h1 className="text-2xl font-display font-bold text-trade-navy">Trade Settings</h1>
+            <p className="text-trade-muted text-sm">Persisted defaults for materials, hardware, and markup profile</p>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-          <div className="bg-trade-surface-elevated rounded-xl border border-trade-border p-5 opacity-60">
-            <div className="p-2 bg-trade-amber/10 rounded-lg w-fit mb-3">
-              <User className="h-5 w-5 text-trade-amber" />
-            </div>
-            <h3 className="font-display font-semibold text-trade-navy">Profile</h3>
-            <p className="text-sm text-trade-muted mt-1">Manage your account details</p>
-            <span className="text-xs text-trade-amber mt-2 inline-block">Coming Soon</span>
+        <div className="bg-trade-surface-elevated rounded-xl border border-trade-border p-6 space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="material-default">Default material</Label>
+            <Input
+              id="material-default"
+              value={settings.materialDefault}
+              onChange={(e) => updateSettings({ materialDefault: e.target.value })}
+              placeholder="e.g. Prime Oak"
+            />
           </div>
 
-          <div className="bg-trade-surface-elevated rounded-xl border border-trade-border p-5 opacity-60">
-            <div className="p-2 bg-trade-amber/10 rounded-lg w-fit mb-3">
-              <Bell className="h-5 w-5 text-trade-amber" />
-            </div>
-            <h3 className="font-display font-semibold text-trade-navy">Notifications</h3>
-            <p className="text-sm text-trade-muted mt-1">Email and push preferences</p>
-            <span className="text-xs text-trade-amber mt-2 inline-block">Coming Soon</span>
+          <div className="space-y-2">
+            <Label>Default hardware SKU</Label>
+            <Select value={settings.hardwareSku || 'none'} onValueChange={(value) => updateSettings({ hardwareSku: value === 'none' ? '' : value })}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a hardware SKU" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {hardware.map((item) => (
+                  <SelectItem key={item.id} value={item.sku}>{item.name} ({item.sku})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <div className="bg-trade-surface-elevated rounded-xl border border-trade-border p-5 opacity-60">
-            <div className="p-2 bg-trade-amber/10 rounded-lg w-fit mb-3">
-              <Palette className="h-5 w-5 text-trade-amber" />
-            </div>
-            <h3 className="font-display font-semibold text-trade-navy">Defaults</h3>
-            <p className="text-sm text-trade-muted mt-1">Default materials & hardware</p>
-            <span className="text-xs text-trade-amber mt-2 inline-block">Coming Soon</span>
+          <div className="space-y-2">
+            <Label>Default markup profile</Label>
+            <Select value={settings.markupProfileId || 'none'} onValueChange={(value) => updateSettings({ markupProfileId: value === 'none' ? '' : value })}>
+              <SelectTrigger>
+                <SelectValue placeholder={loadingProfiles ? 'Loading profiles...' : 'Select a markup profile'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {markupProfiles.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
 
-        <div className="bg-trade-surface-elevated rounded-xl border border-trade-border p-8 text-center">
-          <div className="max-w-md mx-auto">
-            <div className="w-12 h-12 bg-trade-amber/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Settings className="h-6 w-6 text-trade-amber" />
-            </div>
-            <h2 className="text-lg font-display font-semibold text-trade-navy mb-2">
-              Settings Under Development
-            </h2>
-            <p className="text-trade-muted text-sm">
-              Full settings panel with profile management, notification preferences, and default configurations coming soon.
-            </p>
-          </div>
+          <Button
+            onClick={() => toast.success('Trade defaults saved', { description: 'Your settings are persisted for this account.' })}
+            className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
+          >
+            <Save className="h-4 w-4 mr-2" />
+            Save Defaults
+          </Button>
         </div>
       </div>
     </TradeLayout>

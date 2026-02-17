@@ -14,6 +14,7 @@ import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
@@ -21,6 +22,9 @@ import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import {
   ArrowLeft,
   Save,
+  ArrowLeft, 
+  Save, 
+  FileDown, 
   FileDown,
   Undo2,
   Redo2,
@@ -30,6 +34,7 @@ import {
   Box,
   PanelLeft,
   PanelLeftClose,
+  PanelLeftClose
 } from 'lucide-react';
 
 export default function RoomPlanner() {
@@ -41,6 +46,14 @@ export default function RoomPlanner() {
     setCurrentRoom,
     rooms,
     hydrateRooms,
+  const { userType } = useAuth();
+  const catalogMode = userType === 'trade' ? 'trade' : 'standard';
+  const { catalog } = useCatalog(catalogMode);
+  const { 
+    currentRoom, 
+    setCurrentRoom, 
+    rooms, 
+    addRoom,
     addCabinet,
     placeCabinet,
     selectedCabinetId,
@@ -100,6 +113,52 @@ export default function RoomPlanner() {
     cutoutDepth: currentRoom?.config.cutoutDepth || 0,
   }), [currentRoom]);
 
+  const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
+
+  const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
+    const catalogItem = catalogById.get(cabinet.definitionId);
+    if (!catalogItem) return 0;
+
+    const basePrice = catalogItem.price ?? 0;
+    const widthScale = cabinet.dimensions.width / (catalogItem.defaultWidth || cabinet.dimensions.width || 1);
+    return Math.max(0, basePrice * widthScale);
+  }, [catalogById]);
+
+  const handleExportPlan = useCallback(() => {
+    if (!currentRoom) return;
+
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      jobId: jobId ?? null,
+      room: {
+        id: currentRoom.id,
+        name: currentRoom.name,
+        config: currentRoom.config,
+        dimensions: currentRoom.dimensions,
+      },
+      cabinets: cabinets.map((cabinet) => ({
+        ...cabinet,
+        estimatedPrice: getCabinetPrice(cabinet),
+      })),
+      totals: {
+        cabinets: cabinets.length,
+        estimatedPrice: cabinets.reduce((sum, c) => sum + getCabinetPrice(c), 0),
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${currentRoom.name.replace(/\s+/g, '-').toLowerCase() || 'kitchen-plan'}-${new Date().toISOString().split('T')[0]}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+
+    toast.success('Plan exported', { description: 'Downloaded room plan JSON' });
+  }, [currentRoom, cabinets, getCabinetPrice, jobId]);
+
+
+  // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((
     room: TradeRoom,
     existingCabinets: ConfiguredCabinet[],
@@ -172,6 +231,20 @@ export default function RoomPlanner() {
     const category = catalogItem.itemType === 'Appliance'
       ? 'Appliance'
       : getCategoryFromSpecGroup(catalogItem.specGroup) || catalogItem.category || 'Base';
+    // Calculate smart position
+    const position = calculateDefaultPosition(
+      currentRoom, 
+      cabinets, 
+      defaultWidth
+    );
+
+    // Determine category from Microvellum-derived render config first for accurate geometry
+    const category = catalogItem.itemType === 'Appliance'
+      ? 'Appliance'
+      : catalogItem.renderConfig?.category
+        || getCategoryFromSpecGroup(catalogItem.specGroup)
+        || catalogItem.category
+        || 'Base';
 
     const newCabinet = addCabinet(currentRoom.id, {
       definitionId: productId,
@@ -279,6 +352,26 @@ export default function RoomPlanner() {
             </Button>
 
             <Button variant="outline" size="sm" onClick={exportJobPdf}>
+            {/* Toggle Catalog */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCatalog(!showCatalog)}
+            >
+              {showCatalog ? (
+                <PanelLeftClose className="w-4 h-4 mr-1" />
+              ) : (
+                <PanelLeft className="w-4 h-4 mr-1" />
+              )}
+              Catalog
+            </Button>
+
+            {/* Actions */}
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={handleExportPlan}
+            >
               <FileDown className="w-4 h-4 mr-1" />
               Export PDF
             </Button>
@@ -306,6 +399,8 @@ export default function RoomPlanner() {
             <div className="w-64 border-r">
               <UnifiedCatalog
                 userType="trade"
+              <UnifiedCatalog 
+                userType={catalogMode} 
                 onSelectProduct={handleQuickAddProduct}
                 placementItemId={placementItemId}
                 onCancelPlacement={() => setPlacementItemId(null)}
@@ -347,6 +442,7 @@ export default function RoomPlanner() {
           <CabinetListPanel
             roomId={currentRoom.id}
             cabinets={cabinets}
+            getCabinetPrice={getCabinetPrice}
             onEditCabinet={handleEditCabinet}
             onSelectCabinet={handleCabinetSelect}
             className="w-72"
