@@ -31,6 +31,8 @@ interface CabinetListPanelProps {
   getCabinetPrice?: (cabinet: ConfiguredCabinet) => number;
   onEditCabinet: (cabinet: ConfiguredCabinet) => void;
   onSelectCabinet: (instanceId: string | null) => void;
+  onDuplicateCabinet?: (cabinet: ConfiguredCabinet) => Promise<void> | void;
+  onRemoveCabinet?: (cabinet: ConfiguredCabinet) => Promise<void> | void;
   className?: string;
 }
 
@@ -79,14 +81,11 @@ export function CabinetListPanel({
   getCabinetPrice,
   onEditCabinet,
   onSelectCabinet,
+  onDuplicateCabinet,
+  onRemoveCabinet,
   className,
 }: CabinetListPanelProps) {
-  const { 
-    selectedCabinetId, 
-    removeCabinet, 
-    duplicateCabinet,
-    getRoomTotals 
-  } = useTradeRoom();
+  const { selectedCabinetId, removeCabinet, duplicateCabinet, getRoomTotals } = useTradeRoom();
 
   const totals = getRoomTotals(roomId);
   const estimatedTotal = useMemo(
@@ -111,11 +110,19 @@ export function CabinetListPanel({
     });
   };
   
-  const handleDuplicate = (cabinet: ConfiguredCabinet) => {
+  const handleDuplicate = async (cabinet: ConfiguredCabinet) => {
+    if (onDuplicateCabinet) {
+      await onDuplicateCabinet(cabinet);
+      return;
+    }
     duplicateCabinet(roomId, cabinet.instanceId);
   };
 
-  const handleRemove = (cabinet: ConfiguredCabinet) => {
+  const handleRemove = async (cabinet: ConfiguredCabinet) => {
+    if (onRemoveCabinet) {
+      await onRemoveCabinet(cabinet);
+      return;
+    }
     removeCabinet(roomId, cabinet.instanceId);
   };
 

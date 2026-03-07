@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ConfiguredCabinet, CabinetDimensions, CabinetMaterials, CabinetHardware, useTradeRoom } from '@/contexts/TradeRoomContext';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -22,6 +22,7 @@ interface InlineConfiguratorProps {
   cabinet: ConfiguredCabinet;
   onClose: () => void;
   onOpenFull: () => void;
+  onCabinetPatch?: (instanceId: string, updates: Partial<ConfiguredCabinet>) => Promise<void> | void;
   className?: string;
 }
 
@@ -30,27 +31,41 @@ export function InlineConfigurator({
   cabinet,
   onClose,
   onOpenFull,
+  onCabinetPatch,
   className,
 }: InlineConfiguratorProps) {
   const { updateCabinet } = useTradeRoom();
   const [activeTab, setActiveTab] = useState('dimensions');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const queuePatch = (updates: Partial<ConfiguredCabinet>) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void onCabinetPatch?.(cabinet.instanceId, updates);
+    }, 250);
+  };
 
   const handleUpdateDimensions = (updates: Partial<CabinetDimensions>) => {
-    updateCabinet(roomId, cabinet.instanceId, {
-      dimensions: { ...cabinet.dimensions, ...updates },
-    });
+    const next = {
+      width: Math.max(150, updates.width ?? cabinet.dimensions.width),
+      height: Math.max(200, updates.height ?? cabinet.dimensions.height),
+      depth: Math.max(200, updates.depth ?? cabinet.dimensions.depth),
+    };
+
+    updateCabinet(roomId, cabinet.instanceId, { dimensions: next });
+    queuePatch({ dimensions: next });
   };
 
   const handleUpdateMaterials = (updates: Partial<CabinetMaterials>) => {
-    updateCabinet(roomId, cabinet.instanceId, {
-      materials: { ...cabinet.materials, ...updates },
-    });
+    const next = { ...cabinet.materials, ...updates };
+    updateCabinet(roomId, cabinet.instanceId, { materials: next });
+    queuePatch({ materials: next });
   };
 
   const handleUpdateHardware = (updates: Partial<CabinetHardware>) => {
-    updateCabinet(roomId, cabinet.instanceId, {
-      hardware: { ...cabinet.hardware, ...updates },
-    });
+    const next = { ...cabinet.hardware, ...updates };
+    updateCabinet(roomId, cabinet.instanceId, { hardware: next });
+    queuePatch({ hardware: next });
   };
 
   return (

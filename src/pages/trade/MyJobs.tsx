@@ -7,6 +7,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTradeJobs } from '@/hooks/useTradeJobs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { TRADE_JOB_STATUS_LABELS, TradeJob } from '@/types/trade';
+
+const TRADE_STATUS_BADGE_STYLES: Record<TradeJob['status'], string> = {
+  draft: 'bg-slate-100 text-slate-700 border-slate-200',
+  pending_approval: 'bg-amber-100 text-amber-900 border-amber-200',
+  approved: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+  in_production: 'bg-sky-100 text-sky-900 border-sky-200',
+  completed: 'bg-green-100 text-green-900 border-green-200',
+};
 
 export default function MyJobs() {
   const navigate = useNavigate();
@@ -64,7 +73,11 @@ export default function MyJobs() {
                 <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(`/trade/job/${job.id}`)}>
                   <TableCell>#{job.jobNumber}</TableCell>
                   <TableCell className="font-medium">{job.name}</TableCell>
-                  <TableCell><Badge variant="secondary">{job.status}</Badge></TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={TRADE_STATUS_BADGE_STYLES[job.status]}>
+                      {TRADE_JOB_STATUS_LABELS[job.status]}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-right">${job.cost.toLocaleString('en-AU', { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell>{job.updatedAt ? new Date(job.updatedAt).toLocaleString('en-AU') : '-'}</TableCell>
                 </TableRow>
