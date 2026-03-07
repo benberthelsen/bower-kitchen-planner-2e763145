@@ -1,4 +1,4 @@
-import { RoomConfig, PlacedItem, GlobalDimensions, HardwareOptions, CatalogItemDefinition } from '@/types';
+import { RoomConfig, PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 import { DEFAULT_GLOBAL_DIMENSIONS, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS } from '@/constants';
 
 export interface SampleKitchenPreset {
@@ -13,36 +13,47 @@ export interface SampleKitchenPreset {
     x: number;
     z: number;
     rotation: number;
+    endPanelLeft?: boolean;
+    endPanelRight?: boolean;
+    fillerLeft?: number;
+    fillerRight?: number;
   }>;
 }
 
-// Sample kitchens use legacy definition IDs - these will work only with the fallback catalog
-// In production, sample kitchens should be updated to use Microvellum product IDs
+// Default dimensions lookup for sample kitchen items
+const DEFAULT_DIMS: Record<string, { width: number; depth: number; height: number; category?: string }> = {
+  'base-600-3dr': { width: 600, depth: 575, height: 870, category: 'Base' },
+  'base-600-sink': { width: 600, depth: 575, height: 870, category: 'Base' },
+  'app-dw-600': { width: 600, depth: 600, height: 850 },
+  'base-600-1d': { width: 600, depth: 575, height: 870, category: 'Base' },
+  'base-900-lc': { width: 900, depth: 900, height: 870, category: 'Base' },
+  'base-600-ov': { width: 600, depth: 575, height: 870, category: 'Base' },
+  'tall-600-2d': { width: 600, depth: 600, height: 2200, category: 'Tall' },
+  'wall-600-2d': { width: 600, depth: 350, height: 720, category: 'Wall' },
+  'wall-600-1d': { width: 600, depth: 350, height: 720, category: 'Wall' },
+  'wall-900-rh': { width: 900, depth: 350, height: 720, category: 'Wall' },
+  'base-900-2d': { width: 900, depth: 575, height: 870, category: 'Base' },
+  'tall-450-1d': { width: 450, depth: 600, height: 2200, category: 'Tall' },
+  'wall-900-2d': { width: 900, depth: 350, height: 720, category: 'Wall' },
+};
+
 function createPlacedItem(
-  preset: { definitionId: string; x: number; z: number; rotation: number },
+  preset: {
+    definitionId: string;
+    x: number;
+    z: number;
+    rotation: number;
+    endPanelLeft?: boolean;
+    endPanelRight?: boolean;
+    fillerLeft?: number;
+    fillerRight?: number;
+  },
   index: number,
   globalDimensions: GlobalDimensions,
   room: RoomConfig
 ): PlacedItem {
-  // Use default dimensions for sample kitchens (will be overridden when loading from database)
-  const defaultDimensions: Record<string, { width: number; depth: number; height: number; category?: string }> = {
-    'base-600-3dr': { width: 600, depth: 575, height: 870, category: 'Base' },
-    'base-600-sink': { width: 600, depth: 575, height: 870, category: 'Base' },
-    'app-dw-600': { width: 600, depth: 600, height: 850 },
-    'base-600-1d': { width: 600, depth: 575, height: 870, category: 'Base' },
-    'base-900-lc': { width: 900, depth: 900, height: 870, category: 'Base' },
-    'base-600-ov': { width: 600, depth: 575, height: 870, category: 'Base' },
-    'tall-600-2d': { width: 600, depth: 600, height: 2200, category: 'Tall' },
-    'wall-600-2d': { width: 600, depth: 350, height: 720, category: 'Wall' },
-    'wall-600-1d': { width: 600, depth: 350, height: 720, category: 'Wall' },
-    'wall-900-rh': { width: 900, depth: 350, height: 720, category: 'Wall' },
-    'base-900-2d': { width: 900, depth: 575, height: 870, category: 'Base' },
-    'tall-450-1d': { width: 450, depth: 600, height: 2200, category: 'Tall' },
-    'wall-900-2d': { width: 900, depth: 350, height: 720, category: 'Wall' },
-  };
+  const dims = DEFAULT_DIMS[preset.definitionId] || { width: 600, depth: 575, height: 870, category: 'Base' };
 
-  const dims = defaultDimensions[preset.definitionId] || { width: 600, depth: 575, height: 870, category: 'Base' };
-  
   const width = dims.width;
   let depth = dims.depth;
   let height = dims.height;
@@ -54,8 +65,8 @@ function createPlacedItem(
   } else if (dims.category === 'Wall') {
     height = globalDimensions.wallHeight;
     depth = globalDimensions.wallDepth;
-    posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight + 
-           globalDimensions.benchtopThickness + globalDimensions.splashbackHeight;
+    posY = globalDimensions.toeKickHeight + globalDimensions.baseHeight +
+      globalDimensions.benchtopThickness + globalDimensions.splashbackHeight;
   } else if (dims.category === 'Tall') {
     height = globalDimensions.tallHeight;
     depth = globalDimensions.tallDepth;
@@ -69,7 +80,7 @@ function createPlacedItem(
   let x = preset.x;
   let z = preset.z;
 
-  // Ensure sample presets are always wall-aligned by orientation
+  // Auto-align to wall based on rotation
   if (normalizedRotation === 0) {
     z = depth / 2 + wallGap;
   } else if (normalizedRotation === 180) {
@@ -80,7 +91,7 @@ function createPlacedItem(
     x = depth / 2 + wallGap;
   }
 
-  // Clamp final position inside room bounds
+  // Clamp inside room bounds
   x = Math.max(width / 2 + wallGap, Math.min(room.width - width / 2 - wallGap, x));
   z = Math.max(depth / 2 + wallGap, Math.min(room.depth - depth / 2 - wallGap, z));
 
@@ -97,22 +108,21 @@ function createPlacedItem(
     depth,
     height,
     hinge: 'Left',
+    endPanelLeft: preset.endPanelLeft,
+    endPanelRight: preset.endPanelRight,
+    fillerLeft: preset.fillerLeft,
+    fillerRight: preset.fillerRight,
   };
 }
 
+// ── Preset Definitions ──────────────────────────────────────────────
+
 export const SAMPLE_KITCHENS: Record<string, SampleKitchenPreset> = {
-  'l-shaped-basic': {
-    name: 'L-Shaped Basic',
-    description: 'Classic L-shaped layout with sink, dishwasher, and pantry. Perfect for medium kitchens.',
-    cabinetCount: 12,
-    room: { 
-      width: 4000, 
-      depth: 3500, 
-      height: 2400, 
-      shape: 'LShape', 
-      cutoutWidth: 1500, 
-      cutoutDepth: 1500 
-    },
+  'single-wall': {
+    name: 'Single Wall',
+    description: 'Compact single wall layout. Great for small apartments or butler pantries.',
+    cabinetCount: 7,
+    room: { width: 4000, depth: 2500, height: 2400, shape: 'Rectangle', cutoutWidth: 0, cutoutDepth: 0 },
     globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
     hardwareOptions: {
       hingeType: HINGE_OPTIONS[0],
@@ -123,38 +133,56 @@ export const SAMPLE_KITCHENS: Record<string, SampleKitchenPreset> = {
       handleId: HANDLE_OPTIONS[0].id,
     },
     items: [
-      // Back wall - Base cabinets (left to right)
-      { definitionId: 'base-600-3dr', x: 400, z: 3200, rotation: 0 },
-      { definitionId: 'base-600-sink', x: 1050, z: 3200, rotation: 0 },
-      { definitionId: 'app-dw-600', x: 1700, z: 3200, rotation: 0 },
-      { definitionId: 'base-600-1d', x: 2350, z: 3200, rotation: 0 },
-      { definitionId: 'base-900-lc', x: 3150, z: 3150, rotation: 0 },
-      
-      // Right wall - Base cabinets (top to bottom)
-      { definitionId: 'base-600-ov', x: 3700, z: 2500, rotation: 90 },
-      { definitionId: 'base-600-3dr', x: 3700, z: 1850, rotation: 90 },
-      { definitionId: 'tall-600-2d', x: 3700, z: 1100, rotation: 90 },
-      
-      // Back wall - Wall cabinets
-      { definitionId: 'wall-600-2d', x: 400, z: 3200, rotation: 0 },
-      { definitionId: 'wall-600-1d', x: 1050, z: 3200, rotation: 0 },
-      { definitionId: 'wall-900-rh', x: 2000, z: 3200, rotation: 0 },
-      { definitionId: 'wall-600-2d', x: 2750, z: 3200, rotation: 0 },
+      // Base run (rotation 0 = back wall, x = center coords, z auto)
+      { definitionId: 'tall-600-2d', x: 310, z: 0, rotation: 0, endPanelLeft: true },
+      { definitionId: 'base-600-3dr', x: 910, z: 0, rotation: 0 },
+      { definitionId: 'base-600-sink', x: 1510, z: 0, rotation: 0 },
+      { definitionId: 'base-600-ov', x: 2110, z: 0, rotation: 0 },
+      { definitionId: 'base-600-1d', x: 2710, z: 0, rotation: 0, endPanelRight: true },
+      // Wall cabinets above
+      { definitionId: 'wall-600-2d', x: 910, z: 0, rotation: 0 },
+      { definitionId: 'wall-900-rh', x: 1660, z: 0, rotation: 0 },
     ],
   },
-  
+
+  'l-shaped-basic': {
+    name: 'L-Shaped Basic',
+    description: 'Classic L-shaped layout with sink, dishwasher, and pantry. Perfect for medium kitchens.',
+    cabinetCount: 12,
+    room: { width: 4000, depth: 3500, height: 2400, shape: 'LShape', cutoutWidth: 1500, cutoutDepth: 1500 },
+    globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
+    hardwareOptions: {
+      hingeType: HINGE_OPTIONS[0],
+      drawerType: DRAWER_OPTIONS[0],
+      cabinetTop: 'Rail On Flat',
+      supplyHardware: true,
+      adjustableLegs: true,
+      handleId: HANDLE_OPTIONS[0].id,
+    },
+    items: [
+      // Back wall base run (rotation 0, left→right)
+      { definitionId: 'base-600-3dr', x: 310, z: 0, rotation: 0, endPanelLeft: true },
+      { definitionId: 'base-600-sink', x: 910, z: 0, rotation: 0 },
+      { definitionId: 'app-dw-600', x: 1510, z: 0, rotation: 0 },
+      { definitionId: 'base-600-1d', x: 2110, z: 0, rotation: 0 },
+      { definitionId: 'base-900-lc', x: 2860, z: 0, rotation: 0 },
+      // Right wall base run (rotation 90, z descending = top→bottom)
+      { definitionId: 'base-600-ov', x: 0, z: 2540, rotation: 90 },
+      { definitionId: 'base-600-3dr', x: 0, z: 1940, rotation: 90 },
+      { definitionId: 'tall-600-2d', x: 0, z: 1340, rotation: 90, endPanelRight: true },
+      // Wall cabinets (back wall)
+      { definitionId: 'wall-600-2d', x: 310, z: 0, rotation: 0 },
+      { definitionId: 'wall-600-1d', x: 910, z: 0, rotation: 0 },
+      { definitionId: 'wall-900-rh', x: 1660, z: 0, rotation: 0 },
+      { definitionId: 'wall-600-2d', x: 2410, z: 0, rotation: 0 },
+    ],
+  },
+
   'galley-kitchen': {
     name: 'Galley Kitchen',
     description: 'Efficient parallel layout ideal for narrow spaces. Two wall runs facing each other.',
     cabinetCount: 10,
-    room: { 
-      width: 4500, 
-      depth: 2400, 
-      height: 2400, 
-      shape: 'Rectangle', 
-      cutoutWidth: 0, 
-      cutoutDepth: 0 
-    },
+    room: { width: 4500, depth: 2400, height: 2400, shape: 'Rectangle', cutoutWidth: 0, cutoutDepth: 0 },
     globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
     hardwareOptions: {
       hingeType: HINGE_OPTIONS[0],
@@ -165,36 +193,27 @@ export const SAMPLE_KITCHENS: Record<string, SampleKitchenPreset> = {
       handleId: HANDLE_OPTIONS[1].id,
     },
     items: [
-      // Top wall - Base cabinets
-      { definitionId: 'tall-600-2d', x: 400, z: 2100, rotation: 0 },
-      { definitionId: 'base-600-ov', x: 1050, z: 2100, rotation: 0 },
-      { definitionId: 'base-600-3dr', x: 1700, z: 2100, rotation: 0 },
-      { definitionId: 'base-900-2d', x: 2500, z: 2100, rotation: 0 },
-      
-      // Bottom wall - Base cabinets  
-      { definitionId: 'base-600-sink', x: 800, z: 400, rotation: 180 },
-      { definitionId: 'app-dw-600', x: 1450, z: 400, rotation: 180 },
-      { definitionId: 'base-600-1d', x: 2100, z: 400, rotation: 180 },
-      { definitionId: 'base-600-3dr', x: 2750, z: 400, rotation: 180 },
-      
-      // Wall cabinets - Top wall
-      { definitionId: 'wall-600-2d', x: 1050, z: 2100, rotation: 0 },
-      { definitionId: 'wall-900-2d', x: 1850, z: 2100, rotation: 0 },
+      // Top wall base run (rotation 0)
+      { definitionId: 'tall-600-2d', x: 310, z: 0, rotation: 0, endPanelLeft: true },
+      { definitionId: 'base-600-ov', x: 910, z: 0, rotation: 0 },
+      { definitionId: 'base-600-3dr', x: 1510, z: 0, rotation: 0 },
+      { definitionId: 'base-900-2d', x: 2260, z: 0, rotation: 0, endPanelRight: true },
+      // Bottom wall base run (rotation 180)
+      { definitionId: 'base-600-sink', x: 310, z: 0, rotation: 180, endPanelLeft: true },
+      { definitionId: 'app-dw-600', x: 910, z: 0, rotation: 180 },
+      { definitionId: 'base-600-1d', x: 1510, z: 0, rotation: 180 },
+      { definitionId: 'base-600-3dr', x: 2110, z: 0, rotation: 180, endPanelRight: true },
+      // Wall cabinets (top wall)
+      { definitionId: 'wall-600-2d', x: 910, z: 0, rotation: 0 },
+      { definitionId: 'wall-900-2d', x: 1660, z: 0, rotation: 0 },
     ],
   },
-  
+
   'u-shaped-large': {
     name: 'U-Shaped Large',
-    description: 'Spacious U-shaped layout with island potential. Maximum storage and workspace.',
+    description: 'Spacious U-shaped layout with maximum storage and workspace.',
     cabinetCount: 16,
-    room: { 
-      width: 5000, 
-      depth: 4000, 
-      height: 2400, 
-      shape: 'Rectangle', 
-      cutoutWidth: 0, 
-      cutoutDepth: 0 
-    },
+    room: { width: 5000, depth: 4000, height: 2400, shape: 'Rectangle', cutoutWidth: 0, cutoutDepth: 0 },
     globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
     hardwareOptions: {
       hingeType: HINGE_OPTIONS[0],
@@ -205,67 +224,31 @@ export const SAMPLE_KITCHENS: Record<string, SampleKitchenPreset> = {
       handleId: HANDLE_OPTIONS[0].id,
     },
     items: [
-      // Left wall - Base cabinets (bottom to top)
-      { definitionId: 'tall-600-2d', x: 400, z: 600, rotation: 270 },
-      { definitionId: 'base-600-ov', x: 400, z: 1300, rotation: 270 },
-      { definitionId: 'base-600-3dr', x: 400, z: 1950, rotation: 270 },
-      { definitionId: 'base-900-lc', x: 550, z: 2800, rotation: 270 },
-      
-      // Back wall - Base cabinets (left to right)
-      { definitionId: 'base-600-3dr', x: 1100, z: 3700, rotation: 0 },
-      { definitionId: 'base-600-sink', x: 1750, z: 3700, rotation: 0 },
-      { definitionId: 'app-dw-600', x: 2400, z: 3700, rotation: 0 },
-      { definitionId: 'base-600-1d', x: 3050, z: 3700, rotation: 0 },
-      { definitionId: 'base-900-lc', x: 3850, z: 3550, rotation: 0 },
-      
-      // Right wall - Base cabinets (top to bottom)
-      { definitionId: 'base-600-3dr', x: 4700, z: 2900, rotation: 90 },
-      { definitionId: 'base-600-1d', x: 4700, z: 2250, rotation: 90 },
-      { definitionId: 'tall-450-1d', x: 4700, z: 1500, rotation: 90 },
-      
-      // Wall cabinets - Back wall
-      { definitionId: 'wall-600-2d', x: 1100, z: 3700, rotation: 0 },
-      { definitionId: 'wall-600-1d', x: 1750, z: 3700, rotation: 0 },
-      { definitionId: 'wall-900-rh', x: 2550, z: 3700, rotation: 0 },
-      { definitionId: 'wall-600-2d', x: 3300, z: 3700, rotation: 0 },
-    ],
-  },
-  
-  'single-wall': {
-    name: 'Single Wall',
-    description: 'Compact single wall layout. Great for small apartments or butler pantries.',
-    cabinetCount: 7,
-    room: { 
-      width: 4000, 
-      depth: 2500, 
-      height: 2400, 
-      shape: 'Rectangle', 
-      cutoutWidth: 0, 
-      cutoutDepth: 0 
-    },
-    globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
-    hardwareOptions: {
-      hingeType: HINGE_OPTIONS[0],
-      drawerType: DRAWER_OPTIONS[0],
-      cabinetTop: 'Rail On Flat',
-      supplyHardware: true,
-      adjustableLegs: true,
-      handleId: HANDLE_OPTIONS[0].id,
-    },
-    items: [
-      // Back wall - Base cabinets
-      { definitionId: 'tall-600-2d', x: 400, z: 2200, rotation: 0 },
-      { definitionId: 'base-600-3dr', x: 1050, z: 2200, rotation: 0 },
-      { definitionId: 'base-600-sink', x: 1700, z: 2200, rotation: 0 },
-      { definitionId: 'base-600-ov', x: 2350, z: 2200, rotation: 0 },
-      { definitionId: 'base-600-1d', x: 3000, z: 2200, rotation: 0 },
-      
-      // Wall cabinets
-      { definitionId: 'wall-600-2d', x: 1050, z: 2200, rotation: 0 },
-      { definitionId: 'wall-900-rh', x: 1850, z: 2200, rotation: 0 },
+      // Left wall (rotation 270, z ascending = bottom→top)
+      { definitionId: 'tall-600-2d', x: 0, z: 310, rotation: 270, endPanelLeft: true },
+      { definitionId: 'base-600-ov', x: 0, z: 910, rotation: 270 },
+      { definitionId: 'base-600-3dr', x: 0, z: 1510, rotation: 270 },
+      { definitionId: 'base-900-lc', x: 0, z: 2260, rotation: 270 },
+      // Back wall (rotation 0, left→right)
+      { definitionId: 'base-600-3dr', x: 960, z: 0, rotation: 0 },
+      { definitionId: 'base-600-sink', x: 1560, z: 0, rotation: 0 },
+      { definitionId: 'app-dw-600', x: 2160, z: 0, rotation: 0 },
+      { definitionId: 'base-600-1d', x: 2760, z: 0, rotation: 0 },
+      { definitionId: 'base-900-lc', x: 3510, z: 0, rotation: 0 },
+      // Right wall (rotation 90, z descending = top→bottom)
+      { definitionId: 'base-600-3dr', x: 0, z: 2740, rotation: 90 },
+      { definitionId: 'base-600-1d', x: 0, z: 2140, rotation: 90 },
+      { definitionId: 'tall-450-1d', x: 0, z: 1615, rotation: 90, endPanelRight: true },
+      // Wall cabinets (back wall)
+      { definitionId: 'wall-600-2d', x: 960, z: 0, rotation: 0 },
+      { definitionId: 'wall-600-1d', x: 1560, z: 0, rotation: 0 },
+      { definitionId: 'wall-900-rh', x: 2310, z: 0, rotation: 0 },
+      { definitionId: 'wall-600-2d', x: 3060, z: 0, rotation: 0 },
     ],
   },
 };
+
+// ── Loader ───────────────────────────────────────────────────────────
 
 export function loadSampleKitchen(kitchenId: string): {
   room: RoomConfig;
@@ -276,7 +259,7 @@ export function loadSampleKitchen(kitchenId: string): {
   const preset = SAMPLE_KITCHENS[kitchenId];
   if (!preset) return null;
 
-  const items = preset.items.map((item, index) => 
+  const items = preset.items.map((item, index) =>
     createPlacedItem(item, index, preset.globalDimensions, preset.room)
   );
 
