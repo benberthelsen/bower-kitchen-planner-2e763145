@@ -9,10 +9,7 @@ import {
   TrendingUp,
   Search,
   MoreHorizontal,
-  Copy,
-  Trash2,
   Eye,
-  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +22,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuth } from '@/hooks/useAuth';
-import { TradeJob, useTradeJobs } from '@/hooks/useTradeJobs';
+import { useTradeJobs } from '@/hooks/useTradeJobs';
+import { TRADE_JOB_STATUS_LABELS, TradeJob } from '@/types/trade';
+import { TRADE_STATUS_BADGE_STYLES } from '@/lib/trade/jobStatusBadge';
 import TradeLayout from './components/TradeLayout';
 
 function StatCard({ icon: Icon, label, value, trend }: { icon: React.ElementType; label: string; value: string | number; trend?: string }) {
@@ -53,19 +52,6 @@ function StatCard({ icon: Icon, label, value, trend }: { icon: React.ElementType
 function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
   const navigate = useNavigate();
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'quoted':
-        return <Badge className="bg-trade-amber/10 text-trade-amber border-0">Quoted</Badge>;
-      case 'completed':
-        return <Badge className="bg-trade-success/10 text-trade-success border-0">Completed</Badge>;
-      case 'in_progress':
-        return <Badge className="bg-blue-100 text-blue-700 border-0">In Progress</Badge>;
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
-    }
-  };
-
   return (
     <div className="bg-trade-surface-elevated rounded-xl border border-trade-border shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-trade-border flex items-center justify-between">
@@ -89,7 +75,11 @@ function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
               <TableCell>{job.name}</TableCell>
               <TableCell className="text-right font-medium">${job.cost.toLocaleString('en-AU', { minimumFractionDigits: 2 })}</TableCell>
               <TableCell className="text-trade-muted text-sm">{job.updatedAt ? new Date(job.updatedAt).toLocaleString('en-AU') : '-'}</TableCell>
-              <TableCell>{getStatusBadge(job.status)}</TableCell>
+              <TableCell>
+                <Badge variant="outline" className={TRADE_STATUS_BADGE_STYLES[job.status]}>
+                  {TRADE_JOB_STATUS_LABELS[job.status]}
+                </Badge>
+              </TableCell>
               <TableCell>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -101,18 +91,6 @@ function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/trade/job/${job.id}`); }}>
                       <Eye className="h-4 w-4 mr-2" />
                       View Job
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Duplicate
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Export PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => e.stopPropagation()} className="text-destructive focus:text-destructive">
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -128,20 +106,75 @@ function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
 export default function TradeDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { jobs, loading, error, stats } = useTradeJobs(user?.id);
+  const { jobs, grouped, loading, error, stats } = useTradeJobs(user?.id);
   const [searchQuery, setSearchQuery] = useState('');
 
   const userName = user?.email?.split('@')[0] || 'Trade User';
   const greeting = getGreeting();
 
-  const filteredJobs = useMemo(
-    () => jobs.filter((job) => job.name.toLowerCase().includes(searchQuery.toLowerCase()) || `${job.jobNumber}`.includes(searchQuery)),
-    [jobs, searchQuery],
+  const filterBySearch = useMemo(
+    () => (list: TradeJob[]) => list.filter((job) => job.name.toLowerCase().includes(searchQuery.toLowerCase()) || `${job.jobNumber}`.includes(searchQuery)),
+    [searchQuery],
   );
 
-  const quotedJobs = filteredJobs.filter((job) => job.status === 'quoted' || job.status === 'in_progress' || job.status === 'draft');
-  const completedJobs = filteredJobs.filter((job) => job.status === 'completed');
+  const draftAndApprovalJobs = filterBySearch([...grouped.draft, ...grouped.pending_approval]);
+  const productionJobs = filterBySearch(grouped.production);
+  const completedJobs = filterBySearch(grouped.completed);
   const latestJob = jobs[0];
+  const hasProductionWork = grouped.production.length > 0;
+
+  const nextAction = useMemo(() => {
+    if (jobs.length === 0) {
+      return {
+        title: 'Create your first quote',
+        description: 'Start by creating a new job to price and submit your cabinet order.',
+        cta: 'Create New Job',
+        onClick: () => navigate('/trade/job/new'),
+      };
+    }
+
+    if (latestJob && (latestJob.status === 'draft' || latestJob.status === 'pending_approval')) {
+      return {
+        title: `Continue job #${latestJob.jobNumber}`,
+        description: 'Pick up your latest draft or pending quote to keep your order moving.',
+        cta: 'Continue Editing',
+        onClick: () => navigate(`/trade/job/${latestJob.id}`),
+      };
+    }
+
+    if (hasProductionWork) {
+      return {
+        title: 'Track jobs in production',
+        description: 'Review approved jobs currently moving through manufacturing.',
+        cta: 'View Production Jobs',
+        onClick: () => {
+          const productionJob = grouped.production[0];
+          if (productionJob) {
+            navigate(`/trade/job/${productionJob.id}`);
+          }
+        },
+      };
+    }
+
+    return {
+      title: 'Create your next quote',
+      description: 'You are all caught up. Start a new quote to keep orders flowing.',
+      cta: 'Create New Quote',
+      onClick: () => navigate('/trade/job/new'),
+    };
+  }, [grouped.production, hasProductionWork, jobs.length, latestJob, navigate]);
+
+  const staleQuoteJobs = useMemo(() => {
+    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    return jobs
+      .filter((job) => (job.status === 'draft' || job.status === 'pending_approval') && job.updatedAt)
+      .filter((job) => {
+        const updatedAtMs = new Date(job.updatedAt as string).getTime();
+        return Number.isFinite(updatedAtMs) && updatedAtMs < oneWeekAgo;
+      })
+      .slice(0, 3);
+  }, [jobs]);
 
   function getGreeting() {
     const hour = new Date().getHours();
@@ -197,10 +230,57 @@ export default function TradeDashboard() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="mb-8 rounded-xl border border-trade-border bg-trade-surface-elevated p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-trade-muted">Next best action</p>
+              <h2 className="mt-1 text-xl font-display font-semibold text-trade-navy">{nextAction.title}</h2>
+              <p className="mt-1 text-sm text-trade-muted">{nextAction.description}</p>
+            </div>
+            <Button onClick={nextAction.onClick} className="bg-trade-amber text-trade-navy hover:bg-trade-amber/90">
+              {nextAction.cta}
+            </Button>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-trade-border pt-4 text-sm sm:grid-cols-3">
+            <div className="rounded-lg bg-trade-surface p-3">
+              <p className="text-trade-muted">Draft + Pending</p>
+              <p className="text-lg font-semibold text-trade-navy">{grouped.draft.length + grouped.pending_approval.length}</p>
+            </div>
+            <div className="rounded-lg bg-trade-surface p-3">
+              <p className="text-trade-muted">In Production</p>
+              <p className="text-lg font-semibold text-trade-navy">{grouped.production.length}</p>
+            </div>
+            <div className="rounded-lg bg-trade-surface p-3">
+              <p className="text-trade-muted">Completed</p>
+              <p className="text-lg font-semibold text-trade-navy">{grouped.completed.length}</p>
+            </div>
+          </div>
+        </div>
+
+        {staleQuoteJobs.length > 0 && (
+          <div className="mb-8 rounded-xl border border-amber-300 bg-amber-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Needs attention</p>
+            <p className="mt-1 text-sm text-amber-900">
+              {staleQuoteJobs.length} quote{staleQuoteJobs.length === 1 ? '' : 's'} have been idle for more than 7 days.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {staleQuoteJobs.map((job) => (
+                <Button key={job.id} variant="outline" className="border-amber-300 bg-white" onClick={() => navigate(`/trade/job/${job.id}`)}>
+                  Resume #{job.jobNumber}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           <StatCard icon={FileText} label="Total Jobs" value={stats.total} />
-          <StatCard icon={Clock} label="In Progress" value={stats.inProgress} />
+          <StatCard icon={Clock} label="Draft" value={stats.draft} />
+          <StatCard icon={Clock} label="Pending Approval" value={stats.pendingApproval} />
+          <StatCard icon={Clock} label="Approved / Production" value={stats.production} />
           <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} />
+        </div>
+        <div className="mb-8">
           <StatCard icon={TrendingUp} label="Total Value" value={`$${stats.totalValue.toLocaleString('en-AU', { maximumFractionDigits: 0 })}`} />
         </div>
 
@@ -208,9 +288,10 @@ export default function TradeDashboard() {
         {error && <div className="text-sm text-destructive">Failed to load jobs: {error}</div>}
 
         {!loading && !error && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <JobsTable jobs={quotedJobs} title="Quoted & Active Jobs" />
-            <JobsTable jobs={completedJobs} title="Completed Jobs" />
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <JobsTable jobs={draftAndApprovalJobs} title="Draft & Pending Approval" />
+            <JobsTable jobs={productionJobs} title="Approved / In Production" />
+            <JobsTable jobs={completedJobs} title="Completed" />
           </div>
         )}
       </div>

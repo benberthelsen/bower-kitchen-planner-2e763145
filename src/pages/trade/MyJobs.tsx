@@ -7,11 +7,20 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTradeJobs } from '@/hooks/useTradeJobs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { TRADE_JOB_STATUS_LABELS } from '@/types/trade';
+import { TRADE_STATUS_BADGE_STYLES } from '@/lib/trade/jobStatusBadge';
 
 export default function MyJobs() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { jobs, loading, error } = useTradeJobs(user?.id);
+
+  const isStaleQuote = (status: string, updatedAt: string | null) => {
+    if ((status !== 'draft' && status !== 'pending_approval') || !updatedAt) return false;
+    const updatedAtMs = new Date(updatedAt).getTime();
+    if (!Number.isFinite(updatedAtMs)) return false;
+    return Date.now() - updatedAtMs > 7 * 24 * 60 * 60 * 1000;
+  };
 
   return (
     <TradeLayout>
@@ -64,7 +73,16 @@ export default function MyJobs() {
                 <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(`/trade/job/${job.id}`)}>
                   <TableCell>#{job.jobNumber}</TableCell>
                   <TableCell className="font-medium">{job.name}</TableCell>
-                  <TableCell><Badge variant="secondary">{job.status}</Badge></TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={TRADE_STATUS_BADGE_STYLES[job.status]}>
+                        {TRADE_JOB_STATUS_LABELS[job.status]}
+                      </Badge>
+                      {isStaleQuote(job.status, job.updatedAt) && (
+                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Needs follow-up</Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right">${job.cost.toLocaleString('en-AU', { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell>{job.updatedAt ? new Date(job.updatedAt).toLocaleString('en-AU') : '-'}</TableCell>
                 </TableRow>
