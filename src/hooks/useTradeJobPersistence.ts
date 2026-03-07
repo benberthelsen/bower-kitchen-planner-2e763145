@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
-import { generateTradeQuotePDF } from '@/lib/pdfQuoteGenerator';
 
 interface PersistedTradeDesignData {
   tradeRooms: TradeRoom[];
@@ -123,23 +122,15 @@ export function useTradeJobPersistence(jobId?: string) {
     return upsertRoom(input);
   }, [upsertRoom]);
 
-  const upsertCabinet = useCallback(async (input: { jobId: string; roomId: string; cabinet: ConfiguredCabinet; roomFallback?: TradeRoom }) => {
+  const upsertCabinet = useCallback(async (input: { jobId: string; roomId: string; cabinet: ConfiguredCabinet }) => {
     const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const normalizedExisting = normalizeRooms(existing);
 
     const hasRoom = normalizedExisting.some((room) => room.id === input.roomId);
-
-    if (!hasRoom && input.roomFallback) {
-      const fallbackRoom = {
-        ...input.roomFallback,
-        cabinets: [input.cabinet],
-        updatedAt: new Date(),
-      };
-      return persistRooms({ jobId: input.jobId, rooms: [...normalizedExisting, fallbackRoom] });
+    if (!hasRoom) {
+      return;
     }
-
-    if (!hasRoom) return;
 
     const nextRooms = normalizedExisting.map((room) => {
       if (room.id !== input.roomId) return room;
