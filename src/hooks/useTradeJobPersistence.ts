@@ -250,9 +250,24 @@ export function useTradeJobPersistence(jobId?: string) {
     });
   }, [jobQuery.data]);
 
+
+  const persistedDesignData = useMemo(() => {
+    return (jobQuery.data?.design_data || {}) as Partial<PersistedTradeDesignData>;
+  }, [jobQuery.data?.design_data]);
+
+  const persistedJobTotals = useMemo(() => persistedDesignData.jobTotals ?? null, [persistedDesignData]);
+  const persistedQuoteSnapshot = useMemo(() => persistedDesignData.quoteSnapshot ?? null, [persistedDesignData]);
+  const persistedQuoteSnapshotsByRoom = useMemo(
+    () => persistedDesignData.quoteSnapshotsByRoom ?? {},
+    [persistedDesignData],
+  );
+
   return {
     jobQuery,
     roomsFromServer,
+    persistedJobTotals,
+    persistedQuoteSnapshot,
+    persistedQuoteSnapshotsByRoom,
     upsertJob: upsertJobMutation.mutateAsync,
     upsertRoom,
     replaceRoomInJob,

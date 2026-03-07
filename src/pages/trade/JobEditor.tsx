@@ -10,6 +10,43 @@ import { TradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 
+
+const computeJobTotalsRaw = (rooms: TradeRoom[]) => {
+  let subtotalAccumulator = 0;
+  const perCabinetTotals: Record<string, number> = {};
+  const perRoomTotals: Record<string, number> = {};
+  const perRoomCabinetTotals: Record<string, Record<string, number>> = {};
+
+  rooms.forEach((room) => {
+    let roomSubtotal = 0;
+    const roomCabinetTotals: Record<string, number> = {};
+
+    room.cabinets.forEach((cabinet) => {
+      const cabinetEstimate = Math.max(0, cabinet.dimensions.width * cabinet.dimensions.depth * 0.0008);
+      perCabinetTotals[cabinet.instanceId] = cabinetEstimate;
+      roomCabinetTotals[cabinet.instanceId] = cabinetEstimate;
+      roomSubtotal += cabinetEstimate;
+      subtotalAccumulator += cabinetEstimate;
+    });
+
+    perRoomTotals[room.id] = Number((roomSubtotal * 1.1).toFixed(2));
+    perRoomCabinetTotals[room.id] = roomCabinetTotals;
+  });
+
+  const subtotal = Number(subtotalAccumulator.toFixed(2));
+  const tax = Number((subtotal * 0.1).toFixed(2));
+  const total = Number((subtotal + tax).toFixed(2));
+
+  return {
+    subtotal,
+    tax,
+    total,
+    perCabinetTotals,
+    perRoomTotals,
+    perRoomCabinetTotals,
+  };
+};
+
 const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   name: room.name,
   description: room.description,
@@ -54,6 +91,8 @@ export default function JobEditor() {
   const {
     jobQuery,
     roomsFromServer,
+    persistedJobTotals,
+    persistedQuoteSnapshot,
     upsertJob,
     upsertRoom,
     updateJobStatus,
@@ -294,6 +333,37 @@ export default function JobEditor() {
             </div>
           )}
         </div>
+
+        {!showRoomWizard && displayRooms.length > 0 && (
+          <div className="mb-6 bg-trade-surface-elevated rounded-xl border border-trade-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-trade-navy">Quote State</h2>
+                <p className="text-xs text-trade-muted">
+                  {quoteState.isPersisted ? 'Using persisted totals' : 'Using live calculated totals'}
+                  {quoteState.persistedAt ? ` • Last persisted ${new Date(quoteState.persistedAt).toLocaleString()}` : ''}
+                </p>
+              </div>
+              <div className="text-xs text-trade-muted">
+                {quoteState.roomCount} room{quoteState.roomCount !== 1 ? 's' : ''} • {quoteState.cabinetCount} cabinet{quoteState.cabinetCount !== 1 ? 's' : ''}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              <div className="rounded-lg border border-trade-border p-3 bg-trade-surface">
+                <p className="text-xs text-trade-muted">Subtotal</p>
+                <p className="text-lg font-semibold text-trade-navy">{formatCurrency(quoteState.subtotal)}</p>
+              </div>
+              <div className="rounded-lg border border-trade-border p-3 bg-trade-surface">
+                <p className="text-xs text-trade-muted">GST</p>
+                <p className="text-lg font-semibold text-trade-navy">{formatCurrency(quoteState.tax)}</p>
+              </div>
+              <div className="rounded-lg border border-trade-border p-3 bg-trade-surface">
+                <p className="text-xs text-trade-muted">Total</p>
+                <p className="text-lg font-semibold text-trade-amber">{formatCurrency(quoteState.total)}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showRoomWizard ? (
           <RoomSetupWizard onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : undefined} />
