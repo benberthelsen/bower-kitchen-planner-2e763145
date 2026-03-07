@@ -1,0 +1,1 @@
+UPDATE public.profiles SET user_type = 'trade' WHERE email = 'info@bowercabinets.com';

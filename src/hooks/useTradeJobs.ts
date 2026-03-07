@@ -36,8 +36,8 @@ export function useTradeJobs(userId?: string) {
         jobNumber: job.job_number,
         name: job.name,
         cost: job.cost_incl_tax ?? 0,
-        updatedAt: job.updated_at,
-        status: isTradeJobStatus(job.status ?? '') ? job.status : 'draft',
+        updatedAt: job.updated_at ?? '',
+        status: (isTradeJobStatus(job.status ?? '') ? job.status! : 'draft') as TradeJob['status'],
       })),
     );
     setLoading(false);

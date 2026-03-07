@@ -10,7 +10,9 @@ interface ProtectedRouteProps {
 }
 
 function getUserTypeRedirectPath(requiredType: 'consumer' | 'trade'): string {
-  return requiredType === 'trade' ? '/consumer/dashboard' : '/trade/dashboard';
+  // Both consumer routes now redirect to /trade/dashboard anyway,
+  // so redirect mismatched users to /auth to avoid loops.
+  return '/auth';
 }
 
 export function ProtectedRoute({ children, requireAdmin = false, requireUserType }: ProtectedRouteProps) {
