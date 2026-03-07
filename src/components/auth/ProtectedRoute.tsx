@@ -10,9 +10,7 @@ interface ProtectedRouteProps {
 }
 
 function getUserTypeRedirectPath(requiredType: 'consumer' | 'trade'): string {
-  // Both consumer routes now redirect to /trade/dashboard anyway,
-  // so redirect mismatched users to /auth to avoid loops.
-  return '/auth';
+  return requiredType === 'trade' ? '/trade/dashboard' : '/consumer/dashboard';
 }
 
 export function ProtectedRoute({ children, requireAdmin = false, requireUserType }: ProtectedRouteProps) {
@@ -24,7 +22,11 @@ export function ProtectedRoute({ children, requireAdmin = false, requireUserType
       if (!user) {
         navigate('/auth');
       } else if (requireUserType && userType !== requireUserType) {
-        navigate(getUserTypeRedirectPath(requireUserType));
+        // Temporary fail-open for canonical /trade/* flow to prevent auth redirect loops
+        // when legacy consumer profiles access trade routes.
+        if (!(requireUserType === 'trade' && userType === 'consumer')) {
+          navigate(getUserTypeRedirectPath(requireUserType));
+        }
       } else if (requireAdmin && !isAdmin) {
         navigate('/');
       }
@@ -40,7 +42,7 @@ export function ProtectedRoute({ children, requireAdmin = false, requireUserType
   }
 
   if (!user) return null;
-  if (requireUserType && userType !== requireUserType) return null;
+  if (requireUserType && userType !== requireUserType && !(requireUserType === 'trade' && userType === 'consumer')) return null;
   if (requireAdmin && !isAdmin) return null;
 
   return <>{children}</>;
