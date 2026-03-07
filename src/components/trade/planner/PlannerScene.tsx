@@ -136,14 +136,16 @@ function TradeCabinetMesh({
     };
   }, [catalogItem, cabinet, width, height, depth]);
 
+  const cabinetPosition = cabinet.position;
+
   // Update position when cabinet.position changes (after snapping)
   useEffect(() => {
-    if (groupRef.current && cabinet.position && !isDragging) {
-      groupRef.current.position.x = cabinet.position.x / 1000;
-      groupRef.current.position.z = cabinet.position.z / 1000;
-      groupRef.current.rotation.y = -THREE.MathUtils.degToRad(cabinet.position.rotation || 0);
+    if (groupRef.current && cabinetPosition && !isDragging) {
+      groupRef.current.position.x = cabinetPosition.x / 1000;
+      groupRef.current.position.z = cabinetPosition.z / 1000;
+      groupRef.current.rotation.y = -THREE.MathUtils.degToRad(cabinetPosition.rotation || 0);
     }
-  }, [cabinet.position?.x, cabinet.position?.z, cabinet.position?.rotation, isDragging]);
+  }, [cabinetPosition, isDragging]);
 
   const initialPosition: [number, number, number] = cabinet.position 
     ? [cabinet.position.x / 1000, heightM / 2, cabinet.position.z / 1000]
@@ -307,14 +309,17 @@ export function PlannerScene({
   const depthM = room.config.depth / 1000;
 
   // Convert TradeRoom config to RoomConfig for snapping
-  const roomConfig: RoomConfig = {
-    width: room.config.width,
-    depth: room.config.depth,
-    height: room.config.height,
-    shape: room.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
-    cutoutWidth: 0,
-    cutoutDepth: 0,
-  };
+  const roomConfig: RoomConfig = useMemo(
+    () => ({
+      width: room.config.width,
+      depth: room.config.depth,
+      height: room.config.height,
+      shape: room.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
+      cutoutWidth: 0,
+      cutoutDepth: 0,
+    }),
+    [room.config.width, room.config.depth, room.config.height, room.shape],
+  );
 
   const handleCabinetDragEnd = useCallback((instanceId: string, rawPos: { x: number; z: number }) => {
     const cabinet = cabinets.find(c => c.instanceId === instanceId);
