@@ -80,7 +80,7 @@ export default function RoomPlanner() {
   }, [roomId, rooms, setCurrentRoom]);
 
   const selectedCabinet = getSelectedCabinet();
-  const cabinets = currentRoom ? getCabinetsByRoom(currentRoom.id) : [];
+  const cabinets = useMemo(() => (currentRoom ? getCabinetsByRoom(currentRoom.id) : []), [currentRoom, getCabinetsByRoom]);
   const [placementItemId, setPlacementItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
 
@@ -215,24 +215,24 @@ export default function RoomPlanner() {
     selectCabinet(instanceId);
   };
 
-  const handleCabinetPlace = async (instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
+  const handleCabinetPlace = useCallback((instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
     if (!currentRoom) return;
-    const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
+    const sourceCabinet = getCabinetById(currentRoom.id, instanceId);
     if (!sourceCabinet) return;
 
     const clamped = clampPositionToRoom(currentRoom, sourceCabinet, position);
     placeCabinet(currentRoom.id, instanceId, clamped);
     setDirty(true);
-  };
+  }, [clampPositionToRoom, currentRoom, getCabinetById, placeCabinet]);
 
-  const handleItemMove = useCallback(async (id: string, updates: Partial<PlacedItem>) => {
+  const handleItemMove = useCallback((id: string, updates: Partial<PlacedItem>) => {
     if (!currentRoom) return;
-    const cabinet = cabinets.find(c => c.instanceId === id);
+    const cabinet = getCabinetById(currentRoom.id, id);
     if (cabinet && updates.x !== undefined && updates.z !== undefined) {
       const position = { x: updates.x, y: 0, z: updates.z, rotation: updates.rotation ?? cabinet.position?.rotation ?? 0 };
-      await handleCabinetPlace(id, position);
+      handleCabinetPlace(id, position);
     }
-  }, [currentRoom, cabinets, handleCabinetPlace]);
+  }, [currentRoom, getCabinetById, handleCabinetPlace]);
 
   const handleQuickAddProduct = useCallback(async (productId: string) => {
     if (!currentRoom) return;
@@ -279,15 +279,20 @@ export default function RoomPlanner() {
       position,
     });
 
-    await persistCabinet(newCabinet);
-    selectCabinet(newCabinet.instanceId);
-    setEditDialogCabinet(newCabinet);
-    setEditDialogOpen(true);
-
-    toast.success(`${catalogItem.name} added`, {
-      description: 'Saved to job and available to other sessions.'
-    });
-  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, persistCabinet]);
+    try {
+      await persistCabinet(newCabinet);
+      selectCabinet(newCabinet.instanceId);
+      setEditDialogCabinet(newCabinet);
+      setEditDialogOpen(true);
+      setDirty(true);
+      toast.success(`${catalogItem.name} added`, {
+        description: 'Saved to job and available to other sessions.'
+      });
+    } catch {
+      removeCabinet(currentRoom.id, newCabinet.instanceId);
+      toast.error('Failed to add cabinet. Please try again.');
+    }
+  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, persistCabinet, removeCabinet]);
 
 
   const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
@@ -304,9 +309,10 @@ export default function RoomPlanner() {
       selectCabinet(duplicated.instanceId);
       toast.success(`${duplicated.cabinetNumber} duplicated`);
     } catch {
-      toast.error('Duplicate created locally but failed to persist');
+      removeCabinet(currentRoom.id, duplicated.instanceId);
+      toast.error('Duplicate failed to persist and was reverted');
     }
-  }, [currentRoom, duplicateCabinet, persistCabinet, selectCabinet]);
+  }, [currentRoom, duplicateCabinet, persistCabinet, removeCabinet, selectCabinet]);
 
   const handleRemoveCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
     if (!currentRoom) return;
@@ -322,9 +328,10 @@ export default function RoomPlanner() {
       setDirty(true);
       toast.success(`${cabinet.cabinetNumber} removed`);
     } catch {
-      toast.error('Removed locally but failed to persist');
+      replaceCabinet(currentRoom.id, cabinet);
+      toast.error('Failed to remove cabinet. Change was reverted.');
     }
-  }, [currentRoom, jobId, removeCabinet, removeCabinetFromJob]);
+  }, [currentRoom, jobId, removeCabinet, removeCabinetFromJob, replaceCabinet]);
 
   const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
     if (!currentRoom) return;
@@ -514,9 +521,9 @@ export default function RoomPlanner() {
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 border rounded-md p-1 mr-2">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.fitAll()}><Maximize className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.fitAll()}><Maximize className="w-4 h-4" /></Button>
             </div>
 
             <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>
@@ -537,6 +544,7 @@ export default function RoomPlanner() {
             <Button
               size="sm"
               className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
+              disabled={saveState === 'saving'}
               onClick={async () => {
                 if (!jobId || jobId === 'new') return;
                 try {
