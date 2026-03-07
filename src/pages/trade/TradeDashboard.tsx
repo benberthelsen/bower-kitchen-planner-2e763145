@@ -27,6 +27,14 @@ import { TRADE_JOB_STATUS_LABELS, TradeJob } from '@/types/trade';
 import { TRADE_STATUS_BADGE_STYLES } from '@/lib/trade/jobStatusBadge';
 import TradeLayout from './components/TradeLayout';
 
+const TRADE_STATUS_BADGE_STYLES: Record<TradeJob['status'], string> = {
+  draft: 'bg-slate-100 text-slate-700 border-slate-200',
+  pending_approval: 'bg-amber-100 text-amber-900 border-amber-200',
+  approved: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+  in_production: 'bg-sky-100 text-sky-900 border-sky-200',
+  completed: 'bg-green-100 text-green-900 border-green-200',
+};
+
 function StatCard({ icon: Icon, label, value, trend }: { icon: React.ElementType; label: string; value: string | number; trend?: string }) {
   return (
     <div className="bg-trade-surface-elevated rounded-xl p-5 border border-trade-border shadow-sm hover:shadow-md transition-shadow">

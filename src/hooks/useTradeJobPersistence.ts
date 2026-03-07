@@ -59,6 +59,10 @@ function normalizeStatus(value?: string): TradeJobStatus {
 export function useTradeJobPersistence(jobId?: string) {
   const queryClient = useQueryClient();
 
+  const getCurrentJob = useCallback((id: string) => {
+    return queryClient.getQueryData<any>(jobQueryKey(id)) ?? jobQuery.data;
+  }, [jobQuery.data, queryClient]);
+
   const jobQuery = useQuery({
     queryKey: jobQueryKey(jobId),
     enabled: Boolean(jobId && jobId !== 'new'),
