@@ -81,23 +81,6 @@ function buildNewCabinet(params: {
   };
 }
 
-
-function cloneCabinet(cabinet: ConfiguredCabinet): ConfiguredCabinet {
-  return {
-    ...cabinet,
-    dimensions: { ...cabinet.dimensions },
-    materials: { ...cabinet.materials },
-    hardware: { ...cabinet.hardware },
-    accessories: {
-      ...cabinet.accessories,
-      specialFittings: [...(cabinet.accessories.specialFittings || [])],
-    },
-    position: cabinet.position ? { ...cabinet.position } : undefined,
-    createdAt: new Date(cabinet.createdAt),
-    updatedAt: new Date(cabinet.updatedAt),
-  };
-}
-
 export default function ProductConfigurator() {
   const { jobId, roomId, productId } = useParams();
   const [searchParams] = useSearchParams();
@@ -109,7 +92,6 @@ export default function ProductConfigurator() {
     getRoomById,
     addCabinet,
     replaceCabinet,
-    removeCabinet,
   } = useTradeRoom();
   const { upsertCabinet } = useTradeJobPersistence(jobId);
 
@@ -123,7 +105,6 @@ export default function ProductConfigurator() {
     [editId, currentRoom],
   );
   const isEditing = Boolean(editingCabinet);
-  const isEditRoute = Boolean(editId);
 
   useEffect(() => {
     if (!roomId) return;
@@ -147,9 +128,8 @@ export default function ProductConfigurator() {
 
   useEffect(() => {
     if (editingCabinet) {
-      const snapshot = cloneCabinet(editingCabinet);
-      setCabinet(snapshot);
-      setInitialSnapshot(snapshot);
+      setCabinet(editingCabinet);
+      setInitialSnapshot(editingCabinet);
       return;
     }
 
@@ -163,8 +143,8 @@ export default function ProductConfigurator() {
         depth: catalogItem.defaultDepth,
         currentRoom,
       });
-      setCabinet(cloneCabinet(next));
-      setInitialSnapshot(cloneCabinet(next));
+      setCabinet(next);
+      setInitialSnapshot(next);
     }
   }, [catalogItem, currentRoom, editId, editingCabinet, productId]);
 
@@ -206,7 +186,7 @@ export default function ProductConfigurator() {
   };
 
   const handleReset = () => {
-    setCabinet(cloneCabinet(initialSnapshot));
+    setCabinet(initialSnapshot);
     toast.info(isEditing ? 'Changes reverted' : 'Configuration reset to defaults');
   };
 
@@ -216,14 +196,8 @@ export default function ProductConfigurator() {
       return;
     }
 
-    if (isEditRoute && !editingCabinet) {
-      toast.error('Cabinet to edit could not be loaded');
-      return;
-    }
-
     try {
       if (isEditing && editingCabinet) {
-        const previousCabinet = cloneCabinet(editingCabinet);
         const updatedCabinet: ConfiguredCabinet = {
           ...editingCabinet,
           ...cabinet,
@@ -236,12 +210,7 @@ export default function ProductConfigurator() {
         };
 
         replaceCabinet(roomId, updatedCabinet);
-        try {
-          await persistCabinet(updatedCabinet);
-        } catch {
-          replaceCabinet(roomId, previousCabinet);
-          throw new Error('persist_failed');
-        }
+        await persistCabinet(updatedCabinet);
 
         toast.success(`${updatedCabinet.cabinetNumber} updated`, {
           description: 'Changes saved to room and persisted.',
@@ -258,12 +227,7 @@ export default function ProductConfigurator() {
           isPlaced: false,
         });
 
-        try {
-          await persistCabinet(newCabinet);
-        } catch {
-          removeCabinet(roomId, newCabinet.instanceId);
-          throw new Error('persist_failed');
-        }
+        await persistCabinet(newCabinet);
 
         toast.success(`${cabinet.productName} added to room`, {
           description: `Cabinet ${newCabinet.cabinetNumber} configured successfully`,
@@ -277,7 +241,7 @@ export default function ProductConfigurator() {
   };
 
   const handleSaveAndContinue = async () => {
-    if (isEditing || isEditRoute) {
+    if (isEditing) {
       await handleAddToRoom();
       return;
     }
@@ -299,12 +263,7 @@ export default function ProductConfigurator() {
         isPlaced: false,
       });
 
-      try {
-        await persistCabinet(newCabinet);
-      } catch {
-        removeCabinet(roomId, newCabinet.instanceId);
-        throw new Error('persist_failed');
-      }
+      await persistCabinet(newCabinet);
 
       toast.success(`${cabinet.productName} added`, {
         description: 'Select another product to configure',
@@ -347,7 +306,7 @@ export default function ProductConfigurator() {
             <div>
               <h1 className="text-xl font-semibold text-trade-navy">{cabinet.productName}</h1>
               <p className="text-sm text-muted-foreground">
-                {isEditRoute ? (isEditing ? `Editing ${cabinet.cabinetNumber}` : 'Loading cabinet...') : 'New Cabinet'} • {cabinet.category} • {cabinet.dimensions.width} × {cabinet.dimensions.height} × {cabinet.dimensions.depth}mm
+                {isEditing ? `Editing ${cabinet.cabinetNumber}` : 'New Cabinet'} • {cabinet.category} • {cabinet.dimensions.width} × {cabinet.dimensions.height} × {cabinet.dimensions.depth}mm
               </p>
             </div>
           </div>
@@ -389,7 +348,7 @@ export default function ProductConfigurator() {
                   {isEditing ? 'Update Cabinet' : 'Add to Room'}
                   <ChevronRight className="w-4 h-4 ml-auto" />
                 </Button>
-                <Button variant="outline" onClick={handleSaveAndContinue} className="w-full" disabled={isEditing || (isEditRoute && !isEditing)}>
+                <Button variant="outline" onClick={handleSaveAndContinue} className="w-full" disabled={isEditing}>
                   <Save className="w-4 h-4 mr-2" />
                   Save & Add Another
                 </Button>
