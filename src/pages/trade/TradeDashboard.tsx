@@ -26,6 +26,14 @@ import { useTradeJobs } from '@/hooks/useTradeJobs';
 import { TRADE_JOB_STATUS_LABELS, TradeJob } from '@/types/trade';
 import TradeLayout from './components/TradeLayout';
 
+const TRADE_STATUS_BADGE_STYLES: Record<TradeJob['status'], string> = {
+  draft: 'bg-slate-100 text-slate-700 border-slate-200',
+  pending_approval: 'bg-amber-100 text-amber-900 border-amber-200',
+  approved: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+  in_production: 'bg-sky-100 text-sky-900 border-sky-200',
+  completed: 'bg-green-100 text-green-900 border-green-200',
+};
+
 function StatCard({ icon: Icon, label, value, trend }: { icon: React.ElementType; label: string; value: string | number; trend?: string }) {
   return (
     <div className="bg-trade-surface-elevated rounded-xl p-5 border border-trade-border shadow-sm hover:shadow-md transition-shadow">
@@ -75,7 +83,9 @@ function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
               <TableCell className="text-right font-medium">${job.cost.toLocaleString('en-AU', { minimumFractionDigits: 2 })}</TableCell>
               <TableCell className="text-trade-muted text-sm">{job.updatedAt ? new Date(job.updatedAt).toLocaleString('en-AU') : '-'}</TableCell>
               <TableCell>
-                <Badge variant="secondary">{TRADE_JOB_STATUS_LABELS[job.status]}</Badge>
+                <Badge variant="outline" className={TRADE_STATUS_BADGE_STYLES[job.status]}>
+                  {TRADE_JOB_STATUS_LABELS[job.status]}
+                </Badge>
               </TableCell>
               <TableCell>
                 <DropdownMenu>
@@ -118,6 +128,48 @@ export default function TradeDashboard() {
   const productionJobs = filterBySearch(grouped.production);
   const completedJobs = filterBySearch(grouped.completed);
   const latestJob = jobs[0];
+  const hasProductionWork = grouped.production.length > 0;
+
+  const nextAction = useMemo(() => {
+    if (jobs.length === 0) {
+      return {
+        title: 'Create your first quote',
+        description: 'Start by creating a new job to price and submit your cabinet order.',
+        cta: 'Create New Job',
+        onClick: () => navigate('/trade/job/new'),
+      };
+    }
+
+    if (latestJob && (latestJob.status === 'draft' || latestJob.status === 'pending_approval')) {
+      return {
+        title: `Continue job #${latestJob.jobNumber}`,
+        description: 'Pick up your latest draft or pending quote to keep your order moving.',
+        cta: 'Continue Editing',
+        onClick: () => navigate(`/trade/job/${latestJob.id}`),
+      };
+    }
+
+    if (hasProductionWork) {
+      return {
+        title: 'Track jobs in production',
+        description: 'Review approved jobs currently moving through manufacturing.',
+        cta: 'View Production Jobs',
+        onClick: () => {
+          const productionJob = grouped.production[0];
+          if (productionJob) {
+            navigate(`/trade/job/${productionJob.id}`);
+          }
+        },
+      };
+    }
+
+    return {
+      title: 'Create your next quote',
+      description: 'You are all caught up. Start a new quote to keep orders flowing.',
+      cta: 'Create New Quote',
+      onClick: () => navigate('/trade/job/new'),
+    };
+  }, [grouped.production, hasProductionWork, jobs.length, latestJob, navigate]);
 
   function getGreeting() {
     const hour = new Date().getHours();
@@ -171,6 +223,33 @@ export default function TradeDashboard() {
           ) : (
             <div className="flex items-center p-5 border rounded-xl bg-muted/30 text-muted-foreground">Create your first job to continue editing later.</div>
           )}
+        </div>
+
+        <div className="mb-8 rounded-xl border border-trade-border bg-trade-surface-elevated p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-trade-muted">Next best action</p>
+              <h2 className="mt-1 text-xl font-display font-semibold text-trade-navy">{nextAction.title}</h2>
+              <p className="mt-1 text-sm text-trade-muted">{nextAction.description}</p>
+            </div>
+            <Button onClick={nextAction.onClick} className="bg-trade-amber text-trade-navy hover:bg-trade-amber/90">
+              {nextAction.cta}
+            </Button>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-trade-border pt-4 text-sm sm:grid-cols-3">
+            <div className="rounded-lg bg-trade-surface p-3">
+              <p className="text-trade-muted">Draft + Pending</p>
+              <p className="text-lg font-semibold text-trade-navy">{grouped.draft.length + grouped.pending_approval.length}</p>
+            </div>
+            <div className="rounded-lg bg-trade-surface p-3">
+              <p className="text-trade-muted">In Production</p>
+              <p className="text-lg font-semibold text-trade-navy">{grouped.production.length}</p>
+            </div>
+            <div className="rounded-lg bg-trade-surface p-3">
+              <p className="text-trade-muted">Completed</p>
+              <p className="text-lg font-semibold text-trade-navy">{grouped.completed.length}</p>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">

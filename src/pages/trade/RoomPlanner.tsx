@@ -55,7 +55,7 @@ export default function RoomPlanner() {
     hydrateRooms,
   } = useTradeRoom();
 
-  const { jobQuery, roomsFromServer, upsertCabinet, upsertJob , exportJobPdf } = useTradeJobPersistence(jobId);
+  const { jobQuery, roomsFromServer, upsertCabinet, replaceRoomInJob, removeCabinetFromJob, persistQuoteSnapshot, persistJobTotals, exportJobPdf } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -64,6 +64,8 @@ export default function RoomPlanner() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [cameraControls, setCameraControls] = useState<{ zoomIn: () => void; zoomOut: () => void; resetView: () => void; fitAll: () => void } | null>(null);
   const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quotePersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPersistedQuoteRef = useRef<string>('');
 
   useEffect(() => {
     if (jobId && jobId !== 'new' && jobQuery.data) {
@@ -215,13 +217,13 @@ export default function RoomPlanner() {
 
   const handleCabinetPlace = useCallback((instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
     if (!currentRoom) return;
-    const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
+    const sourceCabinet = getCabinetById(currentRoom.id, instanceId);
     if (!sourceCabinet) return;
 
-    const updatedCabinet = { ...sourceCabinet, position, isPlaced: true, updatedAt: new Date() };
-    placeCabinet(currentRoom.id, instanceId, position);
-    await persistCabinet(updatedCabinet);
-  };
+    const clamped = clampPositionToRoom(currentRoom, sourceCabinet, position);
+    placeCabinet(currentRoom.id, instanceId, clamped);
+    setDirty(true);
+  }, [clampPositionToRoom, currentRoom, getCabinetById, placeCabinet]);
 
   const handleItemMove = useCallback((id: string, updates: Partial<PlacedItem>) => {
     if (!currentRoom) return;
@@ -230,7 +232,7 @@ export default function RoomPlanner() {
       const position = { x: updates.x, y: 0, z: updates.z, rotation: updates.rotation ?? cabinet.position?.rotation ?? 0 };
       handleCabinetPlace(id, position);
     }
-  }, [currentRoom, cabinets, handleCabinetPlace]);
+  }, [currentRoom, getCabinetById, handleCabinetPlace]);
 
   const handleQuickAddProduct = useCallback(async (productId: string) => {
     if (!currentRoom) return;
@@ -353,65 +355,6 @@ export default function RoomPlanner() {
     }
   }, [currentRoom, getCabinetById, replaceCabinet, persistCabinet]);
 
-
-  const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
-    if (!currentRoom) return;
-    const duplicated = duplicateCabinet(currentRoom.id, cabinet.instanceId);
-    if (!duplicated) {
-      toast.error('Failed to duplicate cabinet');
-      return;
-    }
-
-    try {
-      await persistCabinet(duplicated);
-      setDirty(true);
-      selectCabinet(duplicated.instanceId);
-      toast.success(`${duplicated.cabinetNumber} duplicated`);
-    } catch {
-      toast.error('Duplicate created locally but failed to persist');
-    }
-  }, [currentRoom, duplicateCabinet, persistCabinet, selectCabinet]);
-
-  const handleRemoveCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
-    if (!currentRoom) return;
-
-    removeCabinet(currentRoom.id, cabinet.instanceId);
-
-    if (!jobId || jobId === 'new') {
-      setDirty(true);
-      return;
-    }
-    try {
-      await removeCabinetFromJob({ jobId, roomId: currentRoom.id, instanceId: cabinet.instanceId });
-      setDirty(true);
-      toast.success(`${cabinet.cabinetNumber} removed`);
-    } catch {
-      toast.error('Removed locally but failed to persist');
-    }
-  }, [currentRoom, jobId, removeCabinet, removeCabinetFromJob]);
-
-  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
-    if (!currentRoom) return;
-    const currentCab = getCabinetById(currentRoom.id, instanceId);
-    if (!currentCab) return;
-    const merged: ConfiguredCabinet = {
-      ...currentCab,
-      ...updates,
-      dimensions: { ...currentCab.dimensions, ...(updates.dimensions || {}) },
-      materials: { ...currentCab.materials, ...(updates.materials || {}) },
-      hardware: { ...currentCab.hardware, ...(updates.hardware || {}) },
-      updatedAt: new Date(),
-    };
-
-    replaceCabinet(currentRoom.id, merged);
-    setDirty(true);
-    try {
-      await persistCabinet(merged);
-    } catch {
-      toast.error('Cabinet updated locally but failed to persist');
-    }
-  }, [currentRoom, getCabinetById, replaceCabinet, persistCabinet]);
-
   const handleEditCabinet = (cabinet: ConfiguredCabinet) => {
     selectCabinet(cabinet.instanceId);
     setEditDialogCabinet(cabinet);
@@ -500,13 +443,37 @@ export default function RoomPlanner() {
       capturedAt: new Date().toISOString(),
     };
 
-    void persistQuoteSnapshot({ jobId, snapshot });
-    void persistJobTotals({
-      jobId,
-      subtotal: quoteBOM.grandTotal.subtotalExGst,
-      tax: quoteBOM.grandTotal.gst,
-      total: quoteBOM.grandTotal.total,
+    const quoteFingerprint = JSON.stringify({
+      roomId: snapshot.roomId,
+      roomTotal: snapshot.roomTotal,
+      pricingHash: snapshot.pricingHash,
+      bomGrandTotal: quoteBOM.grandTotal,
+      perCabinetTotals: snapshot.perCabinetTotals,
     });
+
+    if (quoteFingerprint === lastPersistedQuoteRef.current) return;
+
+    if (quotePersistRef.current) {
+      clearTimeout(quotePersistRef.current);
+    }
+
+    quotePersistRef.current = setTimeout(() => {
+      lastPersistedQuoteRef.current = quoteFingerprint;
+      void persistQuoteSnapshot({ jobId, snapshot });
+      void persistJobTotals({
+        jobId,
+        subtotal: quoteBOM.grandTotal.subtotalExGst,
+        tax: quoteBOM.grandTotal.gst,
+        total: quoteBOM.grandTotal.total,
+      });
+    }, 500);
+
+    return () => {
+      if (quotePersistRef.current) {
+        clearTimeout(quotePersistRef.current);
+        quotePersistRef.current = null;
+      }
+    };
   }, [currentRoom, jobId, perCabinetTotals, persistJobTotals, persistQuoteSnapshot, pricingHash, pricingVersion, quoteBOM, roomTotal]);
 
   // Sync dialog cabinet with latest state when cabinet updates
@@ -554,9 +521,9 @@ export default function RoomPlanner() {
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 border rounded-md p-1 mr-2">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.fitAll()}><Maximize className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.fitAll()}><Maximize className="w-4 h-4" /></Button>
             </div>
 
             <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>

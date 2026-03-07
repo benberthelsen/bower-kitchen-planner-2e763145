@@ -114,6 +114,33 @@ export default function JobEditor() {
 
   const displayRooms = useMemo(() => rooms, [rooms]);
 
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value || 0);
+
+  const quoteState = useMemo(() => {
+    const live = computeJobTotalsRaw(displayRooms);
+    const persisted = persistedJobTotals;
+
+    const subtotal = persisted?.subtotal ?? live.subtotal;
+    const tax = persisted?.tax ?? live.tax;
+    const total = persisted?.total ?? live.total;
+
+    return {
+      subtotal,
+      tax,
+      total,
+      isPersisted: Boolean(persisted),
+      persistedAt: persisted?.updatedAt ?? persistedQuoteSnapshot?.capturedAt ?? null,
+      roomCount: displayRooms.length,
+      cabinetCount: Object.keys(live.perCabinetTotals).length,
+    };
+  }, [displayRooms, persistedJobTotals, persistedQuoteSnapshot]);
+
+
+  const computeJobTotals = useCallback(() => {
+    return computeJobTotalsRaw(displayRooms);
+  }, [displayRooms]);
+
   const persistFullJob = async (status: TradeJobStatus = 'draft') => {
     if (!jobId || jobId === 'new') {
       toast.error('A persisted job id is required for save/submit.');
@@ -135,15 +162,16 @@ export default function JobEditor() {
       total: totals.total,
     });
 
-    if (displayRooms[0]) {
+    for (const room of displayRooms) {
+      const roomCabinetTotals = totals.perRoomCabinetTotals[room.id] || {};
       await persistQuoteSnapshot({
         jobId,
         snapshot: {
-          roomId: displayRooms[0].id,
-          roomTotal: totals.total,
-          perCabinetTotals: totals.perCabinetTotals,
+          roomId: room.id,
+          roomTotal: totals.perRoomTotals[room.id] ?? 0,
+          perCabinetTotals: roomCabinetTotals,
           pricingVersion: 'trade-job-editor-estimate-v1',
-          pricingHash: `rooms-${displayRooms.length}-cabinets-${Object.keys(totals.perCabinetTotals).length}`,
+          pricingHash: `room-${room.id}-cabinets-${Object.keys(roomCabinetTotals).length}`,
           capturedAt: new Date().toISOString(),
         },
       });
@@ -319,6 +347,10 @@ export default function JobEditor() {
                 disabled={isSaving || isNewJob}
                 onClick={async () => {
                   try {
+                    if (!displayRooms.length || displayRooms.some((room) => !room.name.trim())) {
+                      toast.error('Add at least one valid room before submitting');
+                      return;
+                    }
                     await persistFullJob('pending_approval');
                     await updateJobStatus('pending_approval');
                     toast.success('Job submitted for approval');
