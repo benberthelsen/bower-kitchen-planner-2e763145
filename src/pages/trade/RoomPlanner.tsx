@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import TradeLayout from './components/TradeLayout';
 import { Button } from '@/components/ui/button';
@@ -24,8 +24,6 @@ import {
   ArrowLeft,
   Save,
   FileDown,
-  Undo2,
-  Redo2,
   ZoomIn,
   ZoomOut,
   Maximize,
@@ -44,9 +42,12 @@ export default function RoomPlanner() {
     currentRoom,
     setCurrentRoom,
     rooms,
-    addRoom,
     addCabinet,
     placeCabinet,
+    removeCabinet,
+    duplicateCabinet,
+    replaceCabinet,
+    getCabinetById,
     selectedCabinetId,
     selectCabinet,
     getSelectedCabinet,
@@ -54,11 +55,15 @@ export default function RoomPlanner() {
     hydrateRooms,
   } = useTradeRoom();
 
-  const { jobQuery, roomsFromServer, upsertCabinet, upsertJob, exportJobPdf } = useTradeJobPersistence(jobId);
+  const { jobQuery, roomsFromServer, upsertCabinet, replaceRoomInJob, removeCabinetFromJob, exportJobPdf } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editDialogCabinet, setEditDialogCabinet] = useState<ConfiguredCabinet | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [cameraControls, setCameraControls] = useState<{ zoomIn: () => void; zoomOut: () => void; resetView: () => void; fitAll: () => void } | null>(null);
+  const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (jobId && jobId !== 'new' && jobQuery.data) {
@@ -131,6 +136,41 @@ export default function RoomPlanner() {
 
   const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
 
+
+  const clampPositionToRoom = useCallback((room: TradeRoom, cabinet: ConfiguredCabinet, position: { x: number; y: number; z: number; rotation: number }) => {
+    const maxX = Math.max(0, room.config.width - cabinet.dimensions.width);
+    const maxZ = Math.max(0, room.config.depth - cabinet.dimensions.depth);
+    return {
+      ...position,
+      x: Math.min(Math.max(position.x, 0), maxX),
+      z: Math.min(Math.max(position.z, 0), maxZ),
+    };
+  }, []);
+
+  const saveRoomToServer = useCallback(async () => {
+    if (!jobId || jobId === 'new' || !currentRoom) return;
+    try {
+      setSaveState('saving');
+      await replaceRoomInJob({ jobId, room: currentRoom });
+      setDirty(false);
+      setSaveState('saved');
+    } catch {
+      setSaveState('error');
+      toast.error('Failed to save room');
+    }
+  }, [currentRoom, jobId, replaceRoomInJob]);
+
+  useEffect(() => {
+    if (!dirty || !jobId || jobId === 'new' || !currentRoom) return;
+    if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    autosaveRef.current = setTimeout(() => {
+      void saveRoomToServer();
+    }, 1200);
+    return () => {
+      if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    };
+  }, [dirty, jobId, currentRoom, saveRoomToServer]);
+
   const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
     const catalogItem = catalogById.get(cabinet.definitionId);
     if (!catalogItem) return 0;
@@ -159,14 +199,14 @@ export default function RoomPlanner() {
         (b.position!.z + b.dimensions.depth) - (a.position!.z + a.dimensions.depth)
       );
       const frontCabinet = sortedByZ[0];
-      return { x: 50, y: 0, z: frontCabinet.position!.z + frontCabinet.dimensions.depth + 100, rotation: 0 };
+      return { x: 50, y: 0, z: Math.min(frontCabinet.position!.z + frontCabinet.dimensions.depth + 100, room.config.depth - 50), rotation: 0 };
     }
     return { x: newX, y: 0, z: lastCabinet.position!.z, rotation: lastCabinet.position!.rotation };
   }, []);
 
   const persistCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
     if (!jobId || jobId === 'new' || !currentRoom) return;
-    await upsertCabinet({ jobId, roomId: currentRoom.id, cabinet });
+    await upsertCabinet({ jobId, roomId: currentRoom.id, cabinet, roomFallback: currentRoom });
   }, [jobId, currentRoom, upsertCabinet]);
 
   const handleCabinetSelect = (instanceId: string | null) => {
@@ -175,11 +215,12 @@ export default function RoomPlanner() {
 
   const handleCabinetPlace = async (instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
     if (!currentRoom) return;
-    placeCabinet(currentRoom.id, instanceId, position);
-    const updatedCab = currentRoom.cabinets.find(c => c.instanceId === instanceId);
-    if (updatedCab) {
-      await persistCabinet({ ...updatedCab, position, isPlaced: true, updatedAt: new Date() });
-    }
+    const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
+    if (!sourceCabinet) return;
+
+    const clamped = clampPositionToRoom(currentRoom, sourceCabinet, position);
+    placeCabinet(currentRoom.id, instanceId, clamped);
+    setDirty(true);
   };
 
   const handleItemMove = useCallback(async (id: string, updates: Partial<PlacedItem>) => {
@@ -189,7 +230,7 @@ export default function RoomPlanner() {
       const position = { x: updates.x, y: 0, z: updates.z, rotation: updates.rotation ?? cabinet.position?.rotation ?? 0 };
       await handleCabinetPlace(id, position);
     }
-  }, [currentRoom, cabinets]);
+  }, [currentRoom, cabinets, handleCabinetPlace]);
 
   const handleQuickAddProduct = useCallback(async (productId: string) => {
     if (!currentRoom) return;
@@ -246,6 +287,65 @@ export default function RoomPlanner() {
     });
   }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, persistCabinet]);
 
+
+  const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
+    if (!currentRoom) return;
+    const duplicated = duplicateCabinet(currentRoom.id, cabinet.instanceId);
+    if (!duplicated) {
+      toast.error('Failed to duplicate cabinet');
+      return;
+    }
+
+    try {
+      await persistCabinet(duplicated);
+      setDirty(true);
+      selectCabinet(duplicated.instanceId);
+      toast.success(`${duplicated.cabinetNumber} duplicated`);
+    } catch {
+      toast.error('Duplicate created locally but failed to persist');
+    }
+  }, [currentRoom, duplicateCabinet, persistCabinet, selectCabinet]);
+
+  const handleRemoveCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
+    if (!currentRoom) return;
+
+    removeCabinet(currentRoom.id, cabinet.instanceId);
+
+    if (!jobId || jobId === 'new') {
+      setDirty(true);
+      return;
+    }
+    try {
+      await removeCabinetFromJob({ jobId, roomId: currentRoom.id, instanceId: cabinet.instanceId });
+      setDirty(true);
+      toast.success(`${cabinet.cabinetNumber} removed`);
+    } catch {
+      toast.error('Removed locally but failed to persist');
+    }
+  }, [currentRoom, jobId, removeCabinet, removeCabinetFromJob]);
+
+  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
+    if (!currentRoom) return;
+    const currentCab = getCabinetById(currentRoom.id, instanceId);
+    if (!currentCab) return;
+    const merged: ConfiguredCabinet = {
+      ...currentCab,
+      ...updates,
+      dimensions: { ...currentCab.dimensions, ...(updates.dimensions || {}) },
+      materials: { ...currentCab.materials, ...(updates.materials || {}) },
+      hardware: { ...currentCab.hardware, ...(updates.hardware || {}) },
+      updatedAt: new Date(),
+    };
+
+    replaceCabinet(currentRoom.id, merged);
+    setDirty(true);
+    try {
+      await persistCabinet(merged);
+    } catch {
+      toast.error('Cabinet updated locally but failed to persist');
+    }
+  }, [currentRoom, getCabinetById, replaceCabinet, persistCabinet]);
+
   const handleEditCabinet = (cabinet: ConfiguredCabinet) => {
     selectCabinet(cabinet.instanceId);
     setEditDialogCabinet(cabinet);
@@ -263,7 +363,7 @@ export default function RoomPlanner() {
     setEditDialogOpen(open);
   };
 
-  const handleExportPlan = useCallback(() => {
+  const handleExportJson = useCallback(() => {
     if (!currentRoom) return;
     const exportedAt = new Date().toISOString();
     const exportPayload = {
@@ -352,18 +452,18 @@ export default function RoomPlanner() {
               <h1 className="text-lg font-semibold text-trade-navy">{currentRoom.name}</h1>
               <p className="text-xs text-muted-foreground">
                 {currentRoom.config.width} × {currentRoom.config.depth}mm • {cabinets.length} cabinet{cabinets.length !== 1 ? 's' : ''}
+                <span className="ml-2">
+                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : dirty ? 'Unsaved changes' : 'Up to date'}
+                </span>
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 border rounded-md p-1 mr-2">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toast.info('Undo', { description: 'Coming soon' })}><Undo2 className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toast.info('Redo', { description: 'Coming soon' })}><Redo2 className="w-4 h-4" /></Button>
-              <div className="w-px h-4 bg-border mx-1" />
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toast.info('Zoom In', { description: 'Use scroll wheel to zoom' })}><ZoomIn className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toast.info('Zoom Out', { description: 'Use scroll wheel to zoom' })}><ZoomOut className="w-4 h-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toast.info('Fit to View', { description: 'Coming soon' })}><Maximize className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cameraControls?.fitAll()}><Maximize className="w-4 h-4" /></Button>
             </div>
 
             <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>
@@ -371,7 +471,12 @@ export default function RoomPlanner() {
               Catalog
             </Button>
 
-            <Button variant="outline" size="sm" onClick={handleExportPlan}>
+            <Button variant="outline" size="sm" onClick={handleExportJson}>
+              <FileDown className="w-4 h-4 mr-1" />
+              Export JSON
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={() => exportJobPdf()}>
               <FileDown className="w-4 h-4 mr-1" />
               Export PDF
             </Button>
@@ -382,7 +487,7 @@ export default function RoomPlanner() {
               onClick={async () => {
                 if (!jobId || jobId === 'new') return;
                 try {
-                  await upsertJob({ id: jobId, name: jobQuery.data?.name || `Job ${jobId.slice(0, 8)}`, status: 'draft', rooms });
+                  await saveRoomToServer();
                   toast.success('Room saved', { description: 'Changes persisted to server.' });
                 } catch {
                   toast.error('Failed to save room');
@@ -432,6 +537,7 @@ export default function RoomPlanner() {
                 onItemMove={handleItemMove}
                 onDragStart={(id) => setDraggedItemId(id)}
                 onDragEnd={() => setDraggedItemId(null)}
+                onCameraControlsReady={setCameraControls}
                 is3D={true}
                 catalog={catalog}
               />
@@ -444,6 +550,8 @@ export default function RoomPlanner() {
             getCabinetPrice={getCabinetPrice}
             onEditCabinet={handleEditCabinet}
             onSelectCabinet={handleCabinetSelect}
+            onDuplicateCabinet={handleDuplicateCabinet}
+            onRemoveCabinet={handleRemoveCabinet}
             className="w-72"
           />
         </div>
@@ -454,6 +562,7 @@ export default function RoomPlanner() {
           open={editDialogOpen}
           onOpenChange={handleDialogOpenChange}
           onOpenFullEditor={handleOpenFullEditor}
+          onCabinetPatch={handleCabinetPatch}
         />
       </div>
     </TradeLayout>
