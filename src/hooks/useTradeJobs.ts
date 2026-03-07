@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-
-export type TradeJob = {
-  id: string;
-  jobNumber: number;
-  name: string;
-  cost: number;
-  updatedAt: string | null;
-  status: string;
-};
+import { TradeJob, TradeJobStatusGroup, isTradeJobStatus, statusToGroup } from '@/types/trade';
 
 export function useTradeJobs(userId?: string) {
   const [jobs, setJobs] = useState<TradeJob[]>([]);
@@ -45,7 +37,7 @@ export function useTradeJobs(userId?: string) {
         name: job.name,
         cost: job.cost_incl_tax ?? 0,
         updatedAt: job.updated_at,
-        status: job.status ?? 'draft',
+        status: isTradeJobStatus(job.status ?? '') ? job.status : 'draft',
       })),
     );
     setLoading(false);
@@ -55,20 +47,33 @@ export function useTradeJobs(userId?: string) {
     void loadJobs();
   }, [loadJobs]);
 
+  const grouped = useMemo(() => {
+    const groups: Record<TradeJobStatusGroup, TradeJob[]> = {
+      draft: [],
+      pending_approval: [],
+      production: [],
+      completed: [],
+    };
+
+    jobs.forEach((job) => {
+      groups[statusToGroup(job.status)].push(job);
+    });
+
+    return groups;
+  }, [jobs]);
+
   const stats = useMemo(() => {
-    const completed = jobs.filter((job) => job.status === 'completed');
-    const quoted = jobs.filter((job) => job.status === 'quoted');
-    const inProgress = jobs.filter((job) => job.status === 'in_progress' || job.status === 'draft');
     const totalValue = jobs.reduce((sum, job) => sum + job.cost, 0);
 
     return {
       total: jobs.length,
-      completed: completed.length,
-      quoted: quoted.length,
-      inProgress: inProgress.length,
+      draft: grouped.draft.length,
+      pendingApproval: grouped.pending_approval.length,
+      production: grouped.production.length,
+      completed: grouped.completed.length,
       totalValue,
     };
-  }, [jobs]);
+  }, [grouped, jobs]);
 
-  return { jobs, loading, error, stats, reload: loadJobs };
+  return { jobs, grouped, loading, error, stats, reload: loadJobs };
 }

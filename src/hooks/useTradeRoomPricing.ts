@@ -135,11 +135,10 @@ export function useTradeRoomPricing({
       return { pricingVersion: null, pricingHash: null };
     }
 
-    const timestamp = new Date().toISOString();
     const pricingHash = hashString(stableStringify(pricingData));
 
     return {
-      pricingVersion: `trade-bom-${timestamp}`,
+      pricingVersion: `trade-bom-${pricingHash}`,
       pricingHash,
     };
   }, [pricingData]);
