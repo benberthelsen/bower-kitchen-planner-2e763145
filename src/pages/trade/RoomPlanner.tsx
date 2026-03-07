@@ -78,7 +78,7 @@ export default function RoomPlanner() {
   }, [roomId, rooms, setCurrentRoom]);
 
   const selectedCabinet = getSelectedCabinet();
-  const cabinets = currentRoom ? getCabinetsByRoom(currentRoom.id) : [];
+  const cabinets = useMemo(() => (currentRoom ? getCabinetsByRoom(currentRoom.id) : []), [currentRoom, getCabinetsByRoom]);
   const [placementItemId, setPlacementItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
 
@@ -213,7 +213,7 @@ export default function RoomPlanner() {
     selectCabinet(instanceId);
   };
 
-  const handleCabinetPlace = async (instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
+  const handleCabinetPlace = useCallback((instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
     if (!currentRoom) return;
     const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
     if (!sourceCabinet) return;
@@ -223,12 +223,12 @@ export default function RoomPlanner() {
     await persistCabinet(updatedCabinet);
   };
 
-  const handleItemMove = useCallback(async (id: string, updates: Partial<PlacedItem>) => {
+  const handleItemMove = useCallback((id: string, updates: Partial<PlacedItem>) => {
     if (!currentRoom) return;
-    const cabinet = cabinets.find(c => c.instanceId === id);
+    const cabinet = getCabinetById(currentRoom.id, id);
     if (cabinet && updates.x !== undefined && updates.z !== undefined) {
       const position = { x: updates.x, y: 0, z: updates.z, rotation: updates.rotation ?? cabinet.position?.rotation ?? 0 };
-      await handleCabinetPlace(id, position);
+      handleCabinetPlace(id, position);
     }
   }, [currentRoom, cabinets, handleCabinetPlace]);
 
@@ -277,15 +277,81 @@ export default function RoomPlanner() {
       position,
     });
 
-    await persistCabinet(newCabinet);
-    selectCabinet(newCabinet.instanceId);
-    setEditDialogCabinet(newCabinet);
-    setEditDialogOpen(true);
+    try {
+      await persistCabinet(newCabinet);
+      selectCabinet(newCabinet.instanceId);
+      setEditDialogCabinet(newCabinet);
+      setEditDialogOpen(true);
+      setDirty(true);
+      toast.success(`${catalogItem.name} added`, {
+        description: 'Saved to job and available to other sessions.'
+      });
+    } catch {
+      removeCabinet(currentRoom.id, newCabinet.instanceId);
+      toast.error('Failed to add cabinet. Please try again.');
+    }
+  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, persistCabinet, removeCabinet]);
 
-    toast.success(`${catalogItem.name} added`, {
-      description: 'Saved to job and available to other sessions.'
-    });
-  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, persistCabinet]);
+
+  const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
+    if (!currentRoom) return;
+    const duplicated = duplicateCabinet(currentRoom.id, cabinet.instanceId);
+    if (!duplicated) {
+      toast.error('Failed to duplicate cabinet');
+      return;
+    }
+
+    try {
+      await persistCabinet(duplicated);
+      setDirty(true);
+      selectCabinet(duplicated.instanceId);
+      toast.success(`${duplicated.cabinetNumber} duplicated`);
+    } catch {
+      removeCabinet(currentRoom.id, duplicated.instanceId);
+      toast.error('Duplicate failed to persist and was reverted');
+    }
+  }, [currentRoom, duplicateCabinet, persistCabinet, removeCabinet, selectCabinet]);
+
+  const handleRemoveCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
+    if (!currentRoom) return;
+
+    removeCabinet(currentRoom.id, cabinet.instanceId);
+
+    if (!jobId || jobId === 'new') {
+      setDirty(true);
+      return;
+    }
+    try {
+      await removeCabinetFromJob({ jobId, roomId: currentRoom.id, instanceId: cabinet.instanceId });
+      setDirty(true);
+      toast.success(`${cabinet.cabinetNumber} removed`);
+    } catch {
+      replaceCabinet(currentRoom.id, cabinet);
+      toast.error('Failed to remove cabinet. Change was reverted.');
+    }
+  }, [currentRoom, jobId, removeCabinet, removeCabinetFromJob, replaceCabinet]);
+
+  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
+    if (!currentRoom) return;
+    const currentCab = getCabinetById(currentRoom.id, instanceId);
+    if (!currentCab) return;
+    const merged: ConfiguredCabinet = {
+      ...currentCab,
+      ...updates,
+      dimensions: { ...currentCab.dimensions, ...(updates.dimensions || {}) },
+      materials: { ...currentCab.materials, ...(updates.materials || {}) },
+      hardware: { ...currentCab.hardware, ...(updates.hardware || {}) },
+      updatedAt: new Date(),
+    };
+
+    replaceCabinet(currentRoom.id, merged);
+    setDirty(true);
+    try {
+      await persistCabinet(merged);
+    } catch {
+      toast.error('Cabinet updated locally but failed to persist');
+    }
+  }, [currentRoom, getCabinetById, replaceCabinet, persistCabinet]);
 
 
   const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
@@ -511,6 +577,7 @@ export default function RoomPlanner() {
             <Button
               size="sm"
               className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
+              disabled={saveState === 'saving'}
               onClick={async () => {
                 if (!jobId || jobId === 'new') return;
                 try {
