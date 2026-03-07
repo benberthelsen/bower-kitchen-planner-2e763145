@@ -9,6 +9,7 @@ import {
 import { Plus, FileText, Eye, Download, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
+import { statusToGroup, isTradeJobStatus } from '@/types/trade';
 
 interface Job {
   id: string;
@@ -57,14 +58,14 @@ export default function AdminDashboard() {
         return jobDate.getMonth() === currentMonth && jobDate.getFullYear() === currentYear;
       }) || [];
 
-      const created = thisMonthJobs.filter(j => j.status === 'draft' || j.status === 'processing').length;
-      const accepted = thisMonthJobs.filter(j => j.status === 'approved' || j.status === 'completed').length;
-      
+      const created = thisMonthJobs.filter((j) => isTradeJobStatus(j.status) && (statusToGroup(j.status) === 'draft' || statusToGroup(j.status) === 'pending_approval')).length;
+      const accepted = thisMonthJobs.filter((j) => isTradeJobStatus(j.status) && (statusToGroup(j.status) === 'production' || statusToGroup(j.status) === 'completed')).length;
+
       const createdValue = thisMonthJobs
-        .filter(j => j.status === 'draft' || j.status === 'processing')
+        .filter((j) => isTradeJobStatus(j.status) && (statusToGroup(j.status) === 'draft' || statusToGroup(j.status) === 'pending_approval'))
         .reduce((sum, j) => sum + (parseFloat(String(j.cost_incl_tax)) || 0), 0);
       const acceptedValue = thisMonthJobs
-        .filter(j => j.status === 'approved' || j.status === 'completed')
+        .filter((j) => isTradeJobStatus(j.status) && (statusToGroup(j.status) === 'production' || statusToGroup(j.status) === 'completed'))
         .reduce((sum, j) => sum + (parseFloat(String(j.cost_incl_tax)) || 0), 0);
 
       setMonthlyStats([

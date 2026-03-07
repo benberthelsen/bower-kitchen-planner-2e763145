@@ -44,7 +44,6 @@ export default function RoomPlanner() {
     currentRoom,
     setCurrentRoom,
     rooms,
-    addRoom,
     addCabinet,
     placeCabinet,
     selectedCabinetId,
@@ -54,7 +53,7 @@ export default function RoomPlanner() {
     hydrateRooms,
   } = useTradeRoom();
 
-  const { jobQuery, roomsFromServer, upsertCabinet, upsertJob, exportJobPdf } = useTradeJobPersistence(jobId);
+  const { jobQuery, roomsFromServer, upsertCabinet, upsertJob , exportJobPdf } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -175,11 +174,12 @@ export default function RoomPlanner() {
 
   const handleCabinetPlace = async (instanceId: string, position: { x: number; y: number; z: number; rotation: number }) => {
     if (!currentRoom) return;
+    const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
+    if (!sourceCabinet) return;
+
+    const updatedCabinet = { ...sourceCabinet, position, isPlaced: true, updatedAt: new Date() };
     placeCabinet(currentRoom.id, instanceId, position);
-    const updatedCab = currentRoom.cabinets.find(c => c.instanceId === instanceId);
-    if (updatedCab) {
-      await persistCabinet({ ...updatedCab, position, isPlaced: true, updatedAt: new Date() });
-    }
+    await persistCabinet(updatedCabinet);
   };
 
   const handleItemMove = useCallback(async (id: string, updates: Partial<PlacedItem>) => {
@@ -263,7 +263,7 @@ export default function RoomPlanner() {
     setEditDialogOpen(open);
   };
 
-  const handleExportPlan = useCallback(() => {
+  const handleExportJson = useCallback(() => {
     if (!currentRoom) return;
     const exportedAt = new Date().toISOString();
     const exportPayload = {
@@ -371,7 +371,12 @@ export default function RoomPlanner() {
               Catalog
             </Button>
 
-            <Button variant="outline" size="sm" onClick={handleExportPlan}>
+            <Button variant="outline" size="sm" onClick={handleExportJson}>
+              <FileDown className="w-4 h-4 mr-1" />
+              Export JSON
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={() => exportJobPdf()}>
               <FileDown className="w-4 h-4 mr-1" />
               Export PDF
             </Button>
