@@ -29,6 +29,7 @@ import { TRADE_STATUS_BADGE_STYLES } from '@/lib/trade/jobStatusBadge';
 import { getDaysSinceUpdated, isStaleQuote, STALE_QUOTE_DAYS } from '@/lib/trade/jobHealth';
 import TradeLayout from './components/TradeLayout';
 
+
 function StatCard({ icon: Icon, label, value, trend }: { icon: React.ElementType; label: string; value: string | number; trend?: string }) {
   return (
     <div className="bg-trade-surface-elevated rounded-xl p-5 border border-trade-border shadow-sm hover:shadow-md transition-shadow">

@@ -57,6 +57,13 @@ export default function MyJobs() {
       });
   }, [activeFilter, jobs, searchQuery]);
 
+  const isStaleQuote = (status: string, updatedAt: string | null) => {
+    if ((status !== 'draft' && status !== 'pending_approval') || !updatedAt) return false;
+    const updatedAtMs = new Date(updatedAt).getTime();
+    if (!Number.isFinite(updatedAtMs)) return false;
+    return Date.now() - updatedAtMs > 7 * 24 * 60 * 60 * 1000;
+  };
+
   return (
     <TradeLayout>
       <div className="p-6 lg:p-8 max-w-6xl mx-auto">
