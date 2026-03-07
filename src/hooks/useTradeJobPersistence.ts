@@ -1,15 +1,30 @@
 import { useCallback, useMemo } from 'react';
-import jsPDF from 'jspdf';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { ConfiguredCabinet, TradeRoom } from '@/contexts/TradeRoomContext';
+import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
+import { generateTradeQuotePDF } from '@/lib/pdfQuoteGenerator';
 
 interface PersistedTradeDesignData {
   tradeRooms: TradeRoom[];
+  quoteSnapshot?: QuoteSnapshot;
+  quoteSnapshotsByRoom?: Record<string, QuoteSnapshot>;
+  jobTotals?: {
+    subtotal?: number;
+    tax?: number;
+    total?: number;
+    updatedAt: string;
+  };
   lastSyncedAt: string;
 }
 
-type JobStatus = 'draft' | 'submitted' | 'processing' | 'completed';
+interface PersistJobInput {
+  id: string;
+  name: string;
+  status?: TradeJobStatus;
+  rooms: TradeRoom[];
+  designDataPatch?: Partial<PersistedTradeDesignData>;
+  existingDesignData?: Partial<PersistedTradeDesignData>;
+}
 
 const jobQueryKey = (jobId?: string) => ['trade-job', jobId];
 
@@ -37,6 +52,10 @@ const serializeRooms = (rooms: TradeRoom[]) =>
     })),
   }));
 
+function normalizeStatus(value?: string): TradeJobStatus {
+  return value && isTradeJobStatus(value) ? value : 'draft';
+}
+
 export function useTradeJobPersistence(jobId?: string) {
   const queryClient = useQueryClient();
 
@@ -55,6 +74,11 @@ export function useTradeJobPersistence(jobId?: string) {
     },
   });
 
+
+  const getCurrentJob = useCallback((id: string) => {
+    return queryClient.getQueryData<any>(jobQueryKey(id)) ?? jobQuery.data;
+  }, [jobQuery.data, queryClient]);
+
   const roomsFromServer = useMemo(() => {
     const designData = (jobQuery.data?.design_data || {}) as Partial<PersistedTradeDesignData>;
     const rooms = Array.isArray(designData.tradeRooms) ? designData.tradeRooms : [];
@@ -62,15 +86,19 @@ export function useTradeJobPersistence(jobId?: string) {
   }, [jobQuery.data?.design_data]);
 
   const upsertJobMutation = useMutation({
-    mutationFn: async (input: { id: string; name: string; status?: JobStatus; rooms: TradeRoom[] }) => {
+    mutationFn: async (input: PersistJobInput) => {
+      const mergedDesignData = {
+        ...(input.existingDesignData || {}),
+        tradeRooms: serializeRooms(input.rooms),
+        ...(input.designDataPatch || {}),
+        lastSyncedAt: new Date().toISOString(),
+      } as PersistedTradeDesignData;
+
       const payload = {
         id: input.id,
         name: input.name,
         status: input.status ?? 'draft',
-        design_data: {
-          tradeRooms: serializeRooms(input.rooms),
-          lastSyncedAt: new Date().toISOString(),
-        } as unknown as PersistedTradeDesignData,
+        design_data: mergedDesignData as unknown as PersistedTradeDesignData,
       };
 
       const { data, error } = await supabase
@@ -87,54 +115,128 @@ export function useTradeJobPersistence(jobId?: string) {
     },
   });
 
-  const upsertRoomMutation = useMutation({
-    mutationFn: async (input: { jobId: string; room: TradeRoom }) => {
-      const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
-      const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
-      const normalizedExisting = normalizeRooms(existing);
+  const persistRooms = useCallback(async (input: { jobId: string; rooms: TradeRoom[] }) => {
+    const current = getCurrentJob(input.jobId);
+    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
 
-      const nextRooms = normalizedExisting.some((room) => room.id === input.room.id)
-        ? normalizedExisting.map((room) => (room.id === input.room.id ? input.room : room))
-        : [...normalizedExisting, input.room];
+    return upsertJobMutation.mutateAsync({
+      id: input.jobId,
+      name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
+      status: normalizeStatus(current?.status),
+      rooms: input.rooms,
+      existingDesignData,
+    });
+  }, [getCurrentJob, upsertJobMutation]);
 
-      return upsertJobMutation.mutateAsync({
-        id: input.jobId,
-        name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
-        status: (current?.status as JobStatus) || 'draft',
-        rooms: nextRooms,
-      });
-    },
-  });
+  const upsertRoom = useCallback(async (input: { jobId: string; room: TradeRoom }) => {
+    const current = getCurrentJob(input.jobId);
+    const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
+    const normalizedExisting = normalizeRooms(existing);
 
-  const upsertCabinetMutation = useMutation({
-    mutationFn: async (input: { jobId: string; roomId: string; cabinet: ConfiguredCabinet }) => {
-      const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
-      const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
-      const normalizedExisting = normalizeRooms(existing);
+    const nextRooms = normalizedExisting.some((room) => room.id === input.room.id)
+      ? normalizedExisting.map((room) => (room.id === input.room.id ? input.room : room))
+      : [...normalizedExisting, input.room];
 
-      const nextRooms = normalizedExisting.map((room) => {
-        if (room.id !== input.roomId) return room;
-        const nextCabinets = room.cabinets.some((cabinet) => cabinet.instanceId === input.cabinet.instanceId)
-          ? room.cabinets.map((cabinet) => (cabinet.instanceId === input.cabinet.instanceId ? input.cabinet : cabinet))
-          : [...room.cabinets, input.cabinet];
+    return persistRooms({ jobId: input.jobId, rooms: nextRooms });
+  }, [getCurrentJob, persistRooms]);
 
-        return {
-          ...room,
-          cabinets: nextCabinets,
-          updatedAt: new Date(),
-        };
-      });
+  const replaceRoomInJob = useCallback(async (input: { jobId: string; room: TradeRoom }) => {
+    return upsertRoom(input);
+  }, [upsertRoom]);
 
-      return upsertJobMutation.mutateAsync({
-        id: input.jobId,
-        name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
-        status: (current?.status as JobStatus) || 'draft',
-        rooms: nextRooms,
-      });
-    },
-  });
+  const upsertCabinet = useCallback(async (input: { jobId: string; roomId: string; cabinet: ConfiguredCabinet; roomFallback?: TradeRoom }) => {
+    const current = getCurrentJob(input.jobId);
+    const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
+    const normalizedExisting = normalizeRooms(existing);
 
-  const updateJobStatus = useCallback(async (status: JobStatus) => {
+    const hasRoom = normalizedExisting.some((room) => room.id === input.roomId);
+
+    if (!hasRoom && input.roomFallback) {
+      const fallbackRoom = {
+        ...input.roomFallback,
+        cabinets: [input.cabinet],
+        updatedAt: new Date(),
+      };
+      return persistRooms({ jobId: input.jobId, rooms: [...normalizedExisting, fallbackRoom] });
+    }
+
+    if (!hasRoom) return;
+
+    const nextRooms = normalizedExisting.map((room) => {
+      if (room.id !== input.roomId) return room;
+      const nextCabinets = room.cabinets.some((cabinet) => cabinet.instanceId === input.cabinet.instanceId)
+        ? room.cabinets.map((cabinet) => (cabinet.instanceId === input.cabinet.instanceId ? input.cabinet : cabinet))
+        : [...room.cabinets, input.cabinet];
+
+      return {
+        ...room,
+        cabinets: nextCabinets,
+        updatedAt: new Date(),
+      };
+    });
+
+    return persistRooms({ jobId: input.jobId, rooms: nextRooms });
+  }, [getCurrentJob, persistRooms]);
+
+  const removeCabinetFromJob = useCallback(async (input: { jobId: string; roomId: string; instanceId: string }) => {
+    const current = getCurrentJob(input.jobId);
+    const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
+    const normalizedExisting = normalizeRooms(existing);
+
+    const nextRooms = normalizedExisting.map((room) =>
+      room.id === input.roomId
+        ? { ...room, cabinets: room.cabinets.filter((cabinet) => cabinet.instanceId !== input.instanceId), updatedAt: new Date() }
+        : room,
+    );
+
+    return persistRooms({ jobId: input.jobId, rooms: nextRooms });
+  }, [getCurrentJob, persistRooms]);
+
+  const persistQuoteSnapshot = useCallback(async (input: { jobId: string; snapshot: QuoteSnapshot }) => {
+    const current = getCurrentJob(input.jobId);
+    const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
+    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
+    const quoteSnapshotsByRoom = {
+      ...(existingDesignData.quoteSnapshotsByRoom || {}),
+      [input.snapshot.roomId]: input.snapshot,
+    };
+
+    return upsertJobMutation.mutateAsync({
+      id: input.jobId,
+      name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
+      status: normalizeStatus(current?.status),
+      rooms: normalizeRooms(existing),
+      existingDesignData,
+      designDataPatch: {
+        quoteSnapshot: input.snapshot,
+        quoteSnapshotsByRoom,
+      },
+    });
+  }, [getCurrentJob, upsertJobMutation]);
+
+  const persistJobTotals = useCallback(async (input: { jobId: string; subtotal?: number; tax?: number; total?: number }) => {
+    const current = getCurrentJob(input.jobId);
+    const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
+    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
+
+    return upsertJobMutation.mutateAsync({
+      id: input.jobId,
+      name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
+      status: normalizeStatus(current?.status),
+      rooms: normalizeRooms(existing),
+      existingDesignData,
+      designDataPatch: {
+        jobTotals: {
+          subtotal: input.subtotal,
+          tax: input.tax,
+          total: input.total,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+  }, [getCurrentJob, upsertJobMutation]);
+
+  const updateJobStatus = useCallback(async (status: TradeJobStatus) => {
     if (!jobId || jobId === 'new') return;
 
     const { error } = await supabase.from('jobs').update({ status }).eq('id', jobId);
@@ -158,41 +260,60 @@ export function useTradeJobPersistence(jobId?: string) {
     const data = (jobQuery.data.design_data || {}) as unknown as PersistedTradeDesignData;
     const rooms = normalizeRooms((data.tradeRooms || []) as TradeRoom[]);
 
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text(`Job ${jobQuery.data.name}`, 14, 18);
-    doc.setFontSize(11);
-    doc.text(`Status: ${jobQuery.data.status || 'draft'}`, 14, 26);
-    doc.text(`Rooms: ${rooms.length}`, 14, 33);
+    const quoteSnapshot = data.quoteSnapshot;
+    const quoteSnapshotsByRoom = data.quoteSnapshotsByRoom || {};
 
-    let y = 44;
-    rooms.forEach((room, index) => {
-      doc.setFontSize(12);
-      doc.text(`${index + 1}. ${room.name}`, 14, y);
-      y += 6;
-      doc.setFontSize(10);
-      doc.text(`Size: ${room.config.width} x ${room.config.depth} x ${room.config.height} mm`, 18, y);
-      y += 5;
-      doc.text(`Cabinets: ${room.cabinets.length}`, 18, y);
-      y += 8;
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
+    generateTradeQuotePDF({
+      job: {
+        id: jobQuery.data.id,
+        name: jobQuery.data.name,
+        status: jobQuery.data.status || 'draft',
+        updatedAt: jobQuery.data.updated_at,
+      },
+      rooms: rooms.map((room) => ({
+        id: room.id,
+        name: room.name,
+        description: room.description,
+        cabinets: room.cabinets.map((cab) => ({
+          cabinetNumber: cab.cabinetNumber,
+          productName: cab.productName,
+          category: cab.category,
+          dimensions: cab.dimensions,
+          estimatedTotal: quoteSnapshotsByRoom[room.id]?.perCabinetTotals?.[cab.instanceId] ?? quoteSnapshot?.perCabinetTotals?.[cab.instanceId],
+        })),
+      })),
+      totals: data.jobTotals,
     });
-
-    doc.save(`job-${jobQuery.data.id}.pdf`);
   }, [jobQuery.data]);
+
+
+  const persistedDesignData = useMemo(() => {
+    return (jobQuery.data?.design_data || {}) as Partial<PersistedTradeDesignData>;
+  }, [jobQuery.data?.design_data]);
+
+  const persistedJobTotals = useMemo(() => persistedDesignData.jobTotals ?? null, [persistedDesignData]);
+  const persistedQuoteSnapshot = useMemo(() => persistedDesignData.quoteSnapshot ?? null, [persistedDesignData]);
+  const persistedQuoteSnapshotsByRoom = useMemo(
+    () => persistedDesignData.quoteSnapshotsByRoom ?? {},
+    [persistedDesignData],
+  );
 
   return {
     jobQuery,
     roomsFromServer,
+    persistedJobTotals,
+    persistedQuoteSnapshot,
+    persistedQuoteSnapshotsByRoom,
     upsertJob: upsertJobMutation.mutateAsync,
-    upsertRoom: upsertRoomMutation.mutateAsync,
-    upsertCabinet: upsertCabinetMutation.mutateAsync,
+    upsertRoom,
+    replaceRoomInJob,
+    upsertCabinet,
+    removeCabinetFromJob,
+    persistQuoteSnapshot,
+    persistJobTotals,
     updateJobStatus,
     exportJobJson,
     exportJobPdf,
-    isSaving: upsertJobMutation.isPending || upsertRoomMutation.isPending || upsertCabinetMutation.isPending,
+    isSaving: upsertJobMutation.isPending,
   };
 }
