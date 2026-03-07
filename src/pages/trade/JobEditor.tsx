@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
 import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
 import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
+import { TradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 
@@ -56,6 +57,8 @@ export default function JobEditor() {
     upsertJob,
     upsertRoom,
     updateJobStatus,
+    persistQuoteSnapshot,
+    persistJobTotals,
     exportJobJson,
     exportJobPdf,
     isSaving,
@@ -72,7 +75,28 @@ export default function JobEditor() {
 
   const displayRooms = useMemo(() => rooms, [rooms]);
 
-  const persistFullJob = async (status: 'draft' | 'submitted' = 'draft') => {
+
+  const computeJobTotals = useCallback(() => {
+    let total = 0;
+    const perCabinetTotals: Record<string, number> = {};
+
+    displayRooms.forEach((room) => {
+      room.cabinets.forEach((cabinet) => {
+        const cabinetEstimate = Math.max(0, cabinet.dimensions.width * cabinet.dimensions.depth * 0.0008);
+        perCabinetTotals[cabinet.instanceId] = cabinetEstimate;
+        total += cabinetEstimate;
+      });
+    });
+
+    return {
+      subtotal: Number(total.toFixed(2)),
+      tax: Number((total * 0.1).toFixed(2)),
+      total: Number((total * 1.1).toFixed(2)),
+      perCabinetTotals,
+    };
+  }, [displayRooms]);
+
+  const persistFullJob = async (status: TradeJobStatus = 'draft') => {
     if (!jobId || jobId === 'new') {
       toast.error('A persisted job id is required for save/submit.');
       return;
@@ -84,6 +108,28 @@ export default function JobEditor() {
       status,
       rooms: displayRooms,
     });
+
+    const totals = computeJobTotals();
+    await persistJobTotals({
+      jobId,
+      subtotal: totals.subtotal,
+      tax: totals.tax,
+      total: totals.total,
+    });
+
+    if (displayRooms[0]) {
+      await persistQuoteSnapshot({
+        jobId,
+        snapshot: {
+          roomId: displayRooms[0].id,
+          roomTotal: totals.total,
+          perCabinetTotals: totals.perCabinetTotals,
+          pricingVersion: 'trade-job-editor-estimate-v1',
+          pricingHash: `rooms-${displayRooms.length}-cabinets-${Object.keys(totals.perCabinetTotals).length}`,
+          capturedAt: new Date().toISOString(),
+        },
+      });
+    }
   };
 
   const handleRoomComplete = async (config: RoomConfig) => {
@@ -255,9 +301,13 @@ export default function JobEditor() {
                 disabled={isSaving || isNewJob}
                 onClick={async () => {
                   try {
-                    await persistFullJob('submitted');
-                    await updateJobStatus('submitted');
-                    toast.success('Job submitted');
+                    if (!displayRooms.length || displayRooms.some((room) => !room.name.trim())) {
+                      toast.error('Add at least one valid room before submitting');
+                      return;
+                    }
+                    await persistFullJob('pending_approval');
+                    await updateJobStatus('pending_approval');
+                    toast.success('Job submitted for approval');
                   } catch {
                     toast.error('Failed to submit job');
                   }
