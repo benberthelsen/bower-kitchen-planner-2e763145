@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { TradeJob, TradeJobStatusGroup, isTradeJobStatus, statusToGroup } from '@/types/trade';
+import { TradeJob, TradeJobStatus, TradeJobStatusGroup, isTradeJobStatus, statusToGroup } from '@/types/trade';
 
 export function useTradeJobs(userId?: string) {
   const [jobs, setJobs] = useState<TradeJob[]>([]);
