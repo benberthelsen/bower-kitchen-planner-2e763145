@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ArrowLeft, Download, Loader2 } from 'lucide-react';
+import { CANONICAL_TRADE_JOB_STATUSES, TRADE_JOB_STATUS_LABELS, TradeJobStatus, isTradeJobStatus } from '@/types/trade';
 
 interface Job {
   id: string;
@@ -27,14 +28,10 @@ interface Job {
   };
 }
 
-const STATUS_OPTIONS = [
-  { value: 'draft', label: 'Draft' },
-  { value: 'processing', label: 'Processing' },
-  { value: 'pending_approval', label: 'Pending Approval' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'in_production', label: 'In Production' },
-  { value: 'completed', label: 'Completed' },
-];
+const STATUS_OPTIONS: { value: TradeJobStatus; label: string }[] = CANONICAL_TRADE_JOB_STATUSES.map((status) => ({
+  value: status,
+  label: TRADE_JOB_STATUS_LABELS[status],
+}));
 
 export default function AdminJobDetail() {
   const { id } = useParams<{ id: string }>();
@@ -72,7 +69,7 @@ export default function AdminJobDetail() {
     }
   };
 
-  const updateStatus = async (newStatus: string) => {
+  const updateStatus = async (newStatus: TradeJobStatus) => {
     if (!job) return;
     try {
       const { error } = await supabase
@@ -116,16 +113,15 @@ export default function AdminJobDetail() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
+  const getStatusBadge = (status: TradeJobStatus) => {
+    const styles: Record<TradeJobStatus, string> = {
       draft: 'bg-gray-100 text-gray-700',
-      processing: 'bg-blue-100 text-blue-700',
       pending_approval: 'bg-yellow-100 text-yellow-700',
       approved: 'bg-green-100 text-green-700',
       in_production: 'bg-orange-100 text-orange-700',
       completed: 'bg-emerald-100 text-emerald-700',
     };
-    return styles[status] || 'bg-gray-100 text-gray-700';
+    return styles[status];
   };
 
   if (loading) {
@@ -146,6 +142,7 @@ export default function AdminJobDetail() {
 
   const designData = job.design_data || {};
   const cabinets = designData.items?.filter((i: any) => i.itemType === 'Cabinet') || [];
+  const safeStatus: TradeJobStatus = isTradeJobStatus(job.status) ? job.status : 'draft';
 
   return (
     <div className="p-6">
@@ -157,8 +154,8 @@ export default function AdminJobDetail() {
           </Button>
         </Link>
         <h1 className="text-2xl font-bold">Job #{job.job_number}</h1>
-        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(job.status)}`}>
-          {job.status?.replace('_', ' ')}
+        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(safeStatus)}`}>
+          {TRADE_JOB_STATUS_LABELS[safeStatus]}
         </span>
       </div>
 
@@ -289,7 +286,7 @@ export default function AdminJobDetail() {
             <CardContent className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500 mb-2">Update Status</p>
-                <Select value={job.status} onValueChange={updateStatus}>
+                <Select value={safeStatus} onValueChange={(value) => updateStatus(value as TradeJobStatus)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
 import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
 import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
+import { TradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 
@@ -72,7 +73,7 @@ export default function JobEditor() {
 
   const displayRooms = useMemo(() => rooms, [rooms]);
 
-  const persistFullJob = async (status: 'draft' | 'submitted' = 'draft') => {
+  const persistFullJob = async (status: TradeJobStatus = 'draft') => {
     if (!jobId || jobId === 'new') {
       toast.error('A persisted job id is required for save/submit.');
       return;
@@ -255,9 +256,9 @@ export default function JobEditor() {
                 disabled={isSaving || isNewJob}
                 onClick={async () => {
                   try {
-                    await persistFullJob('submitted');
-                    await updateJobStatus('submitted');
-                    toast.success('Job submitted');
+                    await persistFullJob('pending_approval');
+                    await updateJobStatus('pending_approval');
+                    toast.success('Job submitted for approval');
                   } catch {
                     toast.error('Failed to submit job');
                   }
