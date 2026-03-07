@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useAuth } from '@/hooks/useAuth';
 import { useTradeJobs } from '@/hooks/useTradeJobs';
 import { TRADE_JOB_STATUS_LABELS, TradeJob } from '@/types/trade';
+import { TRADE_STATUS_BADGE_STYLES } from '@/lib/trade/jobStatusBadge';
 import TradeLayout from './components/TradeLayout';
 
 const TRADE_STATUS_BADGE_STYLES: Record<TradeJob['status'], string> = {
@@ -171,6 +172,18 @@ export default function TradeDashboard() {
     };
   }, [grouped.production, hasProductionWork, jobs.length, latestJob, navigate]);
 
+  const staleQuoteJobs = useMemo(() => {
+    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    return jobs
+      .filter((job) => (job.status === 'draft' || job.status === 'pending_approval') && job.updatedAt)
+      .filter((job) => {
+        const updatedAtMs = new Date(job.updatedAt as string).getTime();
+        return Number.isFinite(updatedAtMs) && updatedAtMs < oneWeekAgo;
+      })
+      .slice(0, 3);
+  }, [jobs]);
+
   function getGreeting() {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -251,6 +264,22 @@ export default function TradeDashboard() {
             </div>
           </div>
         </div>
+
+        {staleQuoteJobs.length > 0 && (
+          <div className="mb-8 rounded-xl border border-amber-300 bg-amber-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Needs attention</p>
+            <p className="mt-1 text-sm text-amber-900">
+              {staleQuoteJobs.length} quote{staleQuoteJobs.length === 1 ? '' : 's'} have been idle for more than 7 days.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {staleQuoteJobs.map((job) => (
+                <Button key={job.id} variant="outline" className="border-amber-300 bg-white" onClick={() => navigate(`/trade/job/${job.id}`)}>
+                  Resume #{job.jobNumber}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           <StatCard icon={FileText} label="Total Jobs" value={stats.total} />
