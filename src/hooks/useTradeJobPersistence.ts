@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from 'react';
-import jsPDF from 'jspdf';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
@@ -220,30 +219,26 @@ export function useTradeJobPersistence(jobId?: string) {
     const data = (jobQuery.data.design_data || {}) as unknown as PersistedTradeDesignData;
     const rooms = normalizeRooms((data.tradeRooms || []) as TradeRoom[]);
 
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text(`Job ${jobQuery.data.name}`, 14, 18);
-    doc.setFontSize(11);
-    doc.text(`Status: ${jobQuery.data.status || 'draft'}`, 14, 26);
-    doc.text(`Rooms: ${rooms.length}`, 14, 33);
-
-    let y = 44;
-    rooms.forEach((room, index) => {
-      doc.setFontSize(12);
-      doc.text(`${index + 1}. ${room.name}`, 14, y);
-      y += 6;
-      doc.setFontSize(10);
-      doc.text(`Size: ${room.config.width} x ${room.config.depth} x ${room.config.height} mm`, 18, y);
-      y += 5;
-      doc.text(`Cabinets: ${room.cabinets.length}`, 18, y);
-      y += 8;
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
+    generateTradeQuotePDF({
+      job: {
+        id: jobQuery.data.id,
+        name: jobQuery.data.name,
+        status: jobQuery.data.status || 'draft',
+        updatedAt: jobQuery.data.updated_at,
+      },
+      rooms: rooms.map((room) => ({
+        id: room.id,
+        name: room.name,
+        description: room.description,
+        cabinets: room.cabinets.map((cab) => ({
+          cabinetNumber: cab.cabinetNumber,
+          productName: cab.productName,
+          category: cab.category,
+          dimensions: cab.dimensions,
+        })),
+      })),
+      totals: data.jobTotals,
     });
-
-    doc.save(`job-${jobQuery.data.id}.pdf`);
   }, [jobQuery.data]);
 
   return {

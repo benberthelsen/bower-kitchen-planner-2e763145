@@ -416,6 +416,33 @@ export default function RoomPlanner() {
     });
   }, [cabinets, catalog, currentRoom, perCabinetTotals, pricingHash, pricingVersion, quoteBOM, roomTotal]);
 
+
+  useEffect(() => {
+    if (!jobId || jobId === 'new' || !currentRoom) return;
+    if (!quoteBOM) return;
+
+    const snapshot = {
+      roomId: currentRoom.id,
+      roomTotal,
+      perCabinetTotals,
+      bomSummary: {
+        grandTotal: quoteBOM.grandTotal,
+        cabinets: quoteBOM.cabinets,
+      },
+      pricingVersion: pricingVersion ?? undefined,
+      pricingHash: pricingHash ?? undefined,
+      capturedAt: new Date().toISOString(),
+    };
+
+    void persistQuoteSnapshot({ jobId, snapshot });
+    void persistJobTotals({
+      jobId,
+      subtotal: quoteBOM.grandTotal.subtotalExGst,
+      tax: quoteBOM.grandTotal.gst,
+      total: quoteBOM.grandTotal.total,
+    });
+  }, [currentRoom, jobId, perCabinetTotals, persistJobTotals, persistQuoteSnapshot, pricingHash, pricingVersion, quoteBOM, roomTotal]);
+
   // Sync dialog cabinet with latest state when cabinet updates
   useEffect(() => {
     if (editDialogOpen && editDialogCabinet) {

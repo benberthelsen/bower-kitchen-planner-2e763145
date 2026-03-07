@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -57,6 +57,8 @@ export default function JobEditor() {
     upsertJob,
     upsertRoom,
     updateJobStatus,
+    persistQuoteSnapshot,
+    persistJobTotals,
     exportJobJson,
     exportJobPdf,
     isSaving,
@@ -85,6 +87,28 @@ export default function JobEditor() {
       status,
       rooms: displayRooms,
     });
+
+    const totals = computeJobTotals();
+    await persistJobTotals({
+      jobId,
+      subtotal: totals.subtotal,
+      tax: totals.tax,
+      total: totals.total,
+    });
+
+    if (displayRooms[0]) {
+      await persistQuoteSnapshot({
+        jobId,
+        snapshot: {
+          roomId: displayRooms[0].id,
+          roomTotal: totals.total,
+          perCabinetTotals: totals.perCabinetTotals,
+          pricingVersion: 'trade-job-editor-estimate-v1',
+          pricingHash: `rooms-${displayRooms.length}-cabinets-${Object.keys(totals.perCabinetTotals).length}`,
+          capturedAt: new Date().toISOString(),
+        },
+      });
+    }
   };
 
   const handleRoomComplete = async (config: RoomConfig) => {
