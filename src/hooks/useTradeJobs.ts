@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { TradeJob, TradeJobStatus, TradeJobStatusGroup, isTradeJobStatus, statusToGroup } from '@/types/trade';
+import { TradeJob, TradeJobStatusGroup, isTradeJobStatus, statusToGroup } from '@/types/trade';
 
 export function useTradeJobs(userId?: string) {
   const [jobs, setJobs] = useState<TradeJob[]>([]);
@@ -37,7 +37,7 @@ export function useTradeJobs(userId?: string) {
         name: job.name,
         cost: job.cost_incl_tax ?? 0,
         updatedAt: job.updated_at,
-        status: isTradeJobStatus(job.status ?? '') ? (job.status as TradeJobStatus) : 'draft',
+        status: isTradeJobStatus(job.status ?? '') ? job.status : 'draft',
       })),
     );
     setLoading(false);

@@ -10,6 +10,7 @@ import {
   Search,
   MoreHorizontal,
   Eye,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTradeJobs } from '@/hooks/useTradeJobs';
 import { TRADE_JOB_STATUS_LABELS, TradeJob } from '@/types/trade';
 import { TRADE_STATUS_BADGE_STYLES } from '@/lib/trade/jobStatusBadge';
+import { getDaysSinceUpdated, isStaleQuote, STALE_QUOTE_DAYS } from '@/lib/trade/jobHealth';
 import TradeLayout from './components/TradeLayout';
 
 
@@ -165,16 +167,20 @@ export default function TradeDashboard() {
     };
   }, [grouped.production, hasProductionWork, jobs.length, latestJob, navigate]);
 
-  const staleQuoteJobs = useMemo(() => {
-    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const staleQuoteInsights = useMemo(() => {
+    const staleQuoteJobs = jobs
+      .filter((job) => isStaleQuote(job.status, job.updatedAt))
+      .map((job) => ({
+        ...job,
+        staleDays: getDaysSinceUpdated(job.updatedAt) ?? STALE_QUOTE_DAYS,
+      }))
+      .sort((a, b) => b.staleDays - a.staleDays);
 
-    return jobs
-      .filter((job) => (job.status === 'draft' || job.status === 'pending_approval') && job.updatedAt)
-      .filter((job) => {
-        const updatedAtMs = new Date(job.updatedAt as string).getTime();
-        return Number.isFinite(updatedAtMs) && updatedAtMs < oneWeekAgo;
-      })
-      .slice(0, 3);
+    return {
+      staleQuoteJobs: staleQuoteJobs.slice(0, 3),
+      staleCount: staleQuoteJobs.length,
+      staleValue: staleQuoteJobs.reduce((sum, job) => sum + job.cost, 0),
+    };
   }, [jobs]);
 
   function getGreeting() {
@@ -258,16 +264,28 @@ export default function TradeDashboard() {
           </div>
         </div>
 
-        {staleQuoteJobs.length > 0 && (
+        {staleQuoteInsights.staleCount > 0 && (
           <div className="mb-8 rounded-xl border border-amber-300 bg-amber-50 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Needs attention</p>
-            <p className="mt-1 text-sm text-amber-900">
-              {staleQuoteJobs.length} quote{staleQuoteJobs.length === 1 ? '' : 's'} have been idle for more than 7 days.
-            </p>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Needs attention
+                </p>
+                <p className="mt-1 text-sm text-amber-900">
+                  {staleQuoteInsights.staleCount} quote{staleQuoteInsights.staleCount === 1 ? '' : 's'} have been idle for {STALE_QUOTE_DAYS}+ days.
+                </p>
+                <p className="text-xs text-amber-900/80">
+                  At-risk value: ${staleQuoteInsights.staleValue.toLocaleString('en-AU', { maximumFractionDigits: 0 })}
+                </p>
+              </div>
+              <Button variant="outline" className="border-amber-300 bg-white" onClick={() => navigate('/trade/jobs')}>
+                Review All Jobs
+              </Button>
+            </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {staleQuoteJobs.map((job) => (
+              {staleQuoteInsights.staleQuoteJobs.map((job) => (
                 <Button key={job.id} variant="outline" className="border-amber-300 bg-white" onClick={() => navigate(`/trade/job/${job.id}`)}>
-                  Resume #{job.jobNumber}
+                  Resume #{job.jobNumber} · {job.staleDays}d idle
                 </Button>
               ))}
             </div>

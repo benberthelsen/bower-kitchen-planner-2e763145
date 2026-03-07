@@ -19,6 +19,8 @@ import {
   PanelTop
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getFlushWall } from './flushToWall';
+import { FlushToWallBadge } from './FlushToWallBadge';
 import {
   Collapsible,
   CollapsibleContent,
@@ -85,9 +87,11 @@ export function CabinetListPanel({
   onRemoveCabinet,
   className,
 }: CabinetListPanelProps) {
-  const { selectedCabinetId, removeCabinet, duplicateCabinet, getRoomTotals } = useTradeRoom();
+  const { selectedCabinetId, removeCabinet, duplicateCabinet, getRoomTotals, getRoomById } = useTradeRoom();
 
   const totals = getRoomTotals(roomId);
+  const room = getRoomById(roomId);
+
   const estimatedTotal = useMemo(
     () => cabinets.reduce((sum, cabinet) => sum + (getCabinetPrice?.(cabinet) ?? 0), 0),
     [cabinets, getCabinetPrice]
@@ -243,6 +247,7 @@ export function CabinetListPanel({
                         onEdit={() => onEditCabinet(cabinet)}
                         onDuplicate={() => handleDuplicate(cabinet)}
                         onRemove={() => handleRemove(cabinet)}
+                        flushWall={room ? getFlushWall(cabinet, room) : null}
                       />
                     ))}
                   </CollapsibleContent>
@@ -280,6 +285,7 @@ interface CabinetListItemProps {
   onEdit: () => void;
   onDuplicate: () => void;
   onRemove: () => void;
+  flushWall: 'back' | 'left' | 'right' | 'front' | null;
 }
 
 function CabinetListItem({
@@ -290,6 +296,7 @@ function CabinetListItem({
   onEdit,
   onDuplicate,
   onRemove,
+  flushWall,
 }: CabinetListItemProps) {
   return (
     <div
@@ -318,6 +325,7 @@ function CabinetListItem({
           <span className="text-xs text-muted-foreground">
             {cabinet.dimensions.width} × {cabinet.dimensions.depth}mm
           </span>
+          {flushWall && <FlushToWallBadge wall={flushWall} />}
           {price !== undefined && (
             <span className="text-[10px] font-medium text-trade-navy/80">
               {new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(price)}
