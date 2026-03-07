@@ -343,7 +343,7 @@ export default function ProductConfigurator() {
               </ScrollArea>
 
               <div className="p-4 border-t space-y-2">
-                <Button onClick={handleAddToRoom} className="w-full bg-trade-amber hover:bg-trade-amber/90 text-trade-navy">
+                <Button onClick={handleAddToRoom} disabled={isEditRoute && !isEditing} className="w-full bg-trade-amber hover:bg-trade-amber/90 text-trade-navy">
                   <Plus className="w-4 h-4 mr-2" />
                   {isEditing ? 'Update Cabinet' : 'Add to Room'}
                   <ChevronRight className="w-4 h-4 ml-auto" />
