@@ -7,7 +7,6 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import TradePlanner from "./pages/TradePlanner";
 import { TradeDashboard, JobEditor, ProductCatalog, ProductConfigurator, RoomPlanner, MyJobs, HardwareStore, TradeSettings } from "./pages/trade";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -51,11 +50,16 @@ const App = () => (
           {import.meta.env.DEV && <DevNavBar />}
           <ErrorBoundary>
             <Routes>
-              <Route path="/" element={<Index />} />
+              <Route path="/" element={<Navigate to="/trade/dashboard" replace />} />
               <Route path="/auth" element={<Auth />} />
               
-              {/* Legacy Trade Planner (3D Scene) */}
-              <Route path="/trade-planner" element={<TradePlanner />} />
+              {/*
+                LEGACY ROUTES (DEPRECATED):
+                - '/' and '/trade-planner' are frozen and receive no new planner/quote/export work.
+                - Canonical product path is '/trade/*' only.
+                TODO(product-rescue): remove legacy routes after migration sign-off.
+              */}
+              <Route path="/trade-planner" element={<Navigate to="/trade/dashboard" replace />} />
               
               {/* Consumer / DIY Routes */}
               <Route path="/consumer" element={<Navigate to="/consumer/dashboard" replace />} />
