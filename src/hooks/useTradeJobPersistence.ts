@@ -67,6 +67,11 @@ export function useTradeJobPersistence(jobId?: string) {
     },
   });
 
+
+  const getCurrentJob = useCallback((id: string) => {
+    return queryClient.getQueryData<any>(jobQueryKey(id)) ?? jobQuery.data;
+  }, [jobQuery.data, queryClient]);
+
   const roomsFromServer = useMemo(() => {
     const designData = (jobQuery.data?.design_data || {}) as Partial<PersistedTradeDesignData>;
     const rooms = Array.isArray(designData.tradeRooms) ? designData.tradeRooms : [];
