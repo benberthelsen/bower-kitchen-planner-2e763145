@@ -315,10 +315,10 @@ ${parts}
     <Status>${escapeXml(job.status || 'draft')}</Status>
     <Created>${escapeXml((job.created_at || '').split('T')[0] || '')}</Created>
     <Updated>${escapeXml((job.updated_at || '').split('T')[0] || '')}</Updated>
-    <CustomerName>${escapeXml(job.profiles?.full_name || '')}</CustomerName>
-    <CustomerEmail>${escapeXml(job.profiles?.email || '')}</CustomerEmail>
-    <CustomerPhone>${escapeXml(job.profiles?.phone || '')}</CustomerPhone>
-    <CompanyName>${escapeXml(job.profiles?.company_name || '')}</CompanyName>
+    <CustomerName>${escapeXml((job.profiles as any)?.full_name || '')}</CustomerName>
+    <CustomerEmail>${escapeXml((job.profiles as any)?.email || '')}</CustomerEmail>
+    <CustomerPhone>${escapeXml((job.profiles as any)?.phone || '')}</CustomerPhone>
+    <CompanyName>${escapeXml((job.profiles as any)?.company_name || '')}</CompanyName>
     <DeliveryMethod>${escapeXml(job.delivery_method || '')}</DeliveryMethod>
     <Notes>${escapeXml(job.notes || '')}</Notes>
   </JobInfo>
