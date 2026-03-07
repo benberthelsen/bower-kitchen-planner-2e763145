@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ConfiguredCabinet, CabinetDimensions, CabinetMaterials, CabinetHardware, useTradeRoom } from '@/contexts/TradeRoomContext';
 import {
   Dialog,
@@ -30,6 +30,7 @@ interface CabinetEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenFullEditor: () => void;
+  onCabinetPatch?: (instanceId: string, updates: Partial<ConfiguredCabinet>) => Promise<void> | void;
 }
 
 export function CabinetEditDialog({
@@ -38,28 +39,38 @@ export function CabinetEditDialog({
   open,
   onOpenChange,
   onOpenFullEditor,
+  onCabinetPatch,
 }: CabinetEditDialogProps) {
   const { updateCabinet } = useTradeRoom();
   const [activeTab, setActiveTab] = useState('dimensions');
 
+  useEffect(() => {
+    if (!open) setActiveTab('dimensions');
+  }, [open]);
+
   if (!cabinet) return null;
 
   const handleUpdateDimensions = (updates: Partial<CabinetDimensions>) => {
-    updateCabinet(roomId, cabinet.instanceId, {
-      dimensions: { ...cabinet.dimensions, ...updates },
-    });
+    const next = {
+      width: Math.max(150, updates.width ?? cabinet.dimensions.width),
+      height: Math.max(200, updates.height ?? cabinet.dimensions.height),
+      depth: Math.max(200, updates.depth ?? cabinet.dimensions.depth),
+    };
+
+    updateCabinet(roomId, cabinet.instanceId, { dimensions: next });
+    onCabinetPatch?.(cabinet.instanceId, { dimensions: next });
   };
 
   const handleUpdateMaterials = (updates: Partial<CabinetMaterials>) => {
-    updateCabinet(roomId, cabinet.instanceId, {
-      materials: { ...cabinet.materials, ...updates },
-    });
+    const next = { ...cabinet.materials, ...updates };
+    updateCabinet(roomId, cabinet.instanceId, { materials: next });
+    onCabinetPatch?.(cabinet.instanceId, { materials: next });
   };
 
   const handleUpdateHardware = (updates: Partial<CabinetHardware>) => {
-    updateCabinet(roomId, cabinet.instanceId, {
-      hardware: { ...cabinet.hardware, ...updates },
-    });
+    const next = { ...cabinet.hardware, ...updates };
+    updateCabinet(roomId, cabinet.instanceId, { hardware: next });
+    onCabinetPatch?.(cabinet.instanceId, { hardware: next });
   };
 
   const categoryColors: Record<string, string> = {
