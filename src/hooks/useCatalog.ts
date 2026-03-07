@@ -41,6 +41,12 @@ interface MicrovellumProduct {
   has_dxf_geometry: boolean | null;
 }
 
+interface StaticCatalogTemplate {
+  id: string;
+  name: string;
+  specGroup: string;
+}
+
 // Extended catalog definition with render config
 export interface ExtendedCatalogItem extends CatalogItemDefinition {
   renderConfig: CabinetRenderConfig;
@@ -134,6 +140,227 @@ function transformToDefinition(product: MicrovellumProduct): ExtendedCatalogItem
     microvellumLinkId: product.microvellum_link_id,
   };
 }
+
+function inferStaticDimensions(specGroup: string, id: string): { width: number; depth: number; height: number; category: 'Base' | 'Wall' | 'Tall' | 'Accessory' } {
+  const lowerSpecGroup = specGroup.toLowerCase();
+  const lowerId = id.toLowerCase();
+
+  if (lowerSpecGroup.includes('wall')) {
+    return { width: 600, depth: 350, height: 720, category: 'Wall' };
+  }
+
+  if (lowerSpecGroup.includes('tall')) {
+    return { width: 600, depth: 580, height: 2100, category: 'Tall' };
+  }
+
+  if (lowerSpecGroup.includes('panel') || lowerSpecGroup.includes('filler')) {
+    return { width: 100, depth: 18, height: 870, category: 'Accessory' };
+  }
+
+  if (lowerSpecGroup.includes('kick') || lowerSpecGroup.includes('trim')) {
+    return { width: 2400, depth: 16, height: 135, category: 'Accessory' };
+  }
+
+  if (lowerSpecGroup.includes('appliance')) {
+    if (lowerId.includes('fridge')) return { width: 900, depth: 650, height: 2100, category: 'Tall' };
+    if (lowerId.includes('dishwasher')) return { width: 600, depth: 580, height: 870, category: 'Base' };
+    if (lowerId.includes('range')) return { width: 900, depth: 650, height: 900, category: 'Base' };
+    if (lowerId.includes('microwave')) return { width: 600, depth: 580, height: 450, category: 'Wall' };
+    return { width: 600, depth: 580, height: 870, category: 'Base' };
+  }
+
+  if (lowerId.includes('corner') || lowerId.includes('diagonal')) {
+    return { width: 900, depth: 900, height: 870, category: 'Base' };
+  }
+
+  return { width: 600, depth: 575, height: 870, category: 'Base' };
+}
+
+function inferStaticMetadata(item: StaticCatalogTemplate) {
+  const nameLower = item.name.toLowerCase();
+  const idLower = item.id.toLowerCase();
+  const dims = inferStaticDimensions(item.specGroup, item.id);
+
+  const doorCount = (() => {
+    if (idLower.includes('1_door')) return 1;
+    if (idLower.includes('2_door')) return 2;
+    if (idLower.includes('3_door')) return 3;
+    if (idLower.includes('open_')) return 0;
+    if (idLower.includes('drawer') && !idLower.includes('door')) return 0;
+    if (idLower.includes('opening')) return 0;
+    if (idLower.includes('bin_pullout') || idLower.includes('spice_pullout') || idLower.includes('bottle_pullout') || idLower.includes('tray')) return 1;
+    if (dims.category === 'Wall') return 2;
+    if (dims.category === 'Tall') return 2;
+    return 2;
+  })();
+
+  const drawerCount = (() => {
+    if (idLower.includes('4_drawer')) return 4;
+    if (idLower.includes('3_drawer')) return 3;
+    if (idLower.includes('2_drawer')) return 2;
+    if (idLower.includes('1_drawer')) return 1;
+    return 0;
+  })();
+
+  const isCorner = idLower.includes('corner');
+  const isBlind = idLower.includes('blind');
+  const isSink = idLower.includes('sink');
+  const isDishwasher = idLower.includes('dishwasher');
+  const isRangehood = idLower.includes('rangehood');
+  const isFridge = idLower.includes('fridge');
+  const isOven = idLower.includes('oven');
+  const isMicrowave = idLower.includes('microwave');
+
+  const productType = item.specGroup === 'Appliance Openings'
+    ? 'appliance'
+    : item.specGroup === 'Panels' || item.specGroup === 'Fillers' || item.specGroup === 'Kicks and Trim'
+      ? 'panel'
+      : 'cabinet';
+
+  const itemType: ItemType = item.specGroup === 'Appliance Openings' || isDishwasher || isRangehood
+    ? 'Appliance'
+    : item.specGroup === 'Panels' || item.specGroup === 'Fillers' || item.specGroup === 'Kicks and Trim'
+      ? 'Structure'
+      : 'Cabinet';
+
+  const category = dims.category === 'Accessory' ? undefined : dims.category;
+
+  return {
+    dims,
+    doorCount,
+    drawerCount,
+    isCorner,
+    isBlind,
+    isSink,
+    isDishwasher,
+    isRangehood,
+    isFridge,
+    isOven,
+    isMicrowave,
+    productType,
+    itemType,
+    category,
+    nameLower,
+  };
+}
+
+function transformStaticTemplate(item: StaticCatalogTemplate): ExtendedCatalogItem {
+  const meta = inferStaticMetadata(item);
+
+  return {
+    id: item.id,
+    sku: item.id.toUpperCase(),
+    name: item.name,
+    itemType: meta.itemType,
+    category: meta.category,
+    defaultWidth: meta.dims.width,
+    defaultDepth: meta.dims.depth,
+    defaultHeight: meta.dims.height,
+    price: 0,
+    specGroup: item.specGroup,
+    displayOrder: null,
+    microvellumLinkId: item.id,
+    renderConfig: {
+      productId: item.id,
+      productName: item.name,
+      category: meta.category || 'Accessory',
+      cabinetType: meta.drawerCount > 0 ? 'Drawer' : meta.isCorner ? 'Corner' : 'Standard',
+      productType: meta.productType,
+      specGroup: item.specGroup,
+      doorCount: meta.doorCount,
+      drawerCount: meta.drawerCount,
+      isCorner: meta.isCorner,
+      isSink: meta.isSink,
+      isBlind: meta.isBlind,
+      isPantry: item.specGroup === 'Tall Cabinets' && (meta.nameLower.includes('pantry') || meta.nameLower.includes('broom') || meta.nameLower.includes('coffee')),
+      isAppliance: item.specGroup === 'Appliance Openings' || meta.isDishwasher || meta.isRangehood || meta.isFridge || meta.isOven || meta.isMicrowave,
+      isOven: meta.isOven,
+      isFridge: meta.isFridge,
+      isRangehood: meta.isRangehood,
+      isDishwasher: meta.isDishwasher,
+      hasFalseFront: item.id.includes('false_front'),
+      hasAdjustableShelves: meta.drawerCount === 0 && !meta.isSink && !meta.isDishwasher,
+      shelfCount: meta.category === 'Tall' ? 5 : meta.category === 'Wall' ? 2 : 1,
+      cornerType: meta.isBlind ? 'blind' : item.id.includes('diagonal') ? 'diagonal' : meta.isCorner ? 'l-shape' : null,
+      leftArmDepth: meta.isCorner ? meta.dims.depth : 575,
+      rightArmDepth: meta.isCorner ? meta.dims.depth : 575,
+      blindDepth: meta.isBlind ? 300 : 150,
+      fillerWidth: meta.isBlind ? 75 : 0,
+      hasReturnFiller: meta.isBlind,
+      defaultWidth: meta.dims.width,
+      defaultHeight: meta.dims.height,
+      defaultDepth: meta.dims.depth,
+    },
+  };
+}
+
+const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
+  { specGroup: 'Base Cabinets', id: 'base_1_door', name: 'Base 1 Door' },
+  { specGroup: 'Base Cabinets', id: 'base_2_door', name: 'Base 2 Door' },
+  { specGroup: 'Base Cabinets', id: 'base_3_drawer', name: 'Base 3 Drawer' },
+  { specGroup: 'Base Cabinets', id: 'base_4_drawer', name: 'Base 4 Drawer' },
+  { specGroup: 'Base Cabinets', id: 'base_1_door_1_drawer', name: 'Base 1 Door 1 Drawer' },
+  { specGroup: 'Base Cabinets', id: 'base_2_door_1_drawer', name: 'Base 2 Door 1 Drawer' },
+  { specGroup: 'Base Cabinets', id: 'open_base', name: 'Open Base' },
+  { specGroup: 'Base Cabinets', id: 'sink_base_1_door', name: 'Sink Base 1 Door' },
+  { specGroup: 'Base Cabinets', id: 'sink_base_2_door', name: 'Sink Base 2 Door' },
+  { specGroup: 'Base Cabinets', id: 'base_bin_pullout', name: 'Base Bin Pullout' },
+  { specGroup: 'Base Cabinets', id: 'base_spice_pullout', name: 'Base Spice Pullout' },
+  { specGroup: 'Base Cabinets', id: 'base_bottle_pullout', name: 'Base Bottle Pullout' },
+  { specGroup: 'Base Cabinets', id: 'base_tray', name: 'Base Tray' },
+  { specGroup: 'Base Cabinets', id: 'base_microwave', name: 'Base Microwave' },
+  { specGroup: 'Base Cabinets', id: 'base_oven', name: 'Base Oven' },
+  { specGroup: 'Base Cabinets', id: 'dishwasher_opening', name: 'Dishwasher Opening' },
+  { specGroup: 'Corner Base Cabinets', id: 'base_corner_pie_cut_2_door', name: '2 Door Pie Cut Corner Base' },
+  { specGroup: 'Corner Base Cabinets', id: 'base_corner_blind_left', name: 'Blind Corner Base Left' },
+  { specGroup: 'Corner Base Cabinets', id: 'base_corner_blind_right', name: 'Blind Corner Base Right' },
+  { specGroup: 'Corner Base Cabinets', id: 'base_corner_diagonal', name: 'Diagonal Corner Base' },
+  { specGroup: 'Wall Cabinets', id: 'wall_1_door', name: 'Wall 1 Door' },
+  { specGroup: 'Wall Cabinets', id: 'wall_2_door', name: 'Wall 2 Door' },
+  { specGroup: 'Wall Cabinets', id: 'wall_3_door', name: 'Wall 3 Door' },
+  { specGroup: 'Wall Cabinets', id: 'open_wall', name: 'Open Wall' },
+  { specGroup: 'Wall Cabinets', id: 'glass_wall_1_door', name: 'Glass Wall 1 Door' },
+  { specGroup: 'Wall Cabinets', id: 'glass_wall_2_door', name: 'Glass Wall 2 Door' },
+  { specGroup: 'Wall Cabinets', id: 'wall_microwave', name: 'Wall Microwave' },
+  { specGroup: 'Wall Cabinets', id: 'wall_rangehood', name: 'Wall Rangehood' },
+  { specGroup: 'Wall Cabinets', id: 'wall_plate_rack', name: 'Wall Plate Rack' },
+  { specGroup: 'Wall Cabinets', id: 'wall_wine', name: 'Wall Wine' },
+  { specGroup: 'Wall Cabinets', id: 'fridge_top_cabinet', name: 'Fridge Top Cabinet' },
+  { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_blind_left', name: 'Blind Corner Wall Left' },
+  { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_blind_right', name: 'Blind Corner Wall Right' },
+  { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_diagonal', name: 'Diagonal Corner Wall' },
+  { specGroup: 'Corner Wall Cabinets', id: 'open_corner_wall', name: 'Open Corner Wall' },
+  { specGroup: 'Tall Cabinets', id: 'tall_1_door_pantry', name: 'Tall 1 Door Pantry' },
+  { specGroup: 'Tall Cabinets', id: 'tall_2_door_pantry', name: 'Tall 2 Door Pantry' },
+  { specGroup: 'Tall Cabinets', id: 'tall_2_door_pantry_2_drawer', name: 'Tall 2 Door Pantry 2 Drawer' },
+  { specGroup: 'Tall Cabinets', id: 'open_tall', name: 'Open Tall' },
+  { specGroup: 'Tall Cabinets', id: 'tall_broom', name: 'Tall Broom' },
+  { specGroup: 'Tall Cabinets', id: 'tall_oven', name: 'Tall Oven' },
+  { specGroup: 'Tall Cabinets', id: 'tall_oven_microwave', name: 'Tall Oven Microwave' },
+  { specGroup: 'Tall Cabinets', id: 'tall_fridge', name: 'Tall Fridge' },
+  { specGroup: 'Tall Cabinets', id: 'tall_coffee', name: 'Tall Coffee' },
+  { specGroup: 'Panels', id: 'tall_applied_panel', name: 'Tall Applied Panel' },
+  { specGroup: 'Panels', id: 'base_applied_panel', name: 'Base Applied Panel' },
+  { specGroup: 'Panels', id: 'wall_applied_panel', name: 'Wall Applied Panel' },
+  { specGroup: 'Panels', id: 'fridge_side_panel', name: 'Fridge Side Panel' },
+  { specGroup: 'Panels', id: 'island_end_panel', name: 'Island End Panel' },
+  { specGroup: 'Panels', id: 'finished_end_panel', name: 'Finished End Panel' },
+  { specGroup: 'Fillers', id: 'base_filler', name: 'Base Filler' },
+  { specGroup: 'Fillers', id: 'wall_filler', name: 'Wall Filler' },
+  { specGroup: 'Fillers', id: 'tall_filler', name: 'Tall Filler' },
+  { specGroup: 'Fillers', id: 'scribe_filler', name: 'Scribe Filler' },
+  { specGroup: 'Fillers', id: 'corner_filler', name: 'Corner Filler' },
+  { specGroup: 'Kicks and Trim', id: 'base_kick', name: 'Base Kick' },
+  { specGroup: 'Kicks and Trim', id: 'return_kick', name: 'Return Kick' },
+  { specGroup: 'Kicks and Trim', id: 'light_rail', name: 'Light Rail' },
+  { specGroup: 'Kicks and Trim', id: 'top_rail', name: 'Top Rail' },
+  { specGroup: 'Appliance Openings', id: 'fridge_opening', name: 'Fridge Opening' },
+  { specGroup: 'Appliance Openings', id: 'dishwasher_opening_only', name: 'Dishwasher Opening Only' },
+  { specGroup: 'Appliance Openings', id: 'range_opening', name: 'Range Opening' },
+  { specGroup: 'Appliance Openings', id: 'microwave_opening', name: 'Microwave Opening' },
+];
+
+const STATIC_LIBRARY_CATALOG: ExtendedCatalogItem[] = STATIC_LIBRARY_TEMPLATES.map(transformStaticTemplate);
 
 // Minimal fallback catalog for offline/error cases
 const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
@@ -304,8 +531,17 @@ export function useCatalog(userType: UserType = 'standard') {
   // Transform DB products to catalog format with render configs
   const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
   
-  // Use dynamic catalog if available, otherwise minimal fallback
-  const catalog: ExtendedCatalogItem[] = dynamicCatalog.length > 0 ? dynamicCatalog : FALLBACK_CATALOG;
+  const fallbackCatalog = [...STATIC_LIBRARY_CATALOG, ...FALLBACK_CATALOG].filter((item, index, all) =>
+    all.findIndex((candidate) => candidate.id === item.id) === index
+  );
+
+  // Prefer dynamic products, while ensuring static planner definitions remain available when missing in DB.
+  const catalog: ExtendedCatalogItem[] = dynamicCatalog.length > 0
+    ? [
+        ...dynamicCatalog,
+        ...STATIC_LIBRARY_CATALOG.filter((staticItem) => !dynamicCatalog.some((dynamicItem) => dynamicItem.id === staticItem.id)),
+      ]
+    : fallbackCatalog;
   
   // Group by category for sidebar display
   const groupedCatalog = {
