@@ -1,4 +1,18 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback, useEffect } from 'react';
+/**
+ * @deprecated Legacy consumer/old trade planner state.
+ *
+ * /trade/* uses TradeRoomProvider as canonical state and persistence tree.
+ * Do not add new production planner/quote/save/export logic here.
+ *
+ * Legacy references to remove in a later dead-code pass:
+ * - src/pages/Index.tsx
+ * - src/pages/TradePlanner.tsx
+ * - src/hooks/useExternalDesignSync.ts
+ * - src/hooks/useBOMPricing.ts
+ * - src/hooks/useKeyboardShortcuts.ts
+ * - src/components/Layout/* (legacy planner panels)
+ */
 import { PlacedItem, RoomConfig, MaterialOption, ProjectSettings, GlobalDimensions, HardwareOptions, CatalogItemDefinition } from '../types';
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, KICK_OPTIONS, HINGE_OPTIONS, DRAWER_OPTIONS, HANDLE_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../constants';
 import { loadSampleKitchen as loadSampleKitchenData, SAMPLE_KITCHENS } from '@/data/sampleKitchens';
@@ -76,6 +90,7 @@ function nextCabinetNumber(items: PlacedItem[]) {
   return `C${String(max + 1).padStart(2, '0')}`;
 }
 
+/** @deprecated Legacy planner provider for frozen routes only. */
 export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [room, _setRoom] = useState<RoomConfig>({ width: 4000, depth: 3000, height: 2400, shape: 'Rectangle', cutoutWidth: 1500, cutoutDepth: 1500 });
   const [projectSettings, setProjectSettings] = useState<ProjectSettings>({ userRole: 'standard', jobName: 'New Kitchen Job', jobReference: '', contactNumber: '', description: '', deliveryMethod: 'pickup' });
@@ -308,6 +323,7 @@ export const PlannerProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 };
 
+/** @deprecated Legacy planner hook for frozen routes only. */
 export const usePlanner = () => {
   const context = useContext(PlannerContext);
   if (!context) throw new Error('usePlanner must be used within a PlannerProvider');
