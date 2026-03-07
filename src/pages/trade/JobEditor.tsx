@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,8 +6,46 @@ import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
 import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
 import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
+import { TradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
+
+
+const computeJobTotalsRaw = (rooms: TradeRoom[]) => {
+  let subtotalAccumulator = 0;
+  const perCabinetTotals: Record<string, number> = {};
+  const perRoomTotals: Record<string, number> = {};
+  const perRoomCabinetTotals: Record<string, Record<string, number>> = {};
+
+  rooms.forEach((room) => {
+    let roomSubtotal = 0;
+    const roomCabinetTotals: Record<string, number> = {};
+
+    room.cabinets.forEach((cabinet) => {
+      const cabinetEstimate = Math.max(0, cabinet.dimensions.width * cabinet.dimensions.depth * 0.0008);
+      perCabinetTotals[cabinet.instanceId] = cabinetEstimate;
+      roomCabinetTotals[cabinet.instanceId] = cabinetEstimate;
+      roomSubtotal += cabinetEstimate;
+      subtotalAccumulator += cabinetEstimate;
+    });
+
+    perRoomTotals[room.id] = Number((roomSubtotal * 1.1).toFixed(2));
+    perRoomCabinetTotals[room.id] = roomCabinetTotals;
+  });
+
+  const subtotal = Number(subtotalAccumulator.toFixed(2));
+  const tax = Number((subtotal * 0.1).toFixed(2));
+  const total = Number((subtotal + tax).toFixed(2));
+
+  return {
+    subtotal,
+    tax,
+    total,
+    perCabinetTotals,
+    perRoomTotals,
+    perRoomCabinetTotals,
+  };
+};
 
 const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   name: room.name,
@@ -53,9 +91,13 @@ export default function JobEditor() {
   const {
     jobQuery,
     roomsFromServer,
+    persistedJobTotals,
+    persistedQuoteSnapshot,
     upsertJob,
     upsertRoom,
     updateJobStatus,
+    persistQuoteSnapshot,
+    persistJobTotals,
     exportJobJson,
     exportJobPdf,
     isSaving,
@@ -72,7 +114,34 @@ export default function JobEditor() {
 
   const displayRooms = useMemo(() => rooms, [rooms]);
 
-  const persistFullJob = async (status: 'draft' | 'submitted' = 'draft') => {
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value || 0);
+
+  const quoteState = useMemo(() => {
+    const live = computeJobTotalsRaw(displayRooms);
+    const persisted = persistedJobTotals;
+
+    const subtotal = persisted?.subtotal ?? live.subtotal;
+    const tax = persisted?.tax ?? live.tax;
+    const total = persisted?.total ?? live.total;
+
+    return {
+      subtotal,
+      tax,
+      total,
+      isPersisted: Boolean(persisted),
+      persistedAt: persisted?.updatedAt ?? persistedQuoteSnapshot?.capturedAt ?? null,
+      roomCount: displayRooms.length,
+      cabinetCount: Object.keys(live.perCabinetTotals).length,
+    };
+  }, [displayRooms, persistedJobTotals, persistedQuoteSnapshot]);
+
+
+  const computeJobTotals = useCallback(() => {
+    return computeJobTotalsRaw(displayRooms);
+  }, [displayRooms]);
+
+  const persistFullJob = async (status: TradeJobStatus = 'draft') => {
     if (!jobId || jobId === 'new') {
       toast.error('A persisted job id is required for save/submit.');
       return;
@@ -84,6 +153,29 @@ export default function JobEditor() {
       status,
       rooms: displayRooms,
     });
+
+    const totals = computeJobTotals();
+    await persistJobTotals({
+      jobId,
+      subtotal: totals.subtotal,
+      tax: totals.tax,
+      total: totals.total,
+    });
+
+    for (const room of displayRooms) {
+      const roomCabinetTotals = totals.perRoomCabinetTotals[room.id] || {};
+      await persistQuoteSnapshot({
+        jobId,
+        snapshot: {
+          roomId: room.id,
+          roomTotal: totals.perRoomTotals[room.id] ?? 0,
+          perCabinetTotals: roomCabinetTotals,
+          pricingVersion: 'trade-job-editor-estimate-v1',
+          pricingHash: `room-${room.id}-cabinets-${Object.keys(roomCabinetTotals).length}`,
+          capturedAt: new Date().toISOString(),
+        },
+      });
+    }
   };
 
   const handleRoomComplete = async (config: RoomConfig) => {
@@ -255,9 +347,13 @@ export default function JobEditor() {
                 disabled={isSaving || isNewJob}
                 onClick={async () => {
                   try {
-                    await persistFullJob('submitted');
-                    await updateJobStatus('submitted');
-                    toast.success('Job submitted');
+                    if (!displayRooms.length || displayRooms.some((room) => !room.name.trim())) {
+                      toast.error('Add at least one valid room before submitting');
+                      return;
+                    }
+                    await persistFullJob('pending_approval');
+                    await updateJobStatus('pending_approval');
+                    toast.success('Job submitted for approval');
                   } catch {
                     toast.error('Failed to submit job');
                   }
@@ -269,6 +365,37 @@ export default function JobEditor() {
             </div>
           )}
         </div>
+
+        {!showRoomWizard && displayRooms.length > 0 && (
+          <div className="mb-6 bg-trade-surface-elevated rounded-xl border border-trade-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-trade-navy">Quote State</h2>
+                <p className="text-xs text-trade-muted">
+                  {quoteState.isPersisted ? 'Using persisted totals' : 'Using live calculated totals'}
+                  {quoteState.persistedAt ? ` • Last persisted ${new Date(quoteState.persistedAt).toLocaleString()}` : ''}
+                </p>
+              </div>
+              <div className="text-xs text-trade-muted">
+                {quoteState.roomCount} room{quoteState.roomCount !== 1 ? 's' : ''} • {quoteState.cabinetCount} cabinet{quoteState.cabinetCount !== 1 ? 's' : ''}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              <div className="rounded-lg border border-trade-border p-3 bg-trade-surface">
+                <p className="text-xs text-trade-muted">Subtotal</p>
+                <p className="text-lg font-semibold text-trade-navy">{formatCurrency(quoteState.subtotal)}</p>
+              </div>
+              <div className="rounded-lg border border-trade-border p-3 bg-trade-surface">
+                <p className="text-xs text-trade-muted">GST</p>
+                <p className="text-lg font-semibold text-trade-navy">{formatCurrency(quoteState.tax)}</p>
+              </div>
+              <div className="rounded-lg border border-trade-border p-3 bg-trade-surface">
+                <p className="text-xs text-trade-muted">Total</p>
+                <p className="text-lg font-semibold text-trade-amber">{formatCurrency(quoteState.total)}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showRoomWizard ? (
           <RoomSetupWizard onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : undefined} />

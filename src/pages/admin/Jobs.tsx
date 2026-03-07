@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Search, Download, Eye, RefreshCw } from 'lucide-react';
+import { CANONICAL_TRADE_JOB_STATUSES, TRADE_JOB_STATUS_LABELS, TradeJobStatus, isTradeJobStatus } from '@/types/trade';
 
 interface Job {
   id: string;
@@ -24,14 +25,12 @@ interface Job {
   };
 }
 
-const STATUS_OPTIONS = [
+const STATUS_OPTIONS: { value: 'all' | TradeJobStatus; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'processing', label: 'Processing' },
-  { value: 'pending_approval', label: 'Pending Approval' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'in_production', label: 'In Production' },
-  { value: 'completed', label: 'Completed' },
+  ...CANONICAL_TRADE_JOB_STATUSES.map((status) => ({
+    value: status,
+    label: TRADE_JOB_STATUS_LABELS[status],
+  })),
 ];
 
 export default function AdminJobs() {
@@ -75,7 +74,7 @@ export default function AdminJobs() {
     }
   };
 
-  const updateJobStatus = async (jobId: string, newStatus: string) => {
+  const updateJobStatus = async (jobId: string, newStatus: TradeJobStatus) => {
     try {
       const { error } = await supabase
         .from('jobs')
@@ -129,16 +128,15 @@ export default function AdminJobs() {
     );
   });
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
+  const getStatusBadge = (status: TradeJobStatus) => {
+    const styles: Record<TradeJobStatus, string> = {
       draft: 'bg-gray-100 text-gray-700',
-      processing: 'bg-blue-100 text-blue-700',
       pending_approval: 'bg-yellow-100 text-yellow-700',
       approved: 'bg-green-100 text-green-700',
       in_production: 'bg-orange-100 text-orange-700',
       completed: 'bg-emerald-100 text-emerald-700',
     };
-    return styles[status] || 'bg-gray-100 text-gray-700';
+    return styles[status];
   };
 
   return (
@@ -200,7 +198,9 @@ export default function AdminJobs() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredJobs.map(job => (
+                  {filteredJobs.map((job) => {
+                    const safeStatus = isTradeJobStatus(job.status) ? job.status : 'draft';
+                    return (
                     <tr key={job.id} className="border-b last:border-0">
                       <td className="py-3 font-medium">{job.job_number}</td>
                       <td className="py-3">{job.name}</td>
@@ -212,16 +212,16 @@ export default function AdminJobs() {
                       </td>
                       <td className="py-3">
                         <Select 
-                          value={job.status} 
-                          onValueChange={(val) => updateJobStatus(job.id, val)}
+                          value={safeStatus} 
+                          onValueChange={(val) => updateJobStatus(job.id, val as TradeJobStatus)}
                         >
                           <SelectTrigger className="w-36 h-8">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(job.status)}`}>
-                              {job.status?.replace('_', ' ')}
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(safeStatus)}`}>
+                              {TRADE_JOB_STATUS_LABELS[safeStatus]}
                             </span>
                           </SelectTrigger>
                           <SelectContent>
-                            {STATUS_OPTIONS.filter(o => o.value !== 'all').map(opt => (
+                            {STATUS_OPTIONS.filter((o) => o.value !== 'all').map((opt) => (
                               <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                             ))}
                           </SelectContent>
@@ -249,7 +249,8 @@ export default function AdminJobs() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

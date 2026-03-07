@@ -1,13 +1,148 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+interface PersistedCabinet {
+  instanceId: string;
+  definitionId: string;
+  cabinetNumber?: string;
+  productName: string;
+  category: 'Base' | 'Wall' | 'Tall' | 'Appliance';
+  dimensions: { width: number; height: number; depth: number };
+  materials?: { exteriorFinish?: string; carcaseFinish?: string; doorStyle?: string; edgeBanding?: string };
+  hardware?: { handleType?: string; hingeType?: string; drawerType?: string; softClose?: boolean };
+  accessories?: { shelfCount?: number; adjustableShelves?: boolean; dividers?: boolean; specialFittings?: string[] };
+  position?: { x: number; y: number; z: number; rotation: number };
+  isPlaced?: boolean;
+}
+
+interface PersistedTradeRoom {
+  id: string;
+  name: string;
+  description?: string;
+  shape?: string;
+  config: { width: number; depth: number; height: number };
+  dimensions?: {
+    toeKickHeight?: number;
+    baseHeight?: number;
+    baseDepth?: number;
+    wallHeight?: number;
+    wallDepth?: number;
+    tallHeight?: number;
+    tallDepth?: number;
+    benchtopThickness?: number;
+    benchtopOverhang?: number;
+    splashbackHeight?: number;
+    shelfSetback?: number;
+    doorGap?: number;
+    drawerGap?: number;
+  };
+  materialDefaults?: { exteriorFinish?: string; carcaseFinish?: string; doorStyle?: string; edgeBanding?: string };
+  hardwareDefaults?: { handleType?: string; hingeType?: string; drawerType?: string; softClose?: boolean };
+  cabinets: PersistedCabinet[];
+}
+
+interface PersistedDesignData {
+  tradeRooms?: PersistedTradeRoom[];
+  quoteSnapshot?: { capturedAt?: string };
+  jobTotals?: { subtotal?: number; tax?: number; total?: number; updatedAt?: string };
+}
+
+interface MicrovellumProductRow {
+  id: string;
+  microvellum_link_id: string | null;
+  name: string;
+  category: string | null;
+  cabinet_type: string | null;
+  spec_group: string | null;
+  room_component_type: string | null;
+  default_width: number | null;
+  default_depth: number | null;
+  default_height: number | null;
+  door_count: number | null;
+  drawer_count: number | null;
+  has_false_front: boolean | null;
+  has_adjustable_shelves: boolean | null;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function numberValue(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function mapCategoryForXml(category: string | null | undefined): 'Base' | 'Wall' | 'Tall' | 'Appliance' {
+  const normalized = (category || '').toLowerCase();
+  if (normalized === 'wall' || normalized === 'upper') return 'Wall';
+  if (normalized === 'tall') return 'Tall';
+  if (normalized === 'appliance' || normalized === 'appliances') return 'Appliance';
+  return 'Base';
+}
+
+function cabinetParts(cabinet: PersistedCabinet, room: PersistedTradeRoom, finishName: string): Array<{ name: string; w: number; h: number; d: number; material: string }> {
+  const dims = room.dimensions || {};
+  const toeKick = numberValue(dims.toeKickHeight, 135);
+  const shelfSetback = numberValue(dims.shelfSetback, 5);
+  const doorGap = numberValue(dims.doorGap, 2);
+
+  const width = numberValue(cabinet.dimensions?.width, 600);
+  const depth = numberValue(cabinet.dimensions?.depth, 575);
+  const height = numberValue(cabinet.dimensions?.height, 870);
+
+  const sideHeight = cabinet.category === 'Base' ? Math.max(0, height - toeKick) : height;
+  const sideDepth = depth;
+  const internalWidth = Math.max(0, width - 36);
+  const internalDepth = Math.max(0, depth - 18);
+
+  const shelfCount = Math.max(0, numberValue(cabinet.accessories?.shelfCount, 1));
+  const shelves = Array.from({ length: shelfCount }).map((_, idx) => ({
+    name: `Shelf ${idx + 1}`,
+    w: internalWidth,
+    h: 16,
+    d: Math.max(0, internalDepth - shelfSetback),
+    material: cabinet.materials?.carcaseFinish || finishName,
+  }));
+
+  const parts = [
+    { name: 'Side Left', w: sideDepth, h: sideHeight, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
+    { name: 'Side Right', w: sideDepth, h: sideHeight, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
+    { name: 'Bottom', w: internalWidth, h: internalDepth, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
+    { name: 'Top', w: internalWidth, h: internalDepth, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
+    { name: 'Back', w: internalWidth, h: sideHeight, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
+    ...shelves,
+  ];
+
+  const drawerCount = numberValue(cabinet.accessories?.dividers ? 1 : 0, 0);
+  if (drawerCount === 0) {
+    parts.push({
+      name: 'Door',
+      w: Math.max(0, width - doorGap),
+      h: Math.max(0, sideHeight - doorGap),
+      d: 18,
+      material: cabinet.materials?.exteriorFinish || finishName,
+    });
+  }
+
+  return parts;
+}
+
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -18,18 +153,24 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { jobId } = await req.json();
-    
-    if (!jobId) {
+    if (!jobId || typeof jobId !== 'string') {
       throw new Error('Job ID is required');
     }
 
-    console.log('Exporting job:', jobId);
-
-    // Fetch job with customer info
     const { data: job, error: jobError } = await supabase
       .from('jobs')
       .select(`
-        *,
+        id,
+        job_number,
+        name,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        delivery_method,
+        cost_excl_tax,
+        cost_incl_tax,
+        design_data,
         profiles:customer_id (
           full_name,
           email,
@@ -40,244 +181,178 @@ serve(async (req) => {
       .eq('id', jobId)
       .single();
 
-    if (jobError) {
-      console.error('Error fetching job:', jobError);
-      throw jobError;
+    if (jobError) throw jobError;
+    if (!job) throw new Error('Job not found');
+
+    const designData = (job.design_data || {}) as PersistedDesignData;
+    const tradeRooms = Array.isArray(designData.tradeRooms) ? designData.tradeRooms : [];
+    if (tradeRooms.length === 0) {
+      throw new Error('Job has no trade room data. Cannot export Microvellum XML.');
     }
 
-    if (!job) {
-      throw new Error('Job not found');
+    const allCabinets = tradeRooms.flatMap((room) => room.cabinets || []);
+    const definitionIds = Array.from(new Set(allCabinets.map((cab) => cab.definitionId).filter(Boolean)));
+
+    const productById = new Map<string, MicrovellumProductRow>();
+    if (definitionIds.length > 0) {
+      const { data: products, error: productError } = await supabase
+        .from('microvellum_products')
+        .select('id, microvellum_link_id, name, category, cabinet_type, spec_group, room_component_type, default_width, default_depth, default_height, door_count, drawer_count, has_false_front, has_adjustable_shelves')
+        .in('id', definitionIds);
+
+      if (productError) throw productError;
+      (products || []).forEach((product) => {
+        productById.set(product.id, product as MicrovellumProductRow);
+      });
     }
 
-    const designData = job.design_data || {};
-    const cabinets = designData.items?.filter((i: any) => i.itemType === 'Cabinet') || [];
-    const room = designData.room || {};
-    const globalDims = designData.globalDimensions || {};
-    const hardware = designData.hardwareOptions || {};
-    const finish = designData.selectedFinish || {};
+    const warnings: string[] = [];
+    const cabinetsXml: string[] = [];
+    const hardwareSummary = new Map<string, { qty: number; description: string }>();
 
-    // Generate XML
-    const xml = generateMicrovellumXML({
-      job,
-      cabinets,
-      room,
-      globalDims,
-      hardware,
-      finish,
+    tradeRooms.forEach((room, roomIndex) => {
+      (room.cabinets || []).forEach((cabinet, cabinetIndex) => {
+        const product = productById.get(cabinet.definitionId);
+
+        if (!product) {
+          warnings.push(`Missing product mapping for cabinet ${cabinet.cabinetNumber || cabinet.instanceId} (definitionId=${cabinet.definitionId}).`);
+        } else {
+          if (!product.microvellum_link_id) {
+            warnings.push(`Product ${product.id} (${product.name}) missing microvellum_link_id.`);
+          }
+          if (!product.spec_group && !product.room_component_type) {
+            warnings.push(`Product ${product.id} (${product.name}) missing spec_group and room_component_type metadata.`);
+          }
+        }
+
+        const xmlCategory = product ? mapCategoryForXml(product.category) : cabinet.category;
+        const width = numberValue(cabinet.dimensions?.width, numberValue(product?.default_width, 600));
+        const depth = numberValue(cabinet.dimensions?.depth, numberValue(product?.default_depth, 575));
+        const height = numberValue(cabinet.dimensions?.height, numberValue(product?.default_height, 870));
+        const pos = cabinet.position || { x: 0, y: 0, z: 0, rotation: 0 };
+        const finishName = cabinet.materials?.exteriorFinish || room.materialDefaults?.exteriorFinish || 'Designer White';
+        const handleType = cabinet.hardware?.handleType || room.hardwareDefaults?.handleType || 'bar-handle';
+
+        const parts = cabinetParts(cabinet, room, finishName)
+          .map((part) => `          <Part name="${escapeXml(part.name)}" w="${Math.round(part.w)}" h="${Math.round(part.h)}" d="${Math.round(part.d)}" material="${escapeXml(part.material)}" />`)
+          .join('\n');
+
+        const cabinetNumber = cabinet.cabinetNumber || `R${roomIndex + 1}-C${cabinetIndex + 1}`;
+        const xmlSku = product?.microvellum_link_id || cabinet.definitionId;
+
+        cabinetsXml.push(`      <Cabinet>
+        <RoomId>${escapeXml(room.id)}</RoomId>
+        <RoomName>${escapeXml(room.name)}</RoomName>
+        <CabinetNumber>${escapeXml(cabinetNumber)}</CabinetNumber>
+        <DefinitionId>${escapeXml(cabinet.definitionId)}</DefinitionId>
+        <SKU>${escapeXml(xmlSku)}</SKU>
+        <ProductName>${escapeXml(product?.name || cabinet.productName)}</ProductName>
+        <Type>${escapeXml(xmlCategory)}</Type>
+        <CabinetType>${escapeXml(product?.cabinet_type || 'Standard')}</CabinetType>
+        <SpecGroup>${escapeXml(product?.spec_group || '')}</SpecGroup>
+        <RoomComponentType>${escapeXml(product?.room_component_type || '')}</RoomComponentType>
+        <Width>${Math.round(width)}</Width>
+        <Depth>${Math.round(depth)}</Depth>
+        <Height>${Math.round(height)}</Height>
+        <PositionX>${Math.round(numberValue(pos.x))}</PositionX>
+        <PositionY>${Math.round(numberValue(pos.y))}</PositionY>
+        <PositionZ>${Math.round(numberValue(pos.z))}</PositionZ>
+        <Rotation>${Math.round(numberValue(pos.rotation))}</Rotation>
+        <ExteriorFinish>${escapeXml(finishName)}</ExteriorFinish>
+        <CarcaseFinish>${escapeXml(cabinet.materials?.carcaseFinish || room.materialDefaults?.carcaseFinish || finishName)}</CarcaseFinish>
+        <DoorStyle>${escapeXml(cabinet.materials?.doorStyle || room.materialDefaults?.doorStyle || '')}</DoorStyle>
+        <EdgeBanding>${escapeXml(cabinet.materials?.edgeBanding || room.materialDefaults?.edgeBanding || '')}</EdgeBanding>
+        <HandleType>${escapeXml(handleType)}</HandleType>
+        <HingeType>${escapeXml(cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || '')}</HingeType>
+        <DrawerType>${escapeXml(cabinet.hardware?.drawerType || room.hardwareDefaults?.drawerType || '')}</DrawerType>
+        <SoftClose>${cabinet.hardware?.softClose ?? room.hardwareDefaults?.softClose ? 'Yes' : 'No'}</SoftClose>
+        <Parts>
+${parts}
+        </Parts>
+      </Cabinet>`);
+
+        const hingeSku = `HINGE-${(cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || 'std').toUpperCase()}`;
+        const handleSku = `HANDLE-${(handleType || 'std').toUpperCase()}`;
+        const hingeQty = xmlCategory === 'Tall' ? 6 : xmlCategory === 'Wall' ? 2 : 4;
+
+        const existingHinge = hardwareSummary.get(hingeSku) || { qty: 0, description: `Hinge ${cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || 'Standard'}` };
+        existingHinge.qty += hingeQty;
+        hardwareSummary.set(hingeSku, existingHinge);
+
+        const existingHandle = hardwareSummary.get(handleSku) || { qty: 0, description: `Handle ${handleType}` };
+        existingHandle.qty += 1;
+        hardwareSummary.set(handleSku, existingHandle);
+      });
     });
 
-    const filename = `Job_${job.job_number}_${job.name.replace(/\s+/g, '_')}`;
+    const hardwareXml = Array.from(hardwareSummary.entries())
+      .map(([sku, item]) => `      <Item sku="${escapeXml(sku)}" qty="${item.qty}" description="${escapeXml(item.description)}" />`)
+      .join('\n');
 
-    console.log('XML generated successfully, length:', xml.length);
+    const roomXml = tradeRooms
+      .map((room) => `      <Room id="${escapeXml(room.id)}">
+        <Name>${escapeXml(room.name)}</Name>
+        <Description>${escapeXml(room.description || '')}</Description>
+        <Shape>${escapeXml(room.shape || 'rectangular')}</Shape>
+        <Width>${Math.round(numberValue(room.config?.width, 4000))}</Width>
+        <Depth>${Math.round(numberValue(room.config?.depth, 3000))}</Depth>
+        <Height>${Math.round(numberValue(room.config?.height, 2400))}</Height>
+      </Room>`)
+      .join('\n');
 
-    return new Response(
-      JSON.stringify({ xml, filename }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (error: unknown) {
-    console.error('Error in export-microvellum-xml:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-});
+    const quoteTotals = designData.jobTotals || {};
 
-function generateMicrovellumXML(data: {
-  job: any;
-  cabinets: any[];
-  room: any;
-  globalDims: any;
-  hardware: any;
-  finish: any;
-}): string {
-  const { job, cabinets, room, globalDims, hardware, finish } = data;
-  const createdDate = new Date(job.created_at).toISOString().split('T')[0];
+    const warningXml = warnings.length
+      ? warnings.map((w) => `      <Warning>${escapeXml(w)}</Warning>`).join('\n')
+      : '      <Warning>None</Warning>';
 
-  let cabinetXML = '';
-  const hardwareItems: { sku: string; qty: number; desc: string }[] = [];
-
-  cabinets.forEach((cab, index) => {
-    const cabNum = cab.cabinetNumber || `C${String(index + 1).padStart(2, '0')}`;
-    const category = cab.definitionId?.includes('wall-') ? 'Wall' 
-      : cab.definitionId?.includes('tall-') ? 'Tall' : 'Base';
-    
-    // Calculate parts based on cabinet dimensions
-    const parts = generateCabinetParts(cab, category, globalDims, finish);
-    
-    cabinetXML += `
-    <Cabinet>
-      <CabinetNumber>${escapeXml(cabNum)}</CabinetNumber>
-      <Type>${category}</Type>
-      <SKU>${escapeXml(cab.definitionId || '')}</SKU>
-      <Width>${cab.width}</Width>
-      <Depth>${cab.depth}</Depth>
-      <Height>${cab.height}</Height>
-      <PositionX>${Math.round(cab.x)}</PositionX>
-      <PositionY>${Math.round(cab.y || 0)}</PositionY>
-      <PositionZ>${Math.round(cab.z)}</PositionZ>
-      <Rotation>${cab.rotation || 0}</Rotation>
-      <Hinge>${cab.hinge || 'Left'}</Hinge>
-      <Material>${escapeXml(finish.name || 'Designer White')}</Material>
-      <Handle>${escapeXml(hardware.handleId || 'Bar Handle')}</Handle>
-      <EndPanelLeft>${cab.endPanelLeft ? 'Yes' : 'No'}</EndPanelLeft>
-      <EndPanelRight>${cab.endPanelRight ? 'Yes' : 'No'}</EndPanelRight>
-      <FillerLeft>${cab.fillerLeft || 0}</FillerLeft>
-      <FillerRight>${cab.fillerRight || 0}</FillerRight>
-      <Parts>
-${parts.map(p => `        <Part name="${escapeXml(p.name)}" w="${p.w}" h="${p.h}" d="${p.d}" material="${escapeXml(p.material)}" />`).join('\n')}
-      </Parts>
-    </Cabinet>`;
-
-    // Count hardware
-    if (cab.hinge) {
-      const hingeCount = category === 'Tall' ? 6 : category === 'Wall' ? 2 : 4;
-      addHardware(hardwareItems, 'HINGE-BLUM-SC', hingeCount, 'Blum Soft Close Hinge');
-    }
-    addHardware(hardwareItems, 'HANDLE-STD', 1, 'Standard Handle');
-  });
-
-  // Build hardware XML
-  const hardwareXML = hardwareItems.map(h => 
-    `    <Item sku="${escapeXml(h.sku)}" qty="${h.qty}" description="${escapeXml(h.desc)}" />`
-  ).join('\n');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<MicrovellumJob version="1.0">
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<MicrovellumJob version="2.0">
   <JobInfo>
-    <JobNumber>${job.job_number}</JobNumber>
-    <JobName>${escapeXml(job.name)}</JobName>
-    <CustomerName>${escapeXml(job.profiles?.full_name || 'Unknown')}</CustomerName>
+    <JobId>${escapeXml(job.id)}</JobId>
+    <JobNumber>${job.job_number ?? 0}</JobNumber>
+    <JobName>${escapeXml(job.name || '')}</JobName>
+    <Status>${escapeXml(job.status || 'draft')}</Status>
+    <Created>${escapeXml((job.created_at || '').split('T')[0] || '')}</Created>
+    <Updated>${escapeXml((job.updated_at || '').split('T')[0] || '')}</Updated>
+    <CustomerName>${escapeXml(job.profiles?.full_name || '')}</CustomerName>
     <CustomerEmail>${escapeXml(job.profiles?.email || '')}</CustomerEmail>
     <CustomerPhone>${escapeXml(job.profiles?.phone || '')}</CustomerPhone>
     <CompanyName>${escapeXml(job.profiles?.company_name || '')}</CompanyName>
-    <Status>${escapeXml(job.status)}</Status>
-    <DeliveryMethod>${escapeXml(job.delivery_method)}</DeliveryMethod>
-    <CostExclTax>${job.cost_excl_tax || 0}</CostExclTax>
-    <CostInclTax>${job.cost_incl_tax || 0}</CostInclTax>
-    <Created>${createdDate}</Created>
+    <DeliveryMethod>${escapeXml(job.delivery_method || '')}</DeliveryMethod>
     <Notes>${escapeXml(job.notes || '')}</Notes>
   </JobInfo>
-  
-  <RoomConfig>
-    <Width>${room.width || 4000}</Width>
-    <Depth>${room.depth || 3000}</Depth>
-    <Height>${room.height || 2400}</Height>
-    <Shape>${room.shape || 'Rectangle'}</Shape>
-  </RoomConfig>
-  
-  <GlobalDimensions>
-    <ToeKickHeight>${globalDims.toeKickHeight || 135}</ToeKickHeight>
-    <BaseHeight>${globalDims.baseHeight || 730}</BaseHeight>
-    <BaseDepth>${globalDims.baseDepth || 575}</BaseDepth>
-    <WallHeight>${globalDims.wallHeight || 720}</WallHeight>
-    <WallDepth>${globalDims.wallDepth || 350}</WallDepth>
-    <TallHeight>${globalDims.tallHeight || 2100}</TallHeight>
-    <TallDepth>${globalDims.tallDepth || 580}</TallDepth>
-    <BenchtopThickness>${globalDims.benchtopThickness || 33}</BenchtopThickness>
-    <BenchtopOverhang>${globalDims.benchtopOverhang || 25}</BenchtopOverhang>
-    <SplashbackHeight>${globalDims.splashbackHeight || 600}</SplashbackHeight>
-  </GlobalDimensions>
-  
-  <Materials>
-    <CabinetFinish id="${escapeXml(finish.id || '')}">${escapeXml(finish.name || 'Designer White')}</CabinetFinish>
-    <FinishColor>${escapeXml(finish.hex || '#fcfcfc')}</FinishColor>
-  </Materials>
-  
-  <Hardware>
-    <HingeType>${escapeXml(hardware.hingeType || 'Blum Inserta Soft Close')}</HingeType>
-    <DrawerType>${escapeXml(hardware.drawerType || 'Hafele Alto Slim')}</DrawerType>
-    <HandleId>${escapeXml(hardware.handleId || 'handle-bar-ss')}</HandleId>
-    <SupplyHardware>${hardware.supplyHardware !== false ? 'Yes' : 'No'}</SupplyHardware>
-    <AdjustableLegs>${hardware.adjustableLegs !== false ? 'Yes' : 'No'}</AdjustableLegs>
-  </Hardware>
-  
-  <Cabinets count="${cabinets.length}">${cabinetXML}
+  <Quote>
+    <Subtotal>${numberValue(quoteTotals.subtotal, 0).toFixed(2)}</Subtotal>
+    <Tax>${numberValue(quoteTotals.tax, 0).toFixed(2)}</Tax>
+    <Total>${numberValue(quoteTotals.total, 0).toFixed(2)}</Total>
+    <UpdatedAt>${escapeXml(quoteTotals.updatedAt || designData.quoteSnapshot?.capturedAt || '')}</UpdatedAt>
+  </Quote>
+  <Rooms>
+${roomXml}
+  </Rooms>
+  <Cabinets>
+${cabinetsXml.join('\n')}
   </Cabinets>
-  
-  <HardwareList>
-${hardwareXML}
-  </HardwareList>
+  <HardwareSummary>
+${hardwareXml}
+  </HardwareSummary>
+  <Validation>
+    <WarningCount>${warnings.length}</WarningCount>
+${warningXml}
+  </Validation>
 </MicrovellumJob>`;
-}
 
-function generateCabinetParts(cab: any, category: string, globalDims: any, finish: any): any[] {
-  const parts: any[] = [];
-  const material = finish.name || '18mm White Melamine';
-  const backingMaterial = '3mm White Backing';
-  
-  const panelThickness = 18;
-  const internalWidth = cab.width - (panelThickness * 2);
-  const internalDepth = cab.depth - 3; // Back panel
-  
-  // Calculate panel heights based on category
-  let panelHeight = cab.height;
-  if (category === 'Base') {
-    panelHeight = cab.height - (globalDims.toeKickHeight || 135);
-  }
+    const filename = `Job_${job.job_number ?? 'NA'}_${(job.name || 'trade_job').replace(/\s+/g, '_')}`;
 
-  // Left Panel
-  parts.push({ name: 'Left Panel', w: cab.depth, h: panelHeight, d: panelThickness, material });
-  
-  // Right Panel
-  parts.push({ name: 'Right Panel', w: cab.depth, h: panelHeight, d: panelThickness, material });
-  
-  // Bottom
-  parts.push({ name: 'Bottom', w: internalWidth, h: internalDepth, d: panelThickness, material });
-  
-  // Top (for wall and tall cabinets)
-  if (category !== 'Base') {
-    parts.push({ name: 'Top', w: internalWidth, h: internalDepth, d: panelThickness, material });
-  }
-  
-  // Back
-  parts.push({ name: 'Back', w: cab.width, h: panelHeight, d: 3, material: backingMaterial });
-  
-  // Door(s)
-  const doorGap = globalDims.doorGap || 2;
-  const doorWidth = cab.width - (doorGap * 2);
-  const doorHeight = panelHeight - (doorGap * 2);
-  
-  if (cab.definitionId?.includes('2d') || cab.definitionId?.includes('2D')) {
-    // Two doors
-    parts.push({ name: 'Left Door', w: (doorWidth / 2) - 1, h: doorHeight, d: panelThickness, material });
-    parts.push({ name: 'Right Door', w: (doorWidth / 2) - 1, h: doorHeight, d: panelThickness, material });
-  } else if (!cab.definitionId?.includes('dr')) {
-    // Single door (not drawers)
-    parts.push({ name: 'Door', w: doorWidth, h: doorHeight, d: panelThickness, material });
-  }
-  
-  // Shelves (1-2 depending on height)
-  const shelfCount = category === 'Tall' ? 4 : category === 'Wall' ? 2 : 1;
-  for (let i = 0; i < shelfCount; i++) {
-    parts.push({ 
-      name: `Shelf ${i + 1}`, 
-      w: internalWidth - 10, 
-      h: internalDepth - (globalDims.shelfSetback || 5), 
-      d: panelThickness, 
-      material 
+    return new Response(JSON.stringify({ xml, filename, warnings }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-  
-  return parts;
-}
-
-function addHardware(items: any[], sku: string, qty: number, desc: string) {
-  const existing = items.find(i => i.sku === sku);
-  if (existing) {
-    existing.qty += qty;
-  } else {
-    items.push({ sku, qty, desc });
-  }
-}
-
-function escapeXml(str: string): string {
-  if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
+});
