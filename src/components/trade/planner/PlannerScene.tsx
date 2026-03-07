@@ -198,7 +198,7 @@ function TradeCabinetMesh({
             };
           }
 
-          e.currentTarget.setPointerCapture(e.pointerId);
+          (e.currentTarget as unknown as Element).setPointerCapture(e.pointerId);
         }
       }}
       onPointerUp={(e) => {
@@ -209,7 +209,7 @@ function TradeCabinetMesh({
 
           const pos = groupRef.current.position;
           onDragEnd({ x: pos.x * 1000, z: pos.z * 1000 });
-          e.currentTarget.releasePointerCapture(e.pointerId);
+          (e.currentTarget as unknown as Element).releasePointerCapture(e.pointerId);
         }
       }}
       onPointerMove={(e) => {
