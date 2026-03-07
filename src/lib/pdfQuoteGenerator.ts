@@ -287,3 +287,99 @@ export function generateQuotePDF(data: QuoteData): void {
   const filename = `${projectSettings.jobName || 'kitchen-quote'}-${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(filename);
 }
+
+interface TradeQuoteJobData {
+  id: string;
+  name: string;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface TradeQuotePayload {
+  job: TradeQuoteJobData;
+  rooms: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    cabinets: Array<{
+      cabinetNumber?: string;
+      productName: string;
+      category: string;
+      dimensions: { width: number; height: number; depth: number };
+      estimatedTotal?: number;
+    }>;
+  }>;
+  totals?: {
+    subtotal?: number;
+    tax?: number;
+    total?: number;
+  };
+  notes?: string;
+}
+
+export function generateTradeQuotePDF(payload: TradeQuotePayload): void {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TRADE QUOTE', pageWidth / 2, 16, { align: 'center' });
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Job: ${payload.job.name}`, 14, 28);
+  doc.text(`Status: ${payload.job.status}`, 14, 34);
+  doc.text(`Rooms: ${payload.rooms.length}`, 14, 40);
+
+  const rows: string[][] = [];
+  payload.rooms.forEach((room) => {
+    room.cabinets.forEach((cabinet) => {
+      rows.push([
+        room.name,
+        cabinet.cabinetNumber || '-',
+        cabinet.productName,
+        `${cabinet.dimensions.width}x${cabinet.dimensions.depth}x${cabinet.dimensions.height}`,
+        money(cabinet.estimatedTotal || 0),
+      ]);
+    });
+  });
+
+  autoTable(doc, {
+    startY: 46,
+    head: [['Room', 'Cab #', 'Cabinet', 'Dimensions (mm)', 'Total']],
+    body: rows.length ? rows : [['-', '-', 'No cabinets configured', '-', money(0)]],
+    theme: 'striped',
+    headStyles: { fillColor: [59, 130, 246], fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 9 },
+    margin: { left: 14, right: 14 },
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY ?? 120;
+  const totals = payload.totals || {};
+  const subtotal = totals.subtotal ?? totals.total ?? 0;
+  const tax = totals.tax ?? subtotal * 0.1;
+  const total = totals.total ?? subtotal + tax;
+
+  let y = finalY + 12;
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Totals', 14, y);
+  y += 7;
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Subtotal: ${money(subtotal)}`, 14, y);
+  y += 6;
+  doc.text(`GST: ${money(tax)}`, 14, y);
+  y += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Grand Total: ${money(total)}`, 14, y);
+
+  y += 10;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Exclusions / Notes', 14, y);
+  y += 6;
+  doc.text(payload.notes || 'Quote excludes installation, delivery, and site variations unless noted.', 14, y, { maxWidth: pageWidth - 28 });
+
+  doc.save(`trade-quote-${payload.job.id}.pdf`);
+}

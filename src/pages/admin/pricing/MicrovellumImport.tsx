@@ -29,7 +29,10 @@ interface MicrovellumProduct {
 interface ImportResult {
   success: boolean;
   imported?: number;
+  skipped?: number;
   categoryCounts?: Record<string, number>;
+  warnings?: string[];
+  errors?: string[];
   message?: string;
   error?: string;
 }
@@ -40,6 +43,7 @@ export default function MicrovellumImport() {
   const [importing, setImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [lastImportResult, setLastImportResult] = useState<ImportResult | null>(null);
 
   useEffect(() => {
     loadProducts();
@@ -112,16 +116,19 @@ export default function MicrovellumImport() {
 
       const result = data as ImportResult;
       if (result.success) {
+        setLastImportResult(result);
         toast.success(result.message || `Imported ${result.imported} products`);
         if (result.categoryCounts) {
           console.log('Category breakdown:', result.categoryCounts);
         }
         await loadProducts();
       } else {
+        setLastImportResult(result);
         throw new Error(result.error || 'Import failed');
       }
     } catch (error: any) {
       console.error('Import error:', error);
+      setLastImportResult((prev) => prev ?? { success: false, error: error.message || 'Failed to import products' });
       toast.error(error.message || 'Failed to import products');
     } finally {
       setImporting(false);
@@ -273,6 +280,54 @@ export default function MicrovellumImport() {
           </div>
         </CardContent>
       </Card>
+
+      {lastImportResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5" />
+              Last Import Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-sm">
+              <Badge variant={lastImportResult.success ? 'default' : 'destructive'}>
+                {lastImportResult.success ? 'Success' : 'Failed'}
+              </Badge>
+              {typeof lastImportResult.imported === 'number' && (
+                <Badge variant="secondary">Imported: {lastImportResult.imported}</Badge>
+              )}
+              {typeof lastImportResult.skipped === 'number' && (
+                <Badge variant="outline">Skipped: {lastImportResult.skipped}</Badge>
+              )}
+              <Badge variant="outline">Warnings: {lastImportResult.warnings?.length || 0}</Badge>
+              <Badge variant="outline">Errors: {lastImportResult.errors?.length || 0}</Badge>
+            </div>
+            {lastImportResult.message && <p className="text-sm text-muted-foreground">{lastImportResult.message}</p>}
+            {lastImportResult.error && <p className="text-sm text-destructive">{lastImportResult.error}</p>}
+            {!!lastImportResult.warnings?.length && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Warnings</p>
+                <ul className="text-xs space-y-1 list-disc pl-4 max-h-32 overflow-auto">
+                  {lastImportResult.warnings.slice(0, 20).map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!!lastImportResult.errors?.length && (
+              <div>
+                <p className="text-xs font-semibold text-destructive mb-1">Row Errors</p>
+                <ul className="text-xs space-y-1 list-disc pl-4 max-h-32 overflow-auto text-destructive">
+                  {lastImportResult.errors.slice(0, 20).map((error) => (
+                    <li key={error}>{error}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       {products.length > 0 && (
