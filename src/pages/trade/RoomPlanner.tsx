@@ -55,7 +55,7 @@ export default function RoomPlanner() {
     hydrateRooms,
   } = useTradeRoom();
 
-  const { jobQuery, roomsFromServer, upsertCabinet, replaceRoomInJob, removeCabinetFromJob, persistQuoteSnapshot, persistJobTotals, exportJobPdf } = useTradeJobPersistence(jobId);
+  const { jobQuery, roomsFromServer, upsertCabinet, upsertJob , exportJobPdf } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -64,8 +64,6 @@ export default function RoomPlanner() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [cameraControls, setCameraControls] = useState<{ zoomIn: () => void; zoomOut: () => void; resetView: () => void; fitAll: () => void } | null>(null);
   const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const quotePersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPersistedQuoteRef = useRef<string>('');
 
   useEffect(() => {
     if (jobId && jobId !== 'new' && jobQuery.data) {
@@ -220,9 +218,9 @@ export default function RoomPlanner() {
     const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
     if (!sourceCabinet) return;
 
-    const clamped = clampPositionToRoom(currentRoom, sourceCabinet, position);
-    placeCabinet(currentRoom.id, instanceId, clamped);
-    setDirty(true);
+    const updatedCabinet = { ...sourceCabinet, position, isPlaced: true, updatedAt: new Date() };
+    placeCabinet(currentRoom.id, instanceId, position);
+    await persistCabinet(updatedCabinet);
   };
 
   const handleItemMove = useCallback(async (id: string, updates: Partial<PlacedItem>) => {
@@ -436,37 +434,13 @@ export default function RoomPlanner() {
       capturedAt: new Date().toISOString(),
     };
 
-    const quoteFingerprint = JSON.stringify({
-      roomId: snapshot.roomId,
-      roomTotal: snapshot.roomTotal,
-      pricingHash: snapshot.pricingHash,
-      bomGrandTotal: quoteBOM.grandTotal,
-      perCabinetTotals: snapshot.perCabinetTotals,
+    void persistQuoteSnapshot({ jobId, snapshot });
+    void persistJobTotals({
+      jobId,
+      subtotal: quoteBOM.grandTotal.subtotalExGst,
+      tax: quoteBOM.grandTotal.gst,
+      total: quoteBOM.grandTotal.total,
     });
-
-    if (quoteFingerprint === lastPersistedQuoteRef.current) return;
-
-    if (quotePersistRef.current) {
-      clearTimeout(quotePersistRef.current);
-    }
-
-    quotePersistRef.current = setTimeout(() => {
-      lastPersistedQuoteRef.current = quoteFingerprint;
-      void persistQuoteSnapshot({ jobId, snapshot });
-      void persistJobTotals({
-        jobId,
-        subtotal: quoteBOM.grandTotal.subtotalExGst,
-        tax: quoteBOM.grandTotal.gst,
-        total: quoteBOM.grandTotal.total,
-      });
-    }, 500);
-
-    return () => {
-      if (quotePersistRef.current) {
-        clearTimeout(quotePersistRef.current);
-        quotePersistRef.current = null;
-      }
-    };
   }, [currentRoom, jobId, perCabinetTotals, persistJobTotals, persistQuoteSnapshot, pricingHash, pricingVersion, quoteBOM, roomTotal]);
 
   // Sync dialog cabinet with latest state when cabinet updates

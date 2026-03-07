@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
-import { generateTradeQuotePDF } from '@/lib/pdfQuoteGenerator';
 
 interface PersistedTradeDesignData {
   tradeRooms: TradeRoom[];
@@ -14,15 +13,6 @@ interface PersistedTradeDesignData {
     updatedAt: string;
   };
   lastSyncedAt: string;
-}
-
-interface PersistJobInput {
-  id: string;
-  name: string;
-  status?: TradeJobStatus;
-  rooms: TradeRoom[];
-  designDataPatch?: Partial<PersistedTradeDesignData>;
-  existingDesignData?: Partial<PersistedTradeDesignData>;
 }
 
 const jobQueryKey = (jobId?: string) => ['trade-job', jobId];
@@ -58,6 +48,10 @@ function normalizeStatus(value?: string): TradeJobStatus {
 export function useTradeJobPersistence(jobId?: string) {
   const queryClient = useQueryClient();
 
+  const getCurrentJob = useCallback((id: string) => {
+    return queryClient.getQueryData<any>(jobQueryKey(id)) ?? jobQuery.data;
+  }, [jobQuery.data, queryClient]);
+
   const jobQuery = useQuery({
     queryKey: jobQueryKey(jobId),
     enabled: Boolean(jobId && jobId !== 'new'),
@@ -85,19 +79,16 @@ export function useTradeJobPersistence(jobId?: string) {
   }, [jobQuery.data?.design_data]);
 
   const upsertJobMutation = useMutation({
-    mutationFn: async (input: PersistJobInput) => {
-      const mergedDesignData = {
-        ...(input.existingDesignData || {}),
-        tradeRooms: serializeRooms(input.rooms),
-        ...(input.designDataPatch || {}),
-        lastSyncedAt: new Date().toISOString(),
-      } as PersistedTradeDesignData;
-
+    mutationFn: async (input: { id: string; name: string; status?: TradeJobStatus; rooms: TradeRoom[]; designDataPatch?: Partial<PersistedTradeDesignData> }) => {
       const payload = {
         id: input.id,
         name: input.name,
         status: input.status ?? 'draft',
-        design_data: mergedDesignData as unknown as PersistedTradeDesignData,
+        design_data: {
+          tradeRooms: serializeRooms(input.rooms),
+          lastSyncedAt: new Date().toISOString(),
+          ...(input.designDataPatch || {}),
+        } as unknown as PersistedTradeDesignData,
       };
 
       const { data, error } = await supabase
@@ -115,20 +106,17 @@ export function useTradeJobPersistence(jobId?: string) {
   });
 
   const persistRooms = useCallback(async (input: { jobId: string; rooms: TradeRoom[] }) => {
-    const current = getCurrentJob(input.jobId);
-    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
-
+    const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
       status: normalizeStatus(current?.status),
       rooms: input.rooms,
-      existingDesignData,
     });
-  }, [getCurrentJob, upsertJobMutation]);
+  }, [jobQuery.data, queryClient, upsertJobMutation]);
 
   const upsertRoom = useCallback(async (input: { jobId: string; room: TradeRoom }) => {
-    const current = getCurrentJob(input.jobId);
+    const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const normalizedExisting = normalizeRooms(existing);
 
@@ -137,29 +125,21 @@ export function useTradeJobPersistence(jobId?: string) {
       : [...normalizedExisting, input.room];
 
     return persistRooms({ jobId: input.jobId, rooms: nextRooms });
-  }, [getCurrentJob, persistRooms]);
+  }, [jobQuery.data, persistRooms, queryClient]);
 
   const replaceRoomInJob = useCallback(async (input: { jobId: string; room: TradeRoom }) => {
     return upsertRoom(input);
   }, [upsertRoom]);
 
-  const upsertCabinet = useCallback(async (input: { jobId: string; roomId: string; cabinet: ConfiguredCabinet; roomFallback?: TradeRoom }) => {
-    const current = getCurrentJob(input.jobId);
+  const upsertCabinet = useCallback(async (input: { jobId: string; roomId: string; cabinet: ConfiguredCabinet }) => {
+    const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const normalizedExisting = normalizeRooms(existing);
 
     const hasRoom = normalizedExisting.some((room) => room.id === input.roomId);
-
-    if (!hasRoom && input.roomFallback) {
-      const fallbackRoom = {
-        ...input.roomFallback,
-        cabinets: [input.cabinet],
-        updatedAt: new Date(),
-      };
-      return persistRooms({ jobId: input.jobId, rooms: [...normalizedExisting, fallbackRoom] });
+    if (!hasRoom) {
+      return;
     }
-
-    if (!hasRoom) return;
 
     const nextRooms = normalizedExisting.map((room) => {
       if (room.id !== input.roomId) return room;
@@ -175,10 +155,10 @@ export function useTradeJobPersistence(jobId?: string) {
     });
 
     return persistRooms({ jobId: input.jobId, rooms: nextRooms });
-  }, [getCurrentJob, persistRooms]);
+  }, [jobQuery.data, persistRooms, queryClient]);
 
   const removeCabinetFromJob = useCallback(async (input: { jobId: string; roomId: string; instanceId: string }) => {
-    const current = getCurrentJob(input.jobId);
+    const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const normalizedExisting = normalizeRooms(existing);
 
@@ -189,34 +169,30 @@ export function useTradeJobPersistence(jobId?: string) {
     );
 
     return persistRooms({ jobId: input.jobId, rooms: nextRooms });
-  }, [getCurrentJob, persistRooms]);
+  }, [jobQuery.data, persistRooms, queryClient]);
 
   const persistQuoteSnapshot = useCallback(async (input: { jobId: string; snapshot: QuoteSnapshot }) => {
-    const current = getCurrentJob(input.jobId);
+    const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
-    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
 
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
       status: normalizeStatus(current?.status),
       rooms: normalizeRooms(existing),
-      existingDesignData,
       designDataPatch: { quoteSnapshot: input.snapshot },
     });
-  }, [getCurrentJob, upsertJobMutation]);
+  }, [jobQuery.data, queryClient, upsertJobMutation]);
 
   const persistJobTotals = useCallback(async (input: { jobId: string; subtotal?: number; tax?: number; total?: number }) => {
-    const current = getCurrentJob(input.jobId);
+    const current = queryClient.getQueryData<any>(jobQueryKey(input.jobId)) ?? jobQuery.data;
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
-    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
 
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
       status: normalizeStatus(current?.status),
       rooms: normalizeRooms(existing),
-      existingDesignData,
       designDataPatch: {
         jobTotals: {
           subtotal: input.subtotal,
@@ -226,7 +202,7 @@ export function useTradeJobPersistence(jobId?: string) {
         },
       },
     });
-  }, [getCurrentJob, upsertJobMutation]);
+  }, [jobQuery.data, queryClient, upsertJobMutation]);
 
   const updateJobStatus = useCallback(async (status: TradeJobStatus) => {
     if (!jobId || jobId === 'new') return;
@@ -252,8 +228,6 @@ export function useTradeJobPersistence(jobId?: string) {
     const data = (jobQuery.data.design_data || {}) as unknown as PersistedTradeDesignData;
     const rooms = normalizeRooms((data.tradeRooms || []) as TradeRoom[]);
 
-    const quoteSnapshot = data.quoteSnapshot;
-
     generateTradeQuotePDF({
       job: {
         id: jobQuery.data.id,
@@ -270,7 +244,6 @@ export function useTradeJobPersistence(jobId?: string) {
           productName: cab.productName,
           category: cab.category,
           dimensions: cab.dimensions,
-          estimatedTotal: quoteSnapshot?.perCabinetTotals?.[cab.instanceId],
         })),
       })),
       totals: data.jobTotals,
