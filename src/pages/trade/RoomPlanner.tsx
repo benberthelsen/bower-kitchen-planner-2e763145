@@ -55,7 +55,7 @@ export default function RoomPlanner() {
     hydrateRooms,
   } = useTradeRoom();
 
-  const { jobQuery, roomsFromServer, upsertCabinet, replaceRoomInJob, removeCabinetFromJob, exportJobPdf } = useTradeJobPersistence(jobId);
+  const { jobQuery, roomsFromServer, upsertCabinet, upsertJob , exportJobPdf } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -218,9 +218,9 @@ export default function RoomPlanner() {
     const sourceCabinet = cabinets.find(c => c.instanceId === instanceId);
     if (!sourceCabinet) return;
 
-    const clamped = clampPositionToRoom(currentRoom, sourceCabinet, position);
-    placeCabinet(currentRoom.id, instanceId, clamped);
-    setDirty(true);
+    const updatedCabinet = { ...sourceCabinet, position, isPlaced: true, updatedAt: new Date() };
+    placeCabinet(currentRoom.id, instanceId, position);
+    await persistCabinet(updatedCabinet);
   };
 
   const handleItemMove = useCallback(async (id: string, updates: Partial<PlacedItem>) => {
