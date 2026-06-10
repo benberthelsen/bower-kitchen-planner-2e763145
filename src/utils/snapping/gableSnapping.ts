@@ -7,10 +7,12 @@ import { PlacedItem } from '@/types';
 import { CONSTRUCTION_STANDARDS } from '@/types/cabinetConfig';
 
 export interface GableEdges {
-  leftOuter: number;   // X position of left gable outer face
-  leftInner: number;   // X position of left gable inner face
-  rightOuter: number;  // X position of right gable outer face
-  rightInner: number;  // X position of right gable inner face
+  leftOuter: number;   // Position of left gable outer face (along the run axis)
+  leftInner: number;   // Position of left gable inner face (along the run axis)
+  rightOuter: number;  // Position of right gable outer face (along the run axis)
+  rightInner: number;  // Position of right gable inner face (along the run axis)
+  /** World axis the cabinet's width lies along ('x' for rotations 0/180, 'z' for 90/270) */
+  axis: 'x' | 'z';
 }
 
 export interface GableSnapPoint {
@@ -21,9 +23,17 @@ export interface GableSnapPoint {
   distance: number;
 }
 
+/** Normalize a rotation in degrees to 0/90/180/270 */
+function normalizeRightAngle(rotation: number): number {
+  const normalized = ((rotation % 360) + 360) % 360;
+  const snapped = Math.round(normalized / 90) * 90;
+  return snapped === 360 ? 0 : snapped;
+}
+
 /**
- * Calculate gable edge positions for a cabinet
- * Takes into account rotation for proper world-space positions
+ * Calculate gable edge positions for a cabinet, accounting for rotation.
+ * For rotations 0/180 the cabinet's width (and therefore its gables) lies along
+ * world X; for 90/270 it lies along world Z.
  */
 export function getGableEdges(
   item: PlacedItem,
@@ -31,36 +41,31 @@ export function getGableEdges(
 ): GableEdges {
   const halfWidth = item.width / 2;
   const thicknessM = gableThickness; // Already in mm
-  
-  // For rotation 0 (facing +Z), left is -X, right is +X
-  // These are relative to item center
+  const rot = normalizeRightAngle(item.rotation);
+  const axis: 'x' | 'z' = rot === 90 || rot === 270 ? 'z' : 'x';
+  const center = axis === 'x' ? item.x : item.z;
+
   return {
-    leftOuter: item.x - halfWidth,
-    leftInner: item.x - halfWidth + thicknessM,
-    rightOuter: item.x + halfWidth,
-    rightInner: item.x + halfWidth - thicknessM,
+    leftOuter: center - halfWidth,
+    leftInner: center - halfWidth + thicknessM,
+    rightOuter: center + halfWidth,
+    rightInner: center + halfWidth - thicknessM,
+    axis,
   };
 }
 
 /**
- * Check if two rotations are aligned (same wall direction)
- * Works with both radians and degrees
+ * Check if two rotations are aligned (same wall direction).
+ * Rotations are ALWAYS degrees in this codebase.
  */
-function rotationsAligned(rot1: number, rot2: number, tolerance: number = 5): boolean {
-  // Normalize to degrees if they look like radians
-  const isRadians = Math.abs(rot1) <= Math.PI * 2 && Math.abs(rot2) <= Math.PI * 2;
-  const r1 = isRadians ? (rot1 * 180 / Math.PI) : rot1;
-  const r2 = isRadians ? (rot2 * 180 / Math.PI) : rot2;
-  
-  const norm1 = ((r1 % 360) + 360) % 360;
-  const norm2 = ((r2 % 360) + 360) % 360;
-  
-  return Math.abs(norm1 - norm2) < tolerance;
+function rotationsAligned(rot1: number, rot2: number): boolean {
+  return normalizeRightAngle(rot1) === normalizeRightAngle(rot2);
 }
 
 /**
  * Find gable-to-gable snap points for a dragged cabinet
- * Snaps outer gable edges to create flush cabinet runs
+ * Snaps outer gable edges to create flush cabinet runs.
+ * Works on all four walls (run axis follows cabinet rotation).
  */
 export function findGableSnapPoints(
   draggedItem: PlacedItem,
@@ -70,46 +75,48 @@ export function findGableSnapPoints(
 ): GableSnapPoint[] {
   const snapPoints: GableSnapPoint[] = [];
   const draggedEdges = getGableEdges(draggedItem, gableThickness);
-  
+
   for (const target of allItems) {
     // Skip self and non-cabinets
     if (target.instanceId === draggedItem.instanceId) continue;
     if (target.itemType !== 'Cabinet') continue;
-    
+
     // Only snap cabinets with similar rotation (same wall run)
     if (!rotationsAligned(draggedItem.rotation, target.rotation)) continue;
-    
-    // Check Z alignment (must be on same line, within depth tolerance)
-    const zDiff = Math.abs(draggedItem.z - target.z);
-    if (zDiff > Math.max(draggedItem.depth, target.depth) / 2 + 50) continue;
-    
+
     const targetEdges = getGableEdges(target, gableThickness);
-    
+    if (targetEdges.axis !== draggedEdges.axis) continue;
+
+    const axis = draggedEdges.axis;
+    // Cross-axis = the world axis perpendicular to the run (depth direction)
+    const draggedCross = axis === 'x' ? draggedItem.z : draggedItem.x;
+    const targetCross = axis === 'x' ? target.z : target.x;
+
+    // Must be on roughly the same line (within depth tolerance)
+    const crossDiff = Math.abs(draggedCross - targetCross);
+    if (crossDiff > Math.max(draggedItem.depth, target.depth) / 2 + 50) continue;
+
+    const makeSnap = (alongPos: number, edge: GableSnapPoint['edge'], distance: number): GableSnapPoint => ({
+      targetItem: target,
+      snapX: axis === 'x' ? alongPos : targetCross,
+      snapZ: axis === 'x' ? targetCross : alongPos,
+      edge,
+      distance,
+    });
+
     // Left gable of dragged → Right gable of target (dragged is to the right)
     const leftToRightDist = Math.abs(draggedEdges.leftOuter - targetEdges.rightOuter);
     if (leftToRightDist < threshold) {
-      snapPoints.push({
-        targetItem: target,
-        snapX: targetEdges.rightOuter + draggedItem.width / 2,
-        snapZ: target.z, // Align Z as well
-        edge: 'left-to-right',
-        distance: leftToRightDist,
-      });
+      snapPoints.push(makeSnap(targetEdges.rightOuter + draggedItem.width / 2, 'left-to-right', leftToRightDist));
     }
-    
+
     // Right gable of dragged → Left gable of target (dragged is to the left)
     const rightToLeftDist = Math.abs(draggedEdges.rightOuter - targetEdges.leftOuter);
     if (rightToLeftDist < threshold) {
-      snapPoints.push({
-        targetItem: target,
-        snapX: targetEdges.leftOuter - draggedItem.width / 2,
-        snapZ: target.z,
-        edge: 'right-to-left',
-        distance: rightToLeftDist,
-      });
+      snapPoints.push(makeSnap(targetEdges.leftOuter - draggedItem.width / 2, 'right-to-left', rightToLeftDist));
     }
   }
-  
+
   // Sort by distance (closest first)
   return snapPoints.sort((a, b) => a.distance - b.distance);
 }

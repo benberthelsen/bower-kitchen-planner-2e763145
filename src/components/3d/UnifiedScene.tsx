@@ -27,14 +27,11 @@ interface SnapState {
 }
 
 
-function clampToRoomBounds(room: RoomConfig, item: PlacedItem, x: number, z: number) {
-  const maxX = Math.max(0, room.width - item.width);
-  const maxZ = Math.max(0, room.depth - item.depth);
-  return {
-    x: Math.min(Math.max(x, 0), maxX),
-    z: Math.min(Math.max(z, 0), maxZ),
-  };
-}
+// NOTE: positions are CENTRE coordinates throughout the planner.
+// calculateSnapPosition already clamps results to the room (rotation-aware,
+// including wallGap), so no additional clamping is applied here. A previous
+// corner-based clamp here fought the snapping engine and stopped cabinets
+// from ever reaching the right/front walls.
 
 interface PlacementState {
   position: [number, number, number];
@@ -166,10 +163,8 @@ function PlacementHandler({
       const ghostItem = { ...tempItem, x: snapResult.x, z: snapResult.z, rotation: snapResult.rotation };
       const hasCollision = items.some(item => checkCollision(ghostItem as PlacedItem, item, 10));
 
-      const clamped = clampToRoomBounds(room, tempItem as PlacedItem, snapResult.x, snapResult.z);
-
       onPositionUpdate({
-        position: [clamped.x / 1000, 0, clamped.z / 1000],
+        position: [snapResult.x / 1000, 0, snapResult.z / 1000],
         rotation: snapResult.rotation,
         isValid: !hasCollision,
       });
@@ -190,13 +185,9 @@ function PlacementHandler({
     if (hit) {
       const snap = latestSnapRef.current;
       if (snap) {
-        const def = catalog.find(c => c.id === placementItemId);
-        if (!def) return;
-        const clamped = clampToRoomBounds(room, {
-          instanceId: 'temp', definitionId: placementItemId, itemType: def.itemType, x: 0, y: 0, z: 0, rotation: 0,
-          width: def.defaultWidth, depth: def.defaultDepth, height: def.defaultHeight,
-        } as PlacedItem, snap.x, snap.z);
-        onItemAdd(placementItemId, clamped.x, clamped.z, snap.rotation);
+        // Snap result is already clamped to the room (rotation-aware, with
+        // the correct category depth) — use it directly.
+        onItemAdd(placementItemId, snap.x, snap.z, snap.rotation);
       } else {
         const snappedX = Math.round((target.x * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
         const snappedZ = Math.round((target.z * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
@@ -369,11 +360,9 @@ function DragManager({
 
     onSnapResultChange?.(snapResult);
 
-    const clamped = clampToRoomBounds(room, draggedItem, snapResult.x, snapResult.z);
-
     onItemMove(draggedItemId, {
-      x: clamped.x,
-      z: clamped.z,
+      x: snapResult.x,
+      z: snapResult.z,
       rotation: snapResult.rotation,
     });
   };
@@ -563,8 +552,12 @@ export function UnifiedScene({
         fitAll: () => {
           const bbox = new THREE.Box3();
           items.forEach(item => {
-            const pos = new THREE.Vector3(item.x / 1000, item.y / 1000, item.z / 1000);
-            bbox.expandByPoint(pos);
+            // Expand by the item's full extents, not just its centre point
+            const halfW = (item.width || 0) / 2000;
+            const halfD = (item.depth || 0) / 2000;
+            const h = (item.height || 0) / 1000;
+            bbox.expandByPoint(new THREE.Vector3(item.x / 1000 - halfW, item.y / 1000, item.z / 1000 - halfD));
+            bbox.expandByPoint(new THREE.Vector3(item.x / 1000 + halfW, item.y / 1000 + h, item.z / 1000 + halfD));
           });
           
           if (bbox.isEmpty()) {

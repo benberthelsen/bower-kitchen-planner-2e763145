@@ -85,21 +85,23 @@ export function calculateSnapPosition(
   // The cabinet's raw depth (back-to-front dimension before rotation)
   const itemDepth = draggedItem.depth;
 
-  // 1. Check for corner snap (highest priority for corner cabinets)
-  const corner = detectCorner(rawX, rawZ, draggedItem, room, dims);
+  // 1. Check for corner snap — ONLY for corner-type cabinets.
+  // Standard cabinets near a corner should wall-snap and slide along the wall,
+  // not get pulled into the corner. Corner snap no longer returns early:
+  // collision resolution and bounds clamping below still apply.
+  const isCornerCabinet =
+    /corner|diagonal|blind/i.test(draggedItem.definitionId ?? '') || !!draggedItem.blindSide;
+  const corner = isCornerCabinet ? detectCorner(rawX, rawZ, draggedItem, room, dims) : null;
   if (corner) {
     x = corner.position.x;
     z = corner.position.z;
-    rotation = corner.rotation;
+    rotation = normalizeToRightAngle(corner.rotation);
     snappedTo = 'corner';
-    rotation = normalizeToRightAngle(rotation);
-
-  return { x, z, rotation, snappedTo, snapEdge, snappedItemId, wallId };
   }
 
-  // 2. Check wall snapping
+  // 2. Check wall snapping (skipped when corner-snapped)
   const maintainWallAlignment = shouldMaintainWallAlignment(draggedItem, room);
-  const wallSnap = findWallSnap(rawX, rawZ, draggedItem, room, dims, maintainWallAlignment);
+  const wallSnap = corner ? null : findWallSnap(rawX, rawZ, draggedItem, room, dims, maintainWallAlignment);
   if (wallSnap?.snapped) {
     const wall = wallSnap.wall;
     wallId = wall.id;
@@ -150,16 +152,23 @@ export function calculateSnapPosition(
   const tempItem: PlacedItem = { ...draggedItem, x, z, rotation: effectiveRotation };
   
   const gableThickness = dims.boardThickness ?? CONSTRUCTION_STANDARDS.gableThickness;
-  const gableSnaps = findGableSnapPoints(tempItem, allItems, gableThickness, GABLE_SNAP_THRESHOLD);
-  
+  const gableSnaps = corner ? [] : findGableSnapPoints(tempItem, allItems, gableThickness, GABLE_SNAP_THRESHOLD);
+
   let usedGableSnap = false;
   if (gableSnaps.length > 0) {
     const bestGable = gableSnaps[0];
-    
+
     // If wall-snapped, only apply gable snap along the wall axis
+    // (works on all four walls — run axis follows the cabinet rotation)
     if (snappedTo === 'wall') {
       if (wallId === 'back' || wallId === 'front') {
+        // Run is along X: take the gable-snapped X, keep the wall-snapped Z
         x = bestGable.snapX;
+        snappedItemId = bestGable.targetItem.instanceId;
+        snapEdge = bestGable.edge === 'left-to-right' ? 'left' : 'right';
+        usedGableSnap = true;
+      } else if (wallId === 'left' || wallId === 'right') {
+        // Run is along Z: take the gable-snapped Z, keep the wall-snapped X
         z = bestGable.snapZ;
         snappedItemId = bestGable.targetItem.instanceId;
         snapEdge = bestGable.edge === 'left-to-right' ? 'left' : 'right';
@@ -178,7 +187,8 @@ export function calculateSnapPosition(
   }
 
   // 4. Fall back to bounding-box cabinet snapping if no gable snap
-  if (!usedGableSnap) {
+  // (skipped when corner-snapped — corner position is authoritative)
+  if (!usedGableSnap && !corner) {
     const dynamicSnapThreshold = Math.max(CABINET_SNAP_THRESHOLD, Math.round(Math.min(draggedItem.width, draggedItem.depth) * 0.45));
     const cabinetSnapPoints = findCabinetSnapPoints(tempItem, allItems, dynamicSnapThreshold);
 
@@ -234,43 +244,46 @@ export function calculateSnapPosition(
   x = Math.max(effectiveWidth / 2 + wallGap, Math.min(room.width - effectiveWidth / 2 - wallGap, x));
   z = Math.max(effectiveDepth / 2 + wallGap, Math.min(room.depth - effectiveDepth / 2 - wallGap, z));
 
-  // 6. Collision resolution - push away from overlapping items
-  const testItem: PlacedItem = { ...draggedItem, x, z, rotation };
+  // 6. Collision resolution — push away from overlapping items.
+  // For each collision, evaluate all four push directions, discard any that
+  // leave the room (e.g. pushing into the wall we're snapped against), and
+  // take the smallest valid move. This prevents the old failure mode where
+  // a push toward a wall was clamped straight back into the overlap.
+  const minXBound = effectiveWidth / 2 + wallGap;
+  const maxXBound = room.width - effectiveWidth / 2 - wallGap;
+  const minZBound = effectiveDepth / 2 + wallGap;
+  const maxZBound = room.depth - effectiveDepth / 2 - wallGap;
+
   for (const other of allItems) {
     if (other.instanceId === draggedItem.instanceId) continue;
-    if (checkCollision(testItem, other)) {
-      const otherBounds = getRotatedBounds(other);
-      const testBounds = getRotatedBounds(testItem);
+    const testItem: PlacedItem = { ...draggedItem, x, z, rotation };
+    if (!checkCollision(testItem, other)) continue;
 
-      // Calculate overlap amounts
-      const overlapLeft = testBounds.right - otherBounds.left;
-      const overlapRight = otherBounds.right - testBounds.left;
-      const overlapFront = testBounds.front - otherBounds.back;
-      const overlapBack = otherBounds.front - testBounds.back;
+    const otherBounds = getRotatedBounds(other);
+    const testBounds = getRotatedBounds(testItem);
 
-      const minOverlap = Math.min(overlapLeft, overlapRight, overlapFront, overlapBack);
-      const pushAmount = minOverlap + 10;
+    const candidates = [
+      { x: x - (testBounds.right - otherBounds.left) - 10, z },  // push left
+      { x: x + (otherBounds.right - testBounds.left) + 10, z },  // push right
+      { x, z: z - (testBounds.front - otherBounds.back) - 10 },  // push back
+      { x, z: z + (otherBounds.front - testBounds.back) + 10 },  // push front
+    ];
 
-      if (minOverlap === overlapLeft) x -= pushAmount;
-      else if (minOverlap === overlapRight) x += pushAmount;
-      else if (minOverlap === overlapFront) z -= pushAmount;
-      else if (minOverlap === overlapBack) z += pushAmount;
+    const valid = candidates
+      .filter(c => c.x >= minXBound - 0.001 && c.x <= maxXBound + 0.001 && c.z >= minZBound - 0.001 && c.z <= maxZBound + 0.001)
+      .filter(c => !checkCollision({ ...draggedItem, x: c.x, z: c.z, rotation }, other))
+      .map(c => ({ ...c, dist: Math.hypot(c.x - x, c.z - z) }))
+      .sort((a, b) => a.dist - b.dist);
 
-      // Keep the pushed result inside the room (including wallGap)
-      testItem.x = x;
-      testItem.z = z;
-      const pushedDims = getEffectiveDimensions(testItem);
-      x = Math.max(pushedDims.width / 2 + wallGap, Math.min(room.width - pushedDims.width / 2 - wallGap, x));
-      z = Math.max(pushedDims.depth / 2 + wallGap, Math.min(room.depth - pushedDims.depth / 2 - wallGap, z));
-      testItem.x = x;
-      testItem.z = z;
+    if (valid.length > 0) {
+      x = valid[0].x;
+      z = valid[0].z;
     }
   }
 
   // Final bounds check after collision resolution (include wallGap so we never drift into/through walls)
-  const finalEffDims = getEffectiveDimensions(testItem);
-  x = Math.max(finalEffDims.width / 2 + wallGap, Math.min(room.width - finalEffDims.width / 2 - wallGap, x));
-  z = Math.max(finalEffDims.depth / 2 + wallGap, Math.min(room.depth - finalEffDims.depth / 2 - wallGap, z));
+  x = Math.max(minXBound, Math.min(maxXBound, x));
+  z = Math.max(minZBound, Math.min(maxZBound, z));
 
   rotation = normalizeToRightAngle(rotation);
 

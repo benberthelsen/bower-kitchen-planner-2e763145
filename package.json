@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "smoke:room-planner": "bash scripts/smoke-room-planner.sh",
-    "test:functional": "node --test src/lib/trade/__tests__/workflowModel.test.mjs"
+    "test:functional": "node --test src/lib/trade/__tests__/workflowModel.test.mjs",
+    "test:snapping": "esbuild src/utils/snapping/index.ts --bundle --format=esm --outfile=.tmp-snap-test/snap.mjs --alias:@=./src --platform=node && node scripts/snapping-smoke.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

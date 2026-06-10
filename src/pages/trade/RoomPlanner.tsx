@@ -140,12 +140,17 @@ export default function RoomPlanner() {
 
 
   const clampPositionToRoom = useCallback((room: TradeRoom, cabinet: ConfiguredCabinet, position: { x: number; y: number; z: number; rotation: number }) => {
-    const maxX = Math.max(0, room.config.width - cabinet.dimensions.width);
-    const maxZ = Math.max(0, room.config.depth - cabinet.dimensions.depth);
+    // x/z are CENTRE coordinates. Clamp rotation-aware so a snapped position
+    // against the right/front wall is preserved (the previous corner-based
+    // clamp pulled cabinets half a width away from those walls).
+    const rot = ((Math.round(position.rotation) % 360) + 360) % 360;
+    const rotated = rot === 90 || rot === 270;
+    const halfW = (rotated ? cabinet.dimensions.depth : cabinet.dimensions.width) / 2;
+    const halfD = (rotated ? cabinet.dimensions.width : cabinet.dimensions.depth) / 2;
     return {
       ...position,
-      x: Math.min(Math.max(position.x, 0), maxX),
-      z: Math.min(Math.max(position.z, 0), maxZ),
+      x: Math.min(Math.max(position.x, halfW), Math.max(halfW, room.config.width - halfW)),
+      z: Math.min(Math.max(position.z, halfD), Math.max(halfD, room.config.depth - halfD)),
     };
   }, []);
 

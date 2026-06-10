@@ -212,10 +212,10 @@ function inferStaticMetadata(item: StaticCatalogTemplate) {
   const isMicrowave = idLower.includes('microwave');
 
   const productType = item.specGroup === 'Appliance Openings'
-    ? 'appliance'
+    ? ('appliance' as const)
     : item.specGroup === 'Panels' || item.specGroup === 'Fillers' || item.specGroup === 'Kicks and Trim'
-      ? 'panel'
-      : 'cabinet';
+      ? ('panel' as const)
+      : ('cabinet' as const);
 
   const itemType: ItemType = item.specGroup === 'Appliance Openings' || isDishwasher || isRangehood
     ? 'Appliance'
