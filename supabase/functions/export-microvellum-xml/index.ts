@@ -61,6 +61,8 @@ interface PersistedDesignData {
   tradeRooms?: PersistedTradeRoom[];
   quoteSnapshot?: { capturedAt?: string };
   jobTotals?: { subtotal?: number; tax?: number; total?: number; updatedAt?: string };
+  /** Optional override for the MV specification group name */
+  specificationGroup?: string;
 }
 
 interface MicrovellumProductRow {
@@ -98,137 +100,8 @@ function numberValue(value: unknown, fallback = 0): number {
   return fallback;
 }
 
-function mapCategoryForXml(category: string | null | undefined): 'Base' | 'Wall' | 'Tall' | 'Appliance' {
-  const normalized = (category || '').toLowerCase();
-  if (normalized === 'wall' || normalized === 'upper') return 'Wall';
-  if (normalized === 'tall') return 'Tall';
-  if (normalized === 'appliance' || normalized === 'appliances') return 'Appliance';
-  return 'Base';
-}
-
-/** Variable drawer-front height ratios (largest at bottom — MV standard) */
-const DRAWER_RATIOS: Record<number, number[]> = {
-  1: [1.0],
-  2: [0.4, 0.6],
-  3: [0.25, 0.33, 0.42],
-  4: [0.18, 0.24, 0.28, 0.3],
-  5: [0.14, 0.18, 0.22, 0.22, 0.24],
-};
-
 function isCornerProduct(cabinet: PersistedCabinet, product?: MicrovellumProductRow | null): boolean {
   return /corner/i.test(product?.cabinet_type || '') || /corner|pie[-_ ]?cut|blind/i.test(cabinet.definitionId || '');
-}
-
-function cabinetParts(
-  cabinet: PersistedCabinet,
-  room: PersistedTradeRoom,
-  finishName: string,
-  product?: MicrovellumProductRow | null,
-): Array<{ name: string; w: number; h: number; d: number; material: string }> {
-  const dims = room.dimensions || {};
-  const construction = cabinet.construction || {};
-  const toeKick = numberValue(construction.toeKickHeight, numberValue(dims.toeKickHeight, 135));
-  const shelfSetback = numberValue(dims.shelfSetback, 5);
-  const doorGap = numberValue(dims.doorGap, 2);
-  const drawerGap = numberValue(dims.drawerGap, 2);
-
-  const width = numberValue(cabinet.dimensions?.width, 600);
-  const depth = numberValue(cabinet.dimensions?.depth, 575);
-  const height = numberValue(cabinet.dimensions?.height, 870);
-
-  const carcase = cabinet.materials?.carcaseFinish || finishName;
-  const exterior = cabinet.materials?.exteriorFinish || finishName;
-
-  const sideHeight = cabinet.category === 'Base' || cabinet.category === 'Tall'
-    ? Math.max(0, height - toeKick)
-    : height;
-  const internalWidth = Math.max(0, width - 36);
-  const internalDepth = Math.max(0, depth - 18);
-
-  // ---- Pie-cut corner cabinet (matches MV Base Corner Cabinet construction:
-  // full bottom L, backs along both walls, rails, two pie-cut door leaves) ----
-  const corner = isCornerProduct(cabinet, product);
-  const isBlind = /blind/i.test(cabinet.definitionId || '') || !!construction.blindSide;
-  if (corner && !isBlind) {
-    const depthLeft = numberValue(construction.cabinetDepthLeft, 575);
-    const depthRight = numberValue(construction.cabinetDepthRight, 575);
-    const pieCutLeft = Math.max(0, width - depthLeft);   // MV: PieCut Distance Left
-    const pieCutRight = Math.max(0, depth - depthRight); // MV: PieCut Distance Right
-
-    return [
-      { name: 'Side Left', w: depth, h: sideHeight, d: 16, material: carcase },
-      { name: 'Side Right', w: depthRight, h: sideHeight, d: 16, material: carcase },
-      { name: 'Front End Left', w: depthLeft, h: sideHeight, d: 16, material: carcase },
-      { name: 'Back', w: Math.max(0, width - 32), h: sideHeight, d: 16, material: carcase },
-      { name: 'Bottom Back Arm', w: Math.max(0, width - 32), h: depthRight, d: 16, material: carcase },
-      { name: 'Bottom Left Arm', w: Math.max(0, depthLeft - 16), h: Math.max(0, depth - depthRight - 16), d: 16, material: carcase },
-      { name: 'Top Rail Front Left', w: pieCutRight, h: 80, d: 16, material: carcase },
-      { name: 'Top Rail Front Right', w: pieCutLeft, h: 80, d: 16, material: carcase },
-      { name: 'Top Rail Rear', w: Math.max(0, width - 32), h: 80, d: 16, material: carcase },
-      { name: 'Corner Shelf', w: Math.max(0, width - 36), h: 16, d: Math.max(0, depth - 36), material: carcase },
-      { name: 'PieCut Door Left', w: Math.max(0, pieCutRight - doorGap), h: Math.max(0, sideHeight - doorGap * 2), d: 18, material: exterior },
-      { name: 'PieCut Door Right', w: Math.max(0, pieCutLeft - doorGap), h: Math.max(0, sideHeight - doorGap * 2), d: 18, material: exterior },
-    ];
-  }
-
-  // ---- Standard cabinet ----
-  const shelfCount = Math.max(0, numberValue(cabinet.accessories?.shelfCount, numberValue(product?.has_adjustable_shelves ? 1 : 0, 1)));
-  const shelves = Array.from({ length: shelfCount }).map((_, idx) => ({
-    name: `Shelf ${idx + 1}`,
-    w: internalWidth,
-    h: 16,
-    d: Math.max(0, internalDepth - shelfSetback),
-    material: carcase,
-  }));
-
-  const parts = [
-    { name: 'Side Left', w: depth, h: sideHeight, d: 16, material: carcase },
-    { name: 'Side Right', w: depth, h: sideHeight, d: 16, material: carcase },
-    { name: 'Bottom', w: internalWidth, h: internalDepth, d: 16, material: carcase },
-    cabinet.category === 'Wall'
-      ? { name: 'Top', w: internalWidth, h: internalDepth, d: 16, material: carcase }
-      : { name: 'Top Rail Front', w: internalWidth, h: 80, d: 16, material: carcase },
-    ...(cabinet.category === 'Wall' ? [] : [{ name: 'Top Rail Rear', w: internalWidth, h: 80, d: 16, material: carcase }]),
-    { name: 'Back', w: internalWidth, h: sideHeight, d: 16, material: carcase },
-    ...shelves,
-  ];
-
-  // Fronts from real product metadata (door_count / drawer_count)
-  const doorCount = Math.max(0, numberValue(product?.door_count, 0));
-  const drawerCount = Math.max(0, numberValue(product?.drawer_count, 0));
-
-  if (drawerCount > 0) {
-    const ratios = DRAWER_RATIOS[Math.min(drawerCount, 5)] || Array(drawerCount).fill(1 / drawerCount);
-    // For combo cabinets the drawer bank uses the upper section only
-    const drawerBankHeight = doorCount > 0 ? Math.min(0.35 * sideHeight, 320) : sideHeight;
-    ratios.forEach((ratio, idx) => {
-      parts.push({
-        name: `Drawer Front ${idx + 1}`,
-        w: Math.max(0, width - drawerGap),
-        h: Math.max(0, Math.round(ratio * drawerBankHeight) - drawerGap),
-        d: 18,
-        material: exterior,
-      });
-    });
-  }
-
-  const effectiveDoorCount = doorCount > 0 ? doorCount : (drawerCount === 0 ? 1 : 0);
-  if (effectiveDoorCount > 0) {
-    const doorSectionHeight = drawerCount > 0
-      ? sideHeight - Math.min(0.35 * sideHeight, 320)
-      : sideHeight;
-    for (let i = 0; i < effectiveDoorCount; i++) {
-      parts.push({
-        name: effectiveDoorCount > 1 ? `Door ${i + 1}` : 'Door',
-        w: Math.max(0, Math.round(width / effectiveDoorCount) - doorGap),
-        h: Math.max(0, Math.round(doorSectionHeight) - doorGap),
-        d: 18,
-        material: exterior,
-      });
-    }
-  }
-
-  return parts;
 }
 
 serve(async (req) => {
@@ -295,182 +168,202 @@ serve(async (req) => {
       });
     }
 
+    // ------------------------------------------------------------------
+    // Microvellum XML Import format (Toolbox Setup > Import File).
+    // Structure follows the official MV samples:
+    //   <Root Application="Microvellum" ApplicationVersion="7.0">
+    //     <Project> JobNumber/Category/... <SpecificationGroups> <Locations>
+    //       <Walls><Wall><LinkID>... <Products><Product Name="{library name}">
+    //         numeric Width/Height/Depth, ItemNumber, Angle, X/Y/ZOrigin,
+    //         LinkIDSpecificationGroup, LinkIDLocation, LinkIDWall,
+    //         <Prompts><Prompt Name="..."><Value>...</Value>
+    // Rules honoured (per MV docs):
+    // - Product Name must match the MV library product name (we use
+    //   microvellum_products.name, which comes from the MV library import).
+    // - Width/Height/Depth are numeric and live on the product element.
+    // - Prompts that don't exist on a product are skipped by MV, so
+    //   emitting extras is safe. Prompt names use Pascal_Case.
+    // - LinkIDWall associates a product to its wall (pipe-separated pair
+    //   for corner products spanning two walls).
+    // Coordinates: mm, project origin at the room's back-left corner,
+    // X along the back wall, Y toward the front of the room, angles CCW.
+    // ------------------------------------------------------------------
+
     const warnings: string[] = [];
-    const cabinetsXml: string[] = [];
-    const hardwareSummary = new Map<string, { qty: number; description: string }>();
+    const specGroupName = designData.specificationGroup || 'Metric Decorative Laminate';
+
+    const locationsXml: string[] = [];
+    const wallsXml: string[] = [];
+    const productsXml: string[] = [];
 
     tradeRooms.forEach((room, roomIndex) => {
+      const roomName = room.name || `Room ${roomIndex + 1}`;
+      const roomW = numberValue(room.config?.width, 4000);
+      const roomD = numberValue(room.config?.depth, 3000);
+      const roomH = numberValue(room.config?.height, 2400);
+
+      locationsXml.push(`      <Location Name="${escapeXml(roomName)}"></Location>`);
+
+      // Four walls per room, CCW perimeter. LinkIDs referenced by products.
+      const wallId = (n: number) => `WALL.R${roomIndex + 1}.${String(n).padStart(3, '0')}`;
+      const wallDefs = [
+        { n: 1, x: 0, y: 0, angle: 0, len: roomW },           // back
+        { n: 2, x: roomW, y: 0, angle: 90, len: roomD },      // right
+        { n: 3, x: roomW, y: roomD, angle: 180, len: roomW }, // front
+        { n: 4, x: 0, y: roomD, angle: 270, len: roomD },     // left
+      ];
+      wallDefs.forEach((w) => {
+        wallsXml.push(`      <Wall Name="Wall ${w.n}">
+        <LinkID>${wallId(w.n)}</LinkID>
+        <LinkIDLocation>${escapeXml(roomName)}</LinkIDLocation>
+        <Width>${Math.round(w.len)}</Width>
+        <Height>${Math.round(roomH)}</Height>
+        <Depth>100</Depth>
+        <XOrigin>${w.x}</XOrigin>
+        <YOrigin>${w.y}</YOrigin>
+        <ZOrigin>0</ZOrigin>
+        <Angle>${w.angle}</Angle>
+      </Wall>`);
+      });
+
+      // Wall LinkID by planner rotation (0 back, 90 right, 180 front, 270 left)
+      const wallForRotation: Record<number, string> = {
+        0: wallId(1),
+        90: wallId(2),
+        180: wallId(3),
+        270: wallId(4),
+      };
+      // Corner cabinets span two walls (rotation encodes which corner)
+      const cornerWalls: Record<number, string> = {
+        0: `${wallId(1)}|${wallId(4)}`,   // back-left
+        90: `${wallId(2)}|${wallId(1)}`,  // back-right
+        180: `${wallId(3)}|${wallId(2)}`, // front-right
+        270: `${wallId(4)}|${wallId(3)}`, // front-left
+      };
+
       (room.cabinets || []).forEach((cabinet, cabinetIndex) => {
         const product = productById.get(cabinet.definitionId);
 
         if (!product) {
-          warnings.push(`Missing product mapping for cabinet ${cabinet.cabinetNumber || cabinet.instanceId} (definitionId=${cabinet.definitionId}).`);
-        } else {
-          if (!product.microvellum_link_id) {
-            warnings.push(`Product ${product.id} (${product.name}) missing microvellum_link_id.`);
-          }
-          if (!product.spec_group && !product.room_component_type) {
-            warnings.push(`Product ${product.id} (${product.name}) missing spec_group and room_component_type metadata.`);
-          }
+          warnings.push(`Missing product mapping for cabinet ${cabinet.cabinetNumber || cabinet.instanceId} (definitionId=${cabinet.definitionId}). The exported product name may not match the Microvellum library.`);
         }
 
-        const xmlCategory = product ? mapCategoryForXml(product.category) : cabinet.category;
         const width = numberValue(cabinet.dimensions?.width, numberValue(product?.default_width, 600));
         const depth = numberValue(cabinet.dimensions?.depth, numberValue(product?.default_depth, 575));
         const height = numberValue(cabinet.dimensions?.height, numberValue(product?.default_height, 870));
         const pos = cabinet.position || { x: 0, y: 0, z: 0, rotation: 0 };
-        const finishName = cabinet.materials?.exteriorFinish || room.materialDefaults?.exteriorFinish || 'Designer White';
-        const handleType = cabinet.hardware?.handleType || room.hardwareDefaults?.handleType || 'bar-handle';
+        const rotation = ((Math.round(numberValue(pos.rotation)) % 360) + 360) % 360;
+        const rightAngle = (Math.round(rotation / 90) * 90) % 360;
 
-        const parts = cabinetParts(cabinet, room, finishName, product)
-          .map((part) => `          <Part name="${escapeXml(part.name)}" w="${Math.round(part.w)}" h="${Math.round(part.h)}" d="${Math.round(part.d)}" material="${escapeXml(part.material)}" />`)
-          .join('\n');
+        // Convert centre-based planner position to MV product origin
+        // (left-back corner of the product footprint, in project coords)
+        const cx = numberValue(pos.x);
+        const cz = numberValue(pos.z);
+        let xOrigin: number;
+        let yOrigin: number;
+        switch (rightAngle) {
+          case 90:
+            xOrigin = cx + depth / 2;
+            yOrigin = cz - width / 2;
+            break;
+          case 180:
+            xOrigin = cx + width / 2;
+            yOrigin = cz + depth / 2;
+            break;
+          case 270:
+            xOrigin = cx - depth / 2;
+            yOrigin = cz + width / 2;
+            break;
+          default:
+            xOrigin = cx - width / 2;
+            yOrigin = cz - depth / 2;
+        }
+        const zOrigin = cabinet.category === 'Wall'
+          ? Math.round(numberValue(pos.y, 1350))
+          : Math.round(numberValue(pos.y, 0));
 
-        const cabinetNumber = cabinet.cabinetNumber || `R${roomIndex + 1}-C${cabinetIndex + 1}`;
-        const xmlSku = product?.microvellum_link_id || cabinet.definitionId;
+        const corner = isCornerProduct(cabinet, product);
+        const linkIdWall = corner
+          ? cornerWalls[rightAngle] ?? wallForRotation[rightAngle] ?? wallId(1)
+          : wallForRotation[rightAngle] ?? wallId(1);
 
-        // Microvellum product prompts — element names mirror the MV prompt
-        // dialog so the data crosses over 1:1 on import.
+        // Prompts — Pascal_Case names matching the MV library prompts.
+        // MV skips prompts that don't exist on a product, so these are safe.
         const construction = cabinet.construction || {};
         const roomDims = room.dimensions || {};
-        const toeKickHeight = numberValue(construction.toeKickHeight, numberValue(roomDims.toeKickHeight, 135));
-        const corner = isCornerProduct(cabinet, product);
-        const heightAboveFloor = xmlCategory === 'Wall'
-          ? Math.round(1350 + height)
-          : Math.round(height);
+        const promptLines: string[] = [];
+        const addPrompt = (name: string, value: string | number) => {
+          promptLines.push(`          <Prompt Name="${escapeXml(name)}">
+            <Value>${escapeXml(String(value))}</Value>
+          </Prompt>`);
+        };
 
-        const promptLines: string[] = [
-          `          <ToeKickHeight>${Math.round(toeKickHeight)}</ToeKickHeight>`,
-          `          <LeftFillerWidth>${Math.round(numberValue(construction.leftFillerWidth, 0))}</LeftFillerWidth>`,
-          `          <RightFillerWidth>${Math.round(numberValue(construction.rightFillerWidth, 0))}</RightFillerWidth>`,
-          `          <HeightAboveFloor>${heightAboveFloor}</HeightAboveFloor>`,
-          `          <ProductAngle>${Math.round(numberValue(pos.rotation))}</ProductAngle>`,
-          `          <Quantity>1</Quantity>`,
-        ];
+        addPrompt('Toe_Kick_Height', Math.round(numberValue(construction.toeKickHeight, numberValue(roomDims.toeKickHeight, 135))));
         if (corner) {
-          const depthLeft = numberValue(construction.cabinetDepthLeft, 575);
-          const depthRight = numberValue(construction.cabinetDepthRight, 575);
-          promptLines.push(
-            `          <CabinetDepthLeft>${Math.round(depthLeft)}</CabinetDepthLeft>`,
-            `          <CabinetDepthRight>${Math.round(depthRight)}</CabinetDepthRight>`,
-            `          <PieCutDistanceLeft>${Math.round(Math.max(0, width - depthLeft))}</PieCutDistanceLeft>`,
-            `          <PieCutDistanceRight>${Math.round(Math.max(0, depth - depthRight))}</PieCutDistanceRight>`,
-            `          <FrontType>${escapeXml(construction.frontType || 'PieCut')}</FrontType>`,
-          );
+          addPrompt('Cabinet_Depth_Left', Math.round(numberValue(construction.cabinetDepthLeft, 575)));
+          addPrompt('Cabinet_Depth_Right', Math.round(numberValue(construction.cabinetDepthRight, 575)));
+        }
+        if (numberValue(construction.leftFillerWidth, 0) > 0) {
+          addPrompt('Left_Filler_Width', Math.round(numberValue(construction.leftFillerWidth, 0)));
+        }
+        if (numberValue(construction.rightFillerWidth, 0) > 0) {
+          addPrompt('Right_Filler_Width', Math.round(numberValue(construction.rightFillerWidth, 0)));
         }
         if (construction.hingeSide) {
-          promptLines.push(`          <HingeSide>${escapeXml(construction.hingeSide)}</HingeSide>`);
+          addPrompt('Face_Options', construction.hingeSide === 'Right' ? 'Right Swing' : 'Left Swing');
         }
-        if (construction.blindSide) {
-          promptLines.push(`          <BlindSide>${escapeXml(construction.blindSide)}</BlindSide>`);
+        const doorStyle = cabinet.materials?.doorStyle || room.materialDefaults?.doorStyle;
+        if (doorStyle) {
+          addPrompt('Door_Type', doorStyle);
         }
-        const promptsXml = promptLines.join('\n');
 
-        cabinetsXml.push(`      <Cabinet>
-        <RoomId>${escapeXml(room.id)}</RoomId>
-        <RoomName>${escapeXml(room.name)}</RoomName>
-        <CabinetNumber>${escapeXml(cabinetNumber)}</CabinetNumber>
-        <DefinitionId>${escapeXml(cabinet.definitionId)}</DefinitionId>
-        <SKU>${escapeXml(xmlSku)}</SKU>
-        <ProductName>${escapeXml(product?.name || cabinet.productName)}</ProductName>
-        <Type>${escapeXml(xmlCategory)}</Type>
-        <CabinetType>${escapeXml(product?.cabinet_type || 'Standard')}</CabinetType>
-        <SpecGroup>${escapeXml(product?.spec_group || '')}</SpecGroup>
-        <RoomComponentType>${escapeXml(product?.room_component_type || '')}</RoomComponentType>
+        const itemNumber = `${roomIndex + 1}.${String(cabinetIndex + 1).padStart(2, '0')}`;
+        const productName = product?.name || cabinet.productName;
+        const comment = cabinet.cabinetNumber ? `Planner ${cabinet.cabinetNumber}` : '';
+
+        productsXml.push(`      <Product Name="${escapeXml(productName)}">
+        <Quantity>1</Quantity>
+        <Height>${Math.round(height)}</Height>
         <Width>${Math.round(width)}</Width>
         <Depth>${Math.round(depth)}</Depth>
-        <Height>${Math.round(height)}</Height>
-        <PositionX>${Math.round(numberValue(pos.x))}</PositionX>
-        <PositionY>${Math.round(numberValue(pos.y))}</PositionY>
-        <PositionZ>${Math.round(numberValue(pos.z))}</PositionZ>
-        <Rotation>${Math.round(numberValue(pos.rotation))}</Rotation>
-        <ExteriorFinish>${escapeXml(finishName)}</ExteriorFinish>
-        <CarcaseFinish>${escapeXml(cabinet.materials?.carcaseFinish || room.materialDefaults?.carcaseFinish || finishName)}</CarcaseFinish>
-        <DoorStyle>${escapeXml(cabinet.materials?.doorStyle || room.materialDefaults?.doorStyle || '')}</DoorStyle>
-        <EdgeBanding>${escapeXml(cabinet.materials?.edgeBanding || room.materialDefaults?.edgeBanding || '')}</EdgeBanding>
-        <HandleType>${escapeXml(handleType)}</HandleType>
-        <HingeType>${escapeXml(cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || '')}</HingeType>
-        <DrawerType>${escapeXml(cabinet.hardware?.drawerType || room.hardwareDefaults?.drawerType || '')}</DrawerType>
-        <SoftClose>${cabinet.hardware?.softClose ?? room.hardwareDefaults?.softClose ? 'Yes' : 'No'}</SoftClose>
+        <ItemNumber>${escapeXml(itemNumber)}</ItemNumber>
+        <Comment>${escapeXml(comment)}</Comment>
+        <Angle>${rightAngle}</Angle>
+        <XOrigin>${Math.round(xOrigin)}</XOrigin>
+        <YOrigin>${Math.round(yOrigin)}</YOrigin>
+        <ZOrigin>${zOrigin}</ZOrigin>
+        <LinkIDSpecificationGroup>${escapeXml(specGroupName)}</LinkIDSpecificationGroup>
+        <LinkIDLocation>${escapeXml(roomName)}</LinkIDLocation>
+        <LinkIDWall>${linkIdWall}</LinkIDWall>
         <Prompts>
-${promptsXml}
+${promptLines.join('\n')}
         </Prompts>
-        <Parts>
-${parts}
-        </Parts>
-      </Cabinet>`);
-
-        const hingeSku = `HINGE-${(cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || 'std').toUpperCase()}`;
-        const handleSku = `HANDLE-${(handleType || 'std').toUpperCase()}`;
-        const hingeQty = xmlCategory === 'Tall' ? 6 : xmlCategory === 'Wall' ? 2 : 4;
-
-        const existingHinge = hardwareSummary.get(hingeSku) || { qty: 0, description: `Hinge ${cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || 'Standard'}` };
-        existingHinge.qty += hingeQty;
-        hardwareSummary.set(hingeSku, existingHinge);
-
-        const existingHandle = hardwareSummary.get(handleSku) || { qty: 0, description: `Handle ${handleType}` };
-        existingHandle.qty += 1;
-        hardwareSummary.set(handleSku, existingHandle);
+      </Product>`);
       });
     });
 
-    const hardwareXml = Array.from(hardwareSummary.entries())
-      .map(([sku, item]) => `      <Item sku="${escapeXml(sku)}" qty="${item.qty}" description="${escapeXml(item.description)}" />`)
-      .join('\n');
-
-    const roomXml = tradeRooms
-      .map((room) => `      <Room id="${escapeXml(room.id)}">
-        <Name>${escapeXml(room.name)}</Name>
-        <Description>${escapeXml(room.description || '')}</Description>
-        <Shape>${escapeXml(room.shape || 'rectangular')}</Shape>
-        <Width>${Math.round(numberValue(room.config?.width, 4000))}</Width>
-        <Depth>${Math.round(numberValue(room.config?.depth, 3000))}</Depth>
-        <Height>${Math.round(numberValue(room.config?.height, 2400))}</Height>
-      </Room>`)
-      .join('\n');
-
-    const quoteTotals = designData.jobTotals || {};
-
-    const warningXml = warnings.length
-      ? warnings.map((w) => `      <Warning>${escapeXml(w)}</Warning>`).join('\n')
-      : '      <Warning>None</Warning>';
-
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<MicrovellumJob version="2.0">
-  <JobInfo>
-    <JobId>${escapeXml(job.id)}</JobId>
-    <JobNumber>${job.job_number ?? 0}</JobNumber>
-    <JobName>${escapeXml(job.name || '')}</JobName>
-    <Status>${escapeXml(job.status || 'draft')}</Status>
-    <Created>${escapeXml((job.created_at || '').split('T')[0] || '')}</Created>
-    <Updated>${escapeXml((job.updated_at || '').split('T')[0] || '')}</Updated>
-    <CustomerName>${escapeXml((job.profiles as any)?.full_name || '')}</CustomerName>
-    <CustomerEmail>${escapeXml((job.profiles as any)?.email || '')}</CustomerEmail>
-    <CustomerPhone>${escapeXml((job.profiles as any)?.phone || '')}</CustomerPhone>
-    <CompanyName>${escapeXml((job.profiles as any)?.company_name || '')}</CompanyName>
-    <DeliveryMethod>${escapeXml(job.delivery_method || '')}</DeliveryMethod>
-    <Notes>${escapeXml(job.notes || '')}</Notes>
-  </JobInfo>
-  <Quote>
-    <Subtotal>${numberValue(quoteTotals.subtotal, 0).toFixed(2)}</Subtotal>
-    <Tax>${numberValue(quoteTotals.tax, 0).toFixed(2)}</Tax>
-    <Total>${numberValue(quoteTotals.total, 0).toFixed(2)}</Total>
-    <UpdatedAt>${escapeXml(quoteTotals.updatedAt || designData.quoteSnapshot?.capturedAt || '')}</UpdatedAt>
-  </Quote>
-  <Rooms>
-${roomXml}
-  </Rooms>
-  <Cabinets>
-${cabinetsXml.join('\n')}
-  </Cabinets>
-  <HardwareSummary>
-${hardwareXml}
-  </HardwareSummary>
-  <Validation>
-    <WarningCount>${warnings.length}</WarningCount>
-${warningXml}
-  </Validation>
-</MicrovellumJob>`;
+<Root Application="Microvellum" ApplicationVersion="7.0">
+  <Project Name="${escapeXml(job.name || `Job ${job.job_number ?? ''}`)}">
+    <JobDescription>${escapeXml(job.notes || 'Planner export')}</JobDescription>
+    <JobNumber>${escapeXml(String(job.job_number ?? ''))}</JobNumber>
+    <Category>Estimates</Category>
+    <JobEmail>${escapeXml((job.profiles as Record<string, string> | null)?.email || '')}</JobEmail>
+    <SpecificationGroups>
+      <SpecificationGroup Name="${escapeXml(specGroupName)}">
+      </SpecificationGroup>
+    </SpecificationGroups>
+    <Locations>
+${locationsXml.join('\n')}
+    </Locations>
+    <Walls>
+${wallsXml.join('\n')}
+    </Walls>
+    <Products>
+${productsXml.join('\n')}
+    </Products>
+  </Project>
+</Root>`;
 
     const filename = `Job_${job.job_number ?? 'NA'}_${(job.name || 'trade_job').replace(/\s+/g, '_')}`;
 
