@@ -19,6 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import TradeLayout from './components/TradeLayout';
 import { useCatalog, ExtendedCatalogItem } from '@/hooks/useCatalog';
+import Product3DThumbnail from '@/components/3d/ProductThumbnail3D';
 import { useAuth } from '@/hooks/useAuth';
 
 type ViewMode = 'grid' | 'list';
@@ -457,8 +458,19 @@ function ProductListItem({ item, isFavorite, onToggleFavorite, onAdd }: ProductC
   );
 }
 
-// Cabinet SVG Thumbnail
+// Cabinet thumbnail: real 3D render with the SVG sketch as loading fallback
 function CabinetThumbnail({ item }: { item: ExtendedCatalogItem }) {
+  return (
+    <Product3DThumbnail
+      product={item}
+      className="w-full h-full object-contain"
+      fallback={<CabinetThumbnailSvg item={item} />}
+    />
+  );
+}
+
+// Cabinet SVG Thumbnail (fallback while the 3D render generates)
+function CabinetThumbnailSvg({ item }: { item: ExtendedCatalogItem }) {
   const config = item.renderConfig;
   
   // Simple cabinet representation based on category and config

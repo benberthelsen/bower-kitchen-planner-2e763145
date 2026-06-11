@@ -67,36 +67,37 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
   // Left arm runs along left wall (X = -width/2), extends in Z direction
   // Right arm runs along back wall (Z = -depth/2), extends in X direction
   if (isCorner && cornerType === 'l-shape') {
-    const armOpeningWidth = 0.45; // 450mm arm opening (matches CornerCarcass)
-    const frontOverhang = overhang;
-    
-    // Left arm benchtop slab - covers left arm carcass + overhang
-    // Positioned at left side, extending from back to front with overhang
-    const leftSlabWidth = armOpeningWidth;
-    const leftSlabDepth = leftArmDepth + frontOverhang;
-    const leftSlabX = -width / 2 + armOpeningWidth / 2;
-    const leftSlabZ = (-leftArmDepth / 2) + (leftSlabDepth / 2); // Shift forward for overhang
-    
-    // Right arm benchtop slab - covers right arm carcass + overhang
-    // Extends from corner junction rightward along back wall
-    const rightSlabWidth = rightArmDepth - armOpeningWidth + frontOverhang; // Width extends in X
-    const rightSlabDepth = armOpeningWidth;
-    const rightSlabX = armOpeningWidth / 2 + (rightSlabWidth / 2); // Right of the corner junction
-    const rightSlabZ = -depth / 2 + armOpeningWidth / 2;
-    
+    // L-shaped benchtop covering the full footprint minus the notch,
+    // with the standard front overhang on the two notch faces
+    // (matches CornerCarcass notch geometry).
+    const notchX = -width / 2 + Math.min(leftArmDepth, width - 0.05);
+    const notchZ = -depth / 2 + Math.min(rightArmDepth, depth - 0.05);
+
+    // Slab A: back arm — full width, from back wall to notch face (+ overhang)
+    const slabADepth = (notchZ + depth / 2) + overhang;
+    const slabAZ = -depth / 2 + slabADepth / 2;
+
+    // Slab B: left arm front portion — from slab A's front edge to the cabinet front
+    const slabBWidth = (notchX + width / 2) + overhang;
+    const slabBDepth = depth / 2 - (notchZ + overhang);
+    const slabBX = -width / 2 + slabBWidth / 2;
+    const slabBZ = notchZ + overhang + slabBDepth / 2;
+
     return (
       <group position={position}>
-        {/* Left arm benchtop slab - along left wall */}
-        <mesh position={[leftSlabX, 0, leftSlabZ]}>
-          <boxGeometry args={[leftSlabWidth, thickness, leftSlabDepth]} />
+        {/* Back arm slab */}
+        <mesh position={[0, 0, slabAZ]}>
+          <boxGeometry args={[width, thickness, slabADepth]} />
           <meshStandardMaterial {...materialProps} />
         </mesh>
-        
-        {/* Right arm benchtop slab - along back wall */}
-        <mesh position={[rightSlabX, 0, rightSlabZ]}>
-          <boxGeometry args={[rightSlabWidth, thickness, rightSlabDepth]} />
-          <meshStandardMaterial {...materialProps} />
-        </mesh>
+
+        {/* Left arm slab */}
+        {slabBDepth > 0.01 && (
+          <mesh position={[slabBX, 0, slabBZ]}>
+            <boxGeometry args={[slabBWidth, thickness, slabBDepth]} />
+            <meshStandardMaterial {...materialProps} />
+          </mesh>
+        )}
       </group>
     );
   }

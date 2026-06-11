@@ -498,48 +498,52 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const renderCornerDoors = () => {
     const doorHeight = carcassHeight - topReveal - bottomReveal;
     const doorY = carcassYOffset;
-    const armWidth = 0.45; // 450mm standard arm opening (matches CornerCarcass)
-    
-    // For L-shape corner: doors on both arm fronts
+
+    // For L-shape (pie-cut) corner: the two door leaves sit on the two notch
+    // faces that meet at the internal corner, flush with the adjoining runs
+    // (matches CornerCarcass notch geometry and the Microvellum pie-cut look).
     if (cornerType === 'l-shape') {
-      const doorWidth = armWidth - sideReveal * 2;
-      
-      // Left arm door - at front of left arm (positive Z)
-      const leftDoorX = -widthM / 2 + armWidth / 2 + gableThickness / 2;
-      const leftDoorZ = leftArmDepthM / 2 + doorThickness / 2 + 0.002;
-      
-      // Right arm door - at front of right arm (positive X, rotated)
-      const rightDoorX = rightArmDepthM / 2 + doorThickness / 2 + 0.002;
-      const rightDoorZ = -depthM / 2 + armWidth / 2 + gableThickness / 2;
-      
+      const notchX = -widthM / 2 + Math.min(leftArmDepthM, widthM - 0.05);
+      const notchZ = -depthM / 2 + Math.min(rightArmDepthM, depthM - 0.05);
+
+      // Door 1: on the back arm's front face (plane z = notchZ, faces +Z)
+      const d1Width = (widthM / 2 - notchX) - sideReveal * 2;
+      const d1X = (notchX + widthM / 2) / 2;
+      const d1Z = notchZ + doorThickness / 2 + shadowGap;
+
+      // Door 2: on the left arm's side face (plane x = notchX, faces +X)
+      const d2Width = (depthM / 2 - notchZ) - sideReveal * 2;
+      const d2X = notchX + doorThickness / 2 + shadowGap;
+      const d2Z = (notchZ + depthM / 2) / 2;
+
       return (
         <>
-          {/* Left arm door - faces +Z direction */}
+          {/* Door 1 - faces +Z, hinged at its outer (right) edge, handle at the notch corner */}
           <DoorFront
-            width={doorWidth}
+            width={d1Width}
             height={doorHeight}
             thickness={doorThickness}
-            position={[leftDoorX, doorY, leftDoorZ]}
+            position={[d1X, doorY, d1Z]}
             color={doorMat.color}
             roughness={doorMat.roughness}
             map={doorMat.map}
             gap={0}
-            hingeLeft={true}
+            hingeLeft={false}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
             position={[
-              leftDoorX + doorWidth / 2 - 0.04,
+              d1X - d1Width / 2 + 0.04,
               doorY + doorHeight / 2 - 0.096,
-              leftDoorZ + doorThickness / 2 + 0.015
+              d1Z + doorThickness / 2 + 0.015
             ]}
           />
-          
-          {/* Right arm door - faces +X direction (rotated 90 degrees) */}
-          <group position={[rightDoorX, doorY, rightDoorZ]} rotation={[0, -Math.PI / 2, 0]}>
+
+          {/* Door 2 - faces +X (rotated), hinged at its outer (front) edge, handle at the notch corner */}
+          <group position={[d2X, doorY, d2Z]} rotation={[0, -Math.PI / 2, 0]}>
             <DoorFront
-              width={doorWidth}
+              width={d2Width}
               height={doorHeight}
               thickness={doorThickness}
               position={[0, 0, 0]}
@@ -547,13 +551,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
               roughness={doorMat.roughness}
               map={doorMat.map}
               gap={0}
-              hingeLeft={false}
+              hingeLeft={true}
             />
             <HandleMesh
               type={handle.type}
               color={handle.hex}
               position={[
-                -doorWidth / 2 + 0.04,
+                -d2Width / 2 + 0.04,
                 doorHeight / 2 - 0.096,
                 doorThickness / 2 + 0.015
               ]}
@@ -589,16 +593,30 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       );
     }
     
-    // Blind corner: single door on accessible side
+    // Blind corner: blank blind panel on the corner side, door on the
+    // accessible side. Both sit in the front plane inside the bounding box.
     const blindIsLeft = item.blindSide === 'Left';
-    const frontZ = depthM / 2 + 0.01;
-    
-    // Door only on the accessible side (opposite of blind)
+    const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
+
+    const doorWidth = widthM / 2 - sideReveal * 2;
     const doorX = blindIsLeft ? widthM / 4 : -widthM / 4;
-    const doorWidth = widthM / 2;
-    
+    const blindX = blindIsLeft ? -widthM / 4 : widthM / 4;
+
     return (
       <>
+        {/* Blank blind panel (no handle) covering the corner side */}
+        <DoorFront
+          width={widthM / 2 - sideReveal}
+          height={doorHeight}
+          thickness={doorThickness}
+          position={[blindX, doorY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={0}
+          hingeLeft={blindIsLeft}
+        />
+        {/* Door on the accessible side */}
         <DoorFront
           width={doorWidth}
           height={doorHeight}
@@ -607,13 +625,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           color={doorMat.color}
           roughness={doorMat.roughness}
           map={doorMat.map}
-          gap={doorGap}
+          gap={0}
           hingeLeft={!blindIsLeft}
         />
         <HandleMesh
           type={handle.type}
           color={handle.hex}
-          position={[blindIsLeft ? doorX - doorWidth / 2 + 0.04 : doorX + doorWidth / 2 - 0.04, doorY + doorHeight / 2 - 0.08, frontZ + doorThickness / 2 + 0.015]}
+          position={[blindIsLeft ? doorX - doorWidth / 2 + 0.04 : doorX + doorWidth / 2 - 0.04, doorY + doorHeight / 2 - 0.096, frontZ + doorThickness / 2 + 0.015]}
         />
       </>
     );

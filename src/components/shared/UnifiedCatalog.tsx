@@ -36,6 +36,7 @@ import {
   sortSpecGroups 
 } from '@/constants/catalogGroups';
 import { CatalogItemDefinition } from '@/types';
+import Product3DThumbnail from '@/components/3d/ProductThumbnail3D';
 
 // Hidden categories that shouldn't appear in the catalog
 const HIDDEN_SPEC_GROUPS = ['Props', 'Parts'];
@@ -106,23 +107,35 @@ function CabinetTypeIndicators({ item }: { item: ExtendedCatalogItem }) {
   );
 }
 
-// Procedural thumbnail
+// Product thumbnail: real 3D render of the cabinet, with the procedural
+// SVG as fallback while the render is generated
 function ProductThumbnail({ product }: { product: ExtendedCatalogItem }) {
+  return (
+    <Product3DThumbnail
+      product={product}
+      className="w-12 h-12 bg-white rounded border border-border flex-shrink-0 object-contain"
+      fallback={<ProductThumbnailSvg product={product} />}
+    />
+  );
+}
+
+// Procedural SVG thumbnail (fallback while the 3D render generates)
+function ProductThumbnailSvg({ product }: { product: ExtendedCatalogItem }) {
   const thumbnailSvg = product.renderConfig?.thumbnailSvg;
-  
+
   if (thumbnailSvg) {
     return (
-      <div 
-        className="w-8 h-8 bg-white rounded border border-border flex-shrink-0 overflow-hidden"
+      <div
+        className="w-12 h-12 bg-white rounded border border-border flex-shrink-0 overflow-hidden"
         dangerouslySetInnerHTML={{ __html: thumbnailSvg }}
       />
     );
   }
-  
+
   const { doorCount = 0, drawerCount = 0, isSink, isCorner } = getCabinetTypeInfo(product);
-  
+
   return (
-    <svg className="w-8 h-8 flex-shrink-0" viewBox="0 0 32 32" fill="none">
+    <svg className="w-12 h-12 flex-shrink-0" viewBox="0 0 32 32" fill="none">
       <rect x="2" y="2" width="28" height="28" rx="2" fill="#f3f4f6" stroke="#9ca3af" strokeWidth="1"/>
       {drawerCount > 0 && doorCount === 0 ? (
         Array.from({ length: Math.min(drawerCount, 4) }).map((_, i) => {

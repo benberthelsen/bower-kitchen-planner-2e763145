@@ -113,80 +113,70 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
     metalness,
   };
   
-  // L-shape corner: Two perpendicular arms forming an L
-  // Coordinate system matches CabinetAssembler/Kickboard/BenchtopMesh:
-  // - Cabinet bounding box is width x depth, centered at origin
-  // - Left arm sits on the left side (near X = -width/2) and extends to the front (+Z)
-  // - Right arm sits on the back side (near Z = -depth/2) and extends to the right (+X)
+  // L-shape (pie-cut) corner: the cabinet fills its full width × depth square
+  // footprint EXCEPT for a notch at the front-right. The two faces bounding
+  // the notch are where the pie-cut door pair sits, flush with the adjoining
+  // cabinet runs on each wall (Microvellum-style).
+  //
+  //   notchX = -width/2 + leftArmDepth   (inner corner, X)
+  //   notchZ = -depth/2 + rightArmDepth  (inner corner, Z)
+  //
+  //   Plan view (corner of room at back-left):
+  //   ┌──────────────────────────┐  ← back wall (z = -depth/2)
+  //   │          BACK ARM        │
+  //   │      (full width)        │
+  //   ├──────────┬───────────────┘  ← notchZ (door faces +Z here)
+  //   │   LEFT   │    open notch
+  //   │   ARM    │
+  //   └──────────┘  ← front (z = +depth/2)
+  //              ↑ notchX (door faces +X here)
   if (cornerType === 'l-shape') {
-    const armOpeningWidth = 0.45; // 450mm arm opening width (standard)
-
-    // Clamp arm depths so we don't create impossible geometry
-    const leftArm = Math.max(armOpeningWidth, leftDepth);
-    const rightArm = Math.max(armOpeningWidth, rightDepth);
+    const notchX = -width / 2 + Math.min(leftDepth, width - 0.05);
+    const notchZ = -depth / 2 + Math.min(rightDepth, depth - 0.05);
+    const leftArmWidth = notchX + width / 2;     // X extent of left arm
+    const backArmDepth = notchZ + depth / 2;     // Z extent of back arm
+    const leftArmFrontLen = depth / 2 - notchZ;  // left arm portion in front of back arm
 
     return (
       <group>
-        {/* ===== LEFT ARM (runs along left wall, extends in +Z) ===== */}
-        <group position={[-width / 2 + armOpeningWidth / 2, 0, 0]}>
-          {/* Outer/inner gables (run front-to-back) */}
-          <mesh position={[-armOpeningWidth / 2 + gableThickness / 2, 0, 0]}>
-            <boxGeometry args={[gableThickness, height, leftArm]} />
-            <meshStandardMaterial {...materialProps} map={verticalTexture} />
-          </mesh>
-          <mesh position={[armOpeningWidth / 2 - gableThickness / 2, 0, 0]}>
-            <boxGeometry args={[gableThickness, height, leftArm]} />
-            <meshStandardMaterial {...materialProps} map={verticalTexture} />
-          </mesh>
-
-          {/* Back panel (against back wall, Z = -depth/2 within the arm) */}
-          <mesh position={[0, 0, -leftArm / 2 + backThickness / 2]}>
-            <boxGeometry args={[armOpeningWidth - gableThickness * 2, height - bottomThickness * 2, backThickness]} />
-            <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
-          </mesh>
-
-          {/* Bottom panel */}
-          <mesh position={[0, -height / 2 + bottomThickness / 2, backThickness / 2]}>
-            <boxGeometry args={[armOpeningWidth - gableThickness * 2, bottomThickness, leftArm - backThickness]} />
-            <meshStandardMaterial {...materialProps} map={horizontalTexture} />
-          </mesh>
-        </group>
-
-        {/* ===== RIGHT ARM (runs along back wall, extends in +X) ===== */}
-        <group position={[0, 0, -depth / 2 + armOpeningWidth / 2]}>
-          {/* Gables (run left-to-right) */}
-          <mesh position={[0, 0, -armOpeningWidth / 2 + gableThickness / 2]}>
-            <boxGeometry args={[rightArm, height, gableThickness]} />
-            <meshStandardMaterial {...materialProps} map={verticalTexture} />
-          </mesh>
-          <mesh position={[0, 0, armOpeningWidth / 2 - gableThickness / 2]}>
-            <boxGeometry args={[rightArm, height, gableThickness]} />
-            <meshStandardMaterial {...materialProps} map={verticalTexture} />
-          </mesh>
-
-          {/* Back panel (against back wall) */}
-          <mesh position={[0, 0, -armOpeningWidth / 2 + gableThickness + backThickness / 2]}>
-            <boxGeometry args={[rightArm - gableThickness * 2, height - bottomThickness * 2, backThickness]} />
-            <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
-          </mesh>
-
-          {/* Bottom panel */}
-          <mesh position={[0, -height / 2 + bottomThickness / 2, 0]}>
-            <boxGeometry args={[rightArm - gableThickness * 2, bottomThickness, armOpeningWidth - gableThickness * 2]} />
-            <meshStandardMaterial {...materialProps} map={horizontalTexture} />
-          </mesh>
-        </group>
-
-        {/* ===== CORNER JUNCTION (fills the overlap area so there's no hole) ===== */}
-        <mesh
-          position={[
-            -width / 2 + armOpeningWidth / 2,
-            -height / 2 + bottomThickness / 2,
-            -depth / 2 + armOpeningWidth / 2,
-          ]}
-        >
-          <boxGeometry args={[armOpeningWidth - gableThickness * 2, bottomThickness, armOpeningWidth - gableThickness * 2]} />
+        {/* ===== BACK ARM (full width, z ∈ [-depth/2, notchZ]) ===== */}
+        {/* Back panel against the back wall */}
+        <mesh position={[0, 0, -depth / 2 + backThickness / 2]}>
+          <boxGeometry args={[width - gableThickness * 2, height - bottomThickness * 2, backThickness]} />
+          <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
+        </mesh>
+        {/* Right end gable (butts the next cabinet in the back-wall run) */}
+        <mesh position={[width / 2 - gableThickness / 2, 0, (-depth / 2 + notchZ) / 2]}>
+          <boxGeometry args={[gableThickness, height, backArmDepth]} />
+          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+        </mesh>
+        {/* Bottom panel of back arm */}
+        <mesh position={[0, -height / 2 + bottomThickness / 2, (-depth / 2 + notchZ) / 2 + backThickness / 2]}>
+          <boxGeometry args={[width - gableThickness * 2, bottomThickness, backArmDepth - backThickness]} />
           <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+        </mesh>
+
+        {/* ===== LEFT ARM (x ∈ [-width/2, notchX], continues to the front) ===== */}
+        {/* Outer gable along the left wall, full depth */}
+        <mesh position={[-width / 2 + gableThickness / 2, 0, 0]}>
+          <boxGeometry args={[gableThickness, height, depth]} />
+          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+        </mesh>
+        {/* Front end closure of left arm (butts the next cabinet in the left-wall run) */}
+        <mesh position={[(-width / 2 + notchX) / 2, 0, depth / 2 - gableThickness / 2]}>
+          <boxGeometry args={[leftArmWidth, height, gableThickness]} />
+          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+        </mesh>
+        {/* Bottom panel of left arm front portion */}
+        <mesh position={[(-width / 2 + notchX) / 2, -height / 2 + bottomThickness / 2, (notchZ + depth / 2) / 2]}>
+          <boxGeometry args={[leftArmWidth - gableThickness, bottomThickness, leftArmFrontLen]} />
+          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+        </mesh>
+
+        {/* ===== INTERNAL CORNER POST (where the two doors meet) ===== */}
+        <mesh position={[notchX - gableThickness / 2, 0, notchZ - gableThickness / 2]}>
+          <boxGeometry args={[gableThickness, height, gableThickness]} />
+          <meshStandardMaterial {...materialProps} map={verticalTexture} />
         </mesh>
       </group>
     );
@@ -244,100 +234,42 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
     );
   }
   
-  // Blind corner: standard cabinet with blind extension into corner
-  const isBlindLeft = blindSide === 'Left';
-  const blindExtension = blindDepth;
-  const totalWidth = width + blindExtension;
-  
+  // Blind corner: standard rectangular carcass that stays INSIDE its
+  // width × depth bounding box (the old version drew a blind extension
+  // outside the box, which clashed with walls and neighbouring cabinets).
+  // The blind half of the front is covered by a blank panel rendered by
+  // CabinetAssembler; the accessible half gets the door.
   return (
     <group>
-      {/* Main cabinet - standard rectangular carcass */}
-      
       {/* Left gable */}
       <mesh position={[-width / 2 + gableThickness / 2, 0, 0]}>
         <boxGeometry args={[gableThickness, height, depth]} />
         <meshStandardMaterial {...materialProps} map={verticalTexture} />
       </mesh>
-      
+
       {/* Right gable */}
       <mesh position={[width / 2 - gableThickness / 2, 0, 0]}>
         <boxGeometry args={[gableThickness, height, depth]} />
         <meshStandardMaterial {...materialProps} map={verticalTexture} />
       </mesh>
-      
-      {/* Bottom panel - main cabinet */}
+
+      {/* Bottom panel */}
       <mesh position={[0, -height / 2 + bottomThickness / 2, 0]}>
         <boxGeometry args={[width - gableThickness * 2, bottomThickness, depth - backThickness]} />
         <meshStandardMaterial {...materialProps} map={horizontalTexture} />
       </mesh>
-      
-      {/* Back panel - main cabinet */}
+
+      {/* Back panel */}
       <mesh position={[0, 0, -depth / 2 + backThickness / 2]}>
         <boxGeometry args={[width - gableThickness * 2, height - bottomThickness * 2, backThickness]} />
         <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
       </mesh>
-      
+
       {/* Interior shelf */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[width - gableThickness * 2 - 0.01, 0.018, depth * 0.8]} />
         <meshStandardMaterial color="#f0f0f0" roughness={0.6} />
       </mesh>
-      
-      {/* ===== BLIND EXTENSION ===== */}
-      
-      {/* Blind panel (blocks view into corner) */}
-      <mesh position={[
-        isBlindLeft ? -width / 2 - blindExtension / 2 : width / 2 + blindExtension / 2,
-        0,
-        depth / 2 - gableThickness / 2
-      ]}>
-        <boxGeometry args={[blindExtension, height, gableThickness]} />
-        <meshStandardMaterial {...materialProps} map={verticalTexture} />
-      </mesh>
-      
-      {/* Blind extension gable (outer edge) */}
-      <mesh position={[
-        isBlindLeft ? -width / 2 - blindExtension + gableThickness / 2 : width / 2 + blindExtension - gableThickness / 2,
-        0,
-        depth / 4
-      ]}>
-        <boxGeometry args={[gableThickness, height, depth / 2 - gableThickness]} />
-        <meshStandardMaterial {...materialProps} map={verticalTexture} />
-      </mesh>
-      
-      {/* Blind extension bottom */}
-      <mesh position={[
-        isBlindLeft ? -width / 2 - blindExtension / 2 + gableThickness / 2 : width / 2 + blindExtension / 2 - gableThickness / 2,
-        -height / 2 + bottomThickness / 2,
-        depth / 4
-      ]}>
-        <boxGeometry args={[blindExtension - gableThickness, bottomThickness, depth / 2 - gableThickness]} />
-        <meshStandardMaterial {...materialProps} map={horizontalTexture} />
-      </mesh>
-      
-      {/* Filler strip */}
-      {fillerWidth > 0 && (
-        <mesh position={[
-          isBlindLeft ? -width / 2 - blindExtension - fillerWidth / 2 : width / 2 + blindExtension + fillerWidth / 2,
-          0,
-          depth / 2 - 0.01
-        ]}>
-          <boxGeometry args={[fillerWidth, height, gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
-        </mesh>
-      )}
-      
-      {/* Return filler */}
-      {hasReturnFiller && (
-        <mesh position={[
-          isBlindLeft ? -width / 2 - blindExtension - fillerWidth - gableThickness / 2 : width / 2 + blindExtension + fillerWidth + gableThickness / 2,
-          0,
-          depth / 4
-        ]}>
-          <boxGeometry args={[gableThickness, height, depth / 2]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
-        </mesh>
-      )}
     </group>
   );
 };
