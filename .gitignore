@@ -27,3 +27,4 @@ dist-ssr
 vite-log.txt
 esbuild-out.txt
 smoke-out.txt
+public/backups/
