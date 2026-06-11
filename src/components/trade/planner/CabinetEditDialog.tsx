@@ -50,6 +50,14 @@ export function CabinetEditDialog({
 
   if (!cabinet) return null;
 
+  const isCornerCabinet = /corner|pie[-_ ]?cut|blind|diagonal/i.test(cabinet.definitionId || '');
+
+  const handleUpdateConstruction = (updates: Partial<NonNullable<ConfiguredCabinet['construction']>>) => {
+    updateCabinet(roomId, cabinet.instanceId, {
+      construction: { ...(cabinet.construction || {}), ...updates },
+    });
+  };
+
   const handleUpdateDimensions = (updates: Partial<CabinetDimensions>) => {
     const next = {
       width: Math.max(150, updates.width ?? cabinet.dimensions.width),
@@ -160,6 +168,34 @@ export function CabinetEditDialog({
               </div>
             </div>
             
+            {/* Corner cabinet construction prompts (Microvellum names) */}
+            {isCornerCabinet && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Cabinet Depth Left (mm)</Label>
+                  <Input
+                    type="number"
+                    value={cabinet.construction?.cabinetDepthLeft ?? 575}
+                    onChange={(e) => handleUpdateConstruction({ cabinetDepthLeft: Number(e.target.value) })}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    PieCut Distance Left: {Math.max(0, cabinet.dimensions.width - (cabinet.construction?.cabinetDepthLeft ?? 575))}mm
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cabinet Depth Right (mm)</Label>
+                  <Input
+                    type="number"
+                    value={cabinet.construction?.cabinetDepthRight ?? 575}
+                    onChange={(e) => handleUpdateConstruction({ cabinetDepthRight: Number(e.target.value) })}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    PieCut Distance Right: {Math.max(0, cabinet.dimensions.depth - (cabinet.construction?.cabinetDepthRight ?? 575))}mm
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Visual dimension preview */}
             <div className="p-4 bg-muted/30 rounded-lg">
               <div className="text-xs text-muted-foreground mb-2">Cabinet Dimensions</div>

@@ -47,6 +47,23 @@ export interface CabinetDimensions {
   depth: number;
 }
 
+/**
+ * Construction prompts mirroring Microvellum's product prompts so the data
+ * crosses over 1:1 in the XML export. Names follow the MV Base Corner
+ * Cabinet prompt dialog: Cabinet Depth Left/Right, PieCut Distance (derived),
+ * Toe Kick Height, Left/Right Filler Width, PieCut/Angled Front.
+ */
+export interface CabinetConstruction {
+  cabinetDepthLeft?: number;    // mm — corner left arm carcase depth (MV: Cabinet Depth Left)
+  cabinetDepthRight?: number;   // mm — corner right arm carcase depth (MV: Cabinet Depth Right)
+  toeKickHeight?: number;       // mm — overrides room default (MV: Toe Kick Height)
+  leftFillerWidth?: number;     // mm (MV: Left Filler Width)
+  rightFillerWidth?: number;    // mm (MV: Right Filler Width)
+  blindSide?: 'Left' | 'Right'; // blind corner orientation
+  hingeSide?: 'Left' | 'Right'; // door hinging
+  frontType?: 'PieCut' | 'Angled'; // corner front style (MV: PieCut/Angled Front)
+}
+
 export interface ConfiguredCabinet {
   instanceId: string;
   definitionId: string;
@@ -57,6 +74,7 @@ export interface ConfiguredCabinet {
   materials: CabinetMaterials;
   hardware: CabinetHardware;
   accessories: CabinetAccessories;
+  construction?: CabinetConstruction;
   position?: CabinetInstancePosition;
   isPlaced: boolean;
   createdAt: Date;

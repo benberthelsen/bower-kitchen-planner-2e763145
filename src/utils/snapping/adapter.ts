@@ -22,6 +22,13 @@ export function cabinetToPlacedItem(
     width: cabinet.dimensions.width,
     depth: cabinet.dimensions.depth,
     height: cabinet.dimensions.height,
+    // Microvellum-style construction prompts (persisted per cabinet)
+    hinge: cabinet.construction?.hingeSide,
+    leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft,
+    rightCarcaseDepth: cabinet.construction?.cabinetDepthRight,
+    fillerLeft: cabinet.construction?.leftFillerWidth,
+    fillerRight: cabinet.construction?.rightFillerWidth,
+    blindSide: cabinet.construction?.blindSide,
   };
 }
 

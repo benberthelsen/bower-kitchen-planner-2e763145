@@ -120,10 +120,16 @@ export default function RoomPlanner() {
       width: cabinet.dimensions.width,
       depth: cabinet.dimensions.depth,
       height: cabinet.dimensions.height,
-      hinge: 'Left' as const,
+      hinge: cabinet.construction?.hingeSide ?? ('Left' as const),
       cabinetNumber: cabinet.cabinetNumber,
       finishColor: cabinet.materials?.exteriorFinish,
       handleType: cabinet.hardware?.handleType,
+      // Microvellum-style construction prompts (persisted per cabinet)
+      leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft,
+      rightCarcaseDepth: cabinet.construction?.cabinetDepthRight,
+      fillerLeft: cabinet.construction?.leftFillerWidth,
+      fillerRight: cabinet.construction?.rightFillerWidth,
+      blindSide: cabinet.construction?.blindSide,
     }));
   }, [cabinets]);
 

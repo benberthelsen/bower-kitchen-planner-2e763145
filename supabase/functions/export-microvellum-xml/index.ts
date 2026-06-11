@@ -16,6 +16,17 @@ interface PersistedCabinet {
   materials?: { exteriorFinish?: string; carcaseFinish?: string; doorStyle?: string; edgeBanding?: string };
   hardware?: { handleType?: string; hingeType?: string; drawerType?: string; softClose?: boolean };
   accessories?: { shelfCount?: number; adjustableShelves?: boolean; dividers?: boolean; specialFittings?: string[] };
+  /** Microvellum-style construction prompts (mirrors MV product prompt names) */
+  construction?: {
+    cabinetDepthLeft?: number;
+    cabinetDepthRight?: number;
+    toeKickHeight?: number;
+    leftFillerWidth?: number;
+    rightFillerWidth?: number;
+    blindSide?: 'Left' | 'Right';
+    hingeSide?: 'Left' | 'Right';
+    frontType?: 'PieCut' | 'Angled';
+  };
   position?: { x: number; y: number; z: number; rotation: number };
   isPlaced?: boolean;
 }
@@ -95,48 +106,126 @@ function mapCategoryForXml(category: string | null | undefined): 'Base' | 'Wall'
   return 'Base';
 }
 
-function cabinetParts(cabinet: PersistedCabinet, room: PersistedTradeRoom, finishName: string): Array<{ name: string; w: number; h: number; d: number; material: string }> {
+/** Variable drawer-front height ratios (largest at bottom — MV standard) */
+const DRAWER_RATIOS: Record<number, number[]> = {
+  1: [1.0],
+  2: [0.4, 0.6],
+  3: [0.25, 0.33, 0.42],
+  4: [0.18, 0.24, 0.28, 0.3],
+  5: [0.14, 0.18, 0.22, 0.22, 0.24],
+};
+
+function isCornerProduct(cabinet: PersistedCabinet, product?: MicrovellumProductRow | null): boolean {
+  return /corner/i.test(product?.cabinet_type || '') || /corner|pie[-_ ]?cut|blind/i.test(cabinet.definitionId || '');
+}
+
+function cabinetParts(
+  cabinet: PersistedCabinet,
+  room: PersistedTradeRoom,
+  finishName: string,
+  product?: MicrovellumProductRow | null,
+): Array<{ name: string; w: number; h: number; d: number; material: string }> {
   const dims = room.dimensions || {};
-  const toeKick = numberValue(dims.toeKickHeight, 135);
+  const construction = cabinet.construction || {};
+  const toeKick = numberValue(construction.toeKickHeight, numberValue(dims.toeKickHeight, 135));
   const shelfSetback = numberValue(dims.shelfSetback, 5);
   const doorGap = numberValue(dims.doorGap, 2);
+  const drawerGap = numberValue(dims.drawerGap, 2);
 
   const width = numberValue(cabinet.dimensions?.width, 600);
   const depth = numberValue(cabinet.dimensions?.depth, 575);
   const height = numberValue(cabinet.dimensions?.height, 870);
 
-  const sideHeight = cabinet.category === 'Base' ? Math.max(0, height - toeKick) : height;
-  const sideDepth = depth;
+  const carcase = cabinet.materials?.carcaseFinish || finishName;
+  const exterior = cabinet.materials?.exteriorFinish || finishName;
+
+  const sideHeight = cabinet.category === 'Base' || cabinet.category === 'Tall'
+    ? Math.max(0, height - toeKick)
+    : height;
   const internalWidth = Math.max(0, width - 36);
   const internalDepth = Math.max(0, depth - 18);
 
-  const shelfCount = Math.max(0, numberValue(cabinet.accessories?.shelfCount, 1));
+  // ---- Pie-cut corner cabinet (matches MV Base Corner Cabinet construction:
+  // full bottom L, backs along both walls, rails, two pie-cut door leaves) ----
+  const corner = isCornerProduct(cabinet, product);
+  const isBlind = /blind/i.test(cabinet.definitionId || '') || !!construction.blindSide;
+  if (corner && !isBlind) {
+    const depthLeft = numberValue(construction.cabinetDepthLeft, 575);
+    const depthRight = numberValue(construction.cabinetDepthRight, 575);
+    const pieCutLeft = Math.max(0, width - depthLeft);   // MV: PieCut Distance Left
+    const pieCutRight = Math.max(0, depth - depthRight); // MV: PieCut Distance Right
+
+    return [
+      { name: 'Side Left', w: depth, h: sideHeight, d: 16, material: carcase },
+      { name: 'Side Right', w: depthRight, h: sideHeight, d: 16, material: carcase },
+      { name: 'Front End Left', w: depthLeft, h: sideHeight, d: 16, material: carcase },
+      { name: 'Back', w: Math.max(0, width - 32), h: sideHeight, d: 16, material: carcase },
+      { name: 'Bottom Back Arm', w: Math.max(0, width - 32), h: depthRight, d: 16, material: carcase },
+      { name: 'Bottom Left Arm', w: Math.max(0, depthLeft - 16), h: Math.max(0, depth - depthRight - 16), d: 16, material: carcase },
+      { name: 'Top Rail Front Left', w: pieCutRight, h: 80, d: 16, material: carcase },
+      { name: 'Top Rail Front Right', w: pieCutLeft, h: 80, d: 16, material: carcase },
+      { name: 'Top Rail Rear', w: Math.max(0, width - 32), h: 80, d: 16, material: carcase },
+      { name: 'Corner Shelf', w: Math.max(0, width - 36), h: 16, d: Math.max(0, depth - 36), material: carcase },
+      { name: 'PieCut Door Left', w: Math.max(0, pieCutRight - doorGap), h: Math.max(0, sideHeight - doorGap * 2), d: 18, material: exterior },
+      { name: 'PieCut Door Right', w: Math.max(0, pieCutLeft - doorGap), h: Math.max(0, sideHeight - doorGap * 2), d: 18, material: exterior },
+    ];
+  }
+
+  // ---- Standard cabinet ----
+  const shelfCount = Math.max(0, numberValue(cabinet.accessories?.shelfCount, numberValue(product?.has_adjustable_shelves ? 1 : 0, 1)));
   const shelves = Array.from({ length: shelfCount }).map((_, idx) => ({
     name: `Shelf ${idx + 1}`,
     w: internalWidth,
     h: 16,
     d: Math.max(0, internalDepth - shelfSetback),
-    material: cabinet.materials?.carcaseFinish || finishName,
+    material: carcase,
   }));
 
   const parts = [
-    { name: 'Side Left', w: sideDepth, h: sideHeight, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
-    { name: 'Side Right', w: sideDepth, h: sideHeight, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
-    { name: 'Bottom', w: internalWidth, h: internalDepth, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
-    { name: 'Top', w: internalWidth, h: internalDepth, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
-    { name: 'Back', w: internalWidth, h: sideHeight, d: 16, material: cabinet.materials?.carcaseFinish || finishName },
+    { name: 'Side Left', w: depth, h: sideHeight, d: 16, material: carcase },
+    { name: 'Side Right', w: depth, h: sideHeight, d: 16, material: carcase },
+    { name: 'Bottom', w: internalWidth, h: internalDepth, d: 16, material: carcase },
+    cabinet.category === 'Wall'
+      ? { name: 'Top', w: internalWidth, h: internalDepth, d: 16, material: carcase }
+      : { name: 'Top Rail Front', w: internalWidth, h: 80, d: 16, material: carcase },
+    ...(cabinet.category === 'Wall' ? [] : [{ name: 'Top Rail Rear', w: internalWidth, h: 80, d: 16, material: carcase }]),
+    { name: 'Back', w: internalWidth, h: sideHeight, d: 16, material: carcase },
     ...shelves,
   ];
 
-  const drawerCount = numberValue(cabinet.accessories?.dividers ? 1 : 0, 0);
-  if (drawerCount === 0) {
-    parts.push({
-      name: 'Door',
-      w: Math.max(0, width - doorGap),
-      h: Math.max(0, sideHeight - doorGap),
-      d: 18,
-      material: cabinet.materials?.exteriorFinish || finishName,
+  // Fronts from real product metadata (door_count / drawer_count)
+  const doorCount = Math.max(0, numberValue(product?.door_count, 0));
+  const drawerCount = Math.max(0, numberValue(product?.drawer_count, 0));
+
+  if (drawerCount > 0) {
+    const ratios = DRAWER_RATIOS[Math.min(drawerCount, 5)] || Array(drawerCount).fill(1 / drawerCount);
+    // For combo cabinets the drawer bank uses the upper section only
+    const drawerBankHeight = doorCount > 0 ? Math.min(0.35 * sideHeight, 320) : sideHeight;
+    ratios.forEach((ratio, idx) => {
+      parts.push({
+        name: `Drawer Front ${idx + 1}`,
+        w: Math.max(0, width - drawerGap),
+        h: Math.max(0, Math.round(ratio * drawerBankHeight) - drawerGap),
+        d: 18,
+        material: exterior,
+      });
     });
+  }
+
+  const effectiveDoorCount = doorCount > 0 ? doorCount : (drawerCount === 0 ? 1 : 0);
+  if (effectiveDoorCount > 0) {
+    const doorSectionHeight = drawerCount > 0
+      ? sideHeight - Math.min(0.35 * sideHeight, 320)
+      : sideHeight;
+    for (let i = 0; i < effectiveDoorCount; i++) {
+      parts.push({
+        name: effectiveDoorCount > 1 ? `Door ${i + 1}` : 'Door',
+        w: Math.max(0, Math.round(width / effectiveDoorCount) - doorGap),
+        h: Math.max(0, Math.round(doorSectionHeight) - doorGap),
+        d: 18,
+        material: exterior,
+      });
+    }
   }
 
   return parts;
@@ -233,12 +322,49 @@ serve(async (req) => {
         const finishName = cabinet.materials?.exteriorFinish || room.materialDefaults?.exteriorFinish || 'Designer White';
         const handleType = cabinet.hardware?.handleType || room.hardwareDefaults?.handleType || 'bar-handle';
 
-        const parts = cabinetParts(cabinet, room, finishName)
+        const parts = cabinetParts(cabinet, room, finishName, product)
           .map((part) => `          <Part name="${escapeXml(part.name)}" w="${Math.round(part.w)}" h="${Math.round(part.h)}" d="${Math.round(part.d)}" material="${escapeXml(part.material)}" />`)
           .join('\n');
 
         const cabinetNumber = cabinet.cabinetNumber || `R${roomIndex + 1}-C${cabinetIndex + 1}`;
         const xmlSku = product?.microvellum_link_id || cabinet.definitionId;
+
+        // Microvellum product prompts — element names mirror the MV prompt
+        // dialog so the data crosses over 1:1 on import.
+        const construction = cabinet.construction || {};
+        const roomDims = room.dimensions || {};
+        const toeKickHeight = numberValue(construction.toeKickHeight, numberValue(roomDims.toeKickHeight, 135));
+        const corner = isCornerProduct(cabinet, product);
+        const heightAboveFloor = xmlCategory === 'Wall'
+          ? Math.round(1350 + height)
+          : Math.round(height);
+
+        const promptLines: string[] = [
+          `          <ToeKickHeight>${Math.round(toeKickHeight)}</ToeKickHeight>`,
+          `          <LeftFillerWidth>${Math.round(numberValue(construction.leftFillerWidth, 0))}</LeftFillerWidth>`,
+          `          <RightFillerWidth>${Math.round(numberValue(construction.rightFillerWidth, 0))}</RightFillerWidth>`,
+          `          <HeightAboveFloor>${heightAboveFloor}</HeightAboveFloor>`,
+          `          <ProductAngle>${Math.round(numberValue(pos.rotation))}</ProductAngle>`,
+          `          <Quantity>1</Quantity>`,
+        ];
+        if (corner) {
+          const depthLeft = numberValue(construction.cabinetDepthLeft, 575);
+          const depthRight = numberValue(construction.cabinetDepthRight, 575);
+          promptLines.push(
+            `          <CabinetDepthLeft>${Math.round(depthLeft)}</CabinetDepthLeft>`,
+            `          <CabinetDepthRight>${Math.round(depthRight)}</CabinetDepthRight>`,
+            `          <PieCutDistanceLeft>${Math.round(Math.max(0, width - depthLeft))}</PieCutDistanceLeft>`,
+            `          <PieCutDistanceRight>${Math.round(Math.max(0, depth - depthRight))}</PieCutDistanceRight>`,
+            `          <FrontType>${escapeXml(construction.frontType || 'PieCut')}</FrontType>`,
+          );
+        }
+        if (construction.hingeSide) {
+          promptLines.push(`          <HingeSide>${escapeXml(construction.hingeSide)}</HingeSide>`);
+        }
+        if (construction.blindSide) {
+          promptLines.push(`          <BlindSide>${escapeXml(construction.blindSide)}</BlindSide>`);
+        }
+        const promptsXml = promptLines.join('\n');
 
         cabinetsXml.push(`      <Cabinet>
         <RoomId>${escapeXml(room.id)}</RoomId>
@@ -266,6 +392,9 @@ serve(async (req) => {
         <HingeType>${escapeXml(cabinet.hardware?.hingeType || room.hardwareDefaults?.hingeType || '')}</HingeType>
         <DrawerType>${escapeXml(cabinet.hardware?.drawerType || room.hardwareDefaults?.drawerType || '')}</DrawerType>
         <SoftClose>${cabinet.hardware?.softClose ?? room.hardwareDefaults?.softClose ? 'Yes' : 'No'}</SoftClose>
+        <Prompts>
+${promptsXml}
+        </Prompts>
         <Parts>
 ${parts}
         </Parts>
