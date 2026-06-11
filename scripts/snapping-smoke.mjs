@@ -75,6 +75,19 @@ function checkEq(name, actual, expected) {
   check('corner cabinet: z', r.z, 575 / 2 + 10);
 }
 
+// 5b. Corner cabinet orientation per corner (notch must face into the room)
+{
+  const corner = () => baseItem({ definitionId: 'base_corner_pie_cut_2_door', width: 900, depth: 900 });
+  const br = calculateSnapPosition(3300, 300, corner(), [], room, 50);
+  checkEq('back-right corner: rotation 90', br.rotation, 90);
+  check('back-right corner: x', br.x, 3600 - 900 / 2 - 10);
+  check('back-right corner: z', br.z, 900 / 2 + 10);
+  const fl = calculateSnapPosition(300, 2100, corner(), [], room, 50);
+  checkEq('front-left corner: rotation 270', fl.rotation, 270);
+  const fr = calculateSnapPosition(3300, 2100, corner(), [], room, 50);
+  checkEq('front-right corner: rotation 180', fr.rotation, 180);
+}
+
 // 6. Corner snap must not overlap an existing cabinet (collision still runs)
 {
   const occupier = baseItem({ instanceId: 'occupier', x: 310, z: 297.5, rotation: 0 });

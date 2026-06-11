@@ -187,9 +187,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const cornerType = cornerRender === 'L_ARMS' ? 'l-shape' : 
                      cornerRender === 'DIAGONAL_FRONT_45' ? 'diagonal' : 'blind';
   
-  // Corner dimensions from recipe or config (convert mm to meters)
-  const leftArmDepthM = (recipe?.fronts.corner?.leftArmDepth || item.leftCarcaseDepth || config.leftArmDepth || 575) / 1000;
-  const rightArmDepthM = (recipe?.fronts.corner?.rightArmDepth || item.rightCarcaseDepth || config.rightArmDepth || 575) / 1000;
+  // Corner dimensions (convert mm to meters). Per-item carcase depth edits
+  // take priority over config and recipe defaults — mirrors Microvellum's
+  // "Cabinet Depth Left/Right" prompts on the Base Corner Cabinet.
+  const leftArmDepthM = (item.leftCarcaseDepth || config.leftArmDepth || recipe?.fronts.corner?.leftArmDepth || 575) / 1000;
+  const rightArmDepthM = (item.rightCarcaseDepth || config.rightArmDepth || recipe?.fronts.corner?.rightArmDepth || 575) / 1000;
   const blindDepthM = (recipe?.fronts.corner?.blindDepth || config.blindDepth || 150) / 1000;
   const fillerWidthM = (recipe?.fronts.corner?.fillerWidth || config.fillerWidth || 75) / 1000;
 

@@ -103,34 +103,40 @@ export function detectCorner(
   const itemDepth = item.depth;
   const itemWidth = item.width;
 
-  // Determine corner position and rotation based on which walls meet
+  // Determine corner position and rotation based on which walls meet.
+  // Corner (pie-cut/L/blind) cabinets have their solid corner at local
+  // back-left and the door notch facing local front-right (+X/+Z). The
+  // rotation must nest the solid corner into the room corner so the doors
+  // always face into the room:
+  //   back-left → 0, back-right → 90, front-right → 180, front-left → 270.
+  // (Matches the Microvellum Base Corner Cabinet orientation.)
   let cornerX: number;
   let cornerZ: number;
   let rotation: number;
 
-  // Back-left corner: cabinet faces into room (rotation 0)
+  // Back-left corner
   if ((wall1.id === 'back' && wall2.id === 'left') || (wall1.id === 'left' && wall2.id === 'back')) {
+    rotation = 0;
     cornerX = itemWidth / 2 + wallGap;
     cornerZ = itemDepth / 2 + wallGap;
-    rotation = 0;
   }
-  // Back-right corner: cabinet faces into room (rotation 0)
+  // Back-right corner (rotation 90 — effective footprint swaps width/depth)
   else if ((wall1.id === 'back' && wall2.id === 'right') || (wall1.id === 'right' && wall2.id === 'back')) {
-    cornerX = room.width - itemWidth / 2 - wallGap;
-    cornerZ = itemDepth / 2 + wallGap;
-    rotation = 0;
+    rotation = 90;
+    cornerX = room.width - itemDepth / 2 - wallGap;
+    cornerZ = itemWidth / 2 + wallGap;
   }
-  // Front-left corner: cabinet faces back wall (rotation 180)
+  // Front-left corner (rotation 270 — effective footprint swaps width/depth)
   else if ((wall1.id === 'front' && wall2.id === 'left') || (wall1.id === 'left' && wall2.id === 'front')) {
-    cornerX = itemWidth / 2 + wallGap;
-    cornerZ = room.depth - itemDepth / 2 - wallGap;
-    rotation = 180;
+    rotation = 270;
+    cornerX = itemDepth / 2 + wallGap;
+    cornerZ = room.depth - itemWidth / 2 - wallGap;
   }
-  // Front-right corner: cabinet faces back wall (rotation 180)
+  // Front-right corner
   else {
+    rotation = 180;
     cornerX = room.width - itemWidth / 2 - wallGap;
     cornerZ = room.depth - itemDepth / 2 - wallGap;
-    rotation = 180;
   }
 
   return {
