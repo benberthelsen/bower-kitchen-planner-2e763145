@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+.tmp-snap-test/
+vite-log.txt
+esbuild-out.txt
+smoke-out.txt
