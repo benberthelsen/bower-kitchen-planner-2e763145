@@ -13,23 +13,25 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useState } from 'react';
 import { RoomConfig } from './index';
-import kitchenDiagram from '@/assets/kitchen-dimensions-diagram.png';
+import KitchenDimensionsDiagram from './KitchenDimensionsDiagram';
 
 interface DimensionDefaultsStepProps {
   config: RoomConfig;
   updateConfig: (updates: Partial<RoomConfig>) => void;
 }
 
-function DimensionInput({ 
+function DimensionInput({
   id,
-  label, 
-  value, 
-  onChange, 
+  label,
+  value,
+  onChange,
   tooltip,
   min = 0,
   max = 3000,
-}: { 
+  onFocusField,
+}: {
   id: string;
   label: string;
   value: number;
@@ -37,6 +39,7 @@ function DimensionInput({
   tooltip?: string;
   min?: number;
   max?: number;
+  onFocusField?: (id: string | null) => void;
 }) {
   return (
     <div className="flex items-center gap-3">
@@ -59,6 +62,8 @@ function DimensionInput({
           type="number"
           value={value}
           onChange={(e) => onChange(Math.min(max, Math.max(min, parseInt(e.target.value) || 0)))}
+          onFocus={() => onFocusField?.(id)}
+          onBlur={() => onFocusField?.(null)}
           className="w-24 border-trade-border text-center"
           min={min}
           max={max}
@@ -70,6 +75,8 @@ function DimensionInput({
 }
 
 export default function DimensionDefaultsStep({ config, updateConfig }: DimensionDefaultsStepProps) {
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+
   return (
     <div className="max-w-5xl mx-auto">
       <p className="text-center text-trade-muted mb-6">
@@ -101,6 +108,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.toeKickHeight}
               onChange={(v) => updateConfig({ toeKickHeight: v })}
               tooltip="Height of the toe kick / plinth below base cabinets"
+              onFocusField={setFocusedField}
               min={100}
               max={200}
             />
@@ -110,6 +118,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.shelfSetback}
               onChange={(v) => updateConfig({ shelfSetback: v })}
               tooltip="How far shelves are set back from the front edge"
+              onFocusField={setFocusedField}
               min={0}
               max={50}
             />
@@ -123,6 +132,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.baseHeight}
               onChange={(v) => updateConfig({ baseHeight: v })}
               tooltip="Default height of base cabinets (excluding toe kick)"
+              onFocusField={setFocusedField}
               min={600}
               max={900}
             />
@@ -132,6 +142,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.baseDepth}
               onChange={(v) => updateConfig({ baseDepth: v })}
               tooltip="Default depth of base cabinets"
+              onFocusField={setFocusedField}
               min={400}
               max={700}
             />
@@ -145,6 +156,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.wallHeight}
               onChange={(v) => updateConfig({ wallHeight: v })}
               tooltip="Default height of wall/upper cabinets"
+              onFocusField={setFocusedField}
               min={300}
               max={1200}
             />
@@ -154,6 +166,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.wallDepth}
               onChange={(v) => updateConfig({ wallDepth: v })}
               tooltip="Default depth of wall/upper cabinets"
+              onFocusField={setFocusedField}
               min={200}
               max={400}
             />
@@ -167,6 +180,7 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.tallHeight}
               onChange={(v) => updateConfig({ tallHeight: v })}
               tooltip="Default height of tall/pantry cabinets"
+              onFocusField={setFocusedField}
               min={1800}
               max={2400}
             />
@@ -176,18 +190,26 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               value={config.tallDepth}
               onChange={(v) => updateConfig({ tallDepth: v })}
               tooltip="Default depth of tall/pantry cabinets"
+              onFocusField={setFocusedField}
               min={400}
               max={700}
             />
           </div>
         </div>
 
-        {/* Visual Diagram Reference */}
-        <div className="bg-trade-surface rounded-xl p-6 flex items-center justify-center">
-          <img 
-            src={kitchenDiagram} 
-            alt="Kitchen cabinet dimensions reference"
-            className="w-full max-w-lg object-contain"
+        {/* Live dimensions diagram — updates with the inputs; the focused
+            field's measurement highlights in amber */}
+        <div className="bg-trade-surface rounded-xl p-6 flex items-center justify-center sticky top-4 self-start">
+          <KitchenDimensionsDiagram
+            toeKickHeight={config.toeKickHeight}
+            baseHeight={config.baseHeight}
+            baseDepth={config.baseDepth}
+            wallHeight={config.wallHeight}
+            wallDepth={config.wallDepth}
+            tallHeight={config.tallHeight}
+            tallDepth={config.tallDepth}
+            roomHeight={config.roomHeight}
+            highlight={focusedField}
           />
         </div>
       </div>

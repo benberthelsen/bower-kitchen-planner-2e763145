@@ -1,9 +1,10 @@
-import React from 'react';
-import { Search, Palette } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Search, Palette, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { RoomConfig } from './index';
+import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 
 interface MaterialDefaultsStepProps {
   config: RoomConfig;
@@ -50,32 +51,74 @@ function MaterialPreview({ color, label }: { color: string; label: string }) {
   );
 }
 
-function MaterialSelector({ 
-  label, 
-  value, 
-  options, 
+function MaterialSelector({
+  label,
+  value,
+  options,
   onChange,
-  showSearch = true 
-}: { 
+  showSearch = true,
+  loading = false,
+}: {
   label: string;
   value: string;
   options: { id: string; name: string; color?: string }[];
   onChange: (value: string) => void;
   showSearch?: boolean;
+  loading?: boolean;
 }) {
-  const selectedOption = options.find(o => o.name === value) || options[0];
-  
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.name.toLowerCase().includes(q));
+  }, [options, query]);
+
   return (
     <div className="space-y-2">
       <Label className="text-trade-navy font-medium">{label}</Label>
       <div className="relative">
         <Input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          value={open ? query : value}
+          placeholder={value || 'Search…'}
+          onFocus={() => {
+            setOpen(true);
+            setQuery('');
+          }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!open) setOpen(true);
+          }}
           className="pr-10 border-trade-border bg-white"
         />
-        {showSearch && (
+        {loading ? (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-trade-muted animate-spin" />
+        ) : showSearch ? (
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-trade-muted" />
+        ) : null}
+
+        {open && filtered.length > 0 && (
+          <div className="absolute z-50 mt-1 w-full max-h-56 overflow-auto rounded-md border border-trade-border bg-white shadow-lg">
+            {filtered.slice(0, 60).map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-trade-surface flex items-center gap-2"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(o.name);
+                  setOpen(false);
+                }}
+              >
+                {o.color && (
+                  <span className="w-4 h-4 rounded border border-trade-border inline-block flex-shrink-0" style={{ backgroundColor: o.color }} />
+                )}
+                <span className="truncate">{o.name}</span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -83,6 +126,27 @@ function MaterialSelector({
 }
 
 export default function MaterialDefaultsStep({ config, updateConfig }: MaterialDefaultsStepProps) {
+  // Real materials/edges from the pricing database (admin imports).
+  // Mock entries remain only as a fallback while the tables are empty.
+  const { materials: dbMaterials, edges: dbEdges, isLoading } = useMaterialsCatalog();
+
+  const exteriorOptions = useMemo(
+    () => (dbMaterials.length > 0
+      ? dbMaterials.filter((m) => !/carcase|shop materials/i.test(`${m.name} ${m.materialType ?? ''}`)).map((m) => ({ id: m.id, name: m.name }))
+      : materialOptions),
+    [dbMaterials],
+  );
+  const carcaseOptions = useMemo(
+    () => (dbMaterials.length > 0
+      ? dbMaterials.map((m) => ({ id: m.id, name: m.name }))
+      : carcaseMaterials),
+    [dbMaterials],
+  );
+  const edgeListOptions = useMemo(
+    () => (dbEdges.length > 0 ? dbEdges.map((e) => ({ id: e.id, name: e.name })) : edgeOptions),
+    [dbEdges],
+  );
+
   const exteriorColor = materialOptions.find(m => m.name === config.exteriorMaterial)?.color || '#F5F0E6';
   const carcaseColor = carcaseMaterials.find(m => m.name === config.carcaseMaterial)?.color || '#F8F8F8';
 
@@ -106,14 +170,16 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
               <MaterialSelector
                 label="Material"
                 value={config.exteriorMaterial}
-                options={materialOptions}
+                options={exteriorOptions}
+                loading={isLoading}
                 onChange={(value) => updateConfig({ exteriorMaterial: value })}
               />
               
               <MaterialSelector
                 label="Edge"
                 value={config.exteriorEdge}
-                options={edgeOptions}
+                options={edgeListOptions}
+                loading={isLoading}
                 onChange={(value) => updateConfig({ exteriorEdge: value })}
               />
               
@@ -157,14 +223,16 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
               <MaterialSelector
                 label="Material"
                 value={config.carcaseMaterial}
-                options={carcaseMaterials}
+                options={carcaseOptions}
+                loading={isLoading}
                 onChange={(value) => updateConfig({ carcaseMaterial: value })}
               />
               
               <MaterialSelector
                 label="Edge"
                 value={config.carcaseEdge}
-                options={edgeOptions}
+                options={edgeListOptions}
+                loading={isLoading}
                 onChange={(value) => updateConfig({ carcaseEdge: value })}
               />
             </div>
@@ -178,7 +246,7 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
             Browse Colours
           </Button>
 
-          {/* Material Details */}
+          {/* Carcase Details */}
           <div className="bg-trade-surface rounded-lg p-4 text-sm space-y-1">
             <p><span className="text-trade-amber font-medium">Type:</span> Melamine</p>
             <p><span className="text-trade-amber font-medium">Materials:</span> {config.carcaseMaterial}</p>

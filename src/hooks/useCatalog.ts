@@ -282,8 +282,13 @@ function transformStaticTemplate(item: StaticCatalogTemplate): ExtendedCatalogIt
       hasAdjustableShelves: meta.drawerCount === 0 && !meta.isSink && !meta.isDishwasher,
       shelfCount: meta.category === 'Tall' ? 5 : meta.category === 'Wall' ? 2 : 1,
       cornerType: meta.isBlind ? 'blind' : item.id.includes('diagonal') ? 'diagonal' : meta.isCorner ? 'l-shape' : null,
-      leftArmDepth: meta.isCorner ? meta.dims.depth : 575,
-      rightArmDepth: meta.isCorner ? meta.dims.depth : 575,
+      // Corner arm depth = the standard carcase depth of the adjoining run
+      // (NOT the corner cabinet's own footprint depth — that would make the
+      // pie-cut notch zero and render the cabinet as a solid box).
+      // Matches Microvellum's Base Corner Cabinet: 900-1000 square footprint
+      // with Cabinet Depth Left/Right ≈ 555-575.
+      leftArmDepth: meta.category === 'Wall' ? 350 : 575,
+      rightArmDepth: meta.category === 'Wall' ? 350 : 575,
       blindDepth: meta.isBlind ? 300 : 150,
       fillerWidth: meta.isBlind ? 75 : 0,
       hasReturnFiller: meta.isBlind,

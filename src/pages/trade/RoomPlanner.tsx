@@ -20,6 +20,7 @@ import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
+import { exportPlanViewPdf } from '@/lib/planViewPdf';
 import {
   ArrowLeft,
   Save,
@@ -383,58 +384,8 @@ export default function RoomPlanner() {
     setEditDialogOpen(open);
   };
 
-  const handleExportJson = useCallback(() => {
-    if (!currentRoom) return;
-    const exportedAt = new Date().toISOString();
-    const exportPayload = {
-      exportType: 'trade-room-plan',
-      exportedAt,
-      pricing: {
-        source: 'bom',
-        version: pricingVersion ?? `trade-bom-${exportedAt}`,
-        hash: pricingHash,
-        roomTotal,
-        perCabinetTotals,
-      },
-      room: {
-        id: currentRoom.id,
-        name: currentRoom.name,
-        config: currentRoom.config,
-        dimensions: currentRoom.dimensions,
-        materialDefaults: currentRoom.materialDefaults,
-        hardwareDefaults: currentRoom.hardwareDefaults,
-      },
-      cabinets: cabinets.map((cabinet) => {
-        const catalogItem = catalog.find((item) => item.id === cabinet.definitionId);
-        return {
-          ...cabinet,
-          estimatedTotal: perCabinetTotals[cabinet.instanceId] ?? 0,
-          catalogPrice: catalogItem?.price ?? null,
-        };
-      }),
-      bomSummary: quoteBOM
-        ? {
-            grandTotal: quoteBOM.grandTotal,
-            consolidatedSheets: quoteBOM.consolidatedSheets,
-            consolidatedEdgeTape: quoteBOM.consolidatedEdgeTape,
-            consolidatedHardware: quoteBOM.consolidatedHardware,
-            cabinets: quoteBOM.cabinets,
-          }
-        : null,
-    };
-
-    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${currentRoom.name.replace(/\s+/g, '-').toLowerCase()}-plan-export.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-
-    toast.success('Plan exported', {
-      description: `Room total ${new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(roomTotal)}`,
-    });
-  }, [cabinets, catalog, currentRoom, perCabinetTotals, pricingHash, pricingVersion, quoteBOM, roomTotal]);
+  // (The old developer "Export JSON" was removed from the toolbar — the
+  // customer-facing export is the auto-generated plan view PDF.)
 
 
   useEffect(() => {
@@ -542,14 +493,17 @@ export default function RoomPlanner() {
               Catalog
             </Button>
 
-            <Button variant="outline" size="sm" onClick={handleExportJson}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!currentRoom) return;
+                exportPlanViewPdf(currentRoom, jobQuery.data?.name);
+                toast.success('Plan view exported');
+              }}
+            >
               <FileDown className="w-4 h-4 mr-1" />
-              Export JSON
-            </Button>
-
-            <Button variant="outline" size="sm" onClick={() => exportJobPdf()}>
-              <FileDown className="w-4 h-4 mr-1" />
-              Export PDF
+              Plan View
             </Button>
 
             <Button

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { HelpCircle } from 'lucide-react';
+import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -94,6 +95,23 @@ function OptionCard({
 }
 
 export default function HardwareDefaultsStep({ config, updateConfig }: HardwareDefaultsStepProps) {
+  // Real hinge/runner range from the hardware_pricing table (admin imports —
+  // Hettich, Grass, Blum etc.). Mock entries are the fallback while empty.
+  const { hinges: dbHinges, drawerRunners: dbRunners } = useMaterialsCatalog();
+
+  const hingeList = useMemo(
+    () => (dbHinges.length > 0
+      ? dbHinges.map((h) => ({ id: h.id, name: h.name, description: [h.brand, h.series].filter(Boolean).join(' ') || 'Hinge' }))
+      : hingeOptions),
+    [dbHinges],
+  );
+  const drawerList = useMemo(
+    () => (dbRunners.length > 0
+      ? dbRunners.map((d) => ({ id: d.id, name: d.name, description: [d.brand, d.series].filter(Boolean).join(' ') || 'Drawer system' }))
+      : drawerOptions),
+    [dbRunners],
+  );
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <p className="text-center text-trade-muted">
@@ -203,7 +221,7 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {hingeOptions.map((hinge) => (
+              {hingeList.map((hinge) => (
                 <SelectItem key={hinge.id} value={hinge.name}>
                   <div>
                     <span className="font-medium">{hinge.name}</span>
@@ -243,7 +261,7 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {drawerOptions.map((drawer) => (
+              {drawerList.map((drawer) => (
                 <SelectItem key={drawer.id} value={drawer.name}>
                   <div>
                     <span className="font-medium">{drawer.name}</span>
