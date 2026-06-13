@@ -65,6 +65,9 @@ export interface EdgeTapeAllocation {
   handlingCost: number;
   applicationCost: number;
   totalCost: number;
+  /** consolidated ordering: 25m roll multiples */
+  rollsRequired?: number;
+  rollLengthM?: number;
 }
 
 export interface HardwareItem {

@@ -24,6 +24,29 @@ const DEFAULT_RULES: HardwareRules = {
 };
 
 /**
+ * Construction consumables — screws belong to CONSTRUCTION STAGES, not to
+ * hardware items (per shop practice):
+ *  - carcase build: 28mm screws (e.g. ×4 per end-panel fixing)
+ *  - installation: 45mm/70mm screws to fix cabinets to walls
+ * Counts are per cabinet and tunable here until the admin
+ * construction_consumables table lands (P1 of the pricing plan).
+ */
+interface ConsumableRule {
+  stage: 'carcase' | 'install';
+  name: string;
+  /** matched against hardware_pricing name/item_code if present */
+  match: string;
+  qtyPerCabinet: number;
+  fallbackUnitCost: number;
+}
+
+const CONSTRUCTION_CONSUMABLES: ConsumableRule[] = [
+  { stage: 'carcase', name: '28mm Screws (carcase/end panels)', match: '28mm screw', qtyPerCabinet: 12, fallbackUnitCost: 0.04 },
+  { stage: 'install', name: '45mm Screws (wall fixing)', match: '45mm screw', qtyPerCabinet: 4, fallbackUnitCost: 0.05 },
+  { stage: 'install', name: '70mm Screws (wall fixing)', match: '70mm screw', qtyPerCabinet: 2, fallbackUnitCost: 0.07 },
+];
+
+/**
  * Calculate hardware requirements for a cabinet
  */
 export function calculateHardware(
@@ -60,6 +83,25 @@ export function calculateHardware(
       totalCost: (hingePricing?.unit_cost ?? 8) * hingeCount + 
                  (hingePricing?.machining_cost ?? 0) * hingeCount +
                  (hingePricing?.assembly_cost ?? 0) * hingeCount
+    });
+
+    // === HINGE PLATES (separate item — plate type varies by hinge type) ===
+    const platePricing = hardwarePricing.find(h =>
+      /plate/i.test(`${h.hardware_type} ${h.name}`) &&
+      (!hingePricing?.series || h.series === hingePricing.series)
+    ) ?? hardwarePricing.find(h => /plate/i.test(`${h.hardware_type} ${h.name}`));
+
+    items.push({
+      itemCode: platePricing?.item_code ?? 'hinge-plate',
+      name: platePricing?.name ?? 'Hinge Plate',
+      hardwareType: 'hinge-plate',
+      quantity: hingeCount,
+      unitCost: platePricing?.unit_cost ?? 2.5,
+      machiningCost: (platePricing?.machining_cost ?? 0) * hingeCount,
+      assemblyCost: (platePricing?.assembly_cost ?? 0) * hingeCount,
+      totalCost: (platePricing?.unit_cost ?? 2.5) * hingeCount +
+        (platePricing?.machining_cost ?? 0) * hingeCount +
+        (platePricing?.assembly_cost ?? 0) * hingeCount,
     });
   }
   
@@ -145,6 +187,24 @@ export function calculateHardware(
     });
   }
   
+  // === CONSTRUCTION CONSUMABLES (stage-based screws) ===
+  for (const rule of CONSTRUCTION_CONSUMABLES) {
+    const pricing = hardwarePricing.find(h =>
+      h.name.toLowerCase().includes(rule.match) || h.item_code?.toLowerCase?.() === rule.match
+    );
+    const unitCost = pricing?.unit_cost ?? rule.fallbackUnitCost;
+    items.push({
+      itemCode: pricing?.item_code ?? rule.match.replace(/\s+/g, '-'),
+      name: pricing?.name ?? rule.name,
+      hardwareType: `consumable-${rule.stage}`,
+      quantity: rule.qtyPerCabinet,
+      unitCost,
+      machiningCost: 0,
+      assemblyCost: 0,
+      totalCost: unitCost * rule.qtyPerCabinet,
+    });
+  }
+
   return items;
 }
 

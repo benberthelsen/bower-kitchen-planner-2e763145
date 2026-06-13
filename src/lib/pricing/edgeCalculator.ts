@@ -90,10 +90,16 @@ export function consolidateEdgeTape(
     const totalHandlingCost = allocations.reduce((sum, a) => sum + a.handlingCost, 0);
     const totalApplicationCost = allocations.reduce((sum, a) => sum + a.applicationCost, 0);
     
+    // Edge tape orders in multiples of 25m rolls
+    const ROLL_LENGTH_M = 25;
+    const rollsRequired = Math.ceil(totalLinearMeters / ROLL_LENGTH_M);
+
     consolidated.push({
       edgeType,
       edgeName: template.edgeName,
       thickness: template.thickness,
+      rollsRequired,
+      rollLengthM: ROLL_LENGTH_M,
       linearMeters: totalLinearMeters,
       costPerMeter: template.costPerMeter,
       handlingCost: totalHandlingCost,
