@@ -357,7 +357,113 @@ export const CABINET_PART_MAP: Record<string, CabinetPartDefinition> = {
  * Get the cabinet configuration and part list for a cabinet definition ID
  */
 export function getCabinetPartMapping(definitionId: string): CabinetPartDefinition | null {
-  return CABINET_PART_MAP[definitionId] || null;
+  return CABINET_PART_MAP[definitionId] || buildGenericCabinetMapping(definitionId);
+}
+
+/**
+ * Generic part mapping derived from the product id, using the part names of
+ * the shop's imported parts_pricing library (Base/Upper/Tall sides, Ls
+ * corner parts, drawer box parts, rails, shelves). This makes EVERY catalog
+ * product priceable without a hardcoded entry per id.
+ */
+export function buildGenericCabinetMapping(definitionId: string): CabinetPartDefinition | null {
+  const id = (definitionId || '').toLowerCase();
+  if (!id) return null;
+  // Non-carcass items aren't priced through the parts engine
+  if (/oven|fridge|dishwasher|rangehood|microwave|appliance|filler|panel$|applied|kick/.test(id)) {
+    return null;
+  }
+
+  const isWall = id.startsWith('wall') || id.includes('upper');
+  const isTall = id.startsWith('tall') || id.includes('pantry') || id.includes('broom') || id.includes('linen');
+  const isCorner = id.includes('corner') || id.includes('pie');
+  const isBlind = id.includes('blind');
+  const isSink = id.includes('sink');
+
+  const doorMatch = id.match(/(\d)[_-]?door/);
+  let numDoors = doorMatch ? parseInt(doorMatch[1], 10) : (id.includes('door') ? 1 : 0);
+  const drawerMatch = id.match(/(\d)[_-]?drawer/);
+  const numDrawers = drawerMatch ? parseInt(drawerMatch[1], 10) : (id.includes('drawer') ? 1 : 0);
+  if (isSink && numDoors === 0) numDoors = 2;
+
+  const numShelves = isTall ? 4 : isWall ? 2 : (numDrawers > 0 && numDoors === 0 ? 0 : 1);
+  const prefix = isWall ? 'Upper' : isTall ? 'Tall' : 'Base';
+
+  const config: CabinetConfig = {
+    numDoors,
+    numDrawers,
+    numShelves,
+    hasSides: true,
+    hasBack: true,
+    hasBottom: true,
+    hasTop: isWall || isTall,
+    hasRails: !isWall && !isTall,
+    isSinkCabinet: isSink,
+    isCorner,
+    isBlind,
+  };
+
+  const parts: PartRequirement[] = [];
+
+  if (isCorner && !isBlind && !isWall) {
+    // Pie-cut / L-shape corner base (Ls part family)
+    config.numDoors = 2;
+    parts.push(
+      { partType: 'Ls Base Left Side', quantity: 1 },
+      { partType: 'Ls Base Right Side', quantity: 1 },
+      { partType: 'Ls Base Left Back', quantity: 1 },
+      { partType: 'Ls Base Right Back', quantity: 1 },
+      { partType: 'Ls Base Bottom', quantity: 1 },
+      { partType: 'Ls Rail On Edge', quantity: 2 },
+      { partType: 'L Shape Shelf', quantity: 'perShelf' },
+      { partType: 'Door', quantity: 'perDoor' },
+    );
+    return { config, parts };
+  }
+
+  if (isCorner && !isBlind && isWall) {
+    parts.push(
+      { partType: 'Ls Upper Left Side', quantity: 1 },
+      { partType: 'Ls Upper Right Side', quantity: 1 },
+      { partType: 'Ls Upper Left Back', quantity: 1 },
+      { partType: 'Ls Upper Right Back', quantity: 1 },
+      { partType: 'Ls Upper Bottom', quantity: 1 },
+      { partType: 'L Shape Shelf', quantity: 'perShelf' },
+      { partType: 'Door', quantity: 'perDoor' },
+    );
+    config.numDoors = Math.max(1, numDoors);
+    return { config, parts };
+  }
+
+  // Standard carcass
+  parts.push(
+    { partType: `${prefix} Left Side`, quantity: 1 },
+    { partType: `${prefix} Right Side`, quantity: 1 },
+    { partType: `${prefix} Bottom`, quantity: 1 },
+    { partType: `${prefix} Back`, quantity: 1 },
+  );
+  if (isWall || isTall) {
+    parts.push({ partType: `${prefix} Top`, quantity: 1 });
+  } else {
+    parts.push({ partType: 'Rail On Flat', quantity: 2 });
+  }
+  if (numShelves > 0) {
+    parts.push({ partType: 'Adjustable Shelf', quantity: 'perShelf' });
+  }
+  if (config.numDoors > 0) {
+    parts.push({ partType: 'Door', quantity: 'perDoor' });
+  }
+  if (numDrawers > 0) {
+    parts.push(
+      { partType: 'Drawer Front', quantity: 'perDrawer' },
+      { partType: 'Drawer Left Side', quantity: 'perDrawer' },
+      { partType: 'Drawer Right Side', quantity: 'perDrawer' },
+      { partType: 'Drawer Back', quantity: 'perDrawer' },
+      { partType: 'Drawer Bottom', quantity: 'perDrawer' },
+    );
+  }
+
+  return { config, parts };
 }
 
 /**

@@ -482,6 +482,14 @@ export default function RoomPlanner() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Live room pricing (BOM-based) */}
+            <div className="mr-2 text-right">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground leading-none">Est. Total</div>
+              <div className="text-base font-semibold text-trade-navy leading-tight">
+                {new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(roomTotal || 0)}
+              </div>
+            </div>
+
             <div className="flex items-center gap-1 border rounded-md p-1 mr-2">
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
