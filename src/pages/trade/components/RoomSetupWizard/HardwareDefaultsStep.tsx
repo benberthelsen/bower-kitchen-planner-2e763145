@@ -99,15 +99,29 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
   // Hettich, Grass, Blum etc.). Mock entries are the fallback while empty.
   const { hinges: dbHinges, drawerRunners: dbRunners } = useMaterialsCatalog();
 
+  // Shop standard hardware: Salice hinges and Hafele Alto Slim drawers
+  // sort to the top of their lists.
   const hingeList = useMemo(
     () => (dbHinges.length > 0
-      ? dbHinges.map((h) => ({ id: h.id, name: h.name, description: [h.brand, h.series].filter(Boolean).join(' ') || 'Hinge' }))
+      ? [...dbHinges]
+          .sort((a, b) => {
+            const aStd = /salice/i.test(`${a.series} ${a.name}`) ? 0 : 1;
+            const bStd = /salice/i.test(`${b.series} ${b.name}`) ? 0 : 1;
+            return aStd - bStd || a.name.localeCompare(b.name);
+          })
+          .map((h) => ({ id: h.id, name: h.name, description: [h.brand, h.series].filter(Boolean).join(' ') || 'Hinge' }))
       : hingeOptions),
     [dbHinges],
   );
   const drawerList = useMemo(
     () => (dbRunners.length > 0
-      ? dbRunners.map((d) => ({ id: d.id, name: d.name, description: [d.brand, d.series].filter(Boolean).join(' ') || 'Drawer system' }))
+      ? [...dbRunners]
+          .sort((a, b) => {
+            const aStd = /alto slim/i.test(`${a.series} ${a.name}`) ? 0 : 1;
+            const bStd = /alto slim/i.test(`${b.series} ${b.name}`) ? 0 : 1;
+            return aStd - bStd || a.name.localeCompare(b.name);
+          })
+          .map((d) => ({ id: d.id, name: d.name, description: [d.brand, d.series].filter(Boolean).join(' ') || 'Drawer system' }))
       : drawerOptions),
     [dbRunners],
   );

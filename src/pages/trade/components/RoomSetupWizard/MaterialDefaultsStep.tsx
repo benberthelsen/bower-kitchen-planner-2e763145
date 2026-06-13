@@ -130,15 +130,24 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
   // Mock entries remain only as a fallback while the tables are empty.
   const { materials: dbMaterials, edges: dbEdges, isLoading } = useMaterialsCatalog();
 
+  // Business rule: "Shop Materials" brand boards (16mm HMR Arctic White,
+  // 15mm ply, etc.) are the shop's standing carcase/kick stock — they stay
+  // OUT of the exterior list and lead the carcase list.
   const exteriorOptions = useMemo(
     () => (dbMaterials.length > 0
-      ? dbMaterials.filter((m) => !/carcase|shop materials/i.test(`${m.name} ${m.materialType ?? ''}`)).map((m) => ({ id: m.id, name: m.name }))
+      ? dbMaterials.filter((m) => !/shop materials/i.test(m.brand ?? '')).map((m) => ({ id: m.id, name: m.name }))
       : materialOptions),
     [dbMaterials],
   );
   const carcaseOptions = useMemo(
     () => (dbMaterials.length > 0
-      ? dbMaterials.map((m) => ({ id: m.id, name: m.name }))
+      ? [...dbMaterials]
+          .sort((a, b) => {
+            const aShop = /shop materials/i.test(a.brand ?? '') ? 0 : 1;
+            const bShop = /shop materials/i.test(b.brand ?? '') ? 0 : 1;
+            return aShop - bShop || a.name.localeCompare(b.name);
+          })
+          .map((m) => ({ id: m.id, name: m.name }))
       : carcaseMaterials),
     [dbMaterials],
   );
