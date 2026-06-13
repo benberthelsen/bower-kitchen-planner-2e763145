@@ -99,6 +99,7 @@ export interface CabinetBOM {
     handling: number;
     machining: number;
     assembly: number;
+    labor: number;
   };
   totalCost: number;
 }

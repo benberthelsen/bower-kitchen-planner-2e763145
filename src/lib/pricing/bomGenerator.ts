@@ -6,6 +6,7 @@ import { getCabinetPartMapping, getPartQuantities } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements } from './sheetOptimizer';
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
+import { calculateLaborCost, resolveLaborRates } from './laborCalculator';
 import { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 
 /**
@@ -45,7 +46,12 @@ export function generateCabinetBOM(
   
   // Calculate hardware
   const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware);
-  
+
+  // Labor (calibrated against real MV cost reports; tunable via labor_rates)
+  const isTall = cabinet.height >= 1500 || /tall|pantry|broom|linen/i.test(cabinet.definitionId ?? '');
+  const laborRates = resolveLaborRates(pricingData.labor as never);
+  const labor = calculateLaborCost(config, cabinet.width, isTall, laborRates);
+
   // Sum costs
   const subtotals = {
     materials: sheets.reduce((s, sh) => s + sh.totalMaterialCost, 0),
@@ -54,6 +60,7 @@ export function generateCabinetBOM(
     handling: parts.reduce((s, p) => s + p.handlingCost * p.quantity, 0),
     machining: parts.reduce((s, p) => s + p.machiningCost * p.quantity, 0),
     assembly: parts.reduce((s, p) => s + p.assemblyCost * p.quantity, 0),
+    labor,
   };
   
   const totalCost = Object.values(subtotals).reduce((a, b) => a + b, 0);
@@ -125,7 +132,7 @@ function createEmptyBOM(cabinet: PlacedItem, name: string): CabinetBOM {
     sheets: [],
     edgeTape: [],
     hardware: [],
-    subtotals: { materials: 0, edging: 0, hardware: 0, handling: 0, machining: 0, assembly: 0 },
+    subtotals: { materials: 0, edging: 0, hardware: 0, handling: 0, machining: 0, assembly: 0, labor: 0 },
     totalCost: 0
   };
 }
@@ -162,7 +169,7 @@ export function generateQuoteBOM(
       handling: cabinets.reduce((s, c) => s + c.subtotals.handling, 0),
       machining: cabinets.reduce((s, c) => s + c.subtotals.machining, 0),
       assembly: cabinets.reduce((s, c) => s + c.subtotals.assembly, 0),
-      labor: 0,
+      labor: cabinets.reduce((s, c) => s + c.subtotals.labor, 0),
       subtotalExGst,
       gst,
       total: subtotalExGst + gst
