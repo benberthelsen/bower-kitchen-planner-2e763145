@@ -245,6 +245,11 @@ export default function AdminJobDetail() {
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
 
+  /** Stored trade cabinets have `category`, not `itemType` — treat rows without
+   * an explicit itemType as cabinets unless their category is Appliance. */
+  const isCabinetRow = (c: Record<string, unknown> & { roomName: string }) =>
+    (c.itemType ?? ((c.category === 'Appliance') ? 'Appliance' : 'Cabinet')) === 'Cabinet';
+
   /** All cabinets across all rooms (new trade job structure: design_data.tradeRooms). */
   const allCabinets = useMemo(() => {
     const rooms = (designData.tradeRooms as Array<Record<string, unknown>> | undefined) ?? [];
@@ -265,7 +270,7 @@ export default function AdminJobDetail() {
 
     // Reconstruct PlacedItems from stored cabinet data
     const placedItems = allCabinets
-      .filter((c) => c.itemType === 'Cabinet')
+      .filter(isCabinetRow)
       .map((c) => ({
         instanceId: c.instanceId as string,
         definitionId: c.definitionId as string,
@@ -398,7 +403,7 @@ export default function AdminJobDetail() {
           <Card>
             <CardHeader>
               <CardTitle>
-                Rooms &amp; Cabinets ({allRooms.length} room{allRooms.length !== 1 ? 's' : ''}, {allCabinets.filter(c => c.itemType === 'Cabinet').length} cabinet{allCabinets.filter(c => c.itemType === 'Cabinet').length !== 1 ? 's' : ''})
+                Rooms &amp; Cabinets ({allRooms.length} room{allRooms.length !== 1 ? 's' : ''}, {allCabinets.filter(isCabinetRow).length} cabinet{allCabinets.filter(isCabinetRow).length !== 1 ? 's' : ''})
               </CardTitle>
             </CardHeader>
             <CardContent>

@@ -411,7 +411,7 @@ export default function ProductConfigurator() {
           {showPartsList && (
             <div className="w-[25%] min-w-[280px]">
               <PartsListPanel cabinet={cabinet} className="h-full" />
-         </div>
+            </div>
           )}
         </div>
       </div>
