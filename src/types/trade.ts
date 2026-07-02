@@ -63,6 +63,7 @@ export interface CabinetConstruction {
   blindSide?: 'Left' | 'Right'; // blind corner orientation
   hingeSide?: 'Left' | 'Right'; // door hinging
   frontType?: 'PieCut' | 'Angled'; // corner front style (MV: PieCut/Angled Front)
+  drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (#20)
 }
 
 export interface ConfiguredCabinet {

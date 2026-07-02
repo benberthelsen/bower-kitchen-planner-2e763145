@@ -56,6 +56,7 @@ export interface PlacedItem {
   leftCarcaseDepth?: number;
   secondWidth?: number;        // corner SECOND wall run (Wall 2) in mm; width = Wall 1
   shelfCount?: number;         // adjustable shelf count from the editor (overrides recipe default)
+  drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (overrides standard distribution)
   tapId?: string;
   applianceId?: string;
   

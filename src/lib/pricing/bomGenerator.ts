@@ -10,6 +10,7 @@ import { calculateLaborCost, resolveLaborRates } from './laborCalculator';
 import { calculateBuildHours } from './timeModel';
 import { calculateBenchtops } from './benchtopCalculator';
 import { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
+import { distributeDrawerHeights, drawerBoxHeightFromFace } from '@/lib/drawerHeights';
 
 /**
  * Generate BOM for a single cabinet
@@ -127,17 +128,33 @@ function calculatePartDimensions(
   );
   
   const parts: PartDimension[] = [];
-  
-  for (const req of partRequirements) {
+
+  // Per-drawer face heights (#20): custom editor values or the standard
+  // distribution, over the drawer opening (cabinet height minus toe kick for
+  // floor-standing cabinets). Box height = face − 20mm (shop standard).
+  const numDrawers = config.numDrawers ?? 0;
+  const drawerOpening = Math.max(0, cabinet.height - (cabinet.height > 600 ? globalDims.toeKickHeight : 0));
+  const drawerFaces = numDrawers > 0
+    ? distributeDrawerHeights(numDrawers, drawerOpening, cabinet.drawerFrontHeights)
+    : [];
+
+  const pushPart = (
+    req: { partType: string; quantity: number },
+    partVars: typeof vars,
+    nameSuffix = '',
+    quantity = req.quantity,
+    fallbackLength = cabinet.height,
+    fallbackWidth = cabinet.depth,
+  ) => {
     const pricing = partsPricing.find(p => p.part_type === req.partType || p.name === req.partType);
     const isExterior = EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
-    
-    const length = parseFormula(pricing?.length_function ?? null, vars) || cabinet.height;
-    const width = parseFormula(pricing?.width_function ?? null, vars) || cabinet.depth;
+
+    const length = parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength;
+    const width = parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth;
     const area = (length * width) / 1_000_000; // mm² to m²
-    
+
     parts.push({
-      name: pricing?.name ?? req.partType,
+      name: (pricing?.name ?? req.partType) + nameSuffix,
       partType: req.partType,
       length,
       width,
@@ -146,13 +163,45 @@ function calculatePartDimensions(
       materialId: isExterior ? exteriorMaterialId : carcaseMaterialId,
       materialRole: isExterior ? 'exterior' : 'carcase',
       edging: parseEdgingSpec(pricing?.edging ?? null),
-      quantity: req.quantity,
+      quantity,
       handlingCost: pricing?.handling_cost ?? 0,
       machiningCost: pricing?.machining_cost ?? 0,
       assemblyCost: pricing?.assembly_cost ?? 0,
     });
+  };
+
+  for (const req of partRequirements) {
+    const isDrawerPart = /^drawer/i.test(req.partType);
+
+    // Expand per-drawer parts so each drawer prices at its own face height.
+    if (isDrawerPart && numDrawers > 1 && req.quantity === numDrawers && drawerFaces.length === numDrawers) {
+      const isFront = /front/i.test(req.partType);
+      for (let i = 0; i < numDrawers; i++) {
+        const faceH = drawerFaces[i];
+        const boxH = drawerBoxHeightFromFace(faceH);
+        const perVars = { ...vars, DrawerFrontHeight: faceH, DrawerHeight: boxH };
+        pushPart(
+          req,
+          perVars,
+          ` (D${i + 1})`,
+          1,
+          isFront ? cabinet.width : cabinet.depth,
+          isFront ? faceH : boxH,
+        );
+      }
+      continue;
+    }
+
+    if (isDrawerPart && numDrawers > 0 && drawerFaces.length === numDrawers) {
+      const faceH = drawerFaces[0];
+      const perVars = { ...vars, DrawerFrontHeight: faceH, DrawerHeight: drawerBoxHeightFromFace(faceH) };
+      pushPart(req, perVars);
+      continue;
+    }
+
+    pushPart(req, vars);
   }
-  
+
   return parts;
 }
 

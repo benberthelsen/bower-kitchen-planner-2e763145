@@ -159,6 +159,7 @@ export default function RoomPlanner() {
       fillerLeft: cabinet.construction?.leftFillerWidth,
       fillerRight: cabinet.construction?.rightFillerWidth,
       blindSide: cabinet.construction?.blindSide,
+      drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
       };
     });
   }, [cabinets, pricedMaterials]);

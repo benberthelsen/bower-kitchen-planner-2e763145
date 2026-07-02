@@ -16,6 +16,8 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { FINISH_OPTIONS, HANDLE_OPTIONS } from '@/constants';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
+import { useCatalogItem } from '@/hooks/useCatalog';
+import { distributeDrawerHeights, DRAWER_BOX_FACE_OFFSET_MM } from '@/lib/drawerHeights';
 import { 
   Ruler, 
   Palette, 
@@ -51,6 +53,7 @@ export function CabinetEditDialog({
     ? drawerRunners.map(d => ({ value: d.id, label: d.name }))
     : [{ value: 'soft-close', label: 'Soft Close' }, { value: 'standard', label: 'Standard' }, { value: 'push-open', label: 'Push Open' }];
   const [activeTab, setActiveTab] = useState('dimensions');
+  const catalogItem = useCatalogItem(cabinet?.definitionId ?? null);
 
   useEffect(() => {
     if (!open) setActiveTab('dimensions');
@@ -59,6 +62,15 @@ export function CabinetEditDialog({
   if (!cabinet) return null;
 
   const isCornerCabinet = /corner|pie[-_ ]?cut|blind|diagonal/i.test(cabinet.definitionId || '');
+
+  // #20 — per-drawer front heights
+  const drawerCount = catalogItem?.renderConfig?.drawerCount ?? 0;
+  const drawerOpening = Math.max(0, cabinet.dimensions.height - (cabinet.category === 'Wall' ? 0 : 135));
+  const customFaces = cabinet.construction?.drawerFrontHeights;
+  const effectiveFaces = drawerCount > 0
+    ? distributeDrawerHeights(drawerCount, drawerOpening, customFaces).map((h) => Math.round(h))
+    : [];
+  const facesSum = effectiveFaces.reduce((a, b) => a + b, 0);
 
   const handleUpdateConstruction = (updates: Partial<NonNullable<ConfiguredCabinet['construction']>>) => {
     updateCabinet(roomId, cabinet.instanceId, {
@@ -192,6 +204,46 @@ export function CabinetEditDialog({
                   onChange={(e) => handleUpdateMounting(Number(e.target.value))}
                 />
                 <div className="text-xs text-muted-foreground">Standard 1350mm floor to underside (editable).</div>
+              </div>
+            )}
+
+            {/* #20 — Drawer front heights (mm, top → bottom) */}
+            {drawerCount > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Drawer Front Heights (mm, top → bottom)</Label>
+                  {customFaces && customFaces.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => handleUpdateConstruction({ drawerFrontHeights: undefined })}
+                    >
+                      Reset to standard
+                    </Button>
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {effectiveFaces.map((face, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className="text-[10px] text-muted-foreground text-center">D{i + 1}</div>
+                      <Input
+                        type="number"
+                        min={DRAWER_BOX_FACE_OFFSET_MM + 40}
+                        value={face}
+                        onChange={(e) => {
+                          const next = [...effectiveFaces];
+                          next[i] = Math.max(1, Number(e.target.value) || 0);
+                          handleUpdateConstruction({ drawerFrontHeights: next });
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Total {facesSum}mm of ~{drawerOpening}mm opening. Drawer box side = face − {DRAWER_BOX_FACE_OFFSET_MM}mm.
+                  {customFaces && facesSum !== drawerOpening ? ' Heights are scaled to fit the opening.' : ''}
+                </div>
               </div>
             )}
 

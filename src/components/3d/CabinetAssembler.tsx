@@ -58,6 +58,7 @@ import {
   getRecipeReveals,
   DEFAULT_REVEALS,
 } from '@/lib/microvellum/constructionRecipes';
+import { distributeDrawerHeights } from '@/lib/drawerHeights';
 import { calculateHandlePosition } from '@/utils/snapping/gableSnapping';
 
 interface MaterialProps {
@@ -433,17 +434,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
    * Calculate variable drawer heights - larger drawers at bottom (Microvellum standard)
    */
   const getDrawerHeights = (count: number, totalHeight: number): number[] => {
-    // Microvellum-style drawer height distributions (proportions)
-    const distributions: Record<number, number[]> = {
-      1: [1.0],
-      2: [0.40, 0.60],           // Top 40%, Bottom 60%
-      3: [0.25, 0.33, 0.42],     // Small, Medium, Large
-      4: [0.18, 0.24, 0.28, 0.30],
-      5: [0.14, 0.18, 0.22, 0.22, 0.24],
-    };
-    
-    const ratios = distributions[count] || Array(count).fill(1 / count);
-    return ratios.map(ratio => ratio * totalHeight);
+    // Custom per-drawer face heights (mm, top → bottom) from the cabinet editor
+    // take priority; otherwise Microvellum-style standard distribution.
+    return distributeDrawerHeights(count, totalHeight, item.drawerFrontHeights);
   };
 
   /**
