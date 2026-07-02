@@ -67,8 +67,13 @@ export function CabinetEditDialog({
   const drawerCount = catalogItem?.renderConfig?.drawerCount ?? 0;
   const drawerOpening = Math.max(0, cabinet.dimensions.height - (cabinet.category === 'Wall' ? 0 : 135));
   const customFaces = cabinet.construction?.drawerFrontHeights;
+  const hasCustomFaces = !!customFaces && customFaces.length === drawerCount;
+  // Show the user's raw values while editing (no live re-normalisation — that
+  // made typed values jump). Scaling to the opening happens in render/BOM.
   const effectiveFaces = drawerCount > 0
-    ? distributeDrawerHeights(drawerCount, drawerOpening, customFaces).map((h) => Math.round(h))
+    ? (hasCustomFaces
+        ? customFaces.map((h) => Math.round(h))
+        : distributeDrawerHeights(drawerCount, drawerOpening).map((h) => Math.round(h)))
     : [];
   const facesSum = effectiveFaces.reduce((a, b) => a + b, 0);
 
@@ -242,7 +247,7 @@ export function CabinetEditDialog({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Total {facesSum}mm of ~{drawerOpening}mm opening. Drawer box side = face − {DRAWER_BOX_FACE_OFFSET_MM}mm.
-                  {customFaces && facesSum !== drawerOpening ? ' Heights are scaled to fit the opening.' : ''}
+                  {hasCustomFaces && Math.abs(facesSum - drawerOpening) > 2 ? ' Heights will be scaled proportionally to fit the opening.' : ''}
                 </div>
               </div>
             )}
