@@ -43,6 +43,12 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const isSink = def.sku.includes('SINK');
   const isCooktop = def.sku.includes('CT');
   const isDishwasher = def.sku.includes('DW');
+  const applianceName = (def.name || '').toLowerCase();
+  const isFrontLoader = applianceName.includes('wash') || applianceName.includes('dryer');
+  // Any appliance that isn't a flush fitting (sink/cooktop) or a dishwasher
+  // still needs a visible body — washing machines, ovens, fridges, rangehoods,
+  // microwaves, etc. Previously these rendered nothing but a selection box.
+  const isGenericAppliance = !isSink && !isCooktop && !isDishwasher;
 
   let posY = (item.y / 1000) + (heightM / 2);
   if (isSink || isCooktop) posY = item.y / 1000;
@@ -83,6 +89,24 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
           <mesh><boxGeometry args={[widthM, heightM, depthM]} /><meshStandardMaterial color="#d1d5db" metalness={0.6} roughness={0.4} /></mesh>
           <mesh position={[0, heightM / 4, depthM / 2 + 0.01]}><boxGeometry args={[widthM - 0.02, 0.02, 0.01]} /><meshStandardMaterial color="#4b5563" /></mesh>
           <mesh position={[0, -heightM / 4, depthM / 2 + 0.01]}><boxGeometry args={[widthM - 0.02, 0.02, 0.01]} /><meshStandardMaterial color="#4b5563" /></mesh>
+        </group>
+      )}
+
+      {isGenericAppliance && (
+        <group>
+          {/* Main upright body */}
+          <mesh><boxGeometry args={[widthM, heightM, depthM]} /><meshStandardMaterial color="#e5e7eb" metalness={0.55} roughness={0.35} /></mesh>
+          {/* Recessed front door / panel */}
+          <mesh position={[0, 0, depthM / 2 + 0.006]}><boxGeometry args={[widthM - 0.05, heightM - 0.05, 0.012]} /><meshStandardMaterial color="#cbd5e1" metalness={0.6} roughness={0.3} /></mesh>
+          {/* Vertical handle */}
+          <mesh position={[widthM / 2 - 0.07, 0, depthM / 2 + 0.02]}><boxGeometry args={[0.025, heightM * 0.45, 0.02]} /><meshStandardMaterial color="#6b7280" metalness={0.85} roughness={0.2} /></mesh>
+          {/* Round door for front-loaders (washer / dryer) */}
+          {isFrontLoader && (
+            <mesh position={[-0.03, 0.02, depthM / 2 + 0.018]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[Math.min(widthM, heightM) * 0.3, Math.min(widthM, heightM) * 0.3, 0.012, 28]} />
+              <meshStandardMaterial color="#9ca3af" metalness={0.4} roughness={0.5} />
+            </mesh>
+          )}
         </group>
       )}
     </group>

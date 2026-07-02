@@ -15,6 +15,7 @@ import {
   CabinetMaterials,
   CabinetHardware,
   CabinetAccessories,
+  CabinetConstruction,
   useTradeRoom,
   defaultMaterialDefaults,
   defaultHardwareDefaults,
@@ -205,6 +206,14 @@ export default function ProductConfigurator() {
     }));
   };
 
+  const handleUpdateConstruction = (updates: Partial<CabinetConstruction>) => {
+    setCabinet((prev) => ({
+      ...prev,
+      construction: { ...(prev.construction || {}), ...updates },
+      updatedAt: new Date(),
+    }));
+  };
+
   const handleReset = () => {
     setCabinet(cloneCabinet(initialSnapshot));
     toast.info(isEditing ? 'Changes reverted' : 'Configuration reset to defaults');
@@ -377,7 +386,7 @@ export default function ProductConfigurator() {
               </TabsList>
 
               <ScrollArea className="flex-1">
-                <TabsContent value="dimensions" className="m-0 mt-0"><DimensionsTab cabinet={cabinet} onUpdate={handleUpdateDimensions} constraints={dimensionConstraints} /></TabsContent>
+                <TabsContent value="dimensions" className="m-0 mt-0"><DimensionsTab cabinet={cabinet} onUpdate={handleUpdateDimensions} onUpdateConstruction={handleUpdateConstruction} constraints={dimensionConstraints} /></TabsContent>
                 <TabsContent value="materials" className="m-0 mt-0"><MaterialsTab cabinet={cabinet} onUpdate={handleUpdateMaterials} /></TabsContent>
                 <TabsContent value="hardware" className="m-0 mt-0"><HardwareTab cabinet={cabinet} onUpdate={handleUpdateHardware} /></TabsContent>
                 <TabsContent value="accessories" className="m-0 mt-0"><AccessoriesTab cabinet={cabinet} onUpdate={handleUpdateAccessories} /></TabsContent>

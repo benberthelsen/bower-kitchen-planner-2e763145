@@ -1,204 +1,100 @@
 import React, { Suspense, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows, PerspectiveCamera } from '@react-three/drei';
-import * as THREE from 'three';
 import { ConfiguredCabinet } from '@/contexts/TradeRoomContext';
+import CabinetMesh from '@/components/3d/CabinetMesh';
+import { FINISH_OPTIONS } from '@/constants';
+import { PlacedItem } from '@/types';
+import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 
 interface Preview3DProps {
   cabinet: ConfiguredCabinet;
   className?: string;
 }
 
-function CabinetPreviewMesh({ cabinet }: { cabinet: ConfiguredCabinet }) {
-  const { width, height, depth } = cabinet.dimensions;
-  
-  // Convert mm to scene units (1 unit = 100mm)
-  const w = width / 100;
-  const h = height / 100;
-  const d = depth / 100;
-  
-  // Get material color from cabinet config
-  const exteriorColor = useMemo(() => {
-    // Simple color mapping - in real app would use finish options
-    const colorMap: Record<string, string> = {
-      'white-matt': '#f5f5f5',
-      'white-gloss': '#ffffff',
-      'natural-oak': '#c4a66b',
-      'walnut': '#5c4033',
-      'charcoal': '#36454f',
-      'navy': '#1e3a5f',
-    };
-    return colorMap[cabinet.materials.exteriorFinish] || '#f5f5f5';
-  }, [cabinet.materials.exteriorFinish]);
-
-  const carcaseColor = '#e8e8e8';
-  
-  // Door/drawer configuration based on cabinet type
-  const doorCount = cabinet.category === 'Base' ? 2 : cabinet.category === 'Tall' ? 2 : 1;
-  const hasDrawers = cabinet.productName.toLowerCase().includes('drawer');
-  const drawerCount = hasDrawers ? 3 : 0;
-  
-  const gapSize = 0.02;
-  const doorThickness = 0.018;
-  const handleOffset = 0.02;
-
-  return (
-    <group position={[0, h / 2, 0]}>
-      {/* Carcase - back panel */}
-      <mesh position={[0, 0, -d / 2 + 0.009]}>
-        <boxGeometry args={[w - 0.036, h - 0.036, 0.018]} />
-        <meshStandardMaterial color={carcaseColor} />
-      </mesh>
-      
-      {/* Carcase - left gable */}
-      <mesh position={[-w / 2 + 0.009, 0, 0]}>
-        <boxGeometry args={[0.018, h - 0.036, d - 0.018]} />
-        <meshStandardMaterial color={carcaseColor} />
-      </mesh>
-      
-      {/* Carcase - right gable */}
-      <mesh position={[w / 2 - 0.009, 0, 0]}>
-        <boxGeometry args={[0.018, h - 0.036, d - 0.018]} />
-        <meshStandardMaterial color={carcaseColor} />
-      </mesh>
-      
-      {/* Carcase - top panel */}
-      <mesh position={[0, h / 2 - 0.009, 0]}>
-        <boxGeometry args={[w - 0.036, 0.018, d - 0.018]} />
-        <meshStandardMaterial color={carcaseColor} />
-      </mesh>
-      
-      {/* Carcase - bottom panel */}
-      <mesh position={[0, -h / 2 + 0.009, 0]}>
-        <boxGeometry args={[w - 0.036, 0.018, d - 0.018]} />
-        <meshStandardMaterial color={carcaseColor} />
-      </mesh>
-      
-      {/* Shelves */}
-      {Array.from({ length: cabinet.accessories.shelfCount }).map((_, i) => {
-        const shelfY = -h / 2 + (h / (cabinet.accessories.shelfCount + 1)) * (i + 1);
-        return (
-          <mesh key={`shelf-${i}`} position={[0, shelfY, -0.02]}>
-            <boxGeometry args={[w - 0.054, 0.018, d - 0.05]} />
-            <meshStandardMaterial color={carcaseColor} />
-          </mesh>
-        );
-      })}
-      
-      {/* Doors or Drawers */}
-      {hasDrawers ? (
-        // Drawer fronts
-        Array.from({ length: drawerCount }).map((_, i) => {
-          const drawerHeight = (h - gapSize * (drawerCount + 1)) / drawerCount;
-          const drawerY = h / 2 - gapSize - drawerHeight / 2 - i * (drawerHeight + gapSize);
-          return (
-            <group key={`drawer-${i}`}>
-              <mesh position={[0, drawerY, d / 2 - doorThickness / 2]}>
-                <boxGeometry args={[w - gapSize * 2, drawerHeight, doorThickness]} />
-                <meshStandardMaterial color={exteriorColor} />
-              </mesh>
-              {/* Drawer handle */}
-              <mesh position={[0, drawerY, d / 2 + handleOffset]}>
-                <boxGeometry args={[0.15, 0.012, 0.012]} />
-                <meshStandardMaterial color="#2a2a2a" metalness={0.8} roughness={0.3} />
-              </mesh>
-            </group>
-          );
-        })
-      ) : (
-        // Door fronts
-        Array.from({ length: doorCount }).map((_, i) => {
-          const doorWidth = (w - gapSize * (doorCount + 1)) / doorCount;
-          const doorX = -w / 2 + gapSize + doorWidth / 2 + i * (doorWidth + gapSize);
-          return (
-            <group key={`door-${i}`}>
-              <mesh position={[doorX, 0, d / 2 - doorThickness / 2]}>
-                <boxGeometry args={[doorWidth, h - gapSize * 2, doorThickness]} />
-                <meshStandardMaterial color={exteriorColor} />
-              </mesh>
-              {/* Door handle */}
-              <mesh 
-                position={[
-                  doorX + (i === 0 ? doorWidth / 2 - 0.04 : -doorWidth / 2 + 0.04), 
-                  0, 
-                  d / 2 + handleOffset
-                ]}
-              >
-                <boxGeometry args={[0.012, 0.15, 0.012]} />
-                <meshStandardMaterial color="#2a2a2a" metalness={0.8} roughness={0.3} />
-              </mesh>
-            </group>
-          );
-        })
-      )}
-      
-      {/* Kickboard for base cabinets */}
-      {cabinet.category === 'Base' && (
-        <mesh position={[0, -h / 2 - 0.075, d / 2 - 0.05]}>
-          <boxGeometry args={[w, 0.15, 0.018]} />
-          <meshStandardMaterial color={exteriorColor} />
-        </mesh>
-      )}
-    </group>
-  );
-}
-
-function LoadingFallback() {
-  return (
-    <mesh>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color="#e0e0e0" wireframe />
-    </mesh>
-  );
+// Convert the editor's ConfiguredCabinet to the PlacedItem the real renderer uses,
+// mirroring the planner's placedItems mapping (incl. square L-corner footprint).
+function toPlacedItem(cabinet: ConfiguredCabinet): PlacedItem {
+  const nm = cabinet.productName || '';
+  const isLCorner = /corner/i.test(nm) && !/diagonal|blind|open|angle/i.test(nm);
+  const storedDepth = cabinet.dimensions.depth;
+  return {
+    instanceId: cabinet.instanceId || 'preview',
+    definitionId: cabinet.definitionId,
+    itemType: cabinet.category === 'Appliance' ? 'Appliance' : 'Cabinet',
+    x: 0,
+    y: 0,
+    z: 0,
+    rotation: 0,
+    width: cabinet.dimensions.width,
+    depth: isLCorner ? cabinet.dimensions.width : storedDepth,
+    height: cabinet.dimensions.height,
+    hinge: cabinet.construction?.hingeSide ?? 'Left',
+    cabinetNumber: cabinet.cabinetNumber,
+    finishColor: cabinet.materials?.exteriorFinish,
+    carcaseMaterialId: cabinet.materials?.carcaseFinish,
+    exteriorMaterialId: cabinet.materials?.exteriorFinish,
+    handleType: cabinet.hardware?.handleType,
+    leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft ?? (isLCorner ? storedDepth : undefined),
+    rightCarcaseDepth: cabinet.construction?.cabinetDepthRight ?? (isLCorner ? storedDepth : undefined),
+    secondWidth: cabinet.construction?.secondWidth ?? (isLCorner ? cabinet.dimensions.width : undefined),
+    shelfCount: cabinet.accessories?.shelfCount,
+    fillerLeft: cabinet.construction?.leftFillerWidth,
+    fillerRight: cabinet.construction?.rightFillerWidth,
+    blindSide: cabinet.construction?.blindSide,
+  } as PlacedItem;
 }
 
 export function Preview3D({ cabinet, className = '' }: Preview3DProps) {
-  // Calculate camera distance based on cabinet size
-  const maxDimension = Math.max(
-    cabinet.dimensions.width,
-    cabinet.dimensions.height,
-    cabinet.dimensions.depth
-  ) / 100;
-  
-  const cameraDistance = maxDimension * 2.5;
+  const { materials } = useMaterialsCatalog();
+  const item = useMemo(() => {
+    const it = toPlacedItem(cabinet);
+    const findUrl = (id?: string) => {
+      const m = id ? materials.find((x) => x.id === id) : undefined;
+      return m ? (m.textureImageUrl || m.sampleImageUrl || null) : null;
+    };
+    it.doorTextureUrl = findUrl(cabinet.materials?.exteriorFinish);
+    it.carcaseTextureUrl = findUrl(cabinet.materials?.carcaseFinish);
+    return it;
+  }, [cabinet, materials]);
+  const finish = useMemo(
+    () => (cabinet.materials?.exteriorFinish ? FINISH_OPTIONS.find(f => f.id === cabinet.materials.exteriorFinish) : undefined),
+    [cabinet.materials?.exteriorFinish]
+  );
+
+  // Scene works in metres (matches the planner). Frame the cabinet by its largest side.
+  const maxDim = Math.max(cabinet.dimensions.width, cabinet.dimensions.height, cabinet.dimensions.depth) / 1000;
+  const camD = maxDim * 2.2;
+  const targetY = cabinet.dimensions.height / 2000;
 
   return (
     <div className={`w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg overflow-hidden ${className}`}>
-      <Canvas shadows>
-        <PerspectiveCamera 
-          makeDefault 
-          position={[cameraDistance * 0.8, cameraDistance * 0.6, cameraDistance]} 
-          fov={45}
-        />
-        <OrbitControls 
+      <Canvas shadows dpr={[1, 2]}>
+        <PerspectiveCamera makeDefault position={[camD * 0.85, camD * 0.7, camD]} fov={45} />
+        <OrbitControls
           enablePan={false}
-          minDistance={maxDimension * 1.5}
-          maxDistance={maxDimension * 5}
-          target={[0, cabinet.dimensions.height / 200, 0]}
+          minDistance={maxDim * 1.2}
+          maxDistance={maxDim * 6}
+          target={[0, targetY, 0]}
         />
-        
-        <ambientLight intensity={0.4} />
-        <directionalLight
-          position={[5, 8, 5]}
-          intensity={1}
-          castShadow
-          shadow-mapSize={[1024, 1024]}
-        />
+
+        <ambientLight intensity={0.45} />
+        <hemisphereLight args={[0xffffff, 0xbfc4cc, 0.5]} />
+        <directionalLight position={[3, 6, 4]} intensity={1.0} castShadow shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-3, 4, -3]} intensity={0.3} />
-        
-        <Suspense fallback={<LoadingFallback />}>
-          <CabinetPreviewMesh cabinet={cabinet} />
-          <ContactShadows
-            position={[0, -0.01, 0]}
-            opacity={0.4}
-            scale={10}
-            blur={2}
-            far={4}
+
+        <Suspense fallback={null}>
+          {/* Same renderer as the planner — corners, 16mm carcass, reveals, rails all match */}
+          <CabinetMesh
+            item={item}
+            selectedFinish={finish}
+            hardwareOptions={item.handleType ? { handleId: item.handleType } : undefined}
           />
-          <Environment preset="apartment" />
+          <ContactShadows position={[0, 0, 0]} opacity={0.4} scale={Math.max(maxDim * 2, 2)} blur={2} far={4} />
+          {/* No external HDR Environment — the explicit lights above keep the
+              render self-contained (an external HDR fetch can 400 and crash the scene). */}
         </Suspense>
-        
-        {/* Floor grid */}
+
         <gridHelper args={[10, 20, '#cccccc', '#e5e5e5']} position={[0, 0, 0]} />
       </Canvas>
     </div>

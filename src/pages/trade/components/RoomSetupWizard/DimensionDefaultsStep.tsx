@@ -17,6 +17,13 @@ import { useState } from 'react';
 import { RoomConfig } from './index';
 import KitchenDimensionsDiagram from './KitchenDimensionsDiagram';
 
+// Shop standard size presets. Bench is 900 finished (kick 135 + base 732 +
+// 33 benchtop); overheads/tall finish at 2100 (Std 1) or 2400 (Std 2).
+const DIMENSION_PRESETS: Record<string, Partial<RoomConfig>> = {
+  standard1: { toeKickHeight: 135, baseHeight: 732, baseDepth: 575, wallHeight: 600, wallDepth: 300, tallHeight: 2100, tallDepth: 600 },
+  standard2: { toeKickHeight: 135, baseHeight: 732, baseDepth: 575, wallHeight: 900, wallDepth: 300, tallHeight: 2400, tallDepth: 600 },
+};
+
 interface DimensionDefaultsStepProps {
   config: RoomConfig;
   updateConfig: (updates: Partial<RoomConfig>) => void;
@@ -76,6 +83,12 @@ function DimensionInput({
 
 export default function DimensionDefaultsStep({ config, updateConfig }: DimensionDefaultsStepProps) {
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [preset, setPreset] = useState('standard1');
+
+  const applyPreset = (key: string) => {
+    setPreset(key);
+    if (DIMENSION_PRESETS[key]) updateConfig(DIMENSION_PRESETS[key]);
+  };
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -89,13 +102,13 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
           {/* Preset Selector */}
           <div className="flex items-center gap-3">
             <Label className="text-trade-navy font-medium min-w-[140px]">Size Preset:</Label>
-            <Select defaultValue="standard1">
+            <Select value={preset} onValueChange={applyPreset}>
               <SelectTrigger className="w-48 border-trade-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="standard1">Standard 1</SelectItem>
-                <SelectItem value="standard2">Standard 2</SelectItem>
+                <SelectItem value="standard1">Standard 1 — 2100 overhead</SelectItem>
+                <SelectItem value="standard2">Standard 2 — 2400 overhead</SelectItem>
                 <SelectItem value="custom">Custom</SelectItem>
               </SelectContent>
             </Select>
@@ -170,6 +183,16 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
               min={200}
               max={400}
             />
+            <DimensionInput
+              id="wallMountHeight"
+              label="Mount Height:"
+              value={config.wallMountHeight}
+              onChange={(v) => updateConfig({ wallMountHeight: v })}
+              tooltip="Floor-to-underside mounting height of wall cabinets (standard 1350mm)"
+              onFocusField={setFocusedField}
+              min={1000}
+              max={1800}
+            />
           </div>
 
           <div className="border-t border-trade-border pt-4 space-y-4">
@@ -197,9 +220,9 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
           </div>
         </div>
 
-        {/* Live dimensions diagram — updates with the inputs; the focused
-            field's measurement highlights in amber */}
-        <div className="bg-trade-surface rounded-xl p-6 flex items-center justify-center sticky top-4 self-start">
+        {/* Live dimensions diagram — proper technical elevation with dimension
+            arrows; the focused field's measurement highlights in amber */}
+        <div className="bg-trade-surface rounded-xl p-4 sticky top-4 self-start">
           <KitchenDimensionsDiagram
             toeKickHeight={config.toeKickHeight}
             baseHeight={config.baseHeight}

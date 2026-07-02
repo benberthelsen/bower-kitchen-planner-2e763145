@@ -94,11 +94,16 @@ export function useTradeJobPersistence(jobId?: string) {
         lastSyncedAt: new Date().toISOString(),
       } as PersistedTradeDesignData;
 
+      // Fetch the current user so customer_id is always set on insert/upsert.
+      // supabase.auth.getUser() is sync-safe here (returns cached session).
+      const { data: { user } } = await supabase.auth.getUser();
+
       const payload = {
         id: input.id,
         name: input.name,
         status: input.status ?? 'draft',
         design_data: mergedDesignData as unknown as PersistedTradeDesignData,
+        ...(user ? { customer_id: user.id } : {}),
       };
 
       const { data, error } = await supabase
@@ -192,7 +197,7 @@ export function useTradeJobPersistence(jobId?: string) {
     return persistRooms({ jobId: input.jobId, rooms: nextRooms });
   }, [getCurrentJob, persistRooms]);
 
-  const persistQuoteSnapshot = useCallback(async (input: { jobId: string; snapshot: QuoteSnapshot }) => {
+  const persistQuoteSnapshot = useCallback(async (input: { jobId: string; snapshot: QuoteSnapshot; rooms?: TradeRoom[] }) => {
     const current = getCurrentJob(input.jobId);
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
@@ -205,7 +210,9 @@ export function useTradeJobPersistence(jobId?: string) {
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
       status: normalizeStatus(current?.status),
-      rooms: normalizeRooms(existing),
+      // Prefer the caller's live rooms; fall back to cache only if not provided.
+      // (Writing the stale cached rooms here was dropping newly-added cabinets.)
+      rooms: input.rooms ?? normalizeRooms(existing),
       existingDesignData,
       designDataPatch: {
         quoteSnapshot: input.snapshot,
@@ -214,7 +221,7 @@ export function useTradeJobPersistence(jobId?: string) {
     });
   }, [getCurrentJob, upsertJobMutation]);
 
-  const persistJobTotals = useCallback(async (input: { jobId: string; subtotal?: number; tax?: number; total?: number }) => {
+  const persistJobTotals = useCallback(async (input: { jobId: string; subtotal?: number; tax?: number; total?: number; rooms?: TradeRoom[] }) => {
     const current = getCurrentJob(input.jobId);
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
@@ -223,7 +230,8 @@ export function useTradeJobPersistence(jobId?: string) {
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
       status: normalizeStatus(current?.status),
-      rooms: normalizeRooms(existing),
+      // Prefer caller's live rooms; cache fallback dropped newly-added cabinets.
+      rooms: input.rooms ?? normalizeRooms(existing),
       existingDesignData,
       designDataPatch: {
         jobTotals: {

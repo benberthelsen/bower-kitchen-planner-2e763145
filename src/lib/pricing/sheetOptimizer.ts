@@ -35,8 +35,13 @@ export function calculateSheetRequirements(
   const allocations: SheetAllocation[] = [];
   
   for (const [materialId, materialParts] of partsByMaterial) {
-    const material = materials.find(m => m.id === materialId || m.item_code === materialId);
-    
+    // Resolve the part's material. If the part isn't tagged with a known material
+    // id (e.g. carcase selection not yet plumbed through), fall back to the first
+    // PRICED material rather than charging $0 for board — board is always charged.
+    const material = materials.find(m => m.id === materialId || m.item_code === materialId)
+      ?? materials.find(m => (m.area_cost ?? 0) > 0)
+      ?? materials[0];
+
     // Get sheet spec from material or use default
     const sheetSpec: SheetSpec = material && material.sheet_width && material.sheet_length
       ? {
@@ -55,7 +60,8 @@ export function calculateSheetRequirements(
       material?.name ?? 'Unknown Material',
       materialId
     );
-    
+    allocation.materialRole = materialParts[0]?.materialRole ?? 'carcase';
+
     allocations.push(allocation);
   }
   
@@ -95,9 +101,10 @@ function calculateMaterialSheets(
   
   // Waste area
   const wasteArea = totalSheetArea - totalPartArea;
-  
-  // Calculate cost
-  const totalMaterialCost = chargeableArea * areaCostPerSqm;
+
+  // Calculate cost — you BUY whole sheets, so you pay for whole sheets.
+  // (One small door in a job still pays the full sheet price.)
+  const totalMaterialCost = totalSheetArea * areaCostPerSqm;
   
   return {
     materialId,
@@ -151,6 +158,7 @@ export function consolidateSheetRequirements(
     consolidated.push({
       materialId,
       materialName: template.materialName,
+      materialRole: template.materialRole,
       sheetWidth: template.sheetWidth,
       sheetLength: template.sheetLength,
       sheetArea: template.sheetArea,
@@ -159,7 +167,7 @@ export function consolidateSheetRequirements(
       wasteArea: totalSheetArea - totalPartArea,
       yieldFactor: template.yieldFactor,
       areaCostPerSqm: template.areaCostPerSqm,
-      totalMaterialCost: adjustedArea * template.areaCostPerSqm
+      totalMaterialCost: totalSheetArea * template.areaCostPerSqm
     });
   }
   
@@ -178,11 +186,11 @@ export function calculateBulkSavings(
     (sum, sheets) => sum + sheets.reduce((s, sh) => s + sh.totalMaterialCost, 0),
     0
   );
-  
+
   const consolidatedTotal = consolidatedSheets.reduce(
     (sum, sh) => sum + sh.totalMaterialCost,
     0
   );
-  
+
   return individualTotal - consolidatedTotal;
 }

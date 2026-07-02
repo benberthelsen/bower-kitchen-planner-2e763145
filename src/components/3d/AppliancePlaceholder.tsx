@@ -46,15 +46,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
     )
   );
 
-  const renderLabel = () => (
-    isSelected && (
-      <Html position={[0, heightM / 2 + 0.15, 0]} center zIndexRange={[100, 0]}>
-        <div className="bg-gray-900/90 backdrop-blur text-white px-2 py-1 rounded-md shadow-xl text-xs font-medium pointer-events-none select-none">
-          {config.productName}
-        </div>
-      </Html>
-    )
-  );
+  // Selected-appliance label now shows in the side panel, not a floating banner.
+  const renderLabel = () => null;
 
   // Fridge - Tall box with door handle indication
   if (isFridge) {

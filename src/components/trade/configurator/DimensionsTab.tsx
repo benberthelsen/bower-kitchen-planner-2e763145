@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
-import { ConfiguredCabinet, CabinetDimensions } from '@/contexts/TradeRoomContext';
-import { Ruler, ArrowsUpFromLine, Box } from 'lucide-react';
+import { ConfiguredCabinet, CabinetDimensions, CabinetConstruction } from '@/contexts/TradeRoomContext';
+import { useCatalogItem } from '@/hooks/useCatalog';
+import { Ruler, ArrowsUpFromLine, Box, DoorOpen } from 'lucide-react';
 
 interface DimensionsTabProps {
   cabinet: ConfiguredCabinet;
   onUpdate: (dimensions: Partial<CabinetDimensions>) => void;
+  onUpdateConstruction?: (construction: Partial<CabinetConstruction>) => void;
   constraints?: {
     minWidth?: number;
     maxWidth?: number;
@@ -27,9 +29,88 @@ const defaultConstraints = {
   maxDepth: 700,
 };
 
-export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: DimensionsTabProps) {
+/**
+ * Number field that lets you type freely (including clearing it) and only
+ * applies the value on blur / Enter. The previous version clamped on every
+ * keystroke, so typing "575" snapped the first digit to the minimum and you
+ * could never enter a value by hand.
+ */
+function MmInput({
+  value,
+  min,
+  max,
+  onCommit,
+  className,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (v: number) => void;
+  className?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setText(String(value));
+  }, [value, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const n = parseInt(text, 10);
+    if (Number.isNaN(n)) {
+      setText(String(value));
+      return;
+    }
+    onCommit(n); // caller clamps to [min, max]
+  };
+
+  return (
+    <Input
+      type="number"
+      value={editing ? text : value}
+      onFocus={() => setEditing(true)}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      }}
+      className={className}
+      min={min}
+      max={max}
+    />
+  );
+}
+
+export function DimensionsTab({ cabinet, onUpdate, onUpdateConstruction, constraints = {} }: DimensionsTabProps) {
   const limits = { ...defaultConstraints, ...constraints };
-  
+
+  // Render config tells us the cabinet's shape (corner type, door count).
+  const rc = useCatalogItem(cabinet.definitionId)?.renderConfig;
+  const nm = cabinet.productName || '';
+  const nameIsCorner = /corner/i.test(nm);
+  const isLShapeCorner = rc?.cornerType === 'l-shape' || (nameIsCorner && !/diagonal|blind|open|angle/i.test(nm));
+  const hasDoors = (rc?.doorCount ?? 0) > 0 || !!rc?.isSink || nameIsCorner;
+  const secondWidth = cabinet.construction?.secondWidth ?? cabinet.dimensions.width;
+  const hingeSide = cabinet.construction?.hingeSide ?? 'Left';
+
+  const handleSecondWidthChange = (value: number) => {
+    const clamped = Math.min(Math.max(value, limits.minWidth), limits.maxWidth);
+    onUpdateConstruction?.({ secondWidth: clamped });
+  };
+
+  // Corner legs (arms) have independent return depths (MV: Cabinet Depth Left/Right).
+  const leftLegDepth = cabinet.construction?.cabinetDepthLeft ?? cabinet.dimensions.depth;
+  const rightLegDepth = cabinet.construction?.cabinetDepthRight ?? cabinet.dimensions.depth;
+  const handleLeftLegDepthChange = (value: number) => {
+    const clamped = Math.min(Math.max(value, limits.minDepth), limits.maxDepth);
+    onUpdateConstruction?.({ cabinetDepthLeft: clamped });
+  };
+  const handleRightLegDepthChange = (value: number) => {
+    const clamped = Math.min(Math.max(value, limits.minDepth), limits.maxDepth);
+    onUpdateConstruction?.({ cabinetDepthRight: clamped });
+  };
+
   const handleWidthChange = (value: number) => {
     const clamped = Math.min(Math.max(value, limits.minWidth), limits.maxWidth);
     onUpdate({ width: clamped });
@@ -57,13 +138,12 @@ export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: Dimension
         <div className="flex items-center justify-between">
           <Label className="text-sm font-medium flex items-center gap-2">
             <Box className="w-4 h-4 text-muted-foreground" />
-            Width
+            {isLShapeCorner ? 'Width (Wall 1)' : 'Width'}
           </Label>
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <MmInput
               value={cabinet.dimensions.width}
-              onChange={(e) => handleWidthChange(parseInt(e.target.value) || limits.minWidth)}
+              onCommit={handleWidthChange}
               className="w-20 h-8 text-right"
               min={limits.minWidth}
               max={limits.maxWidth}
@@ -85,6 +165,39 @@ export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: Dimension
         </div>
       </div>
       
+      {/* Second Width (Wall 2) — L-shape corner cabinets only */}
+      {isLShapeCorner && (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium flex items-center gap-2">
+            <Box className="w-4 h-4 text-muted-foreground" />
+            Second Width (Wall 2)
+          </Label>
+          <div className="flex items-center gap-2">
+            <MmInput
+              value={secondWidth}
+              onCommit={handleSecondWidthChange}
+              className="w-20 h-8 text-right"
+              min={limits.minWidth}
+              max={limits.maxWidth}
+            />
+            <span className="text-sm text-muted-foreground w-8">mm</span>
+          </div>
+        </div>
+        <Slider
+          value={[secondWidth]}
+          onValueChange={([value]) => handleSecondWidthChange(value)}
+          min={limits.minWidth}
+          max={limits.maxWidth}
+          step={50}
+          className="w-full"
+        />
+        <p className="text-xs text-muted-foreground italic">
+          A corner spans two walls. Width is Wall 1, this is Wall 2 — set both to your wall runs (e.g. 900 × 900). The Depth below is the cabinet's return depth.
+        </p>
+      </div>
+      )}
+      
       {/* Height */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -93,10 +206,9 @@ export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: Dimension
             Height
           </Label>
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <MmInput
               value={cabinet.dimensions.height}
-              onChange={(e) => handleHeightChange(parseInt(e.target.value) || limits.minHeight)}
+              onCommit={handleHeightChange}
               className="w-20 h-8 text-right"
               min={limits.minHeight}
               max={limits.maxHeight}
@@ -116,9 +228,13 @@ export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: Dimension
           <span>{limits.minHeight}mm</span>
           <span>{limits.maxHeight}mm</span>
         </div>
+        <p className="text-xs text-muted-foreground italic">
+          Height to top of carcase, including the toe kick — the benchtop sits on top, so the finished bench height is higher.
+        </p>
       </div>
       
-      {/* Depth */}
+      {/* Depth — single for standard cabinets; two independent legs for L-corners */}
+      {!isLShapeCorner ? (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label className="text-sm font-medium flex items-center gap-2">
@@ -126,10 +242,9 @@ export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: Dimension
             Depth
           </Label>
           <div className="flex items-center gap-2">
-            <Input
-              type="number"
+            <MmInput
               value={cabinet.dimensions.depth}
-              onChange={(e) => handleDepthChange(parseInt(e.target.value) || limits.minDepth)}
+              onCommit={handleDepthChange}
               className="w-20 h-8 text-right"
               min={limits.minDepth}
               max={limits.maxDepth}
@@ -150,6 +265,70 @@ export function DimensionsTab({ cabinet, onUpdate, constraints = {} }: Dimension
           <span>{limits.maxDepth}mm</span>
         </div>
       </div>
+      ) : (
+      <>
+        {/* Left leg (arm) return depth — independent */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Box className="w-4 h-4 text-muted-foreground rotate-45" />
+              Left Leg Depth
+            </Label>
+            <div className="flex items-center gap-2">
+              <MmInput value={leftLegDepth} onCommit={handleLeftLegDepthChange} className="w-20 h-8 text-right" min={limits.minDepth} max={limits.maxDepth} />
+              <span className="text-sm text-muted-foreground w-8">mm</span>
+            </div>
+          </div>
+          <Slider value={[leftLegDepth]} onValueChange={([v]) => handleLeftLegDepthChange(v)} min={limits.minDepth} max={limits.maxDepth} step={50} className="w-full" />
+        </div>
+        {/* Right leg (arm) return depth — independent */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Box className="w-4 h-4 text-muted-foreground rotate-45" />
+              Right Leg Depth
+            </Label>
+            <div className="flex items-center gap-2">
+              <MmInput value={rightLegDepth} onCommit={handleRightLegDepthChange} className="w-20 h-8 text-right" min={limits.minDepth} max={limits.maxDepth} />
+              <span className="text-sm text-muted-foreground w-8">mm</span>
+            </div>
+          </div>
+          <Slider value={[rightLegDepth]} onValueChange={([v]) => handleRightLegDepthChange(v)} min={limits.minDepth} max={limits.maxDepth} step={50} className="w-full" />
+          <p className="text-xs text-muted-foreground italic">
+            Each leg's return depth is independent. The two wall runs are Width (Wall 1) and Second Width (Wall 2) above.
+          </p>
+        </div>
+      </>
+      )}
+
+      {/* Door Handing (hinge side) */}
+      {hasDoors && (
+      <div className="space-y-2">
+        <Label className="text-sm font-medium flex items-center gap-2">
+          <DoorOpen className="w-4 h-4 text-muted-foreground" />
+          Door Handing
+        </Label>
+        <div className="grid grid-cols-2 gap-2">
+          {(['Left', 'Right'] as const).map((side) => (
+            <button
+              key={side}
+              type="button"
+              onClick={() => onUpdateConstruction?.({ hingeSide: side })}
+              className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                hingeSide === side
+                  ? 'border-trade-amber bg-trade-amber/10'
+                  : 'border-border hover:border-muted-foreground/30'
+              }`}
+            >
+              Hinge {side}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground italic">
+          Which side the door is hinged (handle sits on the opposite edge). For two-door and corner units this records the lead door for manufacturing.
+        </p>
+      </div>
+      )}
       
       {/* Visual Reference */}
       <div className="mt-6 p-4 bg-muted/50 rounded-lg">

@@ -369,8 +369,13 @@ export function getCabinetPartMapping(definitionId: string): CabinetPartDefiniti
 export function buildGenericCabinetMapping(definitionId: string): CabinetPartDefinition | null {
   const id = (definitionId || '').toLowerCase();
   if (!id) return null;
-  // Non-carcass items aren't priced through the parts engine
-  if (/oven|fridge|dishwasher|rangehood|microwave|appliance|filler|panel$|applied|kick/.test(id)) {
+  // Non-carcass items aren't priced through the parts engine.
+  // Exception: 'ladder_kick' IS priced as a cabinet (mini-cabinet frame structure).
+  // Plain 'kick' (adjustable-leg panels) are calculated in generateQuoteBOM from stock lengths.
+  if (/oven|fridge|dishwasher|rangehood|microwave|appliance|filler|panel$|applied/.test(id)) {
+    return null;
+  }
+  if (/kick/.test(id) && !/ladder/.test(id)) {
     return null;
   }
 
@@ -494,14 +499,13 @@ export function getPartQuantities(
     }
     
     if (qty > 0) {
-      const existing = partMap.get(part.partType) || 0;
-      partMap.set(part.partType, existing + qty);
+      partMap.set(part.partType, (partMap.get(part.partType) ?? 0) + qty);
     }
   }
-  
-  for (const [partType, quantity] of partMap) {
-    result.push({ partType, quantity });
-  }
-  
+
+  partMap.forEach((qty, partType) => {
+    result.push({ partType, quantity: qty });
+  });
+
   return result;
 }

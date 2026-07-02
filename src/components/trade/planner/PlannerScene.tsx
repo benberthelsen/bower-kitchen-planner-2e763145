@@ -100,8 +100,21 @@ function TradeCabinetMesh({
       Appliance: 'Accessory',
     };
     const configCategory = categoryMap[cabinet.category] || 'Base';
-    const doorCount = cabinet.category === 'Wall' ? 2 : 1;
-    const drawerCount = 0;
+    // Derive real door/drawer counts and corner type from the definition id
+    // (e.g. "base_corner_pie_cut_2_door", "base_3_drawer") instead of guessing.
+    const did = (cabinet.definitionId || '').toLowerCase();
+    const doorMatch = did.match(/(\d+)\s*[-_ ]?door/);
+    const drawerMatch = did.match(/(\d+)\s*[-_ ]?draw/);
+    const isCorner = /corner|pie[-_ ]?cut|blind|diagonal/.test(did);
+    const cornerType: 'l-shape' | 'diagonal' | 'blind' | null = !isCorner
+      ? null
+      : /diagonal/.test(did) ? 'diagonal'
+      : /blind/.test(did) ? 'blind'
+      : 'l-shape';
+    const drawerCount = drawerMatch ? Number(drawerMatch[1]) : 0;
+    const doorCount = doorMatch
+      ? Number(doorMatch[1])
+      : (drawerCount > 0 ? 0 : (cabinet.category === 'Wall' ? 2 : 1));
     
     return {
       productId: cabinet.definitionId,
@@ -112,9 +125,9 @@ function TradeCabinetMesh({
       specGroup: cabinet.category === 'Appliance' ? 'Appliances' : 'Base Cabinets',
       doorCount,
       drawerCount,
-      isCorner: false,
+      isCorner,
       isSink: false,
-      isBlind: false,
+      isBlind: cornerType === 'blind',
       isPantry: cabinet.category === 'Tall',
       isAppliance: cabinet.category === 'Appliance',
       isOven: false,
@@ -124,8 +137,8 @@ function TradeCabinetMesh({
       hasFalseFront: false,
       hasAdjustableShelves: true,
       shelfCount: cabinet.category === 'Tall' ? 4 : 1,
-      cornerType: null,
-      leftArmDepth: 575,
+      cornerType,
+      leftArmDepth: cabinet.construction?.cabinetDepthLeft ?? 575,
       rightArmDepth: 575,
       blindDepth: 150,
       fillerWidth: 75,
@@ -138,18 +151,26 @@ function TradeCabinetMesh({
 
   const cabinetPosition = cabinet.position;
 
+  // Wall/upper cabinets are mounted up off the floor (bottom edge at mountYmm).
+  // Standard wall mount = bench (900) + splashback (600) = 1500mm. Editable via
+  // the cabinet's stored mounting height (position.y); base/tall sit on the floor.
+  const defaultMountY = cabinet.category === 'Wall' ? 1500 : 0;
+  const mountYmm = cabinetPosition?.y && cabinetPosition.y > 0 ? cabinetPosition.y : defaultMountY;
+  const centerY = mountYmm / 1000 + heightM / 2;
+
   // Update position when cabinet.position changes (after snapping)
   useEffect(() => {
     if (groupRef.current && cabinetPosition && !isDragging) {
       groupRef.current.position.x = cabinetPosition.x / 1000;
+      groupRef.current.position.y = centerY;
       groupRef.current.position.z = cabinetPosition.z / 1000;
       groupRef.current.rotation.y = -THREE.MathUtils.degToRad(cabinetPosition.rotation || 0);
     }
-  }, [cabinetPosition, isDragging]);
+  }, [cabinetPosition, isDragging, centerY]);
 
-  const initialPosition: [number, number, number] = cabinet.position 
-    ? [cabinet.position.x / 1000, heightM / 2, cabinet.position.z / 1000]
-    : [1, heightM / 2, 1];
+  const initialPosition: [number, number, number] = cabinet.position
+    ? [cabinet.position.x / 1000, centerY, cabinet.position.z / 1000]
+    : [1, centerY, 1];
 
   const initialRotation: [number, number, number] = [0, -THREE.MathUtils.degToRad(rotation), 0];
 
@@ -354,7 +375,10 @@ export function PlannerScene({
         <CameraController room={room} controlsRef={controlsRef} orbitEnabled={orbitEnabled} />
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} />
-        <Environment preset="apartment" blur={0.8} background={false} />
+        <hemisphereLight args={[0xffffff, 0xbfc4cc, 0.5]} />
+        <directionalLight position={[-5, 4, -3]} intensity={0.35} />
+        {/* No external HDR Environment — keeps the planner render self-contained
+            (an external HDR fetch can 400 and crash the whole scene). */}
         <ContactShadows resolution={1024} scale={Math.max(widthM, depthM) * 2} blur={2} opacity={0.4} far={10} color="#000000" />
 
         <group onPointerMissed={() => onCabinetSelect(null)}>

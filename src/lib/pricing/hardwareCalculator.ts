@@ -66,8 +66,10 @@ export function calculateHardware(
     const hingesPerDoor = isTall ? rules.hingesPerTallDoor : rules.hingesPerDoor;
     const hingeCount = config.numDoors * hingesPerDoor;
     
-    const hingePricing = hardwarePricing.find(h => 
-      h.hardware_type === 'hinge' && 
+    const hingePricing = hardwarePricing.find(h =>
+      h.id === hardwareOptions.hingeType || h.item_code === hardwareOptions.hingeType
+    ) ?? hardwarePricing.find(h =>
+      h.hardware_type === 'hinge' &&
       (h.name.toLowerCase().includes(hardwareOptions.hingeType.toLowerCase()) ||
        h.item_code === hardwareOptions.hingeType)
     );
@@ -109,8 +111,10 @@ export function calculateHardware(
   if (config.numDrawers > 0) {
     const runnerCount = config.numDrawers * rules.runnersPerDrawer;
     
-    const runnerPricing = hardwarePricing.find(h => 
-      h.hardware_type === 'runner' && 
+    const runnerPricing = hardwarePricing.find(h =>
+      h.id === hardwareOptions.drawerType || h.item_code === hardwareOptions.drawerType
+    ) ?? hardwarePricing.find(h =>
+      h.hardware_type === 'runner' &&
       (h.name.toLowerCase().includes(hardwareOptions.drawerType.toLowerCase()) ||
        h.item_code === hardwareOptions.drawerType)
     );

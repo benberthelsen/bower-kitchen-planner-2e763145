@@ -69,6 +69,7 @@ export const DEFAULT_GLOBAL_DIMENSIONS: GlobalDimensions = {
   benchtopThickness: 33,
   benchtopOverhang: 25,
   splashbackHeight: 600,
+  wallMountHeight: 1350,       // Standard floor-to-underside of wall cabinet
   doorGap: 2,
   drawerGap: 2,
   leftGap: 1.5,
@@ -78,10 +79,10 @@ export const DEFAULT_GLOBAL_DIMENSIONS: GlobalDimensions = {
   wallGap: 10,
   
   // Construction parameters (Microvellum-style defaults)
-  boardThickness: 18,        // Standard 18mm board
+  boardThickness: 16,        // MV-verified 16mm board
   backPanelSetback: 16,      // 16mm setback for hanging rails
-  topReveal: 3,              // 3mm gap above doors
-  sideReveal: 2,             // 2mm gap beside doors
+  topReveal: 1,              // MV-verified (door height = carcass − 2)
+  sideReveal: 1,             // MV-verified (door/front width = cabinet − 2)
   handleDrillSpacing: 32,    // 32mm system
   
   // Corner cabinet defaults

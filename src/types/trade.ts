@@ -54,6 +54,7 @@ export interface CabinetDimensions {
  * Toe Kick Height, Left/Right Filler Width, PieCut/Angled Front.
  */
 export interface CabinetConstruction {
+  secondWidth?: number;         // mm — corner SECOND wall run (Wall 2). Width = Wall 1; Depth = carcase return.
   cabinetDepthLeft?: number;    // mm — corner left arm carcase depth (MV: Cabinet Depth Left)
   cabinetDepthRight?: number;   // mm — corner right arm carcase depth (MV: Cabinet Depth Right)
   toeKickHeight?: number;       // mm — overrides room default (MV: Toe Kick Height)

@@ -14,11 +14,13 @@ import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
 import { useCatalog } from '@/hooks/useCatalog';
+import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { useTradeRoomPricing } from '@/hooks/useTradeRoomPricing';
 import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
+import { calculateSnapPosition } from '@/utils/snapping';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { exportPlanViewPdf } from '@/lib/planViewPdf';
 import {
@@ -31,6 +33,10 @@ import {
   Box,
   PanelLeft,
   PanelLeftClose,
+  DoorOpen,
+  Pencil,
+  RotateCw,
+  X,
 } from 'lucide-react';
 
 export default function RoomPlanner() {
@@ -59,6 +65,9 @@ export default function RoomPlanner() {
   const { jobQuery, roomsFromServer, upsertCabinet, replaceRoomInJob, removeCabinetFromJob, persistQuoteSnapshot, persistJobTotals, exportJobPdf } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
+  // Open in 2D top-down for layout (drag maps 1:1 to the cursor); 3D is for viewing.
+  const [is3D, setIs3D] = useState(false);
+  const [doorsOpen, setDoorsOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editDialogCabinet, setEditDialogCabinet] = useState<ConfiguredCabinet | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -69,10 +78,12 @@ export default function RoomPlanner() {
   const lastPersistedQuoteRef = useRef<string>('');
 
   useEffect(() => {
-    if (jobId && jobId !== 'new' && jobQuery.data) {
+    // Don't let a server snapshot overwrite un-saved local edits — this was
+    // wiping a freshly-added 2nd cabinet before its autosave landed.
+    if (jobId && jobId !== 'new' && jobQuery.data && !dirty) {
       hydrateRooms(roomsFromServer);
     }
-  }, [jobId, jobQuery.data, roomsFromServer, hydrateRooms]);
+  }, [jobId, jobQuery.data, roomsFromServer, hydrateRooms, dirty]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -109,30 +120,48 @@ export default function RoomPlanner() {
   });
 
   // Convert ConfiguredCabinets to PlacedItems for UnifiedScene
+  const { materials: pricedMaterials } = useMaterialsCatalog();
   const placedItems: PlacedItem[] = useMemo(() => {
-    return cabinets.filter(c => c.isPlaced && c.position).map(cabinet => ({
+    const findUrl = (id?: string) => {
+      const m = id ? pricedMaterials.find((x) => x.id === id) : undefined;
+      return m ? (m.textureImageUrl || m.sampleImageUrl || null) : null;
+    };
+    return cabinets.filter(c => c.isPlaced && c.position).map(cabinet => {
+      // L-shape pie-cut corners are a SQUARE footprint (both walls = width); the stored
+      // depth is the arm/return depth. Render/bbox depth = width, arm carried via carcase depth.
+      const nm = cabinet.productName || '';
+      const isLCorner = /corner/i.test(nm) && !/diagonal|blind|open|angle/i.test(nm);
+      const storedDepth = cabinet.dimensions.depth;
+      return {
       instanceId: cabinet.instanceId,
       definitionId: cabinet.definitionId,
       itemType: cabinet.category === 'Appliance' ? 'Appliance' : 'Cabinet' as const,
       x: cabinet.position!.x,
-      y: 0,
+      y: cabinet.position!.y ?? 0,
       z: cabinet.position!.z,
       rotation: cabinet.position!.rotation,
       width: cabinet.dimensions.width,
-      depth: cabinet.dimensions.depth,
+      depth: isLCorner ? cabinet.dimensions.width : storedDepth,
       height: cabinet.dimensions.height,
       hinge: cabinet.construction?.hingeSide ?? ('Left' as const),
       cabinetNumber: cabinet.cabinetNumber,
       finishColor: cabinet.materials?.exteriorFinish,
+      carcaseMaterialId: cabinet.materials?.carcaseFinish,
+      exteriorMaterialId: cabinet.materials?.exteriorFinish,
+      doorTextureUrl: findUrl(cabinet.materials?.exteriorFinish),
+      carcaseTextureUrl: findUrl(cabinet.materials?.carcaseFinish),
       handleType: cabinet.hardware?.handleType,
       // Microvellum-style construction prompts (persisted per cabinet)
-      leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft,
-      rightCarcaseDepth: cabinet.construction?.cabinetDepthRight,
+      leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft ?? (isLCorner ? storedDepth : undefined),
+      rightCarcaseDepth: cabinet.construction?.cabinetDepthRight ?? (isLCorner ? storedDepth : undefined),
+      secondWidth: cabinet.construction?.secondWidth ?? (isLCorner ? cabinet.dimensions.width : undefined),
+      shelfCount: cabinet.accessories?.shelfCount,
       fillerLeft: cabinet.construction?.leftFillerWidth,
       fillerRight: cabinet.construction?.rightFillerWidth,
       blindSide: cabinet.construction?.blindSide,
-    }));
-  }, [cabinets]);
+      };
+    });
+  }, [cabinets, pricedMaterials]);
 
   const roomConfig = useMemo(() => ({
     width: currentRoom?.config.width || 4000,
@@ -186,12 +215,16 @@ export default function RoomPlanner() {
   }, [dirty, jobId, currentRoom, saveRoomToServer]);
 
   const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
+    // Prefer the real piece-level BOM price for this cabinet; fall back to the
+    // catalog estimate only when the BOM hasn't priced it yet.
+    const bom = perCabinetTotals[cabinet.instanceId];
+    if (typeof bom === 'number' && bom > 0) return bom;
     const catalogItem = catalogById.get(cabinet.definitionId);
     if (!catalogItem) return 0;
     const basePrice = catalogItem.price ?? 0;
     const widthScale = cabinet.dimensions.width / (catalogItem.defaultWidth || cabinet.dimensions.width || 1);
     return Math.max(0, basePrice * widthScale);
-  }, [catalogById]);
+  }, [catalogById, perCabinetTotals]);
 
   // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((
@@ -224,6 +257,9 @@ export default function RoomPlanner() {
   }, [jobId, currentRoom, upsertCabinet]);
 
   const handleCabinetSelect = (instanceId: string | null) => {
+    // Click just selects (and enables drag-to-move). Editing is via the Edit
+    // button on the selection bar or double-click — clicking a selected cabinet
+    // no longer pops the editor, which had made selected cabinets impossible to move.
     selectCabinet(instanceId);
   };
 
@@ -236,6 +272,36 @@ export default function RoomPlanner() {
     placeCabinet(currentRoom.id, instanceId, clamped);
     setDirty(true);
   }, [clampPositionToRoom, currentRoom, getCabinetById, placeCabinet]);
+
+  const handleRotateSelected = useCallback(() => {
+    if (!currentRoom) return;
+    const cab = getSelectedCabinet();
+    if (!cab || !cab.position) return;
+    handleCabinetPlace(cab.instanceId, { ...cab.position, rotation: (((cab.position.rotation || 0) + 90) % 360) });
+  }, [currentRoom, getSelectedCabinet, handleCabinetPlace]);
+
+  // Keyboard: rotate (R / E forward, Q back), nudge (arrows; Shift = 1mm), deselect (Esc).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'Escape') { selectCabinet(null); return; }
+      const cab = getSelectedCabinet();
+      if (!cab || !cab.position) return;
+      const pos = cab.position;
+      const step = e.shiftKey ? 1 : 10;
+      const place = (p: Partial<typeof pos>) => handleCabinetPlace(cab.instanceId, { ...pos, ...p });
+      switch (e.key) {
+        case 'r': case 'R': case 'e': case 'E': e.preventDefault(); place({ rotation: ((pos.rotation || 0) + 90) % 360 }); break;
+        case 'q': case 'Q': e.preventDefault(); place({ rotation: ((pos.rotation || 0) - 90 + 360) % 360 }); break;
+        case 'ArrowLeft': e.preventDefault(); place({ x: pos.x - step }); break;
+        case 'ArrowRight': e.preventDefault(); place({ x: pos.x + step }); break;
+        case 'ArrowUp': e.preventDefault(); place({ z: pos.z - step }); break;
+        case 'ArrowDown': e.preventDefault(); place({ z: pos.z + step }); break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [getSelectedCabinet, selectCabinet, handleCabinetPlace]);
 
   const handleItemMove = useCallback((id: string, updates: Partial<PlacedItem>) => {
     if (!currentRoom) return;
@@ -256,9 +322,20 @@ export default function RoomPlanner() {
 
     const defaultWidth = catalogItem.defaultWidth || 600;
     const defaultHeight = catalogItem.defaultHeight || 720;
-    const defaultDepth = catalogItem.defaultDepth || 580;
 
-    const position = calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
+    // Panel products (end panels, fillers, scribes) should auto-match the room's
+    // carcase depth instead of using the catalog's stored depth (which is the
+    // board thickness, e.g. 18mm). Use wall depth for wall panels, base depth otherwise.
+    const isPanel = catalogItem.renderConfig?.productType === 'panel';
+    const panelCategory = catalogItem.renderConfig?.category || 'Base';
+    const roomCarcaseDepth = isPanel
+      ? (panelCategory === 'Wall'
+          ? (currentRoom.dimensions.wallDepth ?? 350)
+          : (currentRoom.dimensions.baseDepth ?? 560))
+      : null;
+    const defaultDepth = roomCarcaseDepth ?? catalogItem.defaultDepth ?? 580;
+
+    const rawPosition = calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
 
     const category = catalogItem.itemType === 'Appliance'
       ? 'Appliance'
@@ -266,6 +343,18 @@ export default function RoomPlanner() {
         || getCategoryFromSpecGroup(catalogItem.specGroup)
         || catalogItem.category
         || 'Base';
+
+    // Auto-snap a newly added cabinet to the nearest wall so it orients correctly
+    // (rotates onto a side wall when the run reaches a corner) — same engine the
+    // drag uses, so click-to-add and drag behave the same.
+    const snapItem: PlacedItem = {
+      instanceId: 'pending', definitionId: productId,
+      itemType: category === 'Appliance' ? 'Appliance' : 'Cabinet',
+      x: rawPosition.x, y: 0, z: rawPosition.z, rotation: rawPosition.rotation,
+      width: defaultWidth, depth: defaultDepth, height: defaultHeight,
+    };
+    const snapped = calculateSnapPosition(rawPosition.x, rawPosition.z, snapItem, placedItems, currentRoom.config, 50, DEFAULT_GLOBAL_DIMENSIONS);
+    const position = { x: snapped.x, y: rawPosition.y, z: snapped.z, rotation: snapped.rotation };
 
     const newCabinet = addCabinet(currentRoom.id, {
       definitionId: productId,
@@ -291,20 +380,15 @@ export default function RoomPlanner() {
       position,
     });
 
-    try {
-      await persistCabinet(newCabinet);
-      selectCabinet(newCabinet.instanceId);
-      setEditDialogCabinet(newCabinet);
-      setEditDialogOpen(true);
-      setDirty(true);
-      toast.success(`${catalogItem.name} added`, {
-        description: 'Saved to job and available to other sessions.'
-      });
-    } catch {
-      removeCabinet(currentRoom.id, newCabinet.instanceId);
-      toast.error('Failed to add cabinet. Please try again.');
-    }
-  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, persistCabinet, removeCabinet]);
+    // Local add only; the debounced room autosave persists the whole room.
+    // (Previously this also did an immediate per-cabinet server write, which
+    // raced the autosave and dropped the 2nd+ cabinet.)
+    selectCabinet(newCabinet.instanceId);
+    setDirty(true);
+    toast.success(`${catalogItem.name} added`, {
+      description: 'Selected — press R to rotate, or double-click to edit options.'
+    });
+  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition]);
 
 
   const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
@@ -315,35 +399,18 @@ export default function RoomPlanner() {
       return;
     }
 
-    try {
-      await persistCabinet(duplicated);
-      setDirty(true);
-      selectCabinet(duplicated.instanceId);
-      toast.success(`${duplicated.cabinetNumber} duplicated`);
-    } catch {
-      removeCabinet(currentRoom.id, duplicated.instanceId);
-      toast.error('Duplicate failed to persist and was reverted');
-    }
-  }, [currentRoom, duplicateCabinet, persistCabinet, removeCabinet, selectCabinet]);
+    setDirty(true);
+    selectCabinet(duplicated.instanceId);
+    toast.success(`${duplicated.cabinetNumber} duplicated`);
+  }, [currentRoom, duplicateCabinet, selectCabinet]);
 
   const handleRemoveCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
     if (!currentRoom) return;
 
     removeCabinet(currentRoom.id, cabinet.instanceId);
-
-    if (!jobId || jobId === 'new') {
-      setDirty(true);
-      return;
-    }
-    try {
-      await removeCabinetFromJob({ jobId, roomId: currentRoom.id, instanceId: cabinet.instanceId });
-      setDirty(true);
-      toast.success(`${cabinet.cabinetNumber} removed`);
-    } catch {
-      replaceCabinet(currentRoom.id, cabinet);
-      toast.error('Failed to remove cabinet. Change was reverted.');
-    }
-  }, [currentRoom, jobId, removeCabinet, removeCabinetFromJob, replaceCabinet]);
+    setDirty(true);
+    toast.success(`${cabinet.cabinetNumber} removed`);
+  }, [currentRoom, removeCabinet]);
 
   const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
     if (!currentRoom) return;
@@ -360,12 +427,7 @@ export default function RoomPlanner() {
 
     replaceCabinet(currentRoom.id, merged);
     setDirty(true);
-    try {
-      await persistCabinet(merged);
-    } catch {
-      toast.error('Cabinet updated locally but failed to persist');
-    }
-  }, [currentRoom, getCabinetById, replaceCabinet, persistCabinet]);
+  }, [currentRoom, getCabinetById, replaceCabinet]);
 
   const handleEditCabinet = (cabinet: ConfiguredCabinet) => {
     selectCabinet(cabinet.instanceId);
@@ -421,12 +483,13 @@ export default function RoomPlanner() {
 
     quotePersistRef.current = setTimeout(() => {
       lastPersistedQuoteRef.current = quoteFingerprint;
-      void persistQuoteSnapshot({ jobId, snapshot });
+      void persistQuoteSnapshot({ jobId, snapshot, rooms });
       void persistJobTotals({
         jobId,
         subtotal: quoteBOM.grandTotal.subtotalExGst,
         tax: quoteBOM.grandTotal.gst,
         total: quoteBOM.grandTotal.total,
+        rooms,
       });
     }, 500);
 
@@ -496,6 +559,22 @@ export default function RoomPlanner() {
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.fitAll()}><Maximize className="w-4 h-4" /></Button>
             </div>
 
+            {is3D && (
+              <Button
+                variant={doorsOpen ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDoorsOpen(v => !v)}
+                title="Toggle all doors & drawers open"
+              >
+                <DoorOpen className="w-4 h-4 mr-1" />
+                {doorsOpen ? 'Close All' : 'Open All'}
+              </Button>
+            )}
+
+            <Button variant="outline" size="sm" onClick={() => setIs3D((v) => !v)} title="Toggle 2D / 3D view">
+              {is3D ? '3D' : '2D'} View
+            </Button>
+
             <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>
               {showCatalog ? <PanelLeftClose className="w-4 h-4 mr-1" /> : <PanelLeft className="w-4 h-4 mr-1" />}
               Catalog
@@ -534,9 +613,45 @@ export default function RoomPlanner() {
           </div>
         </div>
 
+        {/* Selected cabinet action bar */}
+        {selectedCabinet && (
+          <div className="flex items-center justify-between px-4 py-1.5 bg-amber-50 border-b border-amber-200 text-sm flex-shrink-0">
+            <span className="font-medium text-amber-900 truncate max-w-xs">{selectedCabinet.productName}</span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-amber-300 text-amber-800 hover:bg-amber-100"
+                onClick={handleRotateSelected}
+                title="Rotate 90° (shortcut: R)"
+              >
+                <RotateCw className="w-3 h-3 mr-1" />
+                Rotate
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-amber-300 text-amber-800 hover:bg-amber-100"
+                onClick={() => handleEditCabinet(selectedCabinet)}
+              >
+                <Pencil className="w-3 h-3 mr-1" />
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-amber-700 hover:bg-amber-100"
+                onClick={() => selectCabinet(null)}
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 flex overflow-hidden">
           {showCatalog && (
-            <div className="w-64 border-r">
+            <div className="w-64 border-r flex-shrink-0">
               <UnifiedCatalog
                 userType={catalogMode}
                 onSelectProduct={handleQuickAddProduct}
@@ -547,7 +662,7 @@ export default function RoomPlanner() {
           )}
 
           <div
-            className="flex-1 flex flex-col"
+            className="flex-1 flex flex-col min-w-0"
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
             onDrop={(e) => {
               e.preventDefault();
@@ -569,10 +684,12 @@ export default function RoomPlanner() {
                 placementItemId={null}
                 onItemSelect={handleCabinetSelect}
                 onItemMove={handleItemMove}
+                onItemEdit={(id) => { if (!currentRoom) return; const cab = getCabinetById(currentRoom.id, id); if (cab) handleEditCabinet(cab); }}
                 onDragStart={(id) => setDraggedItemId(id)}
                 onDragEnd={() => setDraggedItemId(null)}
                 onCameraControlsReady={setCameraControls}
-                is3D={true}
+                is3D={is3D}
+                doorsOpen={doorsOpen}
                 catalog={catalog}
               />
             </Scene3DErrorBoundary>
@@ -586,7 +703,8 @@ export default function RoomPlanner() {
             onSelectCabinet={handleCabinetSelect}
             onDuplicateCabinet={handleDuplicateCabinet}
             onRemoveCabinet={handleRemoveCabinet}
-            className="w-72"
+            onRotateCabinet={handleRotateSelected}
+            className="w-72 flex-shrink-0"
           />
         </div>
 

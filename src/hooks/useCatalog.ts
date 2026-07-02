@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { CatalogItemDefinition, ItemType, CabinetType } from '@/types';
 import { CabinetRenderConfig, parseProductToRenderConfig } from '@/types/cabinetConfig';
@@ -185,7 +186,9 @@ function inferStaticMetadata(item: StaticCatalogTemplate) {
     if (idLower.includes('1_door')) return 1;
     if (idLower.includes('2_door')) return 2;
     if (idLower.includes('3_door')) return 3;
-    if (idLower.includes('open_')) return 0;
+    // Open shelves/units — no door regardless of category
+    if (idLower.includes('open_') || idLower.includes('_open_') || idLower.includes('_open')) return 0;
+    if (nameLower.includes('open shelf') || nameLower.includes('open unit') || nameLower.match(/\bopen\b/) && !nameLower.includes('opening')) return 0;
     if (idLower.includes('drawer') && !idLower.includes('door')) return 0;
     if (idLower.includes('opening')) return 0;
     if (idLower.includes('bin_pullout') || idLower.includes('spice_pullout') || idLower.includes('bottle_pullout') || idLower.includes('tray')) return 1;
@@ -533,36 +536,46 @@ export function useCatalog(userType: UserType = 'standard') {
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
   });
 
-  // Transform DB products to catalog format with render configs
-  const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
-  
-  const fallbackCatalog = [...STATIC_LIBRARY_CATALOG, ...FALLBACK_CATALOG].filter((item, index, all) =>
-    all.findIndex((candidate) => candidate.id === item.id) === index
-  );
+  // Transform DB products to catalog format with render configs.
+  // IMPORTANT: memoised so the catalog keeps a STABLE identity across renders.
+  // Without this, every render rebuilds the array (and every item object), so
+  // useCatalogItem() returns a brand-new object each render. That made the
+  // ProductConfigurator reset-effect fire on every render and overwrite the
+  // user's in-progress edits — i.e. sliders / materials / soft-close "not working".
+  const isDynamic = (dbProducts?.length ?? 0) > 0;
 
-  // Prefer dynamic products, while ensuring static planner definitions remain available when missing in DB.
-  const catalog: ExtendedCatalogItem[] = dynamicCatalog.length > 0
-    ? [
+  const catalog = useMemo<ExtendedCatalogItem[]>(() => {
+    const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
+    if (dynamicCatalog.length > 0) {
+      // Prefer dynamic products, keeping static planner defs that aren't in the DB.
+      return [
         ...dynamicCatalog,
         ...STATIC_LIBRARY_CATALOG.filter((staticItem) => !dynamicCatalog.some((dynamicItem) => dynamicItem.id === staticItem.id)),
-      ]
-    : fallbackCatalog;
-  
+      ];
+    }
+    return [...STATIC_LIBRARY_CATALOG, ...FALLBACK_CATALOG].filter((item, index, all) =>
+      all.findIndex((candidate) => candidate.id === item.id) === index
+    );
+  }, [dbProducts]);
+
   // Group by category for sidebar display
-  const groupedCatalog = {
+  const groupedCatalog = useMemo(() => ({
     Base: catalog.filter(item => item.category === 'Base'),
     Wall: catalog.filter(item => item.category === 'Wall'),
     Tall: catalog.filter(item => item.category === 'Tall'),
     Appliance: catalog.filter(item => item.itemType === 'Appliance'),
     Structure: catalog.filter(item => item.itemType === 'Structure' || item.itemType === 'Wall'),
-  };
+  }), [catalog]);
 
   // Group by spec_group (Microvellum categories)
-  const specGroups = [...new Set(catalog.map(item => item.specGroup).filter(Boolean))] as string[];
-  const groupedBySpecGroup: Record<string, ExtendedCatalogItem[]> = {};
-  specGroups.forEach(group => {
-    groupedBySpecGroup[group] = catalog.filter(item => item.specGroup === group);
-  });
+  const { specGroups, groupedBySpecGroup } = useMemo(() => {
+    const groups = [...new Set(catalog.map(item => item.specGroup).filter(Boolean))] as string[];
+    const bySpec: Record<string, ExtendedCatalogItem[]> = {};
+    groups.forEach(group => {
+      bySpec[group] = catalog.filter(item => item.specGroup === group);
+    });
+    return { specGroups: groups, groupedBySpecGroup: bySpec };
+  }, [catalog]);
 
   return {
     catalog,
@@ -571,7 +584,7 @@ export function useCatalog(userType: UserType = 'standard') {
     specGroups,
     isLoading,
     error,
-    isDynamic: dynamicCatalog.length > 0,
+    isDynamic,
     refetch,
   };
 }

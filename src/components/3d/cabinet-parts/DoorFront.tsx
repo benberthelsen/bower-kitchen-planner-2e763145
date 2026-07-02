@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, ThreeEvent } from '@react-three/fiber';
 import EdgeOutline from './EdgeOutline';
+import HandleMesh, { HandleType } from './HandleMesh';
 
 interface DoorFrontProps {
   width: number;      // Width in meters
@@ -15,7 +16,13 @@ interface DoorFrontProps {
   gap?: number;       // Gap around door in meters
   hingeLeft?: boolean; // Which side hinges are on
   showEdges?: boolean;
+  showHinges?: boolean; // render hinge cups (turn off for corner doors where they'd show in the open notch)
   interactive?: boolean; // Enable click-to-open animation
+  /** When provided, overrides local open/close state (global toggle) */
+  forceOpen?: boolean;
+  /** Handle mounted ON the door (x,y are offsets from the door centre, in metres),
+   *  so it swings WITH the door instead of floating in place. */
+  handle?: { type: HandleType; color: string; x: number; y: number; rotation?: number; length?: number };
 }
 
 /**
@@ -35,12 +42,17 @@ const DoorFront: React.FC<DoorFrontProps> = ({
   gap = 0.002,
   hingeLeft = true,
   showEdges = true,
+  showHinges = true,
   interactive = true,
+  forceOpen,
+  handle,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  // forceOpen prop overrides per-click local state (global scene toggle)
+  const isOpen = forceOpen !== undefined ? forceOpen : localOpen;
   const currentRotation = useRef(0);
   const groupRef = useRef<THREE.Group>(null);
-  
+
   // Target rotation: 100 degrees open (swing outward from cabinet front)
   const targetRotation = isOpen ? (hingeLeft ? -Math.PI * 0.55 : Math.PI * 0.55) : 0;
   
@@ -85,7 +97,8 @@ const DoorFront: React.FC<DoorFrontProps> = ({
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (!interactive) return;
     e.stopPropagation();
-    setIsOpen(!isOpen);
+    // Only toggle local state when not driven by forceOpen prop
+    if (forceOpen === undefined) setLocalOpen(o => !o);
   };
 
   return (
@@ -116,14 +129,30 @@ const DoorFront: React.FC<DoorFrontProps> = ({
         )}
         
         {/* Hinge cups (on back of door) */}
-        <mesh position={[hingeX - hingeOffset, hingeTopY, -thickness / 2 - 0.005]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.017, 0.017, 0.012, 16]} />
-          <meshStandardMaterial color="#666666" metalness={0.7} roughness={0.3} />
-        </mesh>
-        <mesh position={[hingeX - hingeOffset, hingeBottomY, -thickness / 2 - 0.005]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.017, 0.017, 0.012, 16]} />
-          <meshStandardMaterial color="#666666" metalness={0.7} roughness={0.3} />
-        </mesh>
+        {showHinges && (
+          <>
+            <mesh position={[hingeX - hingeOffset, hingeTopY, -thickness / 2 - 0.005]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.017, 0.017, 0.012, 16]} />
+              <meshStandardMaterial color="#666666" metalness={0.7} roughness={0.3} />
+            </mesh>
+            <mesh position={[hingeX - hingeOffset, hingeBottomY, -thickness / 2 - 0.005]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.017, 0.017, 0.012, 16]} />
+              <meshStandardMaterial color="#666666" metalness={0.7} roughness={0.3} />
+            </mesh>
+          </>
+        )}
+
+        {/* Handle mounted ON the door — lives in the rotating group so it
+            swings with the door instead of floating in front of the carcass. */}
+        {handle && handle.type !== 'None' && (
+          <HandleMesh
+            type={handle.type}
+            color={handle.color}
+            position={[-hingeOffset + handle.x, handle.y, thickness / 2 + 0.015]}
+            rotation={handle.rotation ?? 0}
+            length={handle.length}
+          />
+        )}
       </group>
     </group>
   );

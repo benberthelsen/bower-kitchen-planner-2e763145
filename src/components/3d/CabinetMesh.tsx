@@ -18,8 +18,10 @@ interface CabinetMeshProps {
   hardwareOptions?: Partial<HardwareOptions>;
   isSelected?: boolean;
   isDragged?: boolean;
+  doorsOpen?: boolean;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
+  onEdit?: (id: string) => void;
 }
 
 /**
@@ -30,7 +32,7 @@ interface CabinetMeshProps {
  * 1. With PlannerContext (standard planner) - context provides all state
  * 2. With props (trade planner) - props override context values
  */
-const CabinetMesh: React.FC<CabinetMeshProps> = ({ 
+const CabinetMesh: React.FC<CabinetMeshProps> = ({
   item,
   selectedFinish: finishProp,
   selectedBenchtop: benchtopProp,
@@ -39,8 +41,10 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   hardwareOptions: hardwareProp,
   isSelected: isSelectedProp,
   isDragged: isDraggedProp,
+  doorsOpen,
   onSelect,
   onDragStart,
+  onEdit,
 }) => {
   // Props-first: this component is used by both planners, so it must not rely on PlannerContext.
   const selectedFinish = finishProp ?? FINISH_OPTIONS[0];
@@ -130,17 +134,17 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   const heightM = safeHeight / 1000;
   const depthM = safeDepth / 1000;
   
-  // Wall cabinet elevation: standard mounting height above floor
-  // Uses item.y if explicitly set, otherwise auto-calculates based on category
+  // Wall cabinet elevation: uses the room's wallMountHeight from globalDimensions
+  // (set in the room setup wizard). Falls back to 1350mm if not specified.
   const isWallCabinet = renderConfig.category === 'Wall';
-  const WALL_CABINET_MOUNT_HEIGHT = 1350; // mm from floor to bottom of wall cabinet
-  
+  const wallMountHeight = globalDimensions?.wallMountHeight ?? 1350;
+
   // Calculate Y position
-  // For wall cabinets without explicit Y, mount at standard height
-  // Otherwise use the item's Y position (which is floor level for base/tall)
+  // For wall cabinets without explicit Y, mount at the room's configured height.
+  // item.y === 0 means no per-cabinet override — use the room default.
   const baseY = item.y || 0;
-  const autoElevatedY = isWallCabinet && baseY === 0 
-    ? WALL_CABINET_MOUNT_HEIGHT 
+  const autoElevatedY = isWallCabinet && baseY === 0
+    ? wallMountHeight
     : baseY;
   
   // Position is center of cabinet, so add half height
@@ -186,6 +190,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
       position={position} 
       rotation={[0, -THREE.MathUtils.degToRad(item.rotation || 0), 0]} 
       onPointerDown={handlePointerDown}
+      onDoubleClick={(e) => { e.stopPropagation(); onEdit?.(item.instanceId); }}
       onPointerOver={() => setHovered(true)} 
       onPointerOut={() => setHovered(false)}
     >
@@ -201,6 +206,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
         isSelected={isSelected}
         isDragged={isDragged}
         hovered={hovered}
+        doorsOpen={doorsOpen}
       />
     </group>
   );

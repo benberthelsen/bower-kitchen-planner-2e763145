@@ -50,6 +50,8 @@ export interface RoomConfig {
   wallDepth: number;
   tallHeight: number;
   tallDepth: number;
+  /** Floor-to-underside mounting height for wall/upper cabinets (mm) */
+  wallMountHeight: number;
   
   // Step 5: Gaps
   doorGap: number;
@@ -88,14 +90,15 @@ const defaultConfig: RoomConfig = {
   drawerStyle: 'Hafele Alto Slim 500',
   supplyHardware: true,
   adjustableLegs: true,
-  toeKickHeight: 150,
+  toeKickHeight: 135,
   shelfSetback: 5,
-  baseHeight: 720,
-  baseDepth: 560,
-  wallHeight: 700,
+  baseHeight: 732,
+  baseDepth: 575,
+  wallHeight: 600,
   wallDepth: 300,
   tallHeight: 2100,
-  tallDepth: 590,
+  tallDepth: 600,
+  wallMountHeight: 1350,
   doorGap: 2,
   drawerGap: 2,
   leftGap: 1.7,

@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { FINISH_OPTIONS, HANDLE_OPTIONS } from '@/constants';
+import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { 
   Ruler, 
   Palette, 
@@ -42,6 +43,13 @@ export function CabinetEditDialog({
   onCabinetPatch,
 }: CabinetEditDialogProps) {
   const { updateCabinet } = useTradeRoom();
+  const { hinges, drawerRunners } = useMaterialsCatalog();
+  const hingeChoices = hinges.length > 0
+    ? hinges.map(h => ({ value: h.id, label: h.name }))
+    : [{ value: 'soft-close', label: 'Soft Close' }, { value: 'standard', label: 'Standard' }, { value: 'push-open', label: 'Push Open' }];
+  const drawerChoices = drawerRunners.length > 0
+    ? drawerRunners.map(d => ({ value: d.id, label: d.name }))
+    : [{ value: 'soft-close', label: 'Soft Close' }, { value: 'standard', label: 'Standard' }, { value: 'push-open', label: 'Push Open' }];
   const [activeTab, setActiveTab] = useState('dimensions');
 
   useEffect(() => {
@@ -79,6 +87,12 @@ export function CabinetEditDialog({
     const next = { ...cabinet.hardware, ...updates };
     updateCabinet(roomId, cabinet.instanceId, { hardware: next });
     onCabinetPatch?.(cabinet.instanceId, { hardware: next });
+  };
+
+  const handleUpdateMounting = (y: number) => {
+    const next = { ...(cabinet.position ?? { x: 0, y: 0, z: 0, rotation: 0 }), y: Math.max(0, y) };
+    updateCabinet(roomId, cabinet.instanceId, { position: next });
+    onCabinetPatch?.(cabinet.instanceId, { position: next });
   };
 
   const categoryColors: Record<string, string> = {
@@ -167,7 +181,20 @@ export function CabinetEditDialog({
                 />
               </div>
             </div>
-            
+
+            {/* Wall/upper cabinets are mounted up off the floor */}
+            {cabinet.category === 'Wall' && (
+              <div className="space-y-2">
+                <Label>Mounting Height — floor to underside (mm)</Label>
+                <Input
+                  type="number"
+                  value={cabinet.position?.y || 1350}
+                  onChange={(e) => handleUpdateMounting(Number(e.target.value))}
+                />
+                <div className="text-xs text-muted-foreground">Standard 1350mm floor to underside (editable).</div>
+              </div>
+            )}
+
             {/* Corner cabinet construction prompts (Microvellum names) */}
             {isCornerCabinet && (
               <div className="grid grid-cols-2 gap-4">
@@ -358,9 +385,9 @@ export function CabinetEditDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="soft-close">Soft Close</SelectItem>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="push-open">Push Open</SelectItem>
+                    {hingeChoices.map((h) => (
+                      <SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -374,9 +401,9 @@ export function CabinetEditDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="soft-close">Soft Close</SelectItem>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="push-open">Push Open</SelectItem>
+                    {drawerChoices.map((d) => (
+                      <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -7,16 +7,16 @@ import { usePlanner } from '@/store/PlannerContext';
 import { generateQuoteBOM, QuoteBOM, PricingData } from '@/lib/pricing';
 
 async function fetchPricingData(): Promise<PricingData> {
-  const [parts, materials, edges, hardware, labor, doorDrawer, stone] = await Promise.all([
+  const [parts, materials, edges, hardware, labor, doorDrawer, benchtop] = await Promise.all([
     supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('material_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('edge_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('hardware_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('labor_rates').select('*'),
     supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('stone_pricing').select('*'),
+    supabase.from('benchtop_pricing').select('*'),
   ]);
-  
+
   return {
     parts: (parts.data ?? []) as PricingData['parts'],
     materials: (materials.data ?? []) as PricingData['materials'],
@@ -24,7 +24,7 @@ async function fetchPricingData(): Promise<PricingData> {
     hardware: (hardware.data ?? []) as PricingData['hardware'],
     labor: (labor.data ?? []) as PricingData['labor'],
     doorDrawer: (doorDrawer.data ?? []) as PricingData['doorDrawer'],
-    stone: (stone.data ?? []) as PricingData['stone'],
+    benchtop: (benchtop.data ?? []) as PricingData['benchtop'],
   };
 }
 

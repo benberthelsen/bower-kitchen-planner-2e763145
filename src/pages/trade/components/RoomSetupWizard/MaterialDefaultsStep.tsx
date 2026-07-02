@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { RoomConfig } from './index';
-import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
+import { type MaterialOptionRow, useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 
 interface MaterialDefaultsStepProps {
   config: RoomConfig;
@@ -37,13 +37,46 @@ const carcaseMaterials = [
   { id: 'grey-carcase', name: 'Grey Carcase - 16.5mm Shop Materials HMR PB', color: '#9CA3AF' },
 ];
 
-function MaterialPreview({ color, label }: { color: string; label: string }) {
+type PickerMaterial = {
+  id: string;
+  name: string;
+  finish?: string | null;
+  color?: string | null;
+  sampleImageUrl?: string | null;
+  areaCost?: number | null;
+  priceStatus?: string | null;
+  sheetLength?: number | null;
+  sheetWidth?: number | null;
+};
+
+function toPickerMaterial(m: MaterialOptionRow): PickerMaterial {
+  return {
+    id: m.id,
+    name: m.name,
+    finish: m.finish,
+    sampleImageUrl: m.sampleImageUrl,
+    areaCost: m.areaCost,
+    priceStatus: m.priceStatus,
+    sheetLength: m.sheetLength,
+    sheetWidth: m.sheetWidth,
+  };
+}
+
+function MaterialPreview({ color, imageUrl, label }: { color: string; imageUrl?: string | null; label: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div 
-        className="w-20 h-28 rounded-lg border-2 border-trade-border shadow-inner"
-        style={{ backgroundColor: color }}
-      />
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={label}
+          className="w-20 h-28 rounded-lg border-2 border-trade-border object-cover bg-white shadow-inner"
+        />
+      ) : (
+        <div
+          className="w-20 h-28 rounded-lg border-2 border-trade-border shadow-inner"
+          style={{ backgroundColor: color }}
+        />
+      )}
       <div className="flex-1">
         <p className="text-sm text-trade-muted">{label}</p>
       </div>
@@ -75,13 +108,17 @@ function MaterialSelector({
     return options.filter((o) => o.name.toLowerCase().includes(q));
   }, [options, query]);
 
+  // `value` is the stored row id; show the human-readable name. (Falls back to
+  // the raw value so legacy name-stored rooms still display.)
+  const selectedName = options.find((o) => o.id === value)?.name ?? value;
+
   return (
     <div className="space-y-2">
       <Label className="text-trade-navy font-medium">{label}</Label>
       <div className="relative">
         <Input
-          value={open ? query : value}
-          placeholder={value || 'Search…'}
+          value={open ? query : selectedName}
+          placeholder={selectedName || 'Search…'}
           onFocus={() => {
             setOpen(true);
             setQuery('');
@@ -108,7 +145,7 @@ function MaterialSelector({
                 className="w-full text-left px-3 py-2 text-sm hover:bg-trade-surface flex items-center gap-2"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onChange(o.name);
+                  onChange(o.id);
                   setOpen(false);
                 }}
               >
@@ -121,6 +158,116 @@ function MaterialSelector({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Two-step picker: choose a COLOUR (deduped), then the FINISH available in
+// that colour. Stores the matching material_pricing row id.
+function ColourFinishSelector({
+  label, materials, value, onChange, loading = false,
+}: {
+  label: string;
+  materials: PickerMaterial[];
+  value: string;
+  onChange: (id: string) => void;
+  loading?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const selected = materials.find((m) => m.id === value) ?? materials.find((m) => m.name === value);
+  const selectedColour = selected?.name ?? value;
+
+  const colours = useMemo(() => {
+    const byName = new Map<string, PickerMaterial>();
+    for (const m of materials) {
+      if (!byName.has(m.name)) byName.set(m.name, m);
+    }
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [materials]);
+
+  const filteredColours = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? colours.filter((c) => c.name.toLowerCase().includes(q)) : colours;
+  }, [colours, query]);
+
+  const finishes = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { id: string; finish: string }[] = [];
+    for (const m of materials) {
+      if (m.name !== selectedColour) continue;
+      const f = ((m.finish ?? '').trim()) || 'Standard';
+      if (!seen.has(f)) { seen.add(f); list.push({ id: m.id, finish: f }); }
+    }
+    return list;
+  }, [materials, selectedColour]);
+
+  const pickColour = (colour: string) => {
+    const first = materials.find((m) => m.name === colour);
+    if (first) onChange(first.id);
+    setOpen(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-trade-navy font-medium">{label}</Label>
+      <div className="relative">
+        <Input
+          value={open ? query : selectedColour}
+          placeholder={selectedColour || 'Search colour…'}
+          onFocus={() => { setOpen(true); setQuery(''); }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => { setQuery(e.target.value); if (!open) setOpen(true); }}
+          className="pr-10 border-trade-border bg-white"
+        />
+        {loading ? (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-trade-muted animate-spin" />
+        ) : (
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-trade-muted" />
+        )}
+        {open && filteredColours.length > 0 && (
+          <div className="absolute z-50 mt-1 w-full max-h-56 overflow-auto rounded-md border border-trade-border bg-white shadow-lg">
+            {filteredColours.slice(0, 80).map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-trade-surface flex items-center gap-3"
+                onMouseDown={(e) => { e.preventDefault(); pickColour(c.name); }}
+              >
+                {c.sampleImageUrl ? (
+                  <img src={c.sampleImageUrl} alt="" className="h-9 w-9 rounded border border-trade-border object-cover bg-white" />
+                ) : (
+                  <span
+                    className="h-9 w-9 rounded border border-trade-border"
+                    style={{ backgroundColor: c.color ?? '#fff' }}
+                  />
+                )}
+                <span className="min-w-0">
+                  <span className="block truncate">{c.name}</span>
+                  {c.priceStatus && c.priceStatus !== 'captured' && (
+                    <span className="block text-xs text-trade-muted">{c.priceStatus.replace(/_/g, ' ')}</span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {selectedColour && finishes.length > 0 && (
+        <div>
+          <Label className="text-xs text-trade-muted">Finish</Label>
+          <select
+            value={selected?.id ?? value}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full mt-1 rounded-md border border-trade-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-trade-amber/40"
+          >
+            {finishes.map((f) => (
+              <option key={f.id} value={f.id}>{f.finish}</option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }
@@ -156,8 +303,46 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
     [dbEdges],
   );
 
-  const exteriorColor = materialOptions.find(m => m.name === config.exteriorMaterial)?.color || '#F5F0E6';
-  const carcaseColor = carcaseMaterials.find(m => m.name === config.carcaseMaterial)?.color || '#F8F8F8';
+  // Full rows (keep finish) for the colour→finish pickers.
+  const exteriorMatList = useMemo(
+    () => (dbMaterials.length > 0
+      ? dbMaterials.filter((m) => !/shop materials/i.test(m.brand ?? '')).map(toPickerMaterial)
+      : materialOptions.map((m): PickerMaterial => ({ id: m.id, name: m.name, color: m.color }))),
+    [dbMaterials],
+  );
+  const carcaseMatList = useMemo(
+    () => (dbMaterials.length > 0
+      ? [...dbMaterials]
+          .sort((a, b) => {
+            const aShop = /shop materials/i.test(a.brand ?? '') ? 0 : 1;
+            const bShop = /shop materials/i.test(b.brand ?? '') ? 0 : 1;
+            return aShop - bShop || a.name.localeCompare(b.name);
+          })
+          .map(toPickerMaterial)
+      : carcaseMaterials.map((m): PickerMaterial => ({ id: m.id, name: m.name, color: m.color }))),
+    [dbMaterials],
+  );
+  const labelWithFinish = (list: { id: string; name: string; finish?: string | null }[], id: string) => {
+    const r = list.find((m) => m.id === id);
+    return r ? `${r.name}${r.finish ? ' — ' + r.finish : ''}` : id;
+  };
+
+  const materialLabel = (list: PickerMaterial[], id: string) => {
+    const r = list.find((m) => m.id === id) ?? list.find((m) => m.name === id);
+    return r ? `${r.name}${r.finish ? ' - ' + r.finish : ''}` : id;
+  };
+  const exteriorSelected = exteriorMatList.find((m) => m.id === config.exteriorMaterial) ?? exteriorMatList.find((m) => m.name === config.exteriorMaterial);
+  const carcaseSelected = carcaseMatList.find((m) => m.id === config.carcaseMaterial) ?? carcaseMatList.find((m) => m.name === config.carcaseMaterial);
+  const exteriorColor = exteriorSelected?.color ?? '#F5F0E6';
+  const carcaseColor = carcaseSelected?.color ?? '#F8F8F8';
+
+  // Resolve stored ids to display names for the summary panels.
+  const nameOf = (opts: { id: string; name: string }[], id: string) => opts.find((o) => o.id === id)?.name ?? id;
+  const exteriorName = materialLabel(exteriorMatList, config.exteriorMaterial);
+  const carcaseName = materialLabel(carcaseMatList, config.carcaseMaterial);
+  const exteriorEdgeName = nameOf(edgeListOptions, config.exteriorEdge);
+  const carcaseEdgeName = nameOf(edgeListOptions, config.carcaseEdge);
+  const doorStyleName = nameOf(doorStyles, config.doorStyle);
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -173,13 +358,13 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
           </div>
           
           <div className="flex gap-6">
-            <MaterialPreview color={exteriorColor} label="Preview" />
+            <MaterialPreview color={exteriorColor} imageUrl={exteriorSelected?.sampleImageUrl} label="Preview" />
             
             <div className="flex-1 space-y-4">
-              <MaterialSelector
-                label="Material"
+              <ColourFinishSelector
+                label="Colour"
                 value={config.exteriorMaterial}
-                options={exteriorOptions}
+                materials={exteriorMatList}
                 loading={isLoading}
                 onChange={(value) => updateConfig({ exteriorMaterial: value })}
               />
@@ -213,9 +398,9 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
           {/* Material Details */}
           <div className="bg-trade-surface rounded-lg p-4 text-sm space-y-1">
             <p><span className="text-trade-amber font-medium">Type:</span> Melamine</p>
-            <p><span className="text-trade-amber font-medium">Door:</span> {config.doorStyle}</p>
-            <p><span className="text-trade-amber font-medium">Materials:</span> {config.exteriorMaterial}</p>
-            <p><span className="text-trade-amber font-medium">Edge Materials:</span> {config.exteriorEdge}</p>
+            <p><span className="text-trade-amber font-medium">Door:</span> {doorStyleName}</p>
+            <p><span className="text-trade-amber font-medium">Materials:</span> {exteriorName}</p>
+            <p><span className="text-trade-amber font-medium">Edge Materials:</span> {exteriorEdgeName}</p>
           </div>
         </div>
 
@@ -226,13 +411,13 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
           </div>
           
           <div className="flex gap-6">
-            <MaterialPreview color={carcaseColor} label="Preview" />
+            <MaterialPreview color={carcaseColor} imageUrl={carcaseSelected?.sampleImageUrl} label="Preview" />
             
             <div className="flex-1 space-y-4">
-              <MaterialSelector
-                label="Material"
+              <ColourFinishSelector
+                label="Colour"
                 value={config.carcaseMaterial}
-                options={carcaseOptions}
+                materials={carcaseMatList}
                 loading={isLoading}
                 onChange={(value) => updateConfig({ carcaseMaterial: value })}
               />
@@ -258,8 +443,8 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
           {/* Carcase Details */}
           <div className="bg-trade-surface rounded-lg p-4 text-sm space-y-1">
             <p><span className="text-trade-amber font-medium">Type:</span> Melamine</p>
-            <p><span className="text-trade-amber font-medium">Materials:</span> {config.carcaseMaterial}</p>
-            <p><span className="text-trade-amber font-medium">Edge Materials:</span> {config.carcaseEdge}</p>
+            <p><span className="text-trade-amber font-medium">Materials:</span> {carcaseName}</p>
+            <p><span className="text-trade-amber font-medium">Edge Materials:</span> {carcaseEdgeName}</p>
           </div>
         </div>
       </div>

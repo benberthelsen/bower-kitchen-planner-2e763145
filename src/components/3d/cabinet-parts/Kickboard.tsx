@@ -64,16 +64,20 @@ const Kickboard: React.FC<KickboardProps> = ({
   if (isCorner && cornerType === 'l-shape') {
     const notchX = -width / 2 + Math.min(leftArmDepth, width - 0.05);
     const notchZ = -depth / 2 + Math.min(rightArmDepth, depth - 0.05);
+    // Both kicks are set back from their door faces; extend each to the other's
+    // setback line so they meet cleanly at the inner corner (no gap).
+    const kickInnerX = notchX - setback;
+    const kickInnerZ = notchZ - setback;
 
-    // Kick A: under door 1, faces +Z (plane z = notchZ, set back)
-    const kickAWidth = (width / 2 - notchX) - 0.002;
-    const kickAX = (notchX + width / 2) / 2;
-    const kickAZ = notchZ - setback;
+    // Kick A: under door 1, faces +Z (plane z = kickInnerZ)
+    const kickAWidth = (width / 2 - kickInnerX) - 0.002;
+    const kickAX = (kickInnerX + width / 2) / 2;
+    const kickAZ = kickInnerZ;
 
-    // Kick B: under door 2, faces +X (plane x = notchX, set back)
-    const kickBWidth = (depth / 2 - notchZ) - 0.002;
-    const kickBX = notchX - setback;
-    const kickBZ = (notchZ + depth / 2) / 2;
+    // Kick B: under door 2, faces +X (plane x = kickInnerX)
+    const kickBWidth = (depth / 2 - kickInnerZ) - 0.002;
+    const kickBX = kickInnerX;
+    const kickBZ = (kickInnerZ + depth / 2) / 2;
 
     return (
       <group position={position}>

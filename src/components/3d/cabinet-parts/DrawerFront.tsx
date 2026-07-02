@@ -16,6 +16,8 @@ interface DrawerFrontProps {
   showBox?: boolean;  // Show inner drawer box outline
   showEdges?: boolean;
   interactive?: boolean; // Enable click-to-open animation
+  /** When provided, overrides local open/close state (global toggle) */
+  forceOpen?: boolean;
 }
 
 /**
@@ -36,8 +38,11 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   showBox = true,
   showEdges = true,
   interactive = true,
+  forceOpen,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  // forceOpen prop overrides per-click local state (global scene toggle)
+  const isOpen = forceOpen !== undefined ? forceOpen : localOpen;
   const currentSlide = useRef(0);
   const groupRef = useRef<THREE.Group>(null);
   
@@ -86,7 +91,7 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     if (!interactive) return;
     e.stopPropagation();
-    setIsOpen(!isOpen);
+    if (forceOpen === undefined) setLocalOpen(o => !o);
   };
 
   return (
@@ -144,17 +149,17 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
         )}
       </group>
       
-      {/* Runner indicators (fixed to cabinet, not animated) */}
-      {showBox && (
+      {/* Runner indicators — only visible when drawer is open (hidden inside closed cabinet) */}
+      {showBox && isOpen && (
         <>
           {/* Left runner */}
-          <mesh position={[-actualWidth / 2 + 0.006, -actualHeight / 2 + boxHeight / 2, -0.15]}>
-            <boxGeometry args={[0.012, 0.040, 0.35]} />
+          <mesh position={[-actualWidth / 2 + runnerClearance + boxSideThickness / 2, -actualHeight / 2 + boxHeight / 2, -0.15]}>
+            <boxGeometry args={[0.010, 0.025, 0.35]} />
             <meshStandardMaterial color="#888888" metalness={0.7} roughness={0.3} />
           </mesh>
           {/* Right runner */}
-          <mesh position={[actualWidth / 2 - 0.006, -actualHeight / 2 + boxHeight / 2, -0.15]}>
-            <boxGeometry args={[0.012, 0.040, 0.35]} />
+          <mesh position={[actualWidth / 2 - runnerClearance - boxSideThickness / 2, -actualHeight / 2 + boxHeight / 2, -0.15]}>
+            <boxGeometry args={[0.010, 0.025, 0.35]} />
             <meshStandardMaterial color="#888888" metalness={0.7} roughness={0.3} />
           </mesh>
         </>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -129,7 +129,23 @@ function MarginPreview({ leftGap, rightGap, topMargin }: { leftGap: number; righ
   );
 }
 
+const GAP_PRESETS: Record<string, Partial<RoomConfig>> = {
+  tight:     { doorGap: 1,   drawerGap: 1,   leftGap: 1,   rightGap: 1,   upperTopMargin: 1,   upperBottomMargin: 1,   baseTopMargin: 1   },
+  standard1: { doorGap: 2,   drawerGap: 2,   leftGap: 1.5, rightGap: 1.5, upperTopMargin: 1.5, upperBottomMargin: 1.5, baseTopMargin: 1.5 },
+  standard2: { doorGap: 2,   drawerGap: 2,   leftGap: 2,   rightGap: 2,   upperTopMargin: 2,   upperBottomMargin: 2,   baseTopMargin: 2   },
+  custom:    {},
+};
+
 export default function GapDefaultsStep({ config, updateConfig }: GapDefaultsStepProps) {
+  const [preset, setPreset] = useState('standard2');
+
+  const applyPreset = (key: string) => {
+    setPreset(key);
+    if (GAP_PRESETS[key] && Object.keys(GAP_PRESETS[key]).length > 0) {
+      updateConfig(GAP_PRESETS[key]);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto">
       <p className="text-center text-trade-muted mb-6">
@@ -142,14 +158,14 @@ export default function GapDefaultsStep({ config, updateConfig }: GapDefaultsSte
           {/* Preset Selector */}
           <div className="flex items-center gap-3">
             <Label className="text-trade-navy font-medium min-w-[140px]">Gap Preset:</Label>
-            <Select defaultValue="standard2">
+            <Select value={preset} onValueChange={applyPreset}>
               <SelectTrigger className="w-48 border-trade-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="standard1">Standard 1.0</SelectItem>
-                <SelectItem value="standard2">Standard 2.0</SelectItem>
-                <SelectItem value="tight">Tight Fit</SelectItem>
+                <SelectItem value="tight">Tight (1mm)</SelectItem>
+                <SelectItem value="standard1">Standard 1.5mm</SelectItem>
+                <SelectItem value="standard2">Standard 2mm</SelectItem>
                 <SelectItem value="custom">Custom</SelectItem>
               </SelectContent>
             </Select>

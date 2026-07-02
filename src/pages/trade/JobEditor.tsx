@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, FileJson } from 'lucide-react';
+import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, Clock, CheckCircle2, Wrench, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
 import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
 import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
-import { TradeJobStatus } from '@/types/trade';
+import { TradeJobStatus, TRADE_JOB_STATUS_LABELS, isTradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
+import { JobNotes } from '@/components/shared/JobNotes';
 
 
 const computeJobTotalsRaw = (rooms: TradeRoom[]) => {
@@ -73,6 +74,7 @@ const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   wallDepth: room.dimensions.wallDepth,
   tallHeight: room.dimensions.tallHeight,
   tallDepth: room.dimensions.tallDepth,
+  wallMountHeight: room.dimensions.wallMountHeight ?? 1350,
   doorGap: room.dimensions.doorGap,
   drawerGap: room.dimensions.drawerGap,
   leftGap: room.dimensions.leftGap,
@@ -98,13 +100,18 @@ export default function JobEditor() {
     updateJobStatus,
     persistQuoteSnapshot,
     persistJobTotals,
-    exportJobJson,
     exportJobPdf,
     isSaving,
   } = useTradeJobPersistence(jobId);
 
   const [showRoomWizard, setShowRoomWizard] = useState(isNewJob);
   const [editingRoom, setEditingRoom] = useState<TradeRoom | null>(null);
+
+  // Derive current job status & locked state
+  const _jobData = jobQuery.data as { name?: string; status?: string; design_data?: Record<string, unknown> } | undefined;
+  const jobStatus: TradeJobStatus = isTradeJobStatus(_jobData?.status) ? (_jobData!.status as TradeJobStatus) : 'draft';
+  const isLocked = !isNewJob && jobStatus !== 'draft';
+  const adminNote: string | null = (_jobData?.design_data?.adminNotes as string | undefined) ?? null;
 
   useEffect(() => {
     if (!isNewJob && jobQuery.data) {
@@ -181,6 +188,67 @@ export default function JobEditor() {
   const handleRoomComplete = async (config: RoomConfig) => {
     if (!jobId) return;
 
+    // For brand-new jobs (jobId === 'new'), create the job row in Supabase first
+    // so we have a real UUID before navigating to the planner.
+    if (isNewJob && !editingRoom) {
+      const newId = crypto.randomUUID();
+      const firstRoom = addRoom({
+        name: config.name,
+        description: config.description || '',
+        shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
+        config: {
+          width: config.roomWidth,
+          depth: config.roomDepth,
+          height: config.roomHeight,
+          shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
+          cutoutWidth: config.cutoutWidth || 0,
+          cutoutDepth: config.cutoutDepth || 0,
+        },
+        dimensions: {
+          ...DEFAULT_GLOBAL_DIMENSIONS,
+          toeKickHeight: config.toeKickHeight,
+          baseHeight: config.baseHeight,
+          baseDepth: config.baseDepth,
+          wallHeight: config.wallHeight,
+          wallDepth: config.wallDepth,
+          tallHeight: config.tallHeight,
+          tallDepth: config.tallDepth,
+          wallMountHeight: config.wallMountHeight ?? 1350,
+          doorGap: config.doorGap,
+          drawerGap: config.drawerGap,
+        },
+        materialDefaults: {
+          exteriorFinish: config.exteriorMaterial,
+          carcaseFinish: config.carcaseMaterial,
+          doorStyle: config.doorStyle,
+          edgeBanding: config.exteriorEdge,
+        },
+        hardwareDefaults: {
+          handleType: 'bar-handle',
+          handleColor: '#1a1a1a',
+          hingeType: config.hingeStyle,
+          drawerType: config.drawerStyle,
+          softClose: true,
+          supplyHardware: config.supplyHardware,
+          adjustableLegs: config.adjustableLegs,
+        },
+      });
+      try {
+        await upsertJob({
+          id: newId,
+          name: config.name || 'New Job',
+          status: 'draft',
+          rooms: [firstRoom],
+        });
+      } catch {
+        toast.error('Could not create job — check your connection and try again.');
+        return;
+      }
+      toast.success(`Room "${config.name}" created`);
+      navigate(`/trade/job/${newId}/room/${firstRoom.id}/planner`);
+      return;
+    }
+
     if (editingRoom) {
       const updatedRoom: TradeRoom = {
         ...editingRoom,
@@ -250,6 +318,7 @@ export default function JobEditor() {
           wallDepth: config.wallDepth,
           tallHeight: config.tallHeight,
           tallDepth: config.tallDepth,
+          wallMountHeight: config.wallMountHeight ?? 1350,
           doorGap: config.doorGap,
           drawerGap: config.drawerGap,
         },
@@ -319,49 +388,81 @@ export default function JobEditor() {
             <div className="flex items-center gap-3 flex-wrap">
               <Button variant="outline" className="border-trade-border" onClick={exportJobPdf}>
                 <FileDown className="h-4 w-4 mr-2" />
-                Export PDF
+                Export Quote PDF
               </Button>
-              <Button variant="outline" className="border-trade-border" onClick={exportJobJson}>
-                <FileJson className="h-4 w-4 mr-2" />
-                Export JSON
-              </Button>
-              <Button
-                variant="outline"
-                className="border-trade-border"
-                disabled={isSaving || isNewJob}
-                onClick={async () => {
-                  try {
-                    await persistFullJob('draft');
-                    await updateJobStatus('draft');
-                    toast.success('Draft saved', { description: 'Job and rooms persisted.' });
-                  } catch {
-                    toast.error('Failed to save draft');
-                  }
-                }}
-              >
-                <Save className="h-4 w-4 mr-2" />
-                Save Draft
-              </Button>
-              <Button
-                className="bg-trade-amber hover:bg-trade-amber-light text-white"
-                disabled={isSaving || isNewJob}
-                onClick={async () => {
-                  try {
-                    if (!displayRooms.length || displayRooms.some((room) => !room.name.trim())) {
-                      toast.error('Add at least one valid room before submitting');
-                      return;
-                    }
-                    await persistFullJob('pending_approval');
-                    await updateJobStatus('pending_approval');
-                    toast.success('Job submitted for approval');
-                  } catch {
-                    toast.error('Failed to submit job');
-                  }
-                }}
-              >
-                <Send className="h-4 w-4 mr-2" />
-                Submit Job
-              </Button>
+              {isLocked ? (
+                <>
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border ${
+                    jobStatus === 'pending_approval' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                    jobStatus === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
+                    jobStatus === 'in_production' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                    'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  }`}>
+                    {jobStatus === 'pending_approval' ? <Clock className="h-4 w-4" /> :
+                     jobStatus === 'in_production' ? <Wrench className="h-4 w-4" /> :
+                     <CheckCircle2 className="h-4 w-4" />}
+                    {TRADE_JOB_STATUS_LABELS[jobStatus]}
+                  </div>
+                  {jobStatus === 'pending_approval' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-amber-700 hover:text-amber-900 hover:bg-amber-50"
+                      disabled={isSaving}
+                      onClick={async () => {
+                        try {
+                          await updateJobStatus('draft');
+                          toast.success('Submission withdrawn — job returned to draft');
+                        } catch {
+                          toast.error('Failed to withdraw submission');
+                        }
+                      }}
+                    >
+                      Withdraw
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    className="border-trade-border"
+                    disabled={isSaving || isNewJob}
+                    onClick={async () => {
+                      try {
+                        await persistFullJob('draft');
+                        await updateJobStatus('draft');
+                        toast.success('Draft saved', { description: 'Job and rooms persisted.' });
+                      } catch {
+                        toast.error('Failed to save draft');
+                      }
+                    }}
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Draft
+                  </Button>
+                  <Button
+                    className="bg-trade-amber hover:bg-trade-amber-light text-white"
+                    disabled={isSaving || isNewJob}
+                    onClick={async () => {
+                      try {
+                        if (!displayRooms.length || displayRooms.some((room) => !room.name.trim())) {
+                          toast.error('Add at least one valid room before submitting');
+                          return;
+                        }
+                        await persistFullJob('pending_approval');
+                        await updateJobStatus('pending_approval');
+                        toast.success('Job submitted for approval');
+                      } catch {
+                        toast.error('Failed to submit job');
+                      }
+                    }}
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    Submit for Approval
+                  </Button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -397,6 +498,64 @@ export default function JobEditor() {
           </div>
         )}
 
+        {/* Status banner — shown whenever job is not a draft */}
+        {!showRoomWizard && isLocked && (
+          <div className={`mb-6 rounded-xl border p-4 ${
+            jobStatus === 'pending_approval' ? 'bg-amber-50 border-amber-200' :
+            jobStatus === 'approved' ? 'bg-green-50 border-green-200' :
+            jobStatus === 'in_production' ? 'bg-orange-50 border-orange-200' :
+            'bg-emerald-50 border-emerald-200'
+          }`}>
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 p-1.5 rounded-full ${
+                jobStatus === 'pending_approval' ? 'bg-amber-100 text-amber-600' :
+                jobStatus === 'approved' ? 'bg-green-100 text-green-600' :
+                jobStatus === 'in_production' ? 'bg-orange-100 text-orange-600' :
+                'bg-emerald-100 text-emerald-600'
+              }`}>
+                {jobStatus === 'pending_approval' ? <Clock className="h-4 w-4" /> :
+                 jobStatus === 'in_production' ? <Wrench className="h-4 w-4" /> :
+                 <CheckCircle2 className="h-4 w-4" />}
+              </div>
+              <div>
+                <p className={`font-semibold text-sm ${
+                  jobStatus === 'pending_approval' ? 'text-amber-800' :
+                  jobStatus === 'approved' ? 'text-green-800' :
+                  jobStatus === 'in_production' ? 'text-orange-800' :
+                  'text-emerald-800'
+                }`}>
+                  {jobStatus === 'pending_approval' ? 'Awaiting Admin Review' :
+                   jobStatus === 'approved' ? 'Job Approved' :
+                   jobStatus === 'in_production' ? 'In Production' :
+                   'Job Completed'}
+                </p>
+                <p className={`text-xs mt-0.5 ${
+                  jobStatus === 'pending_approval' ? 'text-amber-700' :
+                  jobStatus === 'approved' ? 'text-green-700' :
+                  jobStatus === 'in_production' ? 'text-orange-700' :
+                  'text-emerald-700'
+                }`}>
+                  {jobStatus === 'pending_approval'
+                    ? 'This job is locked while under review. You can withdraw your submission to make changes.'
+                    : jobStatus === 'approved'
+                    ? 'This job has been approved and is ready for production.'
+                    : jobStatus === 'in_production'
+                    ? 'This job is currently in production.'
+                    : 'This job has been completed.'}
+                </p>
+                {adminNote && (
+                  <div className="mt-2 p-2.5 bg-white rounded-lg border border-amber-200">
+                    <p className="text-xs font-semibold text-amber-800 mb-1 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" /> Admin feedback:
+                    </p>
+                    <p className="text-xs text-gray-700">{adminNote}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {showRoomWizard ? (
           <RoomSetupWizard onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : undefined} />
         ) : displayRooms.length > 0 ? (
@@ -413,10 +572,19 @@ export default function JobEditor() {
                   <div className="mt-4 pt-3 border-t border-trade-border flex items-center justify-between">
                     <span className="text-sm text-trade-muted">{room.cabinets.length} products</span>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEditRoom(room)}>Edit</Button>
-                      <Button size="sm" className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy" onClick={() => navigate(`/trade/job/${jobId}/room/${room.id}/planner`)}>
+                      {!isLocked && (
+                        <Button variant="outline" size="sm" onClick={() => handleEditRoom(room)}>Edit</Button>
+                      )}
+                      <Button
+                        size="sm"
+                        className={isLocked
+                          ? 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-100'
+                          : 'bg-trade-amber hover:bg-trade-amber/90 text-trade-navy'}
+                        onClick={() => navigate(`/trade/job/${jobId}/room/${room.id}/planner`)}
+                        disabled={isLocked}
+                      >
                         <Box className="h-4 w-4 mr-1" />
-                        Open Planner
+                        {isLocked ? 'Locked' : 'Open Planner'}
                       </Button>
                     </div>
                   </div>
@@ -442,6 +610,13 @@ export default function JobEditor() {
             </div>
           </div>
         )}
+
+      {/* Activity & Notes */}
+      {jobId && (
+        <div className="mt-6 bg-trade-surface-elevated rounded-xl border border-trade-border p-6">
+          <JobNotes jobId={jobId} isAdmin={false} />
+        </div>
+      )}
       </div>
     </TradeLayout>
   );

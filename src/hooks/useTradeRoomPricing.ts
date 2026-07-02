@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, RoomHardwareDefaults, RoomMaterialDefaults } from '@/contexts/TradeRoomContext';
 import { GlobalDimensions, HardwareOptions, PlacedItem } from '@/types';
 import { generateQuoteBOM, PricingData, QuoteBOM } from '@/lib/pricing';
+import { useClientMarkup } from '@/hooks/useClientMarkup';
 
 export interface TradeRoomPricingInput {
   cabinets: ConfiguredCabinet[];
@@ -22,25 +23,40 @@ export interface TradeRoomPricingResult {
   isLoading: boolean;
 }
 
+async function fetchBundleMaterials(): Promise<unknown[] | null> {
+  // Same supplier bundle the editor reads — keeps the quote's material costs
+  // and ids consistent with the material picker.
+  try {
+    const res = await fetch('/data/bower-supplier-catalog/planner-materials.json');
+    if (res.ok) {
+      const j = await res.json();
+      const rows = Array.isArray(j) ? j : j.materials;
+      if (rows && rows.length) return rows as unknown[];
+    }
+  } catch { /* fall through to Supabase */ }
+  return null;
+}
+
 async function fetchPricingData(): Promise<PricingData> {
-  const [parts, materials, edges, hardware, labor, doorDrawer, stone] = await Promise.all([
+  const bundleMaterials = await fetchBundleMaterials();
+  const [parts, materials, edges, hardware, labor, doorDrawer, benchtop] = await Promise.all([
     supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('material_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('edge_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('hardware_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('labor_rates').select('*'),
     supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('stone_pricing').select('*'),
+    supabase.from('benchtop_pricing').select('*'),
   ]);
 
   return {
     parts: (parts.data ?? []) as PricingData['parts'],
-    materials: (materials.data ?? []) as PricingData['materials'],
+    materials: (bundleMaterials ?? materials.data ?? []) as PricingData['materials'],
     edges: (edges.data ?? []) as PricingData['edges'],
     hardware: (hardware.data ?? []) as PricingData['hardware'],
     labor: (labor.data ?? []) as PricingData['labor'],
     doorDrawer: (doorDrawer.data ?? []) as PricingData['doorDrawer'],
-    stone: (stone.data ?? []) as PricingData['stone'],
+    benchtop: (benchtop.data ?? []) as PricingData['benchtop'],
   };
 }
 
@@ -59,6 +75,8 @@ function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: RoomMat
     height: cabinet.dimensions.height,
     hinge: 'Left',
     finishColor: cabinet.materials?.exteriorFinish ?? materialDefaults?.exteriorFinish,
+    carcaseMaterialId: cabinet.materials?.carcaseFinish ?? materialDefaults?.carcaseFinish,
+    exteriorMaterialId: cabinet.materials?.exteriorFinish ?? materialDefaults?.exteriorFinish,
     handleType: cabinet.hardware?.handleType,
   }));
 }
@@ -112,14 +130,16 @@ export function useTradeRoomPricing({
     staleTime: 5 * 60 * 1000,
   });
 
+  const { commercial } = useClientMarkup();
+
   const quoteBOM = useMemo<QuoteBOM | null>(() => {
     if (!pricingData) return null;
 
     const items = toPlacedItems(cabinets, materialDefaults);
     const hardwareOptions = toHardwareOptions(hardwareDefaults);
 
-    return generateQuoteBOM(items, dimensions, hardwareOptions, pricingData);
-  }, [cabinets, dimensions, hardwareDefaults, materialDefaults, pricingData]);
+    return generateQuoteBOM(items, dimensions, hardwareOptions, pricingData, commercial);
+  }, [cabinets, dimensions, hardwareDefaults, materialDefaults, pricingData, commercial]);
 
   const perCabinetTotals = useMemo(() => {
     if (!quoteBOM) return {};

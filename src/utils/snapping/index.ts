@@ -64,6 +64,7 @@ export function calculateSnapPosition(
     topMargin: 0,
     bottomMargin: 0,
     wallGap: 10,
+    wallMountHeight: 1350,
     // Construction parameters
     boardThickness: 18,
     backPanelSetback: 16,

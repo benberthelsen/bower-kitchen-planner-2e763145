@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { PlacedItem, MaterialOption, GlobalDimensions, HandleDefinition } from '../../types';
@@ -20,6 +20,36 @@ import {
   CabinetLegs,
   EdgeOutline,
 } from './cabinet-parts';
+import FoldingDoor from './cabinet-parts/FoldingDoor';
+
+/**
+ * Loads a supplier swatch/texture image as a THREE texture for the cabinet finish.
+ * Safe + optional: returns null (so the renderer keeps its base colour) when the
+ * URL is empty or fails to load, and never throws/suspends.
+ */
+function useOptionalTexture(url?: string | null): THREE.Texture | null {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    if (!url) { setTex(null); return; }
+    let active = true;
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    loader.load(
+      url,
+      (t) => {
+        if (!active) return;
+        t.wrapS = THREE.RepeatWrapping;
+        t.wrapT = THREE.RepeatWrapping;
+        t.colorSpace = THREE.SRGBColorSpace ?? t.colorSpace;
+        setTex(t);
+      },
+      undefined,
+      () => { if (active) setTex(null); },
+    );
+    return () => { active = false; };
+  }, [url]);
+  return tex;
+}
 import { 
   ConstructionRecipe, 
   getConstructionRecipe, 
@@ -64,6 +94,8 @@ interface CabinetAssemblerProps {
   isSelected: boolean;
   isDragged: boolean;
   hovered: boolean;
+  /** When true, all doors and drawers animate to open position */
+  doorsOpen?: boolean;
 }
 
 /**
@@ -82,8 +114,16 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   isSelected,
   isDragged,
   hovered,
+  doorsOpen,
 }) => {
   const hasValidMaterials = Boolean(materials?.gable);
+
+  // Supplier finish textures. The image URLs are resolved OUTSIDE the R3F canvas
+  // (in Preview3D / RoomPlanner, where the data hooks run) and passed in on the
+  // item, so the texture reliably follows the selected finish. useOptionalTexture
+  // only loads an image — no data hooks — so it's safe inside the canvas.
+  const doorTex = useOptionalTexture(item.doorTextureUrl || null);
+  const carcaseTex = useOptionalTexture(item.carcaseTextureUrl || item.doorTextureUrl || null);
 
   // Get construction recipe from product name
   const recipe = useMemo(() => {
@@ -168,11 +208,49 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   }
 
   // Use material props from hook (already has correct grain direction per part)
-  const { gable: gableMat, gableInterior: gableIntMat, gableExterior: gableExtMat,
-          door: doorMat, drawer: drawerMat, shelf: shelfMat, 
-          bottom: bottomMat, kickboard: kickMat, benchtop: benchMat, 
-          endPanel: endPanelMat, falseFront: falseFrontMat } = materials;
+  const { gable: gableRaw, gableInterior: gableIntRaw, gableExterior: gableExtRaw,
+          door: doorRaw, drawer: drawerRaw, shelf: shelfRaw,
+          bottom: bottomRaw, kickboard: kickRaw, benchtop: benchRaw,
+          endPanel: endPanelRaw, falseFront: falseFrontRaw } = materials;
+  // Apply the supplier finish texture (when loaded) over the base material.
+  const applyTex = (m: MaterialProps, t: THREE.Texture | null): MaterialProps => (t && m ? { ...m, map: t } : m);
+  const gableMat = applyTex(gableRaw, carcaseTex);
+  const gableIntMat = applyTex(gableIntRaw, carcaseTex);
+  const gableExtMat = applyTex(gableExtRaw, carcaseTex);
+  const doorMat = applyTex(doorRaw, doorTex);
+  const drawerMat = applyTex(drawerRaw, doorTex);
+  const shelfMat = applyTex(shelfRaw, carcaseTex);
+  const bottomMat = applyTex(bottomRaw, carcaseTex);
+  const kickMat = kickRaw;
+  const benchMat = benchRaw;
+  const endPanelMat = applyTex(endPanelRaw, doorTex);
+  const falseFrontMat = applyTex(falseFrontRaw, doorTex);
   
+  // Panel products (end panels, fillers, scribes) — render as a single flat board,
+  // not as a full cabinet assembly. The board sits centred at the local origin.
+  if (config.productType === 'panel') {
+    return (
+      <>
+        {(isSelected || hovered || isDragged) && (
+          <mesh>
+            <boxGeometry args={[widthM + 0.01, heightM + 0.01, depthM + 0.01]} />
+            <meshBasicMaterial color={isDragged ? '#2563eb' : '#3b82f6'} wireframe opacity={0.5} transparent />
+          </mesh>
+        )}
+        <mesh>
+          <boxGeometry args={[widthM, heightM, depthM]} />
+          <meshStandardMaterial
+            color={endPanelMat.color}
+            roughness={endPanelMat.roughness}
+            metalness={endPanelMat.metalness}
+            map={endPanelMat.map}
+          />
+        </mesh>
+        <EdgeOutline width={widthM} height={heightM} depth={depthM} />
+      </>
+    );
+  }
+
   // Physical shadow gap - real 3D gap between doors/drawers and carcass front
   const shadowGap = 0.002; // 2mm real gap for natural ambient occlusion
 
@@ -190,8 +268,21 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Corner dimensions (convert mm to meters). Per-item carcase depth edits
   // take priority over config and recipe defaults — mirrors Microvellum's
   // "Cabinet Depth Left/Right" prompts on the Base Corner Cabinet.
-  const leftArmDepthM = (item.leftCarcaseDepth || config.leftArmDepth || recipe?.fronts.corner?.leftArmDepth || 575) / 1000;
-  const rightArmDepthM = (item.rightCarcaseDepth || config.rightArmDepth || recipe?.fronts.corner?.rightArmDepth || 575) / 1000;
+  // Bower corner model: an L-shape (pie-cut) corner has a SQUARE footprint — both wall
+  // runs equal the width (e.g. 900×900) — and each arm's return depth is the standard
+  // cabinet depth (item.depth, ≈575), "linked to the cabinet depth". The pie-cut notch
+  // is therefore (wall run − arm depth) on each axis. A per-item carcase depth edit
+  // overrides the arm depth. Blind/diagonal corners keep their width×depth footprint.
+  // Arm/return depth ("linked to the cabinet depth"): per-item override → renderConfig
+  // arm depth (= standard base depth for L-corners) → the cabinet's own depth.
+  const armLeftSrcM = item.leftCarcaseDepth ? item.leftCarcaseDepth / 1000 : (config.leftArmDepth ? config.leftArmDepth / 1000 : depthM);
+  const armRightSrcM = item.rightCarcaseDepth ? item.rightCarcaseDepth / 1000 : (config.rightArmDepth ? config.rightArmDepth / 1000 : depthM);
+  // L-corner footprint: Width = Wall 1 (X), Second Width = Wall 2 (Z). When no
+  // second width is set it falls back to a square footprint (Wall 2 = Wall 1).
+  const secondWidthM = item.secondWidth ? item.secondWidth / 1000 : widthM;
+  const cornerFootprintDepthM = cornerType === 'l-shape' ? secondWidthM : depthM;
+  const leftArmDepthM = Math.min(armLeftSrcM, widthM - 0.05);
+  const rightArmDepthM = Math.min(armRightSrcM, cornerFootprintDepthM - 0.05);
   const blindDepthM = (recipe?.fronts.corner?.blindDepth || config.blindDepth || 150) / 1000;
   const fillerWidthM = (recipe?.fronts.corner?.fillerWidth || config.fillerWidth || 75) / 1000;
 
@@ -204,23 +295,27 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     // Corner cabinets use special geometry
     if (isCornerCabinet) {
       return (
-        <CornerCarcass
-          width={widthM}
-          height={carcassHeight}
-          depth={depthM}
-          cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
-          leftArmDepth={leftArmDepthM}
-          rightArmDepth={rightArmDepthM}
-          blindDepth={blindDepthM}
-          blindSide={item.blindSide}
-          fillerWidth={fillerWidthM}
-          hasReturnFiller={config.hasReturnFiller}
-          gableThickness={gableThickness}
-          color={gableMat.color}
-          roughness={gableMat.roughness}
-          metalness={gableMat.metalness}
-          map={gableMat.map}
-        />
+        // Lift the corner carcass above the toe kick (same offset the doors use),
+        // so the gables reach the benchtop instead of sitting half-a-kick too low.
+        <group position={[0, carcassYOffset, 0]}>
+          <CornerCarcass
+            width={widthM}
+            height={carcassHeight}
+            depth={cornerFootprintDepthM}
+            cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
+            leftArmDepth={leftArmDepthM}
+            rightArmDepth={rightArmDepthM}
+            blindDepth={blindDepthM}
+            blindSide={item.blindSide}
+            fillerWidth={fillerWidthM}
+            hasReturnFiller={config.hasReturnFiller}
+            gableThickness={gableThickness}
+            color={gableMat.color}
+            roughness={gableMat.roughness}
+            metalness={gableMat.metalness}
+            map={gableMat.map}
+          />
+        </group>
       );
     }
 
@@ -268,28 +363,36 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   };
 
   // Render bottom panel
-  const renderBottom = () => (
-    <BottomPanel
-      width={interiorWidth}
-      depth={depthM - backPanelThickness}
-      thickness={bottomThickness}
-      position={[0, carcassYOffset - carcassHeight / 2 + bottomThickness / 2, backPanelThickness / 2]}
-      color={bottomMat.color}
-      roughness={bottomMat.roughness}
-      map={bottomMat.map}
-      hasSinkCutout={config.isSink}
-    />
-  );
+  const renderBottom = () => {
+    // Corner cabinets render their own L-shaped bottom panels inside CornerCarcass
+    if (isCornerCabinet) return null;
+    return (
+      <BottomPanel
+        width={interiorWidth}
+        depth={depthM - backPanelThickness}
+        thickness={bottomThickness}
+        position={[0, carcassYOffset - carcassHeight / 2 + bottomThickness / 2, backPanelThickness / 2]}
+        color={bottomMat.color}
+        roughness={bottomMat.roughness}
+        map={bottomMat.map}
+        hasSinkCutout={config.isSink}
+      />
+    );
+  };
 
   // Render back panel (with 16mm setback for hanging rails)
-  const renderBack = () => (
-    <BackPanel
-      width={interiorWidth}
-      height={carcassHeight - bottomThickness * 2}
-      position={[0, carcassYOffset, -depthM / 2 + backSetback + backPanelThickness / 2]}
-      setback={backSetback}
-    />
-  );
+  const renderBack = () => {
+    // Corner cabinets render their own back panel inside CornerCarcass
+    if (isCornerCabinet) return null;
+    return (
+      <BackPanel
+        width={interiorWidth}
+        height={carcassHeight - bottomThickness * 2}
+        position={[0, carcassYOffset, -depthM / 2 + backSetback + backPanelThickness / 2]}
+        setback={backSetback}
+      />
+    );
+  };
 
   // Render adjustable shelves based on recipe
   const renderShelves = () => {
@@ -297,7 +400,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     if (isCornerCabinet) return null;
     
     // Use recipe shelf count, or fall back to config
-    const shelfCount = recipe?.shelves.count ?? (config.shelfCount > 0 ? config.shelfCount : 1);
+    const shelfCount = item.shelfCount ?? recipe?.shelves.count ?? (config.shelfCount > 0 ? config.shelfCount : 1);
     if (shelfCount === 0) return null;
     
     const isAdjustable = recipe?.shelves.adjustable ?? true;
@@ -372,6 +475,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Uses physical shadow gap and 32mm system handle positioning
   // FIXED: Proper door height calculation based on opening, not arbitrary reductions
   const renderDoors = () => {
+    // Corner cabinets always render their own door set (pie-cut / diagonal / blind),
+    // independent of door_count which is frequently 0 in the catalog for corners.
+    if (isCornerCabinet) {
+      return renderCornerDoors();
+    }
     // Skip if no doors (unless it's a sink cabinet which always has doors)
     if (config.doorCount === 0 && !config.isSink) return null;
     const actualDoorCount = config.doorCount > 0 ? config.doorCount : (config.isSink ? 2 : 0);
@@ -379,11 +487,6 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     
     // Physical shadow gap: doors sit in front of carcass with real 3D gap
     const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
-    
-    // For corner cabinets, render doors differently based on corner type
-    if (isCornerCabinet) {
-      return renderCornerDoors();
-    }
     
     // Calculate available opening height for doors
     // For combo cabinets: opening is from bottom of carcass to bottom of drawer divider
@@ -404,7 +507,26 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       : carcassYOffset - falseFrontH / 2;  // Shifted down if false front present
     
     const doorY = openingCenterY;
-    
+
+    // Folding (bi-fold) door cabinets: one concertina leaf pair that folds to
+    // one side, instead of independent swing doors.
+    if (/fold/i.test(config.productName || '')) {
+      return (
+        <FoldingDoor
+          width={widthM - sideReveal * 2}
+          height={effectiveDoorHeight}
+          thickness={doorThickness}
+          position={[0, doorY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          hingeSide={hingeLeft ? 'left' : 'right'}
+          forceOpen={doorsOpen}
+          handle={{ type: handle.type, color: handle.hex }}
+        />
+      );
+    }
+
     // Two door cabinet (pair doors)
     if (actualDoorCount >= 2) {
       // Each door is half the interior width minus gap between them minus side reveals
@@ -413,13 +535,15 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       
       // 32mm system handle positions
       const handleOffset = 0.032; // 32mm from door edge
-      const handleY = config.category === 'Base' 
-        ? effectiveDoorHeight / 2 - 0.096  // 96mm from top for base
-        : -effectiveDoorHeight / 2 + 0.096; // 96mm from bottom for wall
+      const handleY = config.category === 'Base'
+        ? effectiveDoorHeight / 2 - 0.096        // 96mm from top for base cabinets
+        : config.category === 'Tall'
+        ? -effectiveDoorHeight / 2 + Math.min(0.9, effectiveDoorHeight * 0.43)  // ~900mm from bottom for tall
+        : -effectiveDoorHeight / 2 + 0.096;      // 96mm from bottom for wall
       
       return (
         <>
-          {/* Left door - hinge on left edge */}
+          {/* Left door - hinge on left edge; handle near the inner (right) edge */}
           <DoorFront
             width={doorWidth}
             height={effectiveDoorHeight}
@@ -430,17 +554,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             map={doorMat.map}
             gap={0} // Gap already accounted for in positioning
             hingeLeft={true}
+            forceOpen={doorsOpen}
+            handle={{ type: handle.type, color: handle.hex, x: doorWidth / 2 - handleOffset, y: handleY }}
           />
-          <HandleMesh
-            type={handle.type}
-            color={handle.hex}
-            position={[
-              doorWidth / 2 - handleOffset - doorGap / 2,  // Near right edge of left door
-              doorY + handleY,
-              frontZ + doorThickness / 2 + 0.015
-            ]}
-          />
-          {/* Right door - hinge on right edge */}
+          {/* Right door - hinge on right edge; handle near the inner (left) edge */}
           <DoorFront
             width={doorWidth}
             height={effectiveDoorHeight}
@@ -451,15 +568,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             map={doorMat.map}
             gap={0}
             hingeLeft={false}
-          />
-          <HandleMesh
-            type={handle.type}
-            color={handle.hex}
-            position={[
-              -doorWidth / 2 + handleOffset + doorGap / 2,  // Near left edge of right door
-              doorY + handleY,
-              frontZ + doorThickness / 2 + 0.015
-            ]}
+            forceOpen={doorsOpen}
+            handle={{ type: handle.type, color: handle.hex, x: -doorWidth / 2 + handleOffset, y: handleY }}
           />
         </>
       );
@@ -469,30 +579,26 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     const doorWidth = widthM - sideReveal * 2;
     const handleOffset = 0.032; // 32mm from edge
     const handleX = hingeLeft ? doorWidth / 2 - handleOffset : -doorWidth / 2 + handleOffset;
-    const handleY = config.category === 'Base' 
-      ? effectiveDoorHeight / 2 - 0.096 
+    const handleY = config.category === 'Base'
+      ? effectiveDoorHeight / 2 - 0.096
+      : config.category === 'Tall'
+      ? -effectiveDoorHeight / 2 + Math.min(0.9, effectiveDoorHeight * 0.43)
       : -effectiveDoorHeight / 2 + 0.096;
     
     return (
-      <>
-        <DoorFront
-          width={doorWidth}
-          height={effectiveDoorHeight}
-          thickness={doorThickness}
-          position={[0, doorY, frontZ]}
-          color={doorMat.color}
-          roughness={doorMat.roughness}
-          map={doorMat.map}
-          gap={0}
-          hingeLeft={hingeLeft}
-        />
-        <HandleMesh
-          type={handle.type}
-          color={handle.hex}
-          position={[handleX, doorY + handleY, frontZ + doorThickness / 2 + 0.015]}
-          rotation={0}
-        />
-      </>
+      <DoorFront
+        width={doorWidth}
+        height={effectiveDoorHeight}
+        thickness={doorThickness}
+        position={[0, doorY, frontZ]}
+        color={doorMat.color}
+        roughness={doorMat.roughness}
+        map={doorMat.map}
+        gap={0}
+        hingeLeft={hingeLeft}
+        forceOpen={doorsOpen}
+        handle={{ type: handle.type, color: handle.hex, x: handleX, y: handleY }}
+      />
     );
   };
 
@@ -506,7 +612,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     // (matches CornerCarcass notch geometry and the Microvellum pie-cut look).
     if (cornerType === 'l-shape') {
       const notchX = -widthM / 2 + Math.min(leftArmDepthM, widthM - 0.05);
-      const notchZ = -depthM / 2 + Math.min(rightArmDepthM, depthM - 0.05);
+      const notchZ = -cornerFootprintDepthM / 2 + Math.min(rightArmDepthM, cornerFootprintDepthM - 0.05);
 
       // Door 1: on the back arm's front face (plane z = notchZ, faces +Z)
       const d1Width = (widthM / 2 - notchX) - sideReveal * 2;
@@ -514,13 +620,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       const d1Z = notchZ + doorThickness / 2 + shadowGap;
 
       // Door 2: on the left arm's side face (plane x = notchX, faces +X)
-      const d2Width = (depthM / 2 - notchZ) - sideReveal * 2;
+      const d2Width = (cornerFootprintDepthM / 2 - notchZ) - sideReveal * 2;
       const d2X = notchX + doorThickness / 2 + shadowGap;
-      const d2Z = (notchZ + depthM / 2) / 2;
+      const d2Z = (notchZ + cornerFootprintDepthM / 2) / 2;
 
       return (
         <>
-          {/* Door 1 - faces +Z, hinged at its outer (right) edge, handle at the notch corner */}
+          {/* Door 1 - faces +Z; hinged at the inner (notch) edge, handle at the outer end */}
           <DoorFront
             width={d1Width}
             height={doorHeight}
@@ -530,19 +636,21 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             roughness={doorMat.roughness}
             map={doorMat.map}
             gap={0}
-            hingeLeft={false}
+            hingeLeft={true}
+            showHinges={false}
+            forceOpen={doorsOpen}
           />
           <HandleMesh
             type={handle.type}
             color={handle.hex}
             position={[
-              d1X - d1Width / 2 + 0.04,
+              d1X + d1Width / 2 - 0.04,
               doorY + doorHeight / 2 - 0.096,
               d1Z + doorThickness / 2 + 0.015
             ]}
           />
 
-          {/* Door 2 - faces +X (rotated), hinged at its outer (front) edge, handle at the notch corner */}
+          {/* Door 2 - faces +X (rotated); hinged at the inner (notch) edge, handle at the outer end */}
           <group position={[d2X, doorY, d2Z]} rotation={[0, -Math.PI / 2, 0]}>
             <DoorFront
               width={d2Width}
@@ -553,13 +661,15 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
               roughness={doorMat.roughness}
               map={doorMat.map}
               gap={0}
-              hingeLeft={true}
+              hingeLeft={false}
+              showHinges={false}
+              forceOpen={doorsOpen}
             />
             <HandleMesh
               type={handle.type}
               color={handle.hex}
               position={[
-                -d2Width / 2 + 0.04,
+                d2Width / 2 - 0.04,
                 doorHeight / 2 - 0.096,
                 doorThickness / 2 + 0.015
               ]}
@@ -585,6 +695,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             map={doorMat.map}
             gap={doorGap}
             hingeLeft={true}
+            forceOpen={doorsOpen}
           />
           <HandleMesh
             type={handle.type}
@@ -617,6 +728,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           map={doorMat.map}
           gap={0}
           hingeLeft={blindIsLeft}
+          forceOpen={doorsOpen}
         />
         {/* Door on the accessible side */}
         <DoorFront
@@ -629,6 +741,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           map={doorMat.map}
           gap={0}
           hingeLeft={!blindIsLeft}
+          forceOpen={doorsOpen}
         />
         <HandleMesh
           type={handle.type}
@@ -644,6 +757,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // FIXED: Proper drawer positioning that fills the opening correctly
   const renderDrawers = () => {
     if (config.drawerCount === 0) return null;
+    // Sink cabinets never have drawers — the sink bowl occupies the top opening
+    if (config.isSink) return null;
     
     // Physical shadow gap: drawers sit in front of carcass with real 3D gap
     const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
@@ -687,6 +802,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             map={drawerMat.map}
             gap={0} // Gap already accounted for
             showBox={true}
+            forceOpen={doorsOpen}
           />
           <HandleMesh
             type={handle.type}
@@ -718,20 +834,39 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     );
   };
 
-  // Render top panel for wall cabinets
+  // Render the cabinet top: a full panel for Wall/Tall cabinets, or two 100mm
+  // rails (front + back) for Base cabinets — matches Microvellum (DXF: 16×100 rails).
+  // Corner cabinets build their own top inside CornerCarcass.
   const renderTopPanel = () => {
-    if (config.category !== 'Wall') return null;
-    
+    if (isCornerCabinet) return null;
+    const topY = carcassYOffset + carcassHeight / 2 - bottomThickness / 2;
+    const isClosedTop = config.category === 'Wall' || config.category === 'Tall';
+
+    if (isClosedTop) {
+      return (
+        <TopPanel
+          width={interiorWidth}
+          depth={depthM - backPanelThickness}
+          thickness={bottomThickness}
+          position={[0, topY, backPanelThickness / 2]}
+          color={gableMat.color}
+          roughness={gableMat.roughness}
+          map={gableMat.map}
+        />
+      );
+    }
+
+    // Base cabinets: 100mm front + back top rails (stretchers)
+    const railDepth = 0.1; // 100mm
+    const frontZ = depthM / 2 - railDepth / 2;
+    const backZ = -depthM / 2 + backPanelThickness + railDepth / 2;
     return (
-      <TopPanel
-        width={interiorWidth}
-        depth={depthM - backPanelThickness}
-        thickness={bottomThickness}
-        position={[0, carcassYOffset + carcassHeight / 2 - bottomThickness / 2, backPanelThickness / 2]}
-        color={gableMat.color}
-        roughness={gableMat.roughness}
-        map={gableMat.map}
-      />
+      <>
+        <TopPanel width={interiorWidth} depth={railDepth} thickness={bottomThickness}
+          position={[0, topY, frontZ]} color={gableMat.color} roughness={gableMat.roughness} map={gableMat.map} />
+        <TopPanel width={interiorWidth} depth={railDepth} thickness={bottomThickness}
+          position={[0, topY, backZ]} color={gableMat.color} roughness={gableMat.roughness} map={gableMat.map} />
+      </>
     );
   };
 
@@ -770,16 +905,19 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     
     return (
       <>
-        {/* Cabinet legs - visible under kick */}
-        <CabinetLegs
-          width={widthM}
-          depth={depthM}
-          height={kickHeight}
-          isCorner={isCornerCabinet}
-          cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
-          leftArmDepth={leftArmDepthM}
-          rightArmDepth={rightArmDepthM}
-        />
+        {/* Cabinet legs - sit in the toe-kick zone at the floor, not at the
+            cabinet's vertical centre. The group lowers them to the kick band. */}
+        <group position={[0, -heightM / 2 + kickHeight / 2, 0]}>
+          <CabinetLegs
+            width={widthM}
+            depth={cornerFootprintDepthM}
+            height={kickHeight}
+            isCorner={isCornerCabinet}
+            cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
+            leftArmDepth={leftArmDepthM}
+            rightArmDepth={rightArmDepthM}
+          />
+        </group>
         {/* Kickboard panel */}
         <Kickboard
           width={widthM}
@@ -790,7 +928,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           map={kickMat.map}
           isCorner={isCornerCabinet}
           cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
-          depth={depthM}
+          depth={cornerFootprintDepthM}
           leftArmDepth={leftArmDepthM}
           rightArmDepth={rightArmDepthM}
         />
@@ -808,7 +946,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     return (
       <BenchtopMesh
         width={widthM}
-        depth={depthM}
+        depth={cornerFootprintDepthM}
         thickness={btThickness}
         position={[0, heightM / 2 + btThickness / 2, 0]}
         color={benchMat.color}
@@ -924,19 +1062,19 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         </mesh>
       )}
       
-      {/* Carcass interior (visible through gaps) - with edge outline */}
-      <group position={[0, carcassYOffset, 0]}>
-        <mesh>
-          <boxGeometry args={[interiorWidth - 0.002, carcassHeight - 0.002, depthM - backPanelThickness - 0.002]} />
-          <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
-        </mesh>
-        <EdgeOutline 
-          width={interiorWidth - 0.002} 
-          height={carcassHeight - 0.002} 
-          depth={depthM - backPanelThickness - 0.002}
-          color="#888888"
-        />
-      </group>
+      {/* Carcass interior — white fill visible through door gaps and when doors/drawers open.
+          No EdgeOutline here: its front-face rectangle appears as a "ghost door" when real
+          doors swing open. The carcass structural parts (gables, bottom, back) already
+          convey the box shape without needing an extra outline on the interior fill.
+          Corner cabinets: skip the rectangular interior fill — it bleeds into the notch area. */}
+      {!isCornerCabinet && (
+        <group position={[0, carcassYOffset, 0]}>
+          <mesh>
+            <boxGeometry args={[interiorWidth - 0.002, carcassHeight - 0.002, depthM - backPanelThickness - 0.002]} />
+            <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
+          </mesh>
+        </group>
+      )}
       
       {/* Cabinet structure */}
       {renderGables()}
@@ -961,29 +1099,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       {renderOvenCavity()}
       {renderFridgeSpace()}
       
-      {/* Cabinet info label with debug info for corners */}
-      {isSelected && (
-        <Html position={[0, heightM / 2 + 0.4, 0]} center zIndexRange={[100, 0]}>
-          <div className="bg-gray-900/90 backdrop-blur text-white px-3 py-2 rounded-md shadow-xl border border-white/20 flex flex-col items-center pointer-events-none select-none min-w-[100px]">
-            <span className="text-xs font-bold tracking-wide text-blue-200">{item.cabinetNumber}</span>
-            <div className="h-px w-full bg-white/20 my-1"></div>
-            <span className="text-[10px] text-gray-300 truncate max-w-[150px]">{config.productName}</span>
-            <span className="text-[10px] text-gray-400 font-mono">{Math.round(item.width)}w × {Math.round(item.height)}h × {Math.round(item.depth)}d</span>
-            {isCornerCabinet && (
-              <>
-                <div className="h-px w-full bg-yellow-500/30 my-1"></div>
-                <span className="text-[9px] text-yellow-300 font-mono">Corner: {cornerType}</span>
-                {cornerType === 'l-shape' && (
-                  <span className="text-[9px] text-yellow-200 font-mono">L: {Math.round(leftArmDepthM * 1000)}mm R: {Math.round(rightArmDepthM * 1000)}mm</span>
-                )}
-                {cornerType === 'blind' && (
-                  <span className="text-[9px] text-yellow-200 font-mono">Blind: {item.blindSide || 'Left'} {Math.round(blindDepthM * 1000)}mm</span>
-                )}
-              </>
-            )}
-          </div>
-        </Html>
-      )}
+      {/* Selected-cabinet details now live in the side panel (CabinetListPanel)
+          instead of a floating in-scene banner. */}
     </>
   );
 };

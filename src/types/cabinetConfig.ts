@@ -91,23 +91,23 @@ export type BoardThickness = typeof BOARD_THICKNESS_OPTIONS[number];
  * Based on Microvellum manufacturing standards
  */
 export const CONSTRUCTION_STANDARDS = {
-  // Board thicknesses (mm)
-  gableThickness: 18,
-  shelfThickness: 18,
-  backPanelThickness: 3,       // Backing board
-  doorThickness: 18,
-  drawerFrontThickness: 18,
-  bottomPanelThickness: 18,
-  topPanelThickness: 18,
+  // Board thicknesses (mm) — verified against Microvellum DXF part frames (16mm carcass)
+  gableThickness: 16,
+  shelfThickness: 16,
+  backPanelThickness: 16,      // MV uses a 16mm structural back (DXF: 568×735×16), set back 16mm
+  doorThickness: 16,           // MV doors & fronts are 16mm (confirmed from library DXF 3D_FINISH parts)
+  drawerFrontThickness: 16,
+  bottomPanelThickness: 16,
+  topPanelThickness: 16,
   kickboardThickness: 16,
   edgeBanding: 0.4,
   
   // Gaps & Reveals (mm) - Microvellum standard
   doorGap: 2,                  // Between doors
   drawerGap: 2,                // Between drawers
-  topReveal: 3,                // Gap from carcass top to door
-  bottomReveal: 2,             // Gap from carcass bottom to door
-  sideReveal: 2,               // Gap from gable to door edge
+  topReveal: 1,                // MV-verified: door height = carcass − 2
+  bottomReveal: 1,             // (1mm top + 1mm bottom)
+  sideReveal: 1,               // MV-verified: door/front width = cabinet − 2 (1mm each side)
   
   // Setbacks (mm)
   backPanelSetback: 16,        // Recessed for hanging rails (industry standard)
@@ -210,8 +210,10 @@ export function parseProductToRenderConfig(product: {
   const productType = determineProductType(specGroup, product.name);
   
   // Use database columns if available, otherwise parse from name
-  const hasFalseFront = product.has_false_front ?? 
-    (name.includes('false front') || name.includes('false drawer'));
+  // The catalog's has_false_front flag is unreliable (it's set true for ALL sinks),
+  // which puts a phantom false-front "drawer" on plain sink cabinets. Microvellum only
+  // fits a false front when the product name says so, so derive it from the name.
+  const hasFalseFront = name.includes('false front') || name.includes('false drawer');
   
   const isPantry = name.includes('pantry') || name.includes('larder');
   const isOven = name.includes('oven') || name.includes('ov tower');
@@ -273,15 +275,17 @@ export function parseProductToRenderConfig(product: {
     cornerType,
     
     // Corner dimensions from database
-    leftArmDepth: product.left_arm_depth || 575,
-    rightArmDepth: product.right_arm_depth || 575,
+    // L-shape corners: the catalog's left/right_arm_depth actually hold the wall RUN,
+    // and default_depth is the true arm/return depth. So for L-corners the arm = default_depth.
+    leftArmDepth: cornerType === 'l-shape' ? (product.default_depth || 575) : (product.left_arm_depth || 575),
+    rightArmDepth: cornerType === 'l-shape' ? (product.default_depth || 575) : (product.right_arm_depth || 575),
     blindDepth: product.blind_depth || 150,
     fillerWidth: product.filler_width || 75,
     hasReturnFiller: product.return_filler || false,
     
     defaultWidth: product.default_width || 600,
     defaultHeight: product.default_height || 870,
-    defaultDepth: product.default_depth || 575,
+    defaultDepth: cornerType === 'l-shape' ? (product.default_width || 900) : (product.default_depth || 575),
     
     // DXF geometry data
     thumbnailSvg: product.thumbnail_svg || undefined,

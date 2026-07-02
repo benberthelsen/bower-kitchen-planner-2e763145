@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { cn } from '@/lib/utils';
@@ -99,32 +99,66 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
   // Hettich, Grass, Blum etc.). Mock entries are the fallback while empty.
   const { hinges: dbHinges, drawerRunners: dbRunners } = useMaterialsCatalog();
 
-  // Shop standard hardware: Salice hinges and Hafele Alto Slim drawers
-  // sort to the top of their lists.
-  const hingeList = useMemo(
-    () => (dbHinges.length > 0
-      ? [...dbHinges]
-          .sort((a, b) => {
-            const aStd = /salice/i.test(`${a.series} ${a.name}`) ? 0 : 1;
-            const bStd = /salice/i.test(`${b.series} ${b.name}`) ? 0 : 1;
-            return aStd - bStd || a.name.localeCompare(b.name);
-          })
-          .map((h) => ({ id: h.id, name: h.name, description: [h.brand, h.series].filter(Boolean).join(' ') || 'Hinge' }))
-      : hingeOptions),
-    [dbHinges],
-  );
-  const drawerList = useMemo(
-    () => (dbRunners.length > 0
-      ? [...dbRunners]
-          .sort((a, b) => {
-            const aStd = /alto slim/i.test(`${a.series} ${a.name}`) ? 0 : 1;
-            const bStd = /alto slim/i.test(`${b.series} ${b.name}`) ? 0 : 1;
-            return aStd - bStd || a.name.localeCompare(b.name);
-          })
-          .map((d) => ({ id: d.id, name: d.name, description: [d.brand, d.series].filter(Boolean).join(' ') || 'Drawer system' }))
-      : drawerOptions),
-    [dbRunners],
-  );
+  // Group hardware items by series so users select STYLE only, not a specific
+  // size variant. Each group is represented by its first matching row's id; the
+  // actual size per cabinet is resolved at manufacture time from the group key.
+  const hingeList = useMemo(() => {
+    if (dbHinges.length === 0) return hingeOptions;
+    const seen = new Set<string>();
+    const groups: { id: string; name: string; description: string }[] = [];
+    const sorted = [...dbHinges].sort((a, b) => {
+      const aStd = /salice/i.test(`${a.series} ${a.name}`) ? 0 : 1;
+      const bStd = /salice/i.test(`${b.series} ${b.name}`) ? 0 : 1;
+      return aStd - bStd || a.name.localeCompare(b.name);
+    });
+    for (const h of sorted) {
+      // Group key: prefer series, fall back to brand, else raw name
+      const groupKey = (h.series || h.brand || h.name || '').trim().toLowerCase();
+      if (seen.has(groupKey)) continue;
+      seen.add(groupKey);
+      const displayName = h.series || h.name;
+      const description = h.brand && h.series ? h.brand : (h.brand || 'Hinge');
+      groups.push({ id: h.id, name: displayName, description });
+    }
+    return groups;
+  }, [dbHinges]);
+
+  const drawerList = useMemo(() => {
+    if (dbRunners.length === 0) return drawerOptions;
+    const seen = new Set<string>();
+    const groups: { id: string; name: string; description: string }[] = [];
+    const sorted = [...dbRunners].sort((a, b) => {
+      const aStd = /alto slim/i.test(`${a.series} ${a.name}`) ? 0 : 1;
+      const bStd = /alto slim/i.test(`${b.series} ${b.name}`) ? 0 : 1;
+      return aStd - bStd || a.name.localeCompare(b.name);
+    });
+    for (const d of sorted) {
+      const groupKey = (d.series || d.brand || d.name || '').trim().toLowerCase();
+      if (seen.has(groupKey)) continue;
+      seen.add(groupKey);
+      const displayName = d.series || d.name;
+      const description = d.brand && d.series ? d.brand : (d.brand || 'Drawer system');
+      groups.push({ id: d.id, name: displayName, description });
+    }
+    return groups;
+  }, [dbRunners]);
+
+  // config.hingeStyle/drawerStyle store the hardware_pricing row id; resolve to names for display.
+  const hingeName = hingeList.find((h) => h.id === config.hingeStyle)?.name ?? config.hingeStyle;
+  const drawerName = drawerList.find((d) => d.id === config.drawerStyle)?.name ?? config.drawerStyle;
+
+  // Auto-fill the shop-standard hinge/runner when the saved value is empty or a
+  // legacy name that no longer matches a price-list id (so the dropdowns aren't blank).
+  useEffect(() => {
+    if (hingeList.length > 0 && !hingeList.some((h) => h.id === config.hingeStyle)) {
+      updateConfig({ hingeStyle: hingeList[0].id });
+    }
+  }, [hingeList, config.hingeStyle]);
+  useEffect(() => {
+    if (drawerList.length > 0 && !drawerList.some((d) => d.id === config.drawerStyle)) {
+      updateConfig({ drawerStyle: drawerList[0].id });
+    }
+  }, [drawerList, config.drawerStyle]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -236,7 +270,7 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
             </SelectTrigger>
             <SelectContent>
               {hingeList.map((hinge) => (
-                <SelectItem key={hinge.id} value={hinge.name}>
+                <SelectItem key={hinge.id} value={hinge.id}>
                   <div>
                     <span className="font-medium">{hinge.name}</span>
                     <span className="text-trade-muted text-xs ml-2">- {hinge.description}</span>
@@ -250,7 +284,7 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
           <div className="bg-trade-surface rounded-lg p-4 flex items-center justify-center h-32">
             <div className="text-center text-trade-muted">
               <div className="text-4xl mb-2">🔧</div>
-              <p className="text-sm">{config.hingeStyle}</p>
+              <p className="text-sm">{hingeName}</p>
             </div>
           </div>
         </div>
@@ -276,7 +310,7 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
             </SelectTrigger>
             <SelectContent>
               {drawerList.map((drawer) => (
-                <SelectItem key={drawer.id} value={drawer.name}>
+                <SelectItem key={drawer.id} value={drawer.id}>
                   <div>
                     <span className="font-medium">{drawer.name}</span>
                     <span className="text-trade-muted text-xs ml-2">- {drawer.description}</span>
@@ -290,7 +324,7 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
           <div className="bg-trade-surface rounded-lg p-4 flex items-center justify-center h-32">
             <div className="text-center text-trade-muted">
               <div className="text-4xl mb-2">🗄️</div>
-              <p className="text-sm">{config.drawerStyle}</p>
+              <p className="text-sm">{drawerName}</p>
             </div>
           </div>
         </div>

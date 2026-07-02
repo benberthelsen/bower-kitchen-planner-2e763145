@@ -13,10 +13,12 @@ import {
   MapPin,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   Box,
   LayoutGrid,
   ArrowUpDown,
-  PanelTop
+  PanelTop,
+  RotateCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getFlushWall } from './flushToWall';
@@ -35,6 +37,7 @@ interface CabinetListPanelProps {
   onSelectCabinet: (instanceId: string | null) => void;
   onDuplicateCabinet?: (cabinet: ConfiguredCabinet) => Promise<void> | void;
   onRemoveCabinet?: (cabinet: ConfiguredCabinet) => Promise<void> | void;
+  onRotateCabinet?: () => void;
   className?: string;
 }
 
@@ -85,12 +88,14 @@ export function CabinetListPanel({
   onSelectCabinet,
   onDuplicateCabinet,
   onRemoveCabinet,
+  onRotateCabinet,
   className,
 }: CabinetListPanelProps) {
   const { selectedCabinetId, removeCabinet, duplicateCabinet, getRoomTotals, getRoomById } = useTradeRoom();
 
   const totals = getRoomTotals(roomId);
   const room = getRoomById(roomId);
+  const selectedCabinet = selectedCabinetId ? cabinets.find((c) => c.instanceId === selectedCabinetId) ?? null : null;
 
   const estimatedTotal = useMemo(
     () => cabinets.reduce((sum, cabinet) => sum + (getCabinetPrice?.(cabinet) ?? 0), 0),
@@ -169,6 +174,25 @@ export function CabinetListPanel({
     const placed = items.filter(c => c.isPlaced).length;
     return { total: items.length, placed };
   };
+
+  // When a cabinet is selected, the panel shows its details (takes over from the
+  // room list). Deselecting (Back / Esc / clicking empty space) returns to the list.
+  if (selectedCabinet) {
+    return (
+      <div className={cn("flex flex-col bg-background border-l h-full", className)}>
+        <CabinetDetailView
+          cabinet={selectedCabinet}
+          price={getCabinetPrice?.(selectedCabinet)}
+          flushWall={room ? getFlushWall(selectedCabinet, room) : null}
+          onBack={() => onSelectCabinet(null)}
+          onEdit={() => onEditCabinet(selectedCabinet)}
+          onRotate={onRotateCabinet}
+          onDuplicate={() => handleDuplicate(selectedCabinet)}
+          onRemove={() => { void handleRemove(selectedCabinet); onSelectCabinet(null); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex flex-col bg-background border-l h-full", className)}>
@@ -371,5 +395,115 @@ function CabinetListItem({
         </Button>
       </div>
     </div>
+  );
+}
+
+// ---- Selected-cabinet detail view (takes over the side panel on selection) ----
+
+function prettyValue(value?: string): string {
+  if (!value) return '—';
+  // Raw reference ids (UUIDs) aren't meaningful to show — hide them.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return '—';
+  return value.replace(/[-_]/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="py-1.5 border-b border-border/50 last:border-0">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-xs font-medium text-trade-navy break-words whitespace-normal">{value}</div>
+    </div>
+  );
+}
+
+interface CabinetDetailViewProps {
+  cabinet: ConfiguredCabinet;
+  price?: number;
+  flushWall: 'back' | 'left' | 'right' | 'front' | null;
+  onBack: () => void;
+  onEdit: () => void;
+  onRotate?: () => void;
+  onDuplicate: () => void;
+  onRemove: () => void;
+}
+
+function CabinetDetailView({ cabinet, price, flushWall, onBack, onEdit, onRotate, onDuplicate, onRemove }: CabinetDetailViewProps) {
+  const d = cabinet.dimensions;
+  const m = cabinet.materials;
+  const h = cabinet.hardware;
+  return (
+    <>
+      <div className="p-3 border-b flex items-start gap-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8 -ml-1 flex-shrink-0" onClick={onBack} title="Back to list (Esc)">
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="font-mono text-xs font-bold text-trade-amber">{cabinet.cabinetNumber}</span>
+            <span className="text-sm font-semibold text-trade-navy break-words">{cabinet.productName}</span>
+          </div>
+          <span className="text-[11px] text-muted-foreground">{cabinet.category} cabinet</span>
+        </div>
+      </div>
+
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {([['Width', d.width], ['Height', d.height], ['Depth', d.depth]] as const).map(([label, val]) => (
+              <div key={label} className="rounded-lg border border-border p-2">
+                <div className="text-sm font-semibold text-trade-navy">{val}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Placement</div>
+            <DetailRow label="On wall" value={flushWall ? <FlushToWallBadge wall={flushWall} /> : 'Free-standing'} />
+            <DetailRow label="Status" value={cabinet.isPlaced ? 'Placed' : 'Not placed'} />
+            <DetailRow label="Rotation" value={`${cabinet.position?.rotation ?? 0}°`} />
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Materials</div>
+            <DetailRow label="Door / exterior" value={prettyValue(m?.exteriorFinish)} />
+            <DetailRow label="Carcase" value={prettyValue(m?.carcaseFinish)} />
+            <DetailRow label="Door style" value={prettyValue(m?.doorStyle)} />
+            <DetailRow label="Edge" value={prettyValue(m?.edgeBanding)} />
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Hardware</div>
+            <DetailRow label="Handle" value={prettyValue(h?.handleType)} />
+            <DetailRow label="Hinge" value={prettyValue(h?.hingeType)} />
+            <DetailRow label="Drawer runner" value={prettyValue(h?.drawerType)} />
+          </div>
+
+          {price !== undefined && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Price</div>
+              <DetailRow label="Estimated" value={new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(price)} />
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+
+      <div className="p-3 border-t grid grid-cols-2 gap-2">
+        <Button size="sm" className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy" onClick={onEdit}>
+          <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit
+        </Button>
+        {onRotate && (
+          <Button variant="outline" size="sm" onClick={onRotate}>
+            <RotateCw className="w-3.5 h-3.5 mr-1" /> Rotate
+          </Button>
+        )}
+        <Button variant="outline" size="sm" onClick={onDuplicate}>
+          <Copy className="w-3.5 h-3.5 mr-1" /> Duplicate
+        </Button>
+        <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={onRemove}>
+          <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+        </Button>
+      </div>
+    </>
   );
 }

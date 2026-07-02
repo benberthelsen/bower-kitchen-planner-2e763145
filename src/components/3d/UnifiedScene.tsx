@@ -58,6 +58,7 @@ export interface UnifiedSceneProps {
   // Callbacks
   onItemSelect: (id: string | null) => void;
   onItemMove: (id: string, updates: Partial<PlacedItem>) => void;
+  onItemEdit?: (id: string) => void;
   onItemAdd?: (definitionId: string, x: number, z: number, rotation?: number) => void;
   onDragStart?: (id: string) => void;
   onDragEnd?: () => void;
@@ -73,6 +74,7 @@ export interface UnifiedSceneProps {
   is3D?: boolean;
   viewMode?: '2d' | '3d';
   showDebugOverlay?: boolean;
+  doorsOpen?: boolean;
   
   // Camera controls callback
   onCameraControlsReady?: (controls: {
@@ -298,117 +300,89 @@ function DropZone({
 // Drag manager for moving existing items
 function DragManager({
   items,
-  draggedItemId,
+  draggedIdRef,
   room,
   globalDimensions,
-  dragState,
   onItemMove,
-  onDragConfirm,
   onDragEnd,
   onSnapChange,
   onSnapResultChange,
 }: {
   items: PlacedItem[];
-  draggedItemId: string | null;
+  draggedIdRef: React.MutableRefObject<string | null>;
   room: RoomConfig;
   globalDimensions: GlobalDimensions;
-  dragState?: { startPosition: { x: number; z: number } | null; isDragging: boolean };
   onItemMove: (id: string, updates: Partial<PlacedItem>) => void;
-  onDragConfirm?: () => void;
   onDragEnd?: () => void;
   onSnapChange: (state: SnapState) => void;
   onSnapResultChange?: (result: SnapResult | null) => void;
 }) {
-  const { gl } = useThree();
+  const { gl, camera } = useThree();
+  const raycaster = useRef(new THREE.Raycaster());
+  const plane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const dragRef = useRef<{ startX: number | null; startY: number | null; dragging: boolean }>({ startX: null, startY: null, dragging: false });
+  const stateRef = useRef({ items, room, globalDimensions, camera, onItemMove, onDragEnd, onSnapChange, onSnapResultChange });
+  stateRef.current = { items, room, globalDimensions, camera, onItemMove, onDragEnd, onSnapChange, onSnapResultChange };
 
-  const handlePointerMove = (e: any) => {
-    if (!draggedItemId) return;
-    e.stopPropagation();
-    const point = e.point;
-    const draggedItem = items.find(i => i.instanceId === draggedItemId);
-    if (!draggedItem) return;
-
-    const rawX = point.x * 1000;
-    const rawZ = point.z * 1000;
-
-    // Check if we've exceeded drag threshold
-    if (dragState?.startPosition && !dragState.isDragging) {
-      const dx = rawX - dragState.startPosition.x;
-      const dz = rawZ - dragState.startPosition.z;
-      const distance = Math.sqrt(dx * dx + dz * dz);
-      
-      if (distance < DRAG_THRESHOLD) {
-        return;
-      }
-      onDragConfirm?.();
-    }
-
-    const snapResult = calculateSnapPosition(
-      rawX,
-      rawZ,
-      draggedItem,
-      items,
-      room,
-      SNAP_INCREMENT,
-      globalDimensions
-    );
-
-    onSnapChange({
-      snappedToItemId: snapResult.snappedItemId || null,
-      snapEdge: snapResult.snapEdge,
-    });
-
-    onSnapResultChange?.(snapResult);
-
-    onItemMove(draggedItemId, {
-      x: snapResult.x,
-      z: snapResult.z,
-      rotation: snapResult.rotation,
-    });
-  };
-
-  const handlePointerUp = () => {
-    if (draggedItemId) {
-      onDragEnd?.();
-      onSnapChange({ snappedToItemId: null, snapEdge: undefined });
-      onSnapResultChange?.(null);
-    }
-  };
-
+  // Listeners attach ONCE and read the live drag id from a ref, so a move is
+  // tracked from the first pointermove regardless of React render timing.
   useEffect(() => {
-    const handleGlobalPointerUp = () => {
-      if (draggedItemId) {
-        onDragEnd?.();
-        onSnapChange({ snappedToItemId: null, snapEdge: undefined });
-        onSnapResultChange?.(null);
+    const canvas = gl.domElement;
+
+    const onMove = (e: PointerEvent) => {
+      const id = draggedIdRef.current;
+      if (!id) return;
+      const s = stateRef.current;
+      const draggedItem = s.items.find((i) => i.instanceId === id);
+      if (!draggedItem) return;
+      const dr = dragRef.current;
+      if (dr.startX === null) { dr.startX = e.clientX; dr.startY = e.clientY; }
+      if (!dr.dragging) {
+        if (Math.hypot(e.clientX - dr.startX, e.clientY - (dr.startY ?? e.clientY)) < 5) return;
+        dr.dragging = true;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.current.setFromCamera(new THREE.Vector2(nx, ny), s.camera);
+      const target = new THREE.Vector3();
+      if (!raycaster.current.ray.intersectPlane(plane.current, target)) return;
+      const snapResult = calculateSnapPosition(
+        target.x * 1000,
+        target.z * 1000,
+        draggedItem,
+        s.items,
+        s.room,
+        SNAP_INCREMENT,
+        s.globalDimensions,
+      );
+      s.onSnapChange({ snappedToItemId: snapResult.snappedItemId || null, snapEdge: snapResult.snapEdge });
+      s.onSnapResultChange?.(snapResult);
+      s.onItemMove(id, { x: snapResult.x, z: snapResult.z, rotation: snapResult.rotation });
+    };
+
+    const onUp = () => {
+      dragRef.current = { startX: null, startY: null, dragging: false };
+      if (draggedIdRef.current) {
+        draggedIdRef.current = null;
+        const s = stateRef.current;
+        s.onDragEnd?.();
+        s.onSnapChange({ snappedToItemId: null, snapEdge: undefined });
+        s.onSnapResultChange?.(null);
       }
     };
 
-    gl.domElement.addEventListener('pointerup', handleGlobalPointerUp);
-    gl.domElement.addEventListener('pointerleave', handleGlobalPointerUp);
-    
+    canvas.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointerleave', onUp);
     return () => {
-      gl.domElement.removeEventListener('pointerup', handleGlobalPointerUp);
-      gl.domElement.removeEventListener('pointerleave', handleGlobalPointerUp);
+      canvas.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointerleave', onUp);
     };
-  }, [draggedItemId, onDragEnd, onSnapChange, onSnapResultChange, gl]);
+  }, [gl, draggedIdRef]);
 
-  // Drag plane must be raycastable to receive pointer events.
-  // We make it transparent but visible so onPointerMove fires.
-  const planeWidth = room.width / 1000 + 4;
-  const planeDepth = room.depth / 1000 + 4;
-
-  return (
-    <mesh 
-      rotation={[-Math.PI / 2, 0, 0]} 
-      position={[room.width / 2000, 0.001, room.depth / 2000]} 
-      onPointerMove={handlePointerMove} 
-      onPointerUp={handlePointerUp}
-    >
-      <planeGeometry args={[planeWidth, planeDepth]} />
-      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-    </mesh>
-  );
+  return null;
 }
 
 // No ItemMesh component needed - we use CabinetMesh, ApplianceMesh, StructureMesh directly
@@ -437,8 +411,11 @@ function CameraController({
 
   return (
     <>
-      <PerspectiveCamera makeDefault={viewMode === '3d'} position={[widthM * 1.5, 5, depthM * 1.5]} fov={45} />
-      <OrthographicCamera makeDefault={viewMode === '2d'} position={[widthM / 2, 10, depthM / 2]} zoom={50} near={0.1} far={100} rotation={[-Math.PI / 2, 0, 0]} />
+      {viewMode === '3d' ? (
+        <PerspectiveCamera makeDefault position={[widthM * 1.5, 5, depthM * 1.5]} fov={45} />
+      ) : (
+        <OrthographicCamera makeDefault position={[widthM / 2, 10, depthM / 2]} zoom={50} near={0.1} far={100} rotation={[-Math.PI / 2, 0, 0]} />
+      )}
       <OrbitControls 
         ref={controlsRef} 
         makeDefault 
@@ -451,14 +428,63 @@ function CameraController({
         enableRotate={viewMode === '3d'} 
         minPolarAngle={0} 
         maxPolarAngle={viewMode === '3d' ? Math.PI / 2.1 : 0}
+        enablePan
+        screenSpacePanning
         mouseButtons={{
           LEFT: undefined,
-          MIDDLE: THREE.MOUSE.DOLLY,
-          RIGHT: THREE.MOUSE.ROTATE
+          MIDDLE: THREE.MOUSE.PAN,
+          RIGHT: viewMode === '3d' ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN
         }}
       />
     </>
   );
+}
+
+// Frames the room/cabinets once the camera + OrbitControls are actually ready,
+// and again whenever the 2D/3D view changes. Runs INSIDE the Canvas so it can
+// rely on useThree() — this is what stops the planner opening to a blank view.
+function SceneAutoFit({ itemsRef, room, viewMode }: { itemsRef: React.MutableRefObject<PlacedItem[]>; room: RoomConfig; viewMode: '2d' | '3d' }) {
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls as any);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!controls || !camera) return;
+    const id = requestAnimationFrame(() => {
+      const widthM = room.width / 1000;
+      const depthM = room.depth / 1000;
+      const bbox = new THREE.Box3();
+      (itemsRef.current || []).forEach((item) => {
+        const halfW = (item.width || 0) / 2000;
+        const halfD = (item.depth || 0) / 2000;
+        const h = (item.height || 0) / 1000;
+        bbox.expandByPoint(new THREE.Vector3(item.x / 1000 - halfW, item.y / 1000, item.z / 1000 - halfD));
+        bbox.expandByPoint(new THREE.Vector3(item.x / 1000 + halfW, item.y / 1000 + h, item.z / 1000 + halfD));
+      });
+      if (bbox.isEmpty()) {
+        bbox.expandByPoint(new THREE.Vector3(0, 0, 0));
+        bbox.expandByPoint(new THREE.Vector3(widthM, 2, depthM));
+      }
+      const center = new THREE.Vector3();
+      bbox.getCenter(center);
+      controls.target.copy(center);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const cam = camera as any;
+      if (cam.isPerspectiveCamera) {
+        const distance = maxDim / Math.tan((cam.fov * Math.PI) / 360);
+        const direction = new THREE.Vector3(-1, 0.8, 1).normalize();
+        cam.position.copy(center).addScaledVector(direction, distance * 1.5);
+      } else {
+        cam.zoom = Math.min(50 / (maxDim / 4), 200);
+        cam.updateProjectionMatrix();
+      }
+      controls.update?.();
+      invalidate();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [viewMode, controls, camera, room, itemsRef, invalidate]);
+  return null;
 }
 
 // Main unified scene component
@@ -471,6 +497,7 @@ export function UnifiedScene({
   placementItemId,
   onItemSelect,
   onItemMove,
+  onItemEdit,
   onItemAdd,
   onDragStart,
   onDragEnd,
@@ -479,6 +506,7 @@ export function UnifiedScene({
   is3D = true,
   viewMode: viewModeProp,
   showDebugOverlay = false,
+  doorsOpen,
   onCameraControlsReady,
   catalog: catalogProp,
 }: UnifiedSceneProps) {
@@ -494,8 +522,54 @@ export function UnifiedScene({
   });
   const [debugOverlay, setDebugOverlay] = useState(showDebugOverlay);
   const controlsRef = useRef<any>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // Set synchronously on cabinet press so the (always-on) drag listener can
+  // move on the very first pointermove — no waiting for a React re-render.
+  const draggedIdSyncRef = useRef<string | null>(null);
 
   const viewMode = viewModeProp || (is3D ? '3d' : '2d');
+
+  // Frame the whole room/cabinets in view. Shared by the toolbar "fit" button
+  // and the automatic fit on load / view-toggle — this is what stops the
+  // planner from opening to a blank wall.
+  const fitView = useCallback(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const camera = controls.object;
+    const widthM = room.width / 1000;
+    const depthM = room.depth / 1000;
+    const bbox = new THREE.Box3();
+    itemsRef.current.forEach(item => {
+      const halfW = (item.width || 0) / 2000;
+      const halfD = (item.depth || 0) / 2000;
+      const h = (item.height || 0) / 1000;
+      bbox.expandByPoint(new THREE.Vector3(item.x / 1000 - halfW, item.y / 1000, item.z / 1000 - halfD));
+      bbox.expandByPoint(new THREE.Vector3(item.x / 1000 + halfW, item.y / 1000 + h, item.z / 1000 + halfD));
+    });
+    if (bbox.isEmpty()) {
+      bbox.expandByPoint(new THREE.Vector3(0, 0, 0));
+      bbox.expandByPoint(new THREE.Vector3(widthM, 2, depthM));
+    }
+    const center = new THREE.Vector3();
+    bbox.getCenter(center);
+    controls.target.copy(center);
+    const size = new THREE.Vector3();
+    bbox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    if (camera.isPerspectiveCamera) {
+      const distance = maxDim / Math.tan((camera.fov * Math.PI) / 360);
+      const direction = new THREE.Vector3(-1, 0.8, 1).normalize();
+      camera.position.copy(center).addScaledVector(direction, distance * 1.5);
+    } else {
+      camera.zoom = Math.min(50 / (maxDim / 4), 200);
+      camera.updateProjectionMatrix();
+    }
+    controls.update();
+  }, [room]);
+
+  // Auto-fit is handled by <SceneAutoFit/> inside the Canvas, which fires once
+  // the camera + OrbitControls are actually ready (and on every view change).
 
   // Toggle debug overlay with 'D' key
   useEffect(() => {
@@ -549,43 +623,10 @@ export function UnifiedScene({
           controls.target.set(widthM / 2, 0, depthM / 2);
           controls.update();
         },
-        fitAll: () => {
-          const bbox = new THREE.Box3();
-          items.forEach(item => {
-            // Expand by the item's full extents, not just its centre point
-            const halfW = (item.width || 0) / 2000;
-            const halfD = (item.depth || 0) / 2000;
-            const h = (item.height || 0) / 1000;
-            bbox.expandByPoint(new THREE.Vector3(item.x / 1000 - halfW, item.y / 1000, item.z / 1000 - halfD));
-            bbox.expandByPoint(new THREE.Vector3(item.x / 1000 + halfW, item.y / 1000 + h, item.z / 1000 + halfD));
-          });
-          
-          if (bbox.isEmpty()) {
-            bbox.expandByPoint(new THREE.Vector3(0, 0, 0));
-            bbox.expandByPoint(new THREE.Vector3(widthM, 2, depthM));
-          }
-          
-          const center = new THREE.Vector3();
-          bbox.getCenter(center);
-          controls.target.copy(center);
-          
-          const size = new THREE.Vector3();
-          bbox.getSize(size);
-          const maxDim = Math.max(size.x, size.y, size.z);
-          
-          if (camera.isPerspectiveCamera) {
-            const distance = maxDim / Math.tan((camera.fov * Math.PI) / 360);
-            const direction = new THREE.Vector3(-1, 0.8, 1).normalize();
-            camera.position.copy(center).addScaledVector(direction, distance * 1.5);
-          } else {
-            camera.zoom = Math.min(50 / (maxDim / 4), 200);
-            camera.updateProjectionMatrix();
-          }
-          controls.update();
-        },
+        fitAll: fitView,
       });
     }
-  }, [onCameraControlsReady, room, items]);
+  }, [onCameraControlsReady, room, items, fitView]);
 
   const widthM = room.width / 1000;
   const depthM = room.depth / 1000;
@@ -597,14 +638,21 @@ export function UnifiedScene({
   const cursorStyle = placementItemId ? 'crosshair' : draggedItemId ? 'grabbing' : 'auto';
 
   const handleDragStart = useCallback((id: string, x: number, z: number) => {
+    // Left-drag moves a cabinet in BOTH 2D and 3D. Orbit lives on the right
+    // mouse button so it never competes with moving.
+    draggedIdSyncRef.current = id;
     onDragStart?.(id);
   }, [onDragStart]);
 
   return (
-    <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ cursor: cursorStyle, background: 'linear-gradient(to bottom, #f8fafc, #e2e8f0)' }}>
+    <Canvas shadows dpr={[1, 2]} className="w-full h-full" style={{ cursor: cursorStyle, background: 'linear-gradient(to bottom, #f8fafc, #e2e8f0)' }}
+      onPointerMissed={() => { if (!placementItemId && !draggedItemId) onItemSelect(null); }}>
       <CameraController controlsRef={controlsRef} room={room} viewMode={viewMode} isInteracting={isInteracting} />
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0001} />
+      <SceneAutoFit itemsRef={itemsRef} room={room} viewMode={viewMode} />
+      <ambientLight intensity={0.35} />
+      <hemisphereLight args={[0xffffff, 0xbfc4cc, 0.55]} />
+      <directionalLight position={[6, 10, 6]} intensity={1.0} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0001} />
+      <directionalLight position={[-6, 6, -4]} intensity={0.35} />
 
       {/* Optional scene enhancements (can fail on some GPUs / networks) */}
       <ErrorBoundary fallback={null}>
@@ -615,12 +663,10 @@ export function UnifiedScene({
       <DropZone items={items} room={room} globalDimensions={globalDimensions} catalog={catalog} onItemAdd={onItemAdd} />
       <DragManager 
         items={items}
-        draggedItemId={draggedItemId}
+        draggedIdRef={draggedIdSyncRef}
         room={room}
         globalDimensions={globalDimensions}
-        dragState={dragState}
         onItemMove={onItemMove}
-        onDragConfirm={onDragConfirm}
         onDragEnd={onDragEnd}
         onSnapChange={setSnapState}
         onSnapResultChange={setCurrentSnapResult}
@@ -635,7 +681,7 @@ export function UnifiedScene({
         onItemAdd={onItemAdd}
       />
 
-      <group onPointerMissed={() => { if (!placementItemId) onItemSelect(null); }}>
+      <group>
         {/* Floor */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[widthM / 2, -0.01, depthM / 2]} receiveShadow>
           <planeGeometry args={[widthM + 2, depthM + 2]} />
@@ -764,12 +810,14 @@ export function UnifiedScene({
             : undefined;
           
           return (
-            <CabinetMesh 
-              key={key} 
-              item={item} 
+            <CabinetMesh
+              key={key}
+              item={item}
               globalDimensions={globalDimensions}
               selectedFinish={itemFinish}
               hardwareOptions={itemHandle}
+              doorsOpen={doorsOpen}
+              onEdit={onItemEdit}
               {...commonProps}
             />
           );

@@ -12,16 +12,68 @@ interface AccessoriesTabProps {
   onUpdate: (accessories: Partial<CabinetAccessories>) => void;
 }
 
-const specialFittings = [
-  { id: 'lazy-susan', name: 'Lazy Susan', description: 'Rotating corner organizer' },
-  { id: 'pull-out-waste', name: 'Pull-Out Waste', description: 'Concealed bin system' },
-  { id: 'cutlery-divider', name: 'Cutlery Divider', description: 'Drawer organization insert' },
-  { id: 'spice-rack', name: 'Spice Rack', description: 'Pull-out spice organizer' },
-  { id: 'pot-drawer', name: 'Pot Drawer', description: 'Deep drawer for cookware' },
-  { id: 'wine-rack', name: 'Wine Rack', description: 'Built-in wine storage' },
+type CabinetCategory = 'Base' | 'Wall' | 'Tall' | 'Appliance';
+
+interface SpecialFitting {
+  id: string;
+  name: string;
+  description: string;
+  /** Cabinet categories this fitting is compatible with. Omit = all. */
+  allowedCategories?: CabinetCategory[];
+  /** Only applies to corner cabinets */
+  cornerOnly?: boolean;
+}
+
+const specialFittings: SpecialFitting[] = [
+  {
+    id: 'lazy-susan',
+    name: 'Lazy Susan',
+    description: 'Rotating corner organizer',
+    allowedCategories: ['Base'],
+    cornerOnly: true,
+  },
+  {
+    id: 'pull-out-waste',
+    name: 'Pull-Out Waste',
+    description: 'Concealed bin system',
+    allowedCategories: ['Base'],
+  },
+  {
+    id: 'cutlery-divider',
+    name: 'Cutlery Divider',
+    description: 'Drawer organization insert',
+    allowedCategories: ['Base', 'Tall'],
+  },
+  {
+    id: 'spice-rack',
+    name: 'Spice Rack',
+    description: 'Pull-out spice organizer',
+    allowedCategories: ['Base', 'Tall'],
+  },
+  {
+    id: 'pot-drawer',
+    name: 'Pot Drawer',
+    description: 'Deep drawer for cookware',
+    allowedCategories: ['Base'],
+  },
+  {
+    id: 'wine-rack',
+    name: 'Wine Rack',
+    description: 'Built-in wine storage',
+    allowedCategories: ['Base', 'Wall', 'Tall'],
+  },
 ];
 
 export function AccessoriesTab({ cabinet, onUpdate }: AccessoriesTabProps) {
+  // Detect corners from the product NAME (definitionId is a UUID, not descriptive).
+  const isCorner = /corner|pie.?cut|blind|diagonal/i.test(cabinet.productName || '');
+
+  // Filter fittings to those compatible with this cabinet type
+  const availableFittings = specialFittings.filter((fitting) => {
+    if (fitting.allowedCategories && !fitting.allowedCategories.includes(cabinet.category as CabinetCategory)) return false;
+    if (fitting.cornerOnly && !isCorner) return false;
+    return true;
+  });
   const handleShelfCountChange = (delta: number) => {
     const newCount = Math.max(0, Math.min(6, cabinet.accessories.shelfCount + delta));
     onUpdate({ shelfCount: newCount });
@@ -117,8 +169,11 @@ export function AccessoriesTab({ cabinet, onUpdate }: AccessoriesTabProps) {
       {/* Special Fittings */}
       <div className="space-y-3">
         <Label className="text-sm font-medium">Special Fittings</Label>
+        {availableFittings.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-2">No special fittings available for this cabinet type.</p>
+        ) : (
         <div className="grid gap-2">
-          {specialFittings.map((fitting) => (
+          {availableFittings.map((fitting) => (
             <label
               key={fitting.id}
               className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
@@ -139,6 +194,7 @@ export function AccessoriesTab({ cabinet, onUpdate }: AccessoriesTabProps) {
             </label>
           ))}
         </div>
+        )}
       </div>
     </div>
   );
