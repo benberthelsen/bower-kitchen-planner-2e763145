@@ -264,6 +264,7 @@ export default function ProductConfigurator() {
           materials: cabinet.materials,
           hardware: cabinet.hardware,
           accessories: cabinet.accessories,
+          construction: cabinet.construction,
           isPlaced: false,
         });
 
@@ -305,6 +306,7 @@ export default function ProductConfigurator() {
         materials: cabinet.materials,
         hardware: cabinet.hardware,
         accessories: cabinet.accessories,
+        construction: cabinet.construction,
         isPlaced: false,
       });
 
@@ -409,7 +411,7 @@ export default function ProductConfigurator() {
           {showPartsList && (
             <div className="w-[25%] min-w-[280px]">
               <PartsListPanel cabinet={cabinet} className="h-full" />
-            </div>
+         </div>
           )}
         </div>
       </div>
