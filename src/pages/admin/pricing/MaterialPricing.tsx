@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Search, Save, ChevronLeft, ChevronRight } from "lucide-react";
+import { Upload, Search, Save, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 
 
 interface MaterialPricing {
@@ -18,13 +18,20 @@ interface MaterialPricing {
   finish: string | null;
   substrate: string | null;
   thickness: number | null;
-  area_cost: number;
-  area_handling_cost: number;
-  area_assembly_cost: number;
+  area_cost: number | null;
+  area_handling_cost: number | null;
+  area_assembly_cost: number | null;
+  sample_image_url: string | null;
+  source_supplier: string | null;
+  source_url: string | null;
+  price_status: string | null;
+  review_status: string | null;
   visibility_status: string;
 }
 
 const PAGE_SIZE = 50;
+
+const readableStatus = (value: string | null | undefined) => (value ? value.replace(/_/g, " ") : "manual");
 
 export default function MaterialPricing() {
   const [materials, setMaterials] = useState<MaterialPricing[]>([]);
@@ -122,8 +129,16 @@ export default function MaterialPricing() {
   const brands = [...new Set(materials.map(m => m.brand))].filter(Boolean) as string[];
 
   const filteredMaterials = materials.filter(m => {
-    const matchesSearch = m.name.toLowerCase().includes(search.toLowerCase()) ||
-                          m.item_code.toLowerCase().includes(search.toLowerCase());
+    const searchText = [
+      m.name,
+      m.item_code,
+      m.brand,
+      m.finish,
+      m.source_supplier,
+      m.price_status,
+      m.review_status,
+    ].filter(Boolean).join(" ").toLowerCase();
+    const matchesSearch = searchText.includes(search.toLowerCase());
     const matchesBrand = brandFilter === "all" || m.brand === brandFilter;
     return matchesSearch && matchesBrand;
   });
@@ -186,14 +201,17 @@ export default function MaterialPricing() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Sample</TableHead>
                         <TableHead>Code</TableHead>
                         <TableHead>Name</TableHead>
                         <TableHead>Brand</TableHead>
+                        <TableHead>Source</TableHead>
                         <TableHead>Finish</TableHead>
                         <TableHead>Thickness</TableHead>
                         <TableHead>Area Cost</TableHead>
                         <TableHead>Area Handling</TableHead>
                         <TableHead>Area Assembly</TableHead>
+                        <TableHead>Price</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
@@ -201,9 +219,33 @@ export default function MaterialPricing() {
                     <TableBody>
                       {paginatedMaterials.map(item => (
                         <TableRow key={item.id}>
+                          <TableCell>
+                            {item.sample_image_url ? (
+                              <img
+                                src={item.sample_image_url}
+                                alt={item.name}
+                                className="h-12 w-12 rounded border object-cover bg-white"
+                              />
+                            ) : (
+                              <div className="h-12 w-12 rounded border bg-muted" />
+                            )}
+                          </TableCell>
                           <TableCell className="font-mono text-sm">{item.item_code}</TableCell>
                           <TableCell className="max-w-[200px] truncate">{item.name}</TableCell>
                           <TableCell>{item.brand}</TableCell>
+                          <TableCell className="text-sm">
+                            <div>{item.source_supplier || "Manual"}</div>
+                            {item.source_url && (
+                              <a
+                                href={item.source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                              >
+                                Source <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </TableCell>
                           <TableCell>{item.finish}</TableCell>
                           <TableCell>{item.thickness}mm</TableCell>
                           {editingId === item.id ? (
@@ -232,6 +274,10 @@ export default function MaterialPricing() {
                                   className="w-20"
                                 />
                               </TableCell>
+                              <TableCell className="text-xs">
+                                <div className="capitalize">{readableStatus(item.price_status)}</div>
+                                <div className="text-muted-foreground capitalize">{readableStatus(item.review_status)}</div>
+                              </TableCell>
                               <TableCell>
                                 <Select
                                   value={editValues.visibility_status || "Available"}
@@ -254,9 +300,13 @@ export default function MaterialPricing() {
                             </>
                           ) : (
                             <>
-                              <TableCell>${item.area_cost.toFixed(2)}/m²</TableCell>
-                              <TableCell>${item.area_handling_cost.toFixed(2)}/m²</TableCell>
-                              <TableCell>${item.area_assembly_cost.toFixed(2)}/m²</TableCell>
+                              <TableCell>${Number(item.area_cost ?? 0).toFixed(2)}/m²</TableCell>
+                              <TableCell>${Number(item.area_handling_cost ?? 0).toFixed(2)}/m²</TableCell>
+                              <TableCell>${Number(item.area_assembly_cost ?? 0).toFixed(2)}/m²</TableCell>
+                              <TableCell className="text-xs">
+                                <div className="capitalize">{readableStatus(item.price_status)}</div>
+                                <div className="text-muted-foreground capitalize">{readableStatus(item.review_status)}</div>
+                              </TableCell>
                               <TableCell>
                                 <span className={item.visibility_status === "Available" ? "text-green-600" : "text-muted-foreground"}>
                                   {item.visibility_status}
