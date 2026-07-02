@@ -41,12 +41,21 @@ export interface PlacedItem {
   fillerRight?: number;
 
   finishColor?: string;
+  /** carcase board material (id/item_code/name) for piece pricing */
+  carcaseMaterialId?: string;
+  /** exterior/door finish material (id/item_code/name) for piece pricing */
+  exteriorMaterialId?: string;
+  /** supplier finish image URLs for the 3D texture (resolved outside the canvas) */
+  doorTextureUrl?: string | null;
+  carcaseTextureUrl?: string | null;
   handleType?: string;
   hinge?: 'Left' | 'Right';
   blindSide?: 'Left' | 'Right';
   panelOverhang?: number;
   rightCarcaseDepth?: number;
   leftCarcaseDepth?: number;
+  secondWidth?: number;        // corner SECOND wall run (Wall 2) in mm; width = Wall 1
+  shelfCount?: number;         // adjustable shelf count from the editor (overrides recipe default)
   tapId?: string;
   applianceId?: string;
   
@@ -122,6 +131,8 @@ export interface GlobalDimensions {
   benchtopThickness: number;
   benchtopOverhang: number;
   splashbackHeight: number;
+  /** Floor-to-underside mounting height for wall cabinets (mm). Default 1350. */
+  wallMountHeight: number;
 
   doorGap: number;
   drawerGap: number;

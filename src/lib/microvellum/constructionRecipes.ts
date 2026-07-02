@@ -105,17 +105,17 @@ export interface ConstructionRecipe {
 
 // Standard reveal values (Microvellum defaults)
 const STANDARD_REVEALS = {
-  topReveal: 3,      // 3mm gap above doors
-  bottomReveal: 2,   // 2mm gap below doors
-  sideReveal: 2,     // 2mm gap beside doors
+  topReveal: 1,      // MV-verified: door/front height = carcass − 2 (1 top + 1 bottom)
+  bottomReveal: 1,
+  sideReveal: 1,     // MV-verified: door/front width = cabinet − 2 (1mm each side)
 };
 
 // Base carcass: bottom panel, no top panel, 16mm back setback for hanging rails
 const BASE_CARCASS: CarcassRecipe = { 
   hasBottomPanel: true, 
   hasTopPanel: false, 
-  gableThickness: 18, 
-  backPanelThickness: 3, 
+  gableThickness: 16, 
+  backPanelThickness: 16, 
   backPanelSetback: 16,
   ...STANDARD_REVEALS,
 };
@@ -124,8 +124,8 @@ const BASE_CARCASS: CarcassRecipe = {
 const WALL_CARCASS: CarcassRecipe = { 
   hasBottomPanel: true, 
   hasTopPanel: true, 
-  gableThickness: 18, 
-  backPanelThickness: 3, 
+  gableThickness: 16, 
+  backPanelThickness: 16, 
   backPanelSetback: 16,
   ...STANDARD_REVEALS,
 };
@@ -134,8 +134,8 @@ const WALL_CARCASS: CarcassRecipe = {
 const TALL_CARCASS: CarcassRecipe = { 
   hasBottomPanel: true, 
   hasTopPanel: true, 
-  gableThickness: 18, 
-  backPanelThickness: 3, 
+  gableThickness: 16, 
+  backPanelThickness: 16, 
   backPanelSetback: 16,
   topReveal: 3,
   bottomReveal: 2,
@@ -1227,8 +1227,8 @@ function getRecipeFromPatterns(name: string): ConstructionRecipe {
     carcass: {
       hasBottomPanel: !isAppliance || !name.includes('dishwasher'),
       hasTopPanel: category === 'Wall' || category === 'Tall',
-      gableThickness: 18,
-      backPanelThickness: 3,
+      gableThickness: 16,
+      backPanelThickness: 16,
       backPanelSetback: 16,
       topReveal: 3,
       bottomReveal: 2,

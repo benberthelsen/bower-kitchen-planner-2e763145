@@ -18,6 +18,7 @@ interface PersistedCabinet {
   accessories?: { shelfCount?: number; adjustableShelves?: boolean; dividers?: boolean; specialFittings?: string[] };
   /** Microvellum-style construction prompts (mirrors MV product prompt names) */
   construction?: {
+    secondWidth?: number;
     cabinetDepthLeft?: number;
     cabinetDepthRight?: number;
     toeKickHeight?: number;
@@ -205,7 +206,9 @@ serve(async (req) => {
       locationsXml.push(`      <Location Name="${escapeXml(roomName)}"></Location>`);
 
       // Four walls per room, CCW perimeter. LinkIDs referenced by products.
-      const wallId = (n: number) => `WALL.R${roomIndex + 1}.${String(n).padStart(3, '0')}`;
+      // Wall LinkIDs use Microvellum's BPWALL.Wall.NNN convention (from the official
+      // Walls_And_Products sample). Numbered project-wide so multiple rooms stay unique.
+      const wallId = (n: number) => `BPWALL.Wall.${String(roomIndex * 4 + n).padStart(3, '0')}`;
       const wallDefs = [
         { n: 1, x: 0, y: 0, angle: 0, len: roomW },           // back
         { n: 2, x: roomW, y: 0, angle: 90, len: roomD },      // right
@@ -248,8 +251,14 @@ serve(async (req) => {
           warnings.push(`Missing product mapping for cabinet ${cabinet.cabinetNumber || cabinet.instanceId} (definitionId=${cabinet.definitionId}). The exported product name may not match the Microvellum library.`);
         }
 
+        const corner = isCornerProduct(cabinet, product);
         const width = numberValue(cabinet.dimensions?.width, numberValue(product?.default_width, 600));
-        const depth = numberValue(cabinet.dimensions?.depth, numberValue(product?.default_depth, 575));
+        // Carcase return depth = each corner arm's front-to-back depth (~575).
+        const returnDepth = numberValue(cabinet.dimensions?.depth, numberValue(product?.default_depth, 575));
+        // For corner products the MV "Depth" is the SECOND wall run (Wall 2),
+        // NOT the carcase depth — otherwise MV only draws a single leg. Falls
+        // back to a square corner (Wall 2 = Wall 1) when no second width is set.
+        const depth = corner ? numberValue(cabinet.construction?.secondWidth, width) : returnDepth;
         const height = numberValue(cabinet.dimensions?.height, numberValue(product?.default_height, 870));
         const pos = cabinet.position || { x: 0, y: 0, z: 0, rotation: 0 };
         const rotation = ((Math.round(numberValue(pos.rotation)) % 360) + 360) % 360;
@@ -282,7 +291,6 @@ serve(async (req) => {
           ? Math.round(numberValue(pos.y, 1350))
           : Math.round(numberValue(pos.y, 0));
 
-        const corner = isCornerProduct(cabinet, product);
         const linkIdWall = corner
           ? cornerWalls[rightAngle] ?? wallForRotation[rightAngle] ?? wallId(1)
           : wallForRotation[rightAngle] ?? wallId(1);
@@ -300,8 +308,11 @@ serve(async (req) => {
 
         addPrompt('Toe_Kick_Height', Math.round(numberValue(construction.toeKickHeight, numberValue(roomDims.toeKickHeight, 135))));
         if (corner) {
-          addPrompt('Cabinet_Depth_Left', Math.round(numberValue(construction.cabinetDepthLeft, 575)));
-          addPrompt('Cabinet_Depth_Right', Math.round(numberValue(construction.cabinetDepthRight, 575)));
+          addPrompt('Cabinet_Depth_Left', Math.round(numberValue(construction.cabinetDepthLeft, returnDepth)));
+          addPrompt('Cabinet_Depth_Right', Math.round(numberValue(construction.cabinetDepthRight, returnDepth)));
+          // Second wall run (Wall 2) so MV builds the second leg even if the
+          // product reads it from a prompt rather than the Depth attribute.
+          addPrompt('Cabinet_Width_Right', Math.round(depth));
         }
         if (numberValue(construction.leftFillerWidth, 0) > 0) {
           addPrompt('Left_Filler_Width', Math.round(numberValue(construction.leftFillerWidth, 0)));
@@ -312,10 +323,10 @@ serve(async (req) => {
         if (construction.hingeSide) {
           addPrompt('Face_Options', construction.hingeSide === 'Right' ? 'Right Swing' : 'Left Swing');
         }
-        const doorStyle = cabinet.materials?.doorStyle || room.materialDefaults?.doorStyle;
-        if (doorStyle) {
-          addPrompt('Door_Type', doorStyle);
-        }
+        // Door type/style. Laminate spec group default = MV Door + Slab (flat door).
+        // Profiled/shaker styles should come from the selected door material later.
+        addPrompt('Door_Type', 'MV Door');
+        addPrompt('Door_Style', 'Slab');
 
         const itemNumber = `${roomIndex + 1}.${String(cabinetIndex + 1).padStart(2, '0')}`;
         const productName = product?.name || cabinet.productName;

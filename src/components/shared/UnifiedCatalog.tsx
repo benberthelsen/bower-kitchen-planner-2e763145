@@ -134,6 +134,24 @@ function ProductThumbnailSvg({ product }: { product: ExtendedCatalogItem }) {
 
   const { doorCount = 0, drawerCount = 0, isSink, isCorner } = getCabinetTypeInfo(product);
 
+  // Corner cabinet: render a proper L-shaped plan-view icon (pie-cut style)
+  if (isCorner) {
+    return (
+      <svg className="w-12 h-12 flex-shrink-0" viewBox="0 0 32 32" fill="none">
+        {/* L-shaped body — notch at bottom-right */}
+        <path d="M2,2 L30,2 L30,15 L15,15 L15,30 L2,30 Z" fill="#f3f4f6" stroke="#9ca3af" strokeWidth="1"/>
+        {/* Two pie-cut door faces at the notch edges */}
+        <line x1="30" y1="15" x2="15" y2="15" stroke="#6b7280" strokeWidth="0.7"/>
+        <line x1="15" y1="15" x2="15" y2="30" stroke="#6b7280" strokeWidth="0.7"/>
+        {/* Pie-cut arc showing door swing */}
+        <path d="M30,15 A15,15 0 0 1 15,30" fill="none" stroke="#f59e0b" strokeWidth="0.7" strokeDasharray="2,1"/>
+        {/* Handle dots near inner corner */}
+        <circle cx="22" cy="15" r="1.2" fill="#6b7280"/>
+        <circle cx="15" cy="22" r="1.2" fill="#6b7280"/>
+      </svg>
+    );
+  }
+
   return (
     <svg className="w-12 h-12 flex-shrink-0" viewBox="0 0 32 32" fill="none">
       <rect x="2" y="2" width="28" height="28" rx="2" fill="#f3f4f6" stroke="#9ca3af" strokeWidth="1"/>
@@ -172,9 +190,6 @@ function ProductThumbnailSvg({ product }: { product: ExtendedCatalogItem }) {
       )}
       {isSink && (
         <ellipse cx="16" cy="10" rx="8" ry="3" fill="none" stroke="#3b82f6" strokeWidth="0.5" strokeDasharray="2,1"/>
-      )}
-      {isCorner && (
-        <path d="M4 28 L12 20 L28 4" fill="none" stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,1"/>
       )}
     </svg>
   );

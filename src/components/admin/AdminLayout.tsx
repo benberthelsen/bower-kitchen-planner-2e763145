@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Users, 
-  DollarSign, 
+import {
+  LayoutDashboard,
+  FileText,
+  Users,
+  DollarSign,
   LogOut,
   ChevronRight,
   ChevronDown,
@@ -20,14 +21,20 @@ import {
   Clock,
   Percent,
   FileCode,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Inbox,
+  BarChart2,
+  Upload,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const navItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/admin/leads', label: 'Leads', icon: Inbox },
   { path: '/admin/jobs', label: 'Jobs', icon: FileText },
+  { path: '/admin/analytics', label: 'Analytics', icon: BarChart2 },
   { path: '/admin/customers', label: 'Customers', icon: Users },
   { path: '/admin/products', label: 'Product Visibility', icon: Box },
   { path: '/admin/prices', label: 'Legacy Prices', icon: DollarSign },
@@ -40,11 +47,13 @@ const pricingItems = [
   { path: '/admin/pricing/hardware', label: 'Hardware', icon: Wrench },
   { path: '/admin/pricing/materials', label: 'Materials', icon: Box },
   { path: '/admin/pricing/edges', label: 'Edges', icon: RectangleHorizontal },
-  { path: '/admin/pricing/stone', label: 'Stone', icon: Gem },
+  { path: '/admin/pricing/stone', label: 'Benchtops', icon: Gem },
   { path: '/admin/pricing/doors', label: 'Doors/Drawers', icon: DoorOpen },
   { path: '/admin/pricing/labor', label: 'Labor Rates', icon: Clock },
   { path: '/admin/pricing/markups', label: 'Client Markups', icon: Percent },
   { path: '/admin/pricing/dxf-import', label: 'DXF Import', icon: FileCode },
+  { path: '/admin/pricing/supplier-import', label: 'Supplier Import', icon: Upload },
+  { path: '/admin/pricing/supplier-feeds', label: 'Supplier Feeds', icon: RefreshCw },
 ];
 
 function AdminLayoutInner() {
@@ -53,6 +62,20 @@ function AdminLayoutInner() {
   const [pricingOpen, setPricingOpen] = useState(
     location.pathname.startsWith('/admin/pricing')
   );
+  const [leadCount, setLeadCount] = useState(0);
+
+  // Fetch unread lead count on mount and whenever we navigate to the admin
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'enquiry')
+      .then(({ count }) => {
+        if (!cancelled) setLeadCount(count ?? 0);
+      });
+    return () => { cancelled = true; };
+  }, [location.pathname]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -73,19 +96,25 @@ function AdminLayoutInner() {
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navItems.map(item => {
             const isActive = isActivePath(item.path);
+            const badge = item.path === '/admin/leads' && leadCount > 0 ? leadCount : null;
             return (
               <Link
                 key={item.path}
                 to={item.path}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
-                  isActive 
-                    ? 'bg-gray-800 text-white' 
+                  isActive
+                    ? 'bg-gray-800 text-white'
                     : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
                 }`}
               >
                 <item.icon className="h-5 w-5" />
                 <span>{item.label}</span>
-                {isActive && <ChevronRight className="ml-auto h-4 w-4" />}
+                {badge != null && (
+                  <span className="ml-auto bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
+                {isActive && badge == null && <ChevronRight className="ml-auto h-4 w-4" />}
               </Link>
             );
           })}

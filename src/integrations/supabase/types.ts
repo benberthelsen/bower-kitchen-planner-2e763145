@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      benchtop_pricing: {
+        Row: {
+          brand: string
+          created_at: string | null
+          id: string
+          install_per_lm: number | null
+          install_supply_per_sqm: number | null
+          material_type: string
+          price_per_lm: number | null
+          price_per_sheet: number | null
+          pricing_method: string
+          range_tier: string | null
+          stock_depth_mm: number
+          stock_length_mm: number
+          trade_supply_per_sqm: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          brand: string
+          created_at?: string | null
+          id?: string
+          install_per_lm?: number | null
+          install_supply_per_sqm?: number | null
+          material_type?: string
+          price_per_lm?: number | null
+          price_per_sheet?: number | null
+          pricing_method?: string
+          range_tier?: string | null
+          stock_depth_mm?: number
+          stock_length_mm?: number
+          trade_supply_per_sqm?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          brand?: string
+          created_at?: string | null
+          id?: string
+          install_per_lm?: number | null
+          install_supply_per_sqm?: number | null
+          material_type?: string
+          price_per_lm?: number | null
+          price_per_sheet?: number | null
+          pricing_method?: string
+          range_tier?: string | null
+          stock_depth_mm?: number
+          stock_length_mm?: number
+          trade_supply_per_sqm?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       client_markup_settings: {
         Row: {
           client_id: string | null
@@ -190,6 +241,30 @@ export type Database = {
         }
         Relationships: []
       }
+      funnel_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json
+          session_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          session_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          session_id?: string | null
+        }
+        Relationships: []
+      }
       hardware_pricing: {
         Row: {
           assembly_cost: number | null
@@ -249,6 +324,47 @@ export type Database = {
           visibility_status?: string | null
         }
         Relationships: []
+      }
+      job_notes: {
+        Row: {
+          author_id: string | null
+          author_name: string | null
+          author_role: string
+          content: string
+          created_at: string
+          id: string
+          is_internal: boolean
+          job_id: string
+        }
+        Insert: {
+          author_id?: string | null
+          author_name?: string | null
+          author_role?: string
+          content: string
+          created_at?: string
+          id?: string
+          is_internal?: boolean
+          job_id: string
+        }
+        Update: {
+          author_id?: string | null
+          author_name?: string | null
+          author_role?: string
+          content?: string
+          created_at?: string
+          id?: string
+          is_internal?: boolean
+          job_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_notes_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       jobs: {
         Row: {
@@ -342,24 +458,44 @@ export type Database = {
           area_cost: number | null
           area_handling_cost: number | null
           brand: string | null
+          captured_unit_price: number | null
           created_at: string | null
+          description: string | null
           door_filter: string | null
           double_sided: boolean | null
           double_sided_cost: number | null
           expected_yield_factor: number | null
           finish: string | null
+          finish_variants: Json
           horizontal_grain: boolean | null
           horizontal_grain_surcharge: number | null
           id: string
           item_code: string
+          last_scraped_at: string | null
           material_type: string | null
           minimum_job_area: number | null
           minimum_usage_rollover: number | null
           name: string
+          price_captured_at: string | null
+          price_source: string | null
+          price_status: string
+          price_unit: string | null
           prefix: string | null
+          review_status: string
+          sample_image_url: string | null
+          scraper_metadata: Json
           sheet_length: number | null
           sheet_width: number | null
+          source_supplier: string | null
+          source_url: string | null
           substrate: string | null
+          supplier_category: string | null
+          supplier_finish_code: string | null
+          supplier_product_id: string | null
+          supplier_range: string | null
+          supplier_variant_code: string | null
+          technical_documents: Json
+          thumbnail_url: string | null
           thickness: number | null
           updated_at: string | null
           visibility_status: string | null
@@ -369,24 +505,44 @@ export type Database = {
           area_cost?: number | null
           area_handling_cost?: number | null
           brand?: string | null
+          captured_unit_price?: number | null
           created_at?: string | null
+          description?: string | null
           door_filter?: string | null
           double_sided?: boolean | null
           double_sided_cost?: number | null
           expected_yield_factor?: number | null
           finish?: string | null
+          finish_variants?: Json
           horizontal_grain?: boolean | null
           horizontal_grain_surcharge?: number | null
           id?: string
           item_code: string
+          last_scraped_at?: string | null
           material_type?: string | null
           minimum_job_area?: number | null
           minimum_usage_rollover?: number | null
           name: string
+          price_captured_at?: string | null
+          price_source?: string | null
+          price_status?: string
+          price_unit?: string | null
           prefix?: string | null
+          review_status?: string
+          sample_image_url?: string | null
+          scraper_metadata?: Json
           sheet_length?: number | null
           sheet_width?: number | null
+          source_supplier?: string | null
+          source_url?: string | null
           substrate?: string | null
+          supplier_category?: string | null
+          supplier_finish_code?: string | null
+          supplier_product_id?: string | null
+          supplier_range?: string | null
+          supplier_variant_code?: string | null
+          technical_documents?: Json
+          thumbnail_url?: string | null
           thickness?: number | null
           updated_at?: string | null
           visibility_status?: string | null
@@ -396,29 +552,105 @@ export type Database = {
           area_cost?: number | null
           area_handling_cost?: number | null
           brand?: string | null
+          captured_unit_price?: number | null
           created_at?: string | null
+          description?: string | null
           door_filter?: string | null
           double_sided?: boolean | null
           double_sided_cost?: number | null
           expected_yield_factor?: number | null
           finish?: string | null
+          finish_variants?: Json
           horizontal_grain?: boolean | null
           horizontal_grain_surcharge?: number | null
           id?: string
           item_code?: string
+          last_scraped_at?: string | null
           material_type?: string | null
           minimum_job_area?: number | null
           minimum_usage_rollover?: number | null
           name?: string
+          price_captured_at?: string | null
+          price_source?: string | null
+          price_status?: string
+          price_unit?: string | null
           prefix?: string | null
+          review_status?: string
+          sample_image_url?: string | null
+          scraper_metadata?: Json
           sheet_length?: number | null
           sheet_width?: number | null
+          source_supplier?: string | null
+          source_url?: string | null
           substrate?: string | null
+          supplier_category?: string | null
+          supplier_finish_code?: string | null
+          supplier_product_id?: string | null
+          supplier_range?: string | null
+          supplier_variant_code?: string | null
+          technical_documents?: Json
+          thumbnail_url?: string | null
           thickness?: number | null
           updated_at?: string | null
           visibility_status?: string | null
         }
         Relationships: []
+      }
+      material_supplier_price_history: {
+        Row: {
+          captured_at: string | null
+          captured_by: string | null
+          captured_unit_price: number | null
+          id: string
+          imported_at: string
+          item_code: string
+          material_pricing_id: string | null
+          metadata: Json
+          new_area_cost: number | null
+          old_area_cost: number | null
+          price_unit: string | null
+          source_url: string | null
+          supplier: string | null
+        }
+        Insert: {
+          captured_at?: string | null
+          captured_by?: string | null
+          captured_unit_price?: number | null
+          id?: string
+          imported_at?: string
+          item_code: string
+          material_pricing_id?: string | null
+          metadata?: Json
+          new_area_cost?: number | null
+          old_area_cost?: number | null
+          price_unit?: string | null
+          source_url?: string | null
+          supplier?: string | null
+        }
+        Update: {
+          captured_at?: string | null
+          captured_by?: string | null
+          captured_unit_price?: number | null
+          id?: string
+          imported_at?: string
+          item_code?: string
+          material_pricing_id?: string | null
+          metadata?: Json
+          new_area_cost?: number | null
+          old_area_cost?: number | null
+          price_unit?: string | null
+          source_url?: string | null
+          supplier?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_supplier_price_history_material_pricing_id_fkey"
+            columns: ["material_pricing_id"]
+            isOneToOne: false
+            referencedRelation: "material_pricing"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       microvellum_products: {
         Row: {
@@ -692,33 +924,48 @@ export type Database = {
         }
         Relationships: []
       }
-      stone_pricing: {
+      supplier_feeds: {
         Row: {
-          brand: string
-          created_at: string | null
+          auto_apply: boolean
+          created_at: string
+          cron_schedule: string
+          feed_url: string
           id: string
-          install_supply_per_sqm: number | null
-          range_tier: string | null
-          trade_supply_per_sqm: number | null
-          updated_at: string | null
+          is_active: boolean
+          label: string
+          last_run_at: string | null
+          last_run_ok: boolean | null
+          last_run_summary: string | null
+          table_name: string
+          updated_at: string
         }
         Insert: {
-          brand: string
-          created_at?: string | null
+          auto_apply?: boolean
+          created_at?: string
+          cron_schedule?: string
+          feed_url: string
           id?: string
-          install_supply_per_sqm?: number | null
-          range_tier?: string | null
-          trade_supply_per_sqm?: number | null
-          updated_at?: string | null
+          is_active?: boolean
+          label: string
+          last_run_at?: string | null
+          last_run_ok?: boolean | null
+          last_run_summary?: string | null
+          table_name: string
+          updated_at?: string
         }
         Update: {
-          brand?: string
-          created_at?: string | null
+          auto_apply?: boolean
+          created_at?: string
+          cron_schedule?: string
+          feed_url?: string
           id?: string
-          install_supply_per_sqm?: number | null
-          range_tier?: string | null
-          trade_supply_per_sqm?: number | null
-          updated_at?: string | null
+          is_active?: boolean
+          label?: string
+          last_run_at?: string | null
+          last_run_ok?: boolean | null
+          last_run_summary?: string | null
+          table_name?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -889,3 +1136,4 @@ export const Constants = {
     },
   },
 } as const
+// regenerated locally 2026-07-02: benchtop_pricing (renamed from stone_pricing), funnel_events, job_notes, supplier_feeds

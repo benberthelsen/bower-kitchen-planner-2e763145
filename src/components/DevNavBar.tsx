@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, PenTool, Briefcase, Wrench } from "lucide-react";
+import { LayoutDashboard, PenTool, Briefcase, Wrench, Wand2, BarChart2, FileCheck } from "lucide-react";
 
 const DevNavBar = () => {
   const location = useLocation();
@@ -8,9 +8,10 @@ const DevNavBar = () => {
 
   const navItems = [
     { path: "/admin", label: "Admin", icon: LayoutDashboard },
-    { path: "/", label: "Simple Planner", icon: PenTool, exact: true },
-    { path: "/trade-planner", label: "3D Planner", icon: Wrench },
-    { path: "/trade/dashboard", label: "Trade Dashboard", icon: Briefcase },
+    { path: "/admin/analytics", label: "Analytics", icon: BarChart2 },
+    { path: "/trade/dashboard", label: "Trade", icon: Briefcase },
+    { path: "/wizard", label: "HO Wizard", icon: Wand2 },
+    { path: "/", label: "Planner", icon: PenTool, exact: true },
   ];
 
   const isActive = (path: string, exact?: boolean) => {

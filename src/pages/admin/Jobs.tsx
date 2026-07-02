@@ -56,6 +56,8 @@ export default function AdminJobs() {
             email
           )
         `)
+        // Enquiry-status records are homeowner wizard leads — they live in /admin/leads, not here
+        .neq('status', 'enquiry')
         .order('created_at', { ascending: false });
 
       if (statusFilter !== 'all') {
@@ -142,7 +144,14 @@ export default function AdminJobs() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Jobs</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Jobs</h1>
+          {jobs.filter((j) => j.status === 'pending_approval').length > 0 && (
+            <span className="bg-amber-100 text-amber-800 text-xs font-semibold px-2.5 py-1 rounded-full">
+              {jobs.filter((j) => j.status === 'pending_approval').length} Pending Review
+            </span>
+          )}
+        </div>
         <Button onClick={loadJobs} variant="outline" size="sm">
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
@@ -201,8 +210,16 @@ export default function AdminJobs() {
                   {filteredJobs.map((job) => {
                     const safeStatus = isTradeJobStatus(job.status) ? job.status : 'draft';
                     return (
-                    <tr key={job.id} className="border-b last:border-0">
-                      <td className="py-3 font-medium">{job.job_number}</td>
+                    <tr
+                      key={job.id}
+                      className={`border-b last:border-0 ${safeStatus === 'pending_approval' ? 'bg-amber-50/60' : ''}`}
+                    >
+                      <td className="py-3 font-medium">
+                        {safeStatus === 'pending_approval' && (
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-2 align-middle" />
+                        )}
+                        {job.job_number}
+                      </td>
                       <td className="py-3">{job.name}</td>
                       <td className="py-3">
                         <div>
@@ -211,8 +228,8 @@ export default function AdminJobs() {
                         </div>
                       </td>
                       <td className="py-3">
-                        <Select 
-                          value={safeStatus} 
+                        <Select
+                          value={safeStatus}
                           onValueChange={(val) => updateJobStatus(job.id, val as TradeJobStatus)}
                         >
                           <SelectTrigger className="w-36 h-8">
@@ -238,11 +255,12 @@ export default function AdminJobs() {
                               <Eye className="h-4 w-4" />
                             </Button>
                           </Link>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => exportToXML(job.id)}
-                            disabled={exportingId === job.id}
+                            disabled={exportingId === job.id || safeStatus !== 'approved'}
+                            title={safeStatus !== 'approved' ? 'Job must be approved before exporting to Microvellum' : 'Export to Microvellum XML'}
                           >
                             <Download className="h-4 w-4" />
                           </Button>

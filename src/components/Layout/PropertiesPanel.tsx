@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { usePlanner } from '../../store/PlannerContext';
 import { useCatalog, UserType } from '../../hooks/useCatalog';
 import { useFinishOptions } from '../../hooks/useFinishOptions';
-import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download, Loader2, FileDown, Settings2 } from 'lucide-react';
+import { Trash2, Settings, Box, Ruler, Wrench, Home, FileText, Download, Loader2, FileDown, Settings2, Boxes } from 'lucide-react';
 import CabinetPropertiesTab from './CabinetPropertiesTab';
 import GlobalDimensionsPanel from './GlobalDimensionsPanel';
 import HardwareOptionsPanel from './HardwareOptionsPanel';
@@ -10,6 +10,7 @@ import RoomConfigPanel from './RoomConfigPanel';
 import ConstructionTab from './ConstructionTab';
 import { useBOMPricing } from '@/hooks/useBOMPricing';
 import { generateQuotePDF } from '@/lib/pdfQuoteGenerator';
+import ProductionPanel from './ProductionPanel';
 
 interface PropertiesPanelProps {
   onClose?: () => void;
@@ -18,7 +19,7 @@ interface PropertiesPanelProps {
 
 const money = (n: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n || 0);
 
-type TabId = 'schedule' | 'selected' | 'dimensions' | 'hardware' | 'room' | 'materials' | 'construction';
+type TabId = 'schedule' | 'selected' | 'dimensions' | 'hardware' | 'room' | 'materials' | 'construction' | 'production';
 
 export default function PropertiesPanel({ onClose, userType = 'standard' }: PropertiesPanelProps) {
   const { 
@@ -85,6 +86,7 @@ export default function PropertiesPanel({ onClose, userType = 'standard' }: Prop
     { id: 'dimensions', label: 'Dims', icon: <Ruler size={14} />, tradeOnly: true },
     { id: 'construction', label: 'Build', icon: <Settings2 size={14} />, tradeOnly: true },
     { id: 'hardware', label: 'Hardware', icon: <Wrench size={14} />, tradeOnly: true },
+    { id: 'production', label: 'Production', icon: <Boxes size={14} />, tradeOnly: true },
     { id: 'room', label: 'Room', icon: <Home size={14} /> },
   ];
   
@@ -364,6 +366,11 @@ export default function PropertiesPanel({ onClose, userType = 'standard' }: Prop
 
         {/* Hardware Tab */}
         {activeTab === 'hardware' && <HardwareOptionsPanel />}
+
+        {/* Production Tab */}
+        {activeTab === 'production' && (
+          <ProductionPanel quoteBOM={quoteBOM} jobName={projectSettings.jobName} />
+        )}
 
         {/* Room Tab */}
         {activeTab === 'room' && <RoomConfigPanel />}

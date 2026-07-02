@@ -338,4 +338,4 @@ export function useTradeRoom() {
   return context;
 }
 
-export type { CabinetAccessories, CabinetDimensions, CabinetHardware, CabinetMaterials, CabinetInstancePosition, ConfiguredCabinet, RoomHardwareDefaults, RoomMaterialDefaults, TradeRoom } from "@/types/trade";
+export type { CabinetAccessories, CabinetConstruction, CabinetDimensions, CabinetHardware, CabinetMaterials, CabinetInstancePosition, ConfiguredCabinet, RoomHardwareDefaults, RoomMaterialDefaults, TradeRoom } from "@/types/trade";
