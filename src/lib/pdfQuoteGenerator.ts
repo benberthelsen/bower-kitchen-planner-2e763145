@@ -249,7 +249,7 @@ export function generateQuotePDF(data: QuoteData): void {
     ['Materials:', money(quoteBOM.grandTotal.materials)],
     ['Hardware:', money(quoteBOM.grandTotal.hardware)],
     ['Edge Tape:', money(quoteBOM.grandTotal.edging)],
-    ['Labor:', money(quoteBOM.grandTotal.machining + quoteBOM.grandTotal.assembly)],
+    ['Labor:', money(quoteBOM.grandTotal.labor + quoteBOM.grandTotal.handling + quoteBOM.grandTotal.machining + quoteBOM.grandTotal.assembly)],
   ];
   
   summaryItems.forEach(([label, value]) => {
@@ -275,7 +275,13 @@ export function generateQuotePDF(data: QuoteData): void {
   doc.setTextColor(59, 130, 246);
   doc.text('TOTAL:', pageWidth - 95, summaryY);
   doc.text(money(quoteBOM.grandTotal.total), pageWidth - 19, summaryY, { align: 'right' });
-  
+
+  summaryY += 7;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(120);
+  doc.text(`Est. build time: ${quoteBOM.buildHours.total.toFixed(1)} h`, pageWidth - 95, summaryY);
+
   // Footer
   doc.setTextColor(150);
   doc.setFontSize(8);
@@ -283,6 +289,47 @@ export function generateQuotePDF(data: QuoteData): void {
   const footerY = doc.internal.pageSize.getHeight() - 10;
   doc.text('This quote is valid for 30 days. Prices are subject to change.', pageWidth / 2, footerY, { align: 'center' });
   
+  // Cut List (production document) — its own page
+  {
+    doc.addPage();
+    let cy = 20;
+    doc.setTextColor(0);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Cut List', 14, cy);
+    cy += 5;
+
+    const cutMap = new Map<string, { name: string; size: string; finish: string; qty: number }>();
+    quoteBOM.cabinets.forEach(c => c.parts.forEach(p => {
+      const L = Math.round(p.length), W = Math.round(p.width);
+      const key = `${p.name}|${L}x${W}`;
+      const ex = cutMap.get(key);
+      if (ex) ex.qty += p.quantity;
+      else cutMap.set(key, {
+        name: p.name,
+        size: `${L} x ${W}`,
+        finish: (p as { materialRole?: string }).materialRole === 'exterior' ? 'Exterior' : 'Carcase',
+        qty: p.quantity,
+      });
+    }));
+    const cutRows = [...cutMap.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(r => [r.name, r.size, r.finish, String(r.qty)]);
+    const totalPanels = cutRows.reduce((s, r) => s + Number(r[3]), 0);
+    const totalSheets = quoteBOM.consolidatedSheets.reduce((s, sh) => s + sh.sheetsRequired, 0);
+
+    autoTable(doc, {
+      startY: cy,
+      head: [['Panel', 'Size (mm)', 'Finish', `Qty (${totalPanels} panels / ${totalSheets} sheets)`]],
+      body: cutRows,
+      theme: 'striped',
+      headStyles: { fillColor: [71, 85, 105], fontSize: 9, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' } },
+      margin: { left: 14, right: 14 },
+    });
+  }
+
   // Save PDF
   const filename = `${projectSettings.jobName || 'kitchen-quote'}-${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(filename);
