@@ -345,7 +345,7 @@ export default function RoomPlanner() {
       : null;
     const defaultDepth = roomCarcaseDepth ?? catalogItem.defaultDepth ?? 580;
 
-    const rawPosition = calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
+    let rawPosition = calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
 
     const category = catalogItem.itemType === 'Appliance'
       ? 'Appliance'
@@ -353,6 +353,40 @@ export default function RoomPlanner() {
         || getCategoryFromSpecGroup(catalogItem.specGroup)
         || catalogItem.category
         || 'Base';
+
+    // Corner cabinets start at the nearest FREE room corner so the snapping
+    // engine nests them into it with the correct rotation (doors facing the
+    // room) — instead of landing mid-wall like standard cabinets.
+    const isCornerProduct = /corner|diagonal|blind|pie/i.test(`${productId} ${catalogItem.name}`);
+    if (isCornerProduct) {
+      const roomW = currentRoom.config.width;
+      const roomD = currentRoom.config.depth;
+      const isWallCat = category === 'Wall';
+      const cornerPoints = [
+        { cx: 0, cz: 0 },
+        { cx: roomW, cz: 0 },
+        { cx: 0, cz: roomD },
+        { cx: roomW, cz: roomD },
+      ];
+      const cornerOccupied = (cx: number, cz: number) =>
+        cabinets.some((c) => {
+          if (!c.isPlaced || !c.position) return false;
+          if ((c.category === 'Wall') !== isWallCat) return false;
+          return Math.hypot(c.position.x - cx, c.position.z - cz) <
+            Math.max(c.dimensions.width, c.dimensions.depth);
+        });
+      const free = cornerPoints.find(({ cx, cz }) => !cornerOccupied(cx, cz));
+      if (free) {
+        const halfW = defaultWidth / 2;
+        const halfD = defaultDepth / 2;
+        rawPosition = {
+          x: free.cx === 0 ? halfW : free.cx - halfW,
+          y: 0,
+          z: free.cz === 0 ? halfD : free.cz - halfD,
+          rotation: 0,
+        };
+      }
+    }
 
     // Auto-snap a newly added cabinet to the nearest wall so it orients correctly
     // (rotates onto a side wall when the run reaches a corner) — same engine the
@@ -582,8 +616,11 @@ export default function RoomPlanner() {
             )}
 
             <Button variant="outline" size="sm" onClick={() => setIs3D((v) => !v)} title="Toggle 2D / 3D view">
-              {is3D ? '3D' : '2D'} View
+              {is3D ? 'View 2D Plan' : 'View in 3D'}
             </Button>
+            <span className="hidden xl:inline text-[10px] text-muted-foreground mr-1 select-none">
+              {is3D ? 'Right-drag orbit · scroll zoom' : 'Right-drag pan · scroll zoom'}
+            </span>
 
             <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>
               {showCatalog ? <PanelLeftClose className="w-4 h-4 mr-1" /> : <PanelLeft className="w-4 h-4 mr-1" />}

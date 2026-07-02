@@ -50,6 +50,8 @@ function roleBadge(role: string, isInternal: boolean) {
   return <Badge className="text-xs bg-blue-100 text-blue-700 border-blue-200">Trade</Badge>;
 }
 
+const modKeyLabel = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘' : 'Ctrl+';
+
 export function JobNotes({ jobId, isAdmin }: JobNotesProps) {
   const { user } = useAuth();
   const [notes, setNotes] = useState<JobNote[]>([]);
@@ -176,7 +178,7 @@ export function JobNotes({ jobId, isAdmin }: JobNotesProps) {
       {/* Add note */}
       <div className="space-y-2 pt-1 border-t border-gray-100">
         <Textarea
-          placeholder={isAdmin ? 'Add a note… (⌘Enter to send)' : 'Add a note to this job… (⌘Enter to send)'}
+          placeholder={isAdmin ? `Add a note… (${modKeyLabel}Enter to send)` : `Add a note to this job… (${modKeyLabel}Enter to send)`}
           value={content}
           onChange={e => setContent(e.target.value)}
           onKeyDown={handleKeyDown}

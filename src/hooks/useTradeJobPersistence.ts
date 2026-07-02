@@ -68,7 +68,7 @@ export function useTradeJobPersistence(jobId?: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('jobs')
-        .select('id, name, status, design_data, updated_at')
+        .select('id, name, status, design_data, updated_at, job_number')
         .eq('id', jobId!)
         .maybeSingle();
 
@@ -114,7 +114,7 @@ export function useTradeJobPersistence(jobId?: string) {
       const { data, error } = await supabase
         .from('jobs')
         .upsert(payload as any)
-        .select('id, name, status, design_data, updated_at')
+        .select('id, name, status, design_data, updated_at, job_number')
         .single();
 
       if (error) throw error;

@@ -385,7 +385,7 @@ export default function JobEditor() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-2xl font-display font-bold text-trade-navy">{isNewJob ? 'Create New Job' : `Job #${jobId}`}</h1>
+              <h1 className="text-2xl font-display font-bold text-trade-navy">{isNewJob ? 'Create New Job' : `Job #${(_jobData as { job_number?: number } | undefined)?.job_number ?? jobId?.slice(0, 8)}${_jobData?.name && !_jobData.name.startsWith('Job ') ? ' — ' + _jobData.name : ''}`}</h1>
               <p className="text-trade-muted text-sm">
                 {showRoomWizard
                   ? (editingRoom ? `Editing: ${editingRoom.name}` : 'Configure room defaults')

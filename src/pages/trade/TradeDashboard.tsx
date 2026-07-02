@@ -272,7 +272,7 @@ export default function TradeDashboard() {
                   <AlertTriangle className="h-3.5 w-3.5" /> Needs attention
                 </p>
                 <p className="mt-1 text-sm text-amber-900">
-                  {staleQuoteInsights.staleCount} quote{staleQuoteInsights.staleCount === 1 ? '' : 's'} have been idle for {STALE_QUOTE_DAYS}+ days.
+                  {staleQuoteInsights.staleCount} quote{staleQuoteInsights.staleCount === 1 ? ' has' : 's have'} been idle for {STALE_QUOTE_DAYS}+ days.
                 </p>
                 <p className="text-xs text-amber-900/80">
                   At-risk value: ${staleQuoteInsights.staleValue.toLocaleString('en-AU', { maximumFractionDigits: 0 })}

@@ -476,6 +476,9 @@ function SceneAutoFit({ itemsRef, room, viewMode }: { itemsRef: React.MutableRef
         const direction = new THREE.Vector3(-1, 0.8, 1).normalize();
         cam.position.copy(center).addScaledVector(direction, distance * 1.5);
       } else {
+        // 2D plan: camera straight above the centre, azimuth zeroed so the
+        // floor plan is always axis-aligned (never rotated on screen).
+        cam.position.set(center.x, 10, center.z + 0.0001);
         cam.zoom = Math.min(50 / (maxDim / 4), 200);
         cam.updateProjectionMatrix();
       }

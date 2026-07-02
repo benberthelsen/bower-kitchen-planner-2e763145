@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { PlacedItem, RoomConfig } from '../../types';
 
 const DimLabel = ({ position, text }: { position: [number, number, number]; text: string }) => (
-  <Html position={position} center zIndexRange={[100, 0]}>
+  <Html position={position} center zIndexRange={[40, 0]}>
     <div className="px-1.5 py-0.5 bg-white/90 rounded border border-gray-200 text-[10px] font-mono font-medium text-gray-700 shadow-sm pointer-events-none whitespace-nowrap select-none">
       {text}
     </div>
