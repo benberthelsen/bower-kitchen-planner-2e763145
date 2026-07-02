@@ -263,11 +263,8 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
         <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
       </mesh>
 
-      {/* Interior shelf */}
-      <mesh position={[0, 0, 0]}>
-        <boxGeometry args={[width - gableThickness * 2 - 0.01, 0.018, depth * 0.8]} />
-        <meshStandardMaterial color="#f0f0f0" roughness={0.6} />
-      </mesh>
+      {/* Shelves are rendered by CabinetAssembler's standard shelf path so the
+          blind corner honours the cabinet's configured shelf count. */}
     </group>
   );
 };

@@ -399,9 +399,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Render adjustable shelves based on recipe
   const renderShelves = () => {
     // L-shape (pie-cut) corners get L-shaped shelves spanning both arms.
-    // Blind/diagonal corners already draw an interior shelf inside CornerCarcass.
+    // Blind corners are a plain box inside — they fall through to the standard
+    // shelf path (honouring the cabinet's shelf count). Diagonal corners keep
+    // their angled interior shelf drawn inside CornerCarcass.
     if (isCornerCabinet) {
-      if (cornerType !== 'l-shape') return null;
+      if (cornerType === 'diagonal') return null;
+      if (cornerType === 'l-shape') {
       const cornerShelfCount = item.shelfCount ?? (config.shelfCount > 0 ? config.shelfCount : 1);
       if (cornerShelfCount === 0) return null;
 
@@ -446,6 +449,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         );
       }
       return cornerShelves;
+      }
+      // Blind corner: fall through to the standard rectangular shelves below.
     }
 
     // Use recipe shelf count, or fall back to config

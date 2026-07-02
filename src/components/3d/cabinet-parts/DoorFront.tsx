@@ -53,8 +53,9 @@ const DoorFront: React.FC<DoorFrontProps> = ({
   const currentRotation = useRef(0);
   const groupRef = useRef<THREE.Group>(null);
 
-  // Target rotation: 100 degrees open (swing outward from cabinet front)
-  const targetRotation = isOpen ? (hingeLeft ? -Math.PI * 0.55 : Math.PI * 0.55) : 0;
+  // Target rotation: 45° open — enough to see inside while the door still
+  // reads as a door (same presentation as the pie-cut corner bi-fold).
+  const targetRotation = isOpen ? (hingeLeft ? -Math.PI / 4 : Math.PI / 4) : 0;
   
   // Animate door rotation
   useFrame((_, delta) => {

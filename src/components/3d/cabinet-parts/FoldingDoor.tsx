@@ -45,8 +45,10 @@ const FoldingDoor: React.FC<FoldingDoorProps> = ({
   const bRef = useRef<THREE.Group>(null);
   const cur = useRef(0);
 
-  // Fold magnitude (outer leaf swings ~90 deg, inner folds back onto it).
-  const target = isOpen ? Math.PI * 0.5 : 0;
+  // Half-open presentation: outer leaf swings 45° (inner folds 90° relative),
+  // so the pair holds a readable V — see inside AND read the folding style
+  // (same presentation as the pie-cut corner bi-fold).
+  const target = isOpen ? Math.PI / 4 : 0;
 
   useFrame((_, delta) => {
     const diff = target - cur.current;
