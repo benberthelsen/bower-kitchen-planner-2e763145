@@ -525,7 +525,7 @@ export default function RoomPlanner() {
       clearTimeout(quotePersistRef.current);
     }
 
-    quotePersistRef.current = setTimeout(() => {
+    const flush = () => {
       lastPersistedQuoteRef.current = quoteFingerprint;
       void persistQuoteSnapshot({ jobId, snapshot, rooms });
       void persistJobTotals({
@@ -535,12 +535,16 @@ export default function RoomPlanner() {
         total: quoteBOM.grandTotal.total,
         rooms,
       });
-    }, 500);
+    };
+    quotePersistRef.current = setTimeout(flush, 500);
 
     return () => {
       if (quotePersistRef.current) {
         clearTimeout(quotePersistRef.current);
         quotePersistRef.current = null;
+        // Flush instead of dropping: leaving the planner right after a change
+        // must not lose the latest quote snapshot (job page reads it).
+        if (lastPersistedQuoteRef.current !== quoteFingerprint) flush();
       }
     };
   }, [currentRoom, jobId, perCabinetTotals, persistJobTotals, persistQuoteSnapshot, pricingHash, pricingVersion, quoteBOM, roomTotal]);
