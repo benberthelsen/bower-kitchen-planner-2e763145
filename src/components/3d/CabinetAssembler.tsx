@@ -398,9 +398,56 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Render adjustable shelves based on recipe
   const renderShelves = () => {
-    // Skip shelves for corner cabinets (they have internal shelves in CornerCarcass)
-    if (isCornerCabinet) return null;
-    
+    // L-shape (pie-cut) corners get L-shaped shelves spanning both arms.
+    // Blind/diagonal corners already draw an interior shelf inside CornerCarcass.
+    if (isCornerCabinet) {
+      if (cornerType !== 'l-shape') return null;
+      const cornerShelfCount = item.shelfCount ?? (config.shelfCount > 0 ? config.shelfCount : 1);
+      if (cornerShelfCount === 0) return null;
+
+      const g = gableThickness;
+      const setback = 0.02; // shelf sits back from the door faces
+      const notchX = -widthM / 2 + Math.min(leftArmDepthM, widthM - 0.05);
+      const notchZ = -cornerFootprintDepthM / 2 + Math.min(rightArmDepthM, cornerFootprintDepthM - 0.05);
+
+      // Piece A — back arm: full interior width, back panel → notch face.
+      const aWidth = widthM - g * 2 - 0.004;
+      const aFrom = -cornerFootprintDepthM / 2 + backPanelThickness;
+      const aTo = notchZ - setback;
+      const aDepth = Math.max(aTo - aFrom, 0);
+      // Piece B — left arm in front of the back arm: left gable → notch face.
+      const bFrom = -widthM / 2 + g;
+      const bTo = notchX - setback;
+      const bWidth = Math.max(bTo - bFrom, 0);
+      const bzFrom = aTo;
+      const bzTo = cornerFootprintDepthM / 2 - g - setback;
+      const bDepth = Math.max(bzTo - bzFrom, 0);
+
+      const usable = carcassHeight - bottomThickness * 2;
+      const spacing = usable / (cornerShelfCount + 1);
+      const cornerShelves = [];
+      for (let i = 1; i <= cornerShelfCount; i++) {
+        const y = carcassYOffset - carcassHeight / 2 + bottomThickness + spacing * i;
+        cornerShelves.push(
+          <group key={`corner-shelf-${i}`}>
+            {aDepth > 0 && (
+              <mesh position={[0, y, (aFrom + aTo) / 2]}>
+                <boxGeometry args={[aWidth, shelfThickness, aDepth]} />
+                <meshStandardMaterial color="#f0f0f0" roughness={0.6} />
+              </mesh>
+            )}
+            {bWidth > 0 && bDepth > 0 && (
+              <mesh position={[(bFrom + bTo) / 2, y, (bzFrom + bzTo) / 2]}>
+                <boxGeometry args={[bWidth, shelfThickness, bDepth]} />
+                <meshStandardMaterial color="#f0f0f0" roughness={0.6} />
+              </mesh>
+            )}
+          </group>
+        );
+      }
+      return cornerShelves;
+    }
+
     // Use recipe shelf count, or fall back to config
     const shelfCount = item.shelfCount ?? recipe?.shelves.count ?? (config.shelfCount > 0 ? config.shelfCount : 1);
     if (shelfCount === 0) return null;

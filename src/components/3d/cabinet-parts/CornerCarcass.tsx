@@ -173,11 +173,9 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
           <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
         </mesh>
 
-        {/* ===== INTERNAL CORNER POST (where the two doors meet) ===== */}
-        <mesh position={[notchX - gableThickness / 2, 0, notchZ - gableThickness / 2]}>
-          <boxGeometry args={[gableThickness, height, gableThickness]} />
-          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
-        </mesh>
+        {/* No internal corner post: the pie-cut bi-fold pair is hinged leaf-to-leaf
+            and closes across the notch itself — a full-height post here reads as a
+            stray vertical fragment between the door leaves. */}
       </group>
     );
   }

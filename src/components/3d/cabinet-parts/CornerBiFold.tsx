@@ -64,8 +64,10 @@ const CornerBiFold: React.FC<CornerBiFoldProps> = ({
   const bRef = useRef<THREE.Group>(null);
   const cur = useRef(0);
 
-  // Lead leaf swings out ~93°; the fold angle opens 90° → ~180° in step.
-  const T_MAX = Math.PI * 0.52;
+  // Half-open presentation: the lead leaf swings out 45° and the fold opens a
+  // further 45° (90° closed → 135°). You can see into the cabinet AND read the
+  // bi-fold opening style, instead of the pair slamming flat out of the way.
+  const T_MAX = Math.PI / 4;
   const target = isOpen ? T_MAX : 0;
 
   useFrame((_, delta) => {
@@ -73,11 +75,11 @@ const CornerBiFold: React.FC<CornerBiFoldProps> = ({
     if (Math.abs(diff) > 0.001) {
       cur.current += diff * Math.min(delta * 8, 1);
       const t = cur.current;
-      // Lead leaf: swing out from the carcase hinge.
+      // Lead leaf: swing out from the carcase hinge (0 → 45°).
       if (aRef.current) aRef.current.rotation.y = -dir * t;
       // Second leaf: closed at 90° to the lead leaf (covering the other notch
-      // face); folds flat against the lead leaf as the pair opens.
-      if (bRef.current) bRef.current.rotation.y = -dir * (Math.PI / 2 + (Math.PI / 2) * (t / T_MAX));
+      // face); the fold opens 45° more as the pair swings (90° → 135°).
+      if (bRef.current) bRef.current.rotation.y = -dir * (Math.PI / 2 + t);
     }
   });
 
