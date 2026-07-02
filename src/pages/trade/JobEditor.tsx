@@ -12,36 +12,53 @@ import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { JobNotes } from '@/components/shared/JobNotes';
 
 
-const computeJobTotalsRaw = (rooms: TradeRoom[]) => {
-  let subtotalAccumulator = 0;
+/**
+ * Job totals come from the room planner's persisted BOM quote snapshots
+ * (design_data.quoteSnapshotsByRoom — the pricing engine's grand totals).
+ * The old width×depth placeholder estimate is gone: rooms without a snapshot
+ * yet (never opened in the planner) contribute 0 and are counted so the UI
+ * can flag the quote as incomplete.
+ */
+type RoomSnapshots = Record<string, {
+  roomTotal?: number;
+  perCabinetTotals?: Record<string, number>;
+  bomSummary?: { grandTotal?: { subtotalExGst?: number; gst?: number; total?: number } } | null;
+} | undefined>;
+
+const computeJobTotalsRaw = (rooms: TradeRoom[], snapshots: RoomSnapshots = {}) => {
+  let subtotal = 0;
+  let tax = 0;
+  let total = 0;
+  let unpricedRooms = 0;
   const perCabinetTotals: Record<string, number> = {};
   const perRoomTotals: Record<string, number> = {};
   const perRoomCabinetTotals: Record<string, Record<string, number>> = {};
 
   rooms.forEach((room) => {
-    let roomSubtotal = 0;
-    const roomCabinetTotals: Record<string, number> = {};
+    const snap = snapshots[room.id];
+    const grand = snap?.bomSummary?.grandTotal;
+    const roomTotal = grand?.total ?? snap?.roomTotal ?? 0;
 
-    room.cabinets.forEach((cabinet) => {
-      const cabinetEstimate = Math.max(0, cabinet.dimensions.width * cabinet.dimensions.depth * 0.0008);
-      perCabinetTotals[cabinet.instanceId] = cabinetEstimate;
-      roomCabinetTotals[cabinet.instanceId] = cabinetEstimate;
-      roomSubtotal += cabinetEstimate;
-      subtotalAccumulator += cabinetEstimate;
-    });
+    if (roomTotal <= 0 && room.cabinets.length > 0) unpricedRooms += 1;
 
-    perRoomTotals[room.id] = Number((roomSubtotal * 1.1).toFixed(2));
+    subtotal += grand?.subtotalExGst ?? (roomTotal > 0 ? roomTotal / 1.1 : 0);
+    tax += grand?.gst ?? (roomTotal > 0 ? roomTotal - roomTotal / 1.1 : 0);
+    total += roomTotal;
+
+    const roomCabinetTotals = snap?.perCabinetTotals ?? {};
+    perRoomTotals[room.id] = Number(roomTotal.toFixed(2));
     perRoomCabinetTotals[room.id] = roomCabinetTotals;
+    Object.assign(perCabinetTotals, roomCabinetTotals);
+    room.cabinets.forEach((cabinet) => {
+      if (!(cabinet.instanceId in perCabinetTotals)) perCabinetTotals[cabinet.instanceId] = 0;
+    });
   });
 
-  const subtotal = Number(subtotalAccumulator.toFixed(2));
-  const tax = Number((subtotal * 0.1).toFixed(2));
-  const total = Number((subtotal + tax).toFixed(2));
-
   return {
-    subtotal,
-    tax,
-    total,
+    subtotal: Number(subtotal.toFixed(2)),
+    tax: Number(tax.toFixed(2)),
+    total: Number(total.toFixed(2)),
+    unpricedRooms,
     perCabinetTotals,
     perRoomTotals,
     perRoomCabinetTotals,
@@ -95,6 +112,7 @@ export default function JobEditor() {
     roomsFromServer,
     persistedJobTotals,
     persistedQuoteSnapshot,
+    persistedQuoteSnapshotsByRoom,
     upsertJob,
     upsertRoom,
     updateJobStatus,
@@ -125,28 +143,32 @@ export default function JobEditor() {
     new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value || 0);
 
   const quoteState = useMemo(() => {
-    const live = computeJobTotalsRaw(displayRooms);
+    const live = computeJobTotalsRaw(displayRooms, persistedQuoteSnapshotsByRoom as RoomSnapshots);
     const persisted = persistedJobTotals;
 
-    const subtotal = persisted?.subtotal ?? live.subtotal;
-    const tax = persisted?.tax ?? live.tax;
-    const total = persisted?.total ?? live.total;
+    // Snapshot-derived totals are the source of truth (same BOM engine as the
+    // planner toolbar). Persisted jobTotals only cover rooms with no snapshot.
+    const useLive = live.total > 0;
+    const subtotal = useLive ? live.subtotal : persisted?.subtotal ?? 0;
+    const tax = useLive ? live.tax : persisted?.tax ?? 0;
+    const total = useLive ? live.total : persisted?.total ?? 0;
 
     return {
       subtotal,
       tax,
       total,
-      isPersisted: Boolean(persisted),
+      unpricedRooms: live.unpricedRooms,
+      isPersisted: Boolean(persisted) || useLive,
       persistedAt: persisted?.updatedAt ?? persistedQuoteSnapshot?.capturedAt ?? null,
       roomCount: displayRooms.length,
       cabinetCount: Object.keys(live.perCabinetTotals).length,
     };
-  }, [displayRooms, persistedJobTotals, persistedQuoteSnapshot]);
+  }, [displayRooms, persistedJobTotals, persistedQuoteSnapshot, persistedQuoteSnapshotsByRoom]);
 
 
   const computeJobTotals = useCallback(() => {
-    return computeJobTotalsRaw(displayRooms);
-  }, [displayRooms]);
+    return computeJobTotalsRaw(displayRooms, persistedQuoteSnapshotsByRoom as RoomSnapshots);
+  }, [displayRooms, persistedQuoteSnapshotsByRoom]);
 
   const persistFullJob = async (status: TradeJobStatus = 'draft') => {
     if (!jobId || jobId === 'new') {
@@ -161,6 +183,9 @@ export default function JobEditor() {
       rooms: displayRooms,
     });
 
+    // Totals derive from the planner's persisted BOM snapshots — persist the
+    // roll-up only. Never overwrite the per-room snapshots here: the room
+    // planner owns them (they carry the real pricing engine output).
     const totals = computeJobTotals();
     await persistJobTotals({
       jobId,
@@ -168,21 +193,6 @@ export default function JobEditor() {
       tax: totals.tax,
       total: totals.total,
     });
-
-    for (const room of displayRooms) {
-      const roomCabinetTotals = totals.perRoomCabinetTotals[room.id] || {};
-      await persistQuoteSnapshot({
-        jobId,
-        snapshot: {
-          roomId: room.id,
-          roomTotal: totals.perRoomTotals[room.id] ?? 0,
-          perCabinetTotals: roomCabinetTotals,
-          pricingVersion: 'trade-job-editor-estimate-v1',
-          pricingHash: `room-${room.id}-cabinets-${Object.keys(roomCabinetTotals).length}`,
-          capturedAt: new Date().toISOString(),
-        },
-      });
-    }
   };
 
   const handleRoomComplete = async (config: RoomConfig) => {

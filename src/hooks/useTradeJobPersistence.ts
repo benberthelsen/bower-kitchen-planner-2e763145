@@ -24,6 +24,9 @@ interface PersistJobInput {
   rooms: TradeRoom[];
   designDataPatch?: Partial<PersistedTradeDesignData>;
   existingDesignData?: Partial<PersistedTradeDesignData>;
+  /** When provided, also persisted to the jobs cost columns (admin lists read these). */
+  costExclTax?: number;
+  costInclTax?: number;
 }
 
 const jobQueryKey = (jobId?: string) => ['trade-job', jobId];
@@ -103,6 +106,8 @@ export function useTradeJobPersistence(jobId?: string) {
         name: input.name,
         status: input.status ?? 'draft',
         design_data: mergedDesignData as unknown as PersistedTradeDesignData,
+        ...(typeof input.costExclTax === 'number' ? { cost_excl_tax: input.costExclTax } : {}),
+        ...(typeof input.costInclTax === 'number' ? { cost_incl_tax: input.costInclTax } : {}),
         ...(user ? { customer_id: user.id } : {}),
       };
 
@@ -241,6 +246,8 @@ export function useTradeJobPersistence(jobId?: string) {
           updatedAt: new Date().toISOString(),
         },
       },
+      costExclTax: input.subtotal,
+      costInclTax: input.total,
     });
   }, [getCurrentJob, upsertJobMutation]);
 

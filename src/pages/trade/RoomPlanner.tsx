@@ -215,17 +215,26 @@ export default function RoomPlanner() {
     };
   }, [dirty, jobId, currentRoom, saveRoomToServer]);
 
+  // Sell-price factor: per-cabinet BOM values are raw costs; the toolbar's
+  // roomTotal includes the commercial layer (margin/design/markup, benchtops,
+  // GST). Scale per-cabinet prices proportionally so the cabinet list sums to
+  // the same Est. Total the toolbar shows — one source of truth for the user.
+  const sellFactor = useMemo(() => {
+    const costSum = Object.values(perCabinetTotals).reduce((s, v) => s + (v || 0), 0);
+    return costSum > 0 && roomTotal > 0 ? roomTotal / costSum : 1;
+  }, [perCabinetTotals, roomTotal]);
+
   const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
     // Prefer the real piece-level BOM price for this cabinet; fall back to the
     // catalog estimate only when the BOM hasn't priced it yet.
     const bom = perCabinetTotals[cabinet.instanceId];
-    if (typeof bom === 'number' && bom > 0) return bom;
+    if (typeof bom === 'number' && bom > 0) return bom * sellFactor;
     const catalogItem = catalogById.get(cabinet.definitionId);
     if (!catalogItem) return 0;
     const basePrice = catalogItem.price ?? 0;
     const widthScale = cabinet.dimensions.width / (catalogItem.defaultWidth || cabinet.dimensions.width || 1);
     return Math.max(0, basePrice * widthScale);
-  }, [catalogById, perCabinetTotals]);
+  }, [catalogById, perCabinetTotals, sellFactor]);
 
   // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((

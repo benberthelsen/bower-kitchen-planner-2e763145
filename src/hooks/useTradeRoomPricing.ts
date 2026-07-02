@@ -78,6 +78,7 @@ function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: RoomMat
     carcaseMaterialId: cabinet.materials?.carcaseFinish ?? materialDefaults?.carcaseFinish,
     exteriorMaterialId: cabinet.materials?.exteriorFinish ?? materialDefaults?.exteriorFinish,
     handleType: cabinet.hardware?.handleType,
+    drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
   }));
 }
 
