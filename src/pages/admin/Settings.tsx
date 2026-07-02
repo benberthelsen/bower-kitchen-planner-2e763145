@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { Upload, Download, RefreshCw, Loader2, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Upload, Download, RefreshCw, Loader2, CheckCircle2, XCircle, AlertCircle, Plus, Trash2, Save } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { useDimensionPresets, DimensionPreset } from '@/hooks/useDimensionPresets';
 
 // ─── Deployment readiness ─────────────────────────────────────────────────────
 
@@ -169,6 +171,131 @@ interface ImportResult {
   categoryCounts?: Record<string, number>;
   message?: string;
   error?: string;
+}
+
+// ─── #17: Dimension presets editor ───────────────────────────────────────────
+
+const PRESET_DIM_FIELDS: Array<{ key: string; label: string }> = [
+  { key: 'toeKickHeight', label: 'Toe Kick' },
+  { key: 'baseHeight', label: 'Base H' },
+  { key: 'baseDepth', label: 'Base D' },
+  { key: 'wallHeight', label: 'Wall H' },
+  { key: 'wallDepth', label: 'Wall D' },
+  { key: 'wallMountHeight', label: 'Wall Mount H' },
+  { key: 'tallHeight', label: 'Tall H' },
+  { key: 'tallDepth', label: 'Tall D' },
+];
+
+function DimensionPresetsCard() {
+  const { presets, fromDb, loading, save, remove, refresh } = useDimensionPresets();
+  const [drafts, setDrafts] = useState<DimensionPreset[]>([]);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => { setDrafts(presets.map(p => ({ ...p, dimensions: { ...p.dimensions } }))); }, [presets]);
+
+  const patchDraft = (id: string, patch: Partial<DimensionPreset>) =>
+    setDrafts(ds => ds.map(d => (d.id === id ? { ...d, ...patch } : d)));
+
+  const patchDim = (id: string, key: string, value: number) =>
+    setDrafts(ds => ds.map(d => (d.id === id ? { ...d, dimensions: { ...d.dimensions, [key]: value } } : d)));
+
+  const handleSave = async (d: DimensionPreset) => {
+    setSaving(d.id);
+    try {
+      await save(d);
+      toast.success(`Saved "${d.name}"`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save preset (admin only)');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleDelete = async (d: DimensionPreset) => {
+    if (d.id.startsWith('standard')) { toast.error('Built-in fallback — run the dimension_presets migration first.'); return; }
+    try {
+      await remove(d.id);
+      toast.success(`Deleted "${d.name}"`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete preset');
+    }
+  };
+
+  const handleAdd = () => {
+    const base = drafts[0]?.dimensions ?? {};
+    setDrafts(ds => [...ds, {
+      id: `new-${Date.now()}`,
+      name: 'New Preset',
+      sortOrder: ds.length,
+      isDefault: false,
+      dimensions: { ...base },
+    }]);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Dimension Presets</CardTitle>
+            <CardDescription>
+              Size presets offered in the room setup wizard (mm).
+              {!fromDb && ' Currently showing built-in fallbacks — save to create DB presets.'}
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleAdd}>
+            <Plus className="w-4 h-4 mr-1" /> Add Preset
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loading && drafts.length === 0 && <div className="text-sm text-muted-foreground">Loading…</div>}
+        {drafts.map((d) => (
+          <div key={d.id} className="border rounded-lg p-3 space-y-3">
+            <div className="flex items-center gap-3">
+              <Input
+                className="max-w-xs font-medium"
+                value={d.name}
+                onChange={(e) => patchDraft(d.id, { name: e.target.value })}
+              />
+              <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={d.isDefault}
+                  onChange={(e) => patchDraft(d.id, { isDefault: e.target.checked })}
+                />
+                Default
+              </label>
+              <div className="flex-1" />
+              <Button size="sm" onClick={() => handleSave(d)} disabled={saving === d.id}>
+                {saving === d.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span className="ml-1">Save</span>
+              </Button>
+              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => handleDelete(d)}>
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+              {PRESET_DIM_FIELDS.map(({ key, label }) => (
+                <div key={key} className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">{label}</Label>
+                  <Input
+                    type="number"
+                    className="h-8"
+                    value={d.dimensions[key] ?? ''}
+                    onChange={(e) => patchDim(d.id, key, Number(e.target.value) || 0)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <Button variant="ghost" size="sm" onClick={() => void refresh()}>
+          <RefreshCw className="w-4 h-4 mr-1" /> Reload
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function AdminSettings() {
@@ -382,6 +509,7 @@ export default function AdminSettings() {
 
       <div className="grid gap-6">
         <DeploymentReadiness />
+        <DimensionPresetsCard />
         <Card>
           <CardHeader>
             <CardTitle>Microvellum Product Catalog</CardTitle>

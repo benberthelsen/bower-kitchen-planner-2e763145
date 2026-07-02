@@ -15,14 +15,11 @@ import {
 } from '@/components/ui/tooltip';
 import { useState } from 'react';
 import { RoomConfig } from './index';
+import { useDimensionPresets } from '@/hooks/useDimensionPresets';
 import KitchenDimensionsDiagram from './KitchenDimensionsDiagram';
 
-// Shop standard size presets. Bench is 900 finished (kick 135 + base 732 +
-// 33 benchtop); overheads/tall finish at 2100 (Std 1) or 2400 (Std 2).
-const DIMENSION_PRESETS: Record<string, Partial<RoomConfig>> = {
-  standard1: { toeKickHeight: 135, baseHeight: 732, baseDepth: 575, wallHeight: 600, wallDepth: 300, tallHeight: 2100, tallDepth: 600 },
-  standard2: { toeKickHeight: 135, baseHeight: 732, baseDepth: 575, wallHeight: 900, wallDepth: 300, tallHeight: 2400, tallDepth: 600 },
-};
+// Size presets are admin-editable (#17): loaded from the dimension_presets
+// table via useDimensionPresets, with the shop standards as fallback.
 
 interface DimensionDefaultsStepProps {
   config: RoomConfig;
@@ -83,11 +80,14 @@ function DimensionInput({
 
 export default function DimensionDefaultsStep({ config, updateConfig }: DimensionDefaultsStepProps) {
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const [preset, setPreset] = useState('standard1');
+  const { presets } = useDimensionPresets();
+  const defaultPresetId = presets.find((pr) => pr.isDefault)?.id ?? presets[0]?.id ?? 'custom';
+  const [preset, setPreset] = useState(defaultPresetId);
 
   const applyPreset = (key: string) => {
     setPreset(key);
-    if (DIMENSION_PRESETS[key]) updateConfig(DIMENSION_PRESETS[key]);
+    const found = presets.find((pr) => pr.id === key);
+    if (found) updateConfig(found.dimensions as Partial<RoomConfig>);
   };
 
   return (
@@ -107,8 +107,9 @@ export default function DimensionDefaultsStep({ config, updateConfig }: Dimensio
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="standard1">Standard 1 — 2100 overhead</SelectItem>
-                <SelectItem value="standard2">Standard 2 — 2400 overhead</SelectItem>
+                {presets.map((pr) => (
+                  <SelectItem key={pr.id} value={pr.id}>{pr.name}</SelectItem>
+                ))}
                 <SelectItem value="custom">Custom</SelectItem>
               </SelectContent>
             </Select>

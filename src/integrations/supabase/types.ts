@@ -127,6 +127,36 @@ export type Database = {
           },
         ]
       }
+      dimension_presets: {
+        Row: {
+          created_at: string
+          dimensions: Json
+          id: string
+          is_default: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dimensions?: Json
+          id?: string
+          is_default?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dimensions?: Json
+          id?: string
+          is_default?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       door_drawer_pricing: {
         Row: {
           advanced: boolean | null
