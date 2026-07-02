@@ -1,3 +1,4 @@
+import { defaultCornerArmDepth } from '@/lib/cornerDefaults';
 import React, { useState, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -100,8 +101,9 @@ export function DimensionsTab({ cabinet, onUpdate, onUpdateConstruction, constra
   };
 
   // Corner legs (arms) have independent return depths (MV: Cabinet Depth Left/Right).
-  const leftLegDepth = cabinet.construction?.cabinetDepthLeft ?? cabinet.dimensions.depth;
-  const rightLegDepth = cabinet.construction?.cabinetDepthRight ?? cabinet.dimensions.depth;
+  // Catalog corners ship depth == width (footprint), so default arms to 575.
+  const leftLegDepth = cabinet.construction?.cabinetDepthLeft ?? defaultCornerArmDepth(cabinet.dimensions.width, cabinet.dimensions.depth);
+  const rightLegDepth = cabinet.construction?.cabinetDepthRight ?? defaultCornerArmDepth(cabinet.dimensions.width, cabinet.dimensions.depth);
   const handleLeftLegDepthChange = (value: number) => {
     const clamped = Math.min(Math.max(value, limits.minDepth), limits.maxDepth);
     onUpdateConstruction?.({ cabinetDepthLeft: clamped });

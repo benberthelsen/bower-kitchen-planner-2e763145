@@ -6,6 +6,7 @@ import CabinetMesh from '@/components/3d/CabinetMesh';
 import { FINISH_OPTIONS } from '@/constants';
 import { PlacedItem } from '@/types';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
+import { defaultCornerArmDepth } from '@/lib/cornerDefaults';
 
 interface Preview3DProps {
   cabinet: ConfiguredCabinet;
@@ -35,13 +36,14 @@ function toPlacedItem(cabinet: ConfiguredCabinet): PlacedItem {
     carcaseMaterialId: cabinet.materials?.carcaseFinish,
     exteriorMaterialId: cabinet.materials?.exteriorFinish,
     handleType: cabinet.hardware?.handleType,
-    leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft ?? (isLCorner ? storedDepth : undefined),
-    rightCarcaseDepth: cabinet.construction?.cabinetDepthRight ?? (isLCorner ? storedDepth : undefined),
+    leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft ?? (isLCorner ? defaultCornerArmDepth(cabinet.dimensions.width, storedDepth) : undefined),
+    rightCarcaseDepth: cabinet.construction?.cabinetDepthRight ?? (isLCorner ? defaultCornerArmDepth(cabinet.dimensions.width, storedDepth) : undefined),
     secondWidth: cabinet.construction?.secondWidth ?? (isLCorner ? cabinet.dimensions.width : undefined),
     shelfCount: cabinet.accessories?.shelfCount,
     fillerLeft: cabinet.construction?.leftFillerWidth,
     fillerRight: cabinet.construction?.rightFillerWidth,
     blindSide: cabinet.construction?.blindSide,
+    drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
   } as PlacedItem;
 }
 

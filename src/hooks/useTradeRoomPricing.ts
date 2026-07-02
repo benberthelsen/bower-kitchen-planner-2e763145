@@ -5,6 +5,7 @@ import { ConfiguredCabinet, RoomHardwareDefaults, RoomMaterialDefaults } from '@
 import { GlobalDimensions, HardwareOptions, PlacedItem } from '@/types';
 import { generateQuoteBOM, PricingData, QuoteBOM } from '@/lib/pricing';
 import { useClientMarkup } from '@/hooks/useClientMarkup';
+import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 
 export interface TradeRoomPricingInput {
   cabinets: ConfiguredCabinet[];
@@ -37,7 +38,7 @@ async function fetchBundleMaterials(): Promise<unknown[] | null> {
   return null;
 }
 
-async function fetchPricingData(): Promise<PricingData> {
+export async function fetchPricingData(): Promise<PricingData> {
   const bundleMaterials = await fetchBundleMaterials();
   const [parts, materials, edges, hardware, labor, doorDrawer, benchtop] = await Promise.all([
     supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
@@ -60,7 +61,7 @@ async function fetchPricingData(): Promise<PricingData> {
   };
 }
 
-function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: RoomMaterialDefaults): PlacedItem[] {
+export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: RoomMaterialDefaults): PlacedItem[] {
   return cabinets.map((cabinet) => ({
     instanceId: cabinet.instanceId,
     definitionId: cabinet.definitionId,
@@ -117,6 +118,36 @@ function hashString(input: string): string {
   }
 
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Single-cabinet BOM for the Product Configurator — SAME engine, data, and
+ * commercial layer as the room quote, so the Parts List always matches the
+ * planner's price for that cabinet.
+ */
+export function useCabinetBOM(cabinet: ConfiguredCabinet | null, dimensions?: GlobalDimensions) {
+  const { data: pricingData, isLoading } = useQuery({
+    queryKey: ['pricing-data', 'trade-room'],
+    queryFn: fetchPricingData,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { commercial } = useClientMarkup();
+
+  return useMemo(() => {
+    if (!cabinet || !pricingData) return { bom: null, quote: null, pricingData: pricingData ?? null, isLoading };
+    const items = toPlacedItems([cabinet]);
+    const hardwareOptions = toHardwareOptions({
+      handleType: cabinet.hardware?.handleType ?? '',
+      handleColor: cabinet.hardware?.handleColor ?? '',
+      hingeType: cabinet.hardware?.hingeType ?? '',
+      drawerType: cabinet.hardware?.drawerType ?? '',
+      softClose: cabinet.hardware?.softClose ?? true,
+      supplyHardware: true,
+      adjustableLegs: true,
+    });
+    const quote = generateQuoteBOM(items, dimensions ?? DEFAULT_GLOBAL_DIMENSIONS, hardwareOptions, pricingData, commercial);
+    return { bom: quote.cabinets[0] ?? null, quote, pricingData, isLoading };
+  }, [cabinet, pricingData, commercial, dimensions, isLoading]);
 }
 
 export function useTradeRoomPricing({

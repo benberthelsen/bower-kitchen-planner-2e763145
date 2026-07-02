@@ -20,6 +20,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
+import { defaultCornerArmDepth, STANDARD_CORNER_ARM_DEPTH } from '@/lib/cornerDefaults';
 import { calculateSnapPosition } from '@/utils/snapping';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { exportPlanViewPdf } from '@/lib/planViewPdf';
@@ -152,8 +153,8 @@ export default function RoomPlanner() {
       carcaseTextureUrl: findUrl(cabinet.materials?.carcaseFinish),
       handleType: cabinet.hardware?.handleType,
       // Microvellum-style construction prompts (persisted per cabinet)
-      leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft ?? (isLCorner ? storedDepth : undefined),
-      rightCarcaseDepth: cabinet.construction?.cabinetDepthRight ?? (isLCorner ? storedDepth : undefined),
+      leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft ?? (isLCorner ? defaultCornerArmDepth(cabinet.dimensions.width, storedDepth) : undefined),
+      rightCarcaseDepth: cabinet.construction?.cabinetDepthRight ?? (isLCorner ? defaultCornerArmDepth(cabinet.dimensions.width, storedDepth) : undefined),
       secondWidth: cabinet.construction?.secondWidth ?? (isLCorner ? cabinet.dimensions.width : undefined),
       shelfCount: cabinet.accessories?.shelfCount,
       fillerLeft: cabinet.construction?.leftFillerWidth,
@@ -358,6 +359,9 @@ export default function RoomPlanner() {
     // engine nests them into it with the correct rotation (doors facing the
     // room) — instead of landing mid-wall like standard cabinets.
     const isCornerProduct = /corner|diagonal|blind|pie/i.test(`${productId} ${catalogItem.name}`);
+    const cornerConstruction = isCornerProduct
+      ? { cabinetDepthLeft: STANDARD_CORNER_ARM_DEPTH, cabinetDepthRight: STANDARD_CORNER_ARM_DEPTH }
+      : undefined;
     if (isCornerProduct) {
       const roomW = currentRoom.config.width;
       const roomD = currentRoom.config.depth;
@@ -422,6 +426,7 @@ export default function RoomPlanner() {
       },
       isPlaced: true,
       position,
+      ...(cornerConstruction ? { construction: cornerConstruction } : {}),
     });
 
     // Local add only; the debounced room autosave persists the whole room.
