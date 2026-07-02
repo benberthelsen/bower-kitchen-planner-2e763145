@@ -1,10 +1,167 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { Upload, Download, RefreshCw, Loader2 } from 'lucide-react';
+import { Upload, Download, RefreshCw, Loader2, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+
+// ─── Deployment readiness ─────────────────────────────────────────────────────
+
+interface CheckResult {
+  label: string;
+  ok: boolean | null;   // null = pending
+  detail: string;
+}
+
+function StatusIcon({ ok }: { ok: boolean | null }) {
+  if (ok === null) return <RefreshCw className="w-4 h-4 text-gray-400 animate-spin" />;
+  if (ok) return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+  return <XCircle className="w-4 h-4 text-red-500" />;
+}
+
+function DeploymentReadiness() {
+  const [checks, setChecks] = useState<CheckResult[]>([]);
+  const [running, setRunning] = useState(false);
+
+  const runChecks = async () => {
+    setRunning(true);
+    const results: CheckResult[] = [];
+
+    // 1. Supabase URL
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
+    results.push({
+      label: 'VITE_SUPABASE_URL set',
+      ok: !!supabaseUrl && !supabaseUrl.includes('placeholder'),
+      detail: supabaseUrl
+        ? supabaseUrl.replace(/^https?:\/\//, '').slice(0, 40)
+        : 'Missing — add to .env.local',
+    });
+
+    // 2. Anon key
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+    results.push({
+      label: 'VITE_SUPABASE_ANON_KEY set',
+      ok: !!anonKey && anonKey.length > 20,
+      detail: anonKey ? `${anonKey.slice(0, 6)}…${anonKey.slice(-4)}` : 'Missing',
+    });
+
+    // 3. HTTPS
+    const isHttps = window.location.protocol === 'https:';
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    results.push({
+      label: 'Served over HTTPS',
+      ok: isHttps || isLocalhost,
+      detail: isLocalhost ? `localhost (OK for dev)` : window.location.origin,
+    });
+
+    // 4. Supabase connectivity
+    setChecks([...results, { label: 'Supabase connectivity', ok: null, detail: 'Pinging…' }]);
+    try {
+      const { error } = await supabase.from('jobs').select('id', { count: 'exact', head: true });
+      results.push({
+        label: 'Supabase connectivity',
+        ok: !error,
+        detail: error ? error.message : 'Connected successfully',
+      });
+    } catch (e) {
+      results.push({
+        label: 'Supabase connectivity',
+        ok: false,
+        detail: (e as Error).message,
+      });
+    }
+
+    // 5. Production build
+    const isProd = import.meta.env.PROD;
+    results.push({
+      label: 'Production build',
+      ok: isProd,
+      detail: isProd ? 'Running production bundle' : 'Running dev server (expected locally)',
+    });
+
+    // 6. Auth working
+    const { data: { session } } = await supabase.auth.getSession();
+    results.push({
+      label: 'Admin session active',
+      ok: !!session,
+      detail: session ? session.user.email ?? 'Authenticated' : 'No session — log in as admin',
+    });
+
+    setChecks(results);
+    setRunning(false);
+  };
+
+  const allOk = checks.length > 0 && checks.every(c => c.ok !== false);
+  const hasFailures = checks.some(c => c.ok === false);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Deployment Readiness</CardTitle>
+            <CardDescription>Pre-flight checks before going live.</CardDescription>
+          </div>
+          {checks.length > 0 && (
+            <span className={`text-sm font-medium px-2.5 py-1 rounded-full ${
+              allOk ? 'bg-green-100 text-green-700' :
+              hasFailures ? 'bg-red-100 text-red-700' :
+              'bg-amber-100 text-amber-700'
+            }`}>
+              {allOk ? '✓ Ready' : hasFailures ? '✗ Issues found' : 'Checking…'}
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {checks.length > 0 && (
+          <div className="divide-y rounded-lg border overflow-hidden">
+            {checks.map(c => (
+              <div key={c.label} className="flex items-center gap-3 px-4 py-3 bg-white">
+                <StatusIcon ok={c.ok} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">{c.label}</p>
+                  <p className="text-xs text-gray-400 truncate">{c.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!running && checks.length === 0 && (
+          <p className="text-sm text-gray-500">
+            Run the checks to verify your environment is ready for production.
+          </p>
+        )}
+
+        {allOk && (
+          <div className="flex items-start gap-2 text-sm text-green-700 bg-green-50 rounded-lg px-4 py-3">
+            <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <p>All checks passed. Deploy with <code className="bg-green-100 px-1 rounded">npm run build</code> and host the <code className="bg-green-100 px-1 rounded">dist/</code> folder on your preferred platform.</p>
+          </div>
+        )}
+
+        <Button onClick={runChecks} disabled={running} variant="outline">
+          {running ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running…</> : 'Run checks'}
+        </Button>
+
+        {/* Env template */}
+        <details className="text-xs text-gray-500">
+          <summary className="cursor-pointer font-medium text-gray-600 hover:text-gray-900">
+            View .env.local template
+          </summary>
+          <pre className="mt-2 bg-gray-900 text-green-400 rounded-lg p-3 overflow-x-auto leading-relaxed">
+{`VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<your-anon-key>`}
+          </pre>
+        </details>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Import/Export types ──────────────────────────────────────────────────────
 
 interface ImportResult {
   success: boolean;
@@ -224,6 +381,7 @@ export default function AdminSettings() {
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
 
       <div className="grid gap-6">
+        <DeploymentReadiness />
         <Card>
           <CardHeader>
             <CardTitle>Microvellum Product Catalog</CardTitle>
