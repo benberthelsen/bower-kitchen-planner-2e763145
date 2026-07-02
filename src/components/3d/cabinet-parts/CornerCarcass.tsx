@@ -148,35 +148,35 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
         {/* Right end gable (butts the next cabinet in the back-wall run) */}
         <mesh position={[width / 2 - gableThickness / 2, 0, (-depth / 2 + notchZ) / 2]}>
           <boxGeometry args={[gableThickness, height, backArmDepth]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
         {/* Bottom panel of back arm */}
         <mesh position={[0, -height / 2 + bottomThickness / 2, (-depth / 2 + notchZ) / 2 + backThickness / 2]}>
           <boxGeometry args={[width - gableThickness * 2, bottomThickness, backArmDepth - backThickness]} />
-          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+          <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
         </mesh>
 
         {/* ===== LEFT ARM (x ∈ [-width/2, notchX], continues to the front) ===== */}
         {/* Outer gable along the left wall, full depth */}
         <mesh position={[-width / 2 + gableThickness / 2, 0, 0]}>
           <boxGeometry args={[gableThickness, height, depth]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
         {/* Front end closure of left arm (butts the next cabinet in the left-wall run) */}
         <mesh position={[(-width / 2 + notchX) / 2, 0, depth / 2 - gableThickness / 2]}>
           <boxGeometry args={[leftArmWidth, height, gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
         {/* Bottom panel of left arm front portion */}
         <mesh position={[(-width / 2 + notchX) / 2, -height / 2 + bottomThickness / 2, (notchZ + depth / 2) / 2]}>
           <boxGeometry args={[leftArmWidth - gableThickness, bottomThickness, leftArmFrontLen]} />
-          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+          <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
         </mesh>
 
         {/* ===== INTERNAL CORNER POST (where the two doors meet) ===== */}
         <mesh position={[notchX - gableThickness / 2, 0, notchZ - gableThickness / 2]}>
           <boxGeometry args={[gableThickness, height, gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
       </group>
     );
@@ -191,13 +191,13 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
         {/* Left gable - along left wall */}
         <mesh position={[-width / 2 + gableThickness / 2, 0, depth / 4]}>
           <boxGeometry args={[gableThickness, height, depth / 2]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
         
         {/* Right gable - along back wall */}
         <mesh position={[width / 4, 0, -depth / 2 + gableThickness / 2]}>
           <boxGeometry args={[width / 2, height, gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
         
         {/* Angled front panel (45 degrees) */}
@@ -206,13 +206,13 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
           rotation={[0, -Math.PI / 4, 0]}
         >
           <boxGeometry args={[diagonalWidth, height, gableThickness]} />
-          <meshStandardMaterial {...materialProps} map={verticalTexture} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
         
         {/* Bottom panel */}
         <mesh position={[-width / 8, -height / 2 + bottomThickness / 2, -depth / 8]}>
           <boxGeometry args={[width * 0.6, bottomThickness, depth * 0.6]} />
-          <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+          <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
         </mesh>
         
         {/* Back panels - two pieces at 90 degrees */}
@@ -244,19 +244,19 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
       {/* Left gable */}
       <mesh position={[-width / 2 + gableThickness / 2, 0, 0]}>
         <boxGeometry args={[gableThickness, height, depth]} />
-        <meshStandardMaterial {...materialProps} map={verticalTexture} />
+        <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
       </mesh>
 
       {/* Right gable */}
       <mesh position={[width / 2 - gableThickness / 2, 0, 0]}>
         <boxGeometry args={[gableThickness, height, depth]} />
-        <meshStandardMaterial {...materialProps} map={verticalTexture} />
+        <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
       </mesh>
 
       {/* Bottom panel */}
       <mesh position={[0, -height / 2 + bottomThickness / 2, 0]}>
         <boxGeometry args={[width - gableThickness * 2, bottomThickness, depth - backThickness]} />
-        <meshStandardMaterial {...materialProps} map={horizontalTexture} />
+        <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
       </mesh>
 
       {/* Back panel */}

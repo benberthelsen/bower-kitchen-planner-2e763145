@@ -90,7 +90,7 @@ const FoldingDoor: React.FC<FoldingDoorProps> = ({
       <group position={[hingeX, 0, 0]} ref={aRef}>
         <mesh position={[s * leafW / 2, 0, 0]} onClick={handleClick}>
           <boxGeometry args={[leafW, leafH, thickness]} />
-          <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} map={texture} />
+          <meshStandardMaterial key={texture ? texture.uuid : 'flat'} color={color} roughness={roughness} metalness={metalness} map={texture} />
         </mesh>
         <group position={[s * leafW / 2, 0, 0]}>
           <EdgeOutline width={leafW} height={leafH} depth={thickness} />
@@ -100,7 +100,7 @@ const FoldingDoor: React.FC<FoldingDoorProps> = ({
         <group position={[s * leafW, 0, 0]} ref={bRef}>
           <mesh position={[s * leafW / 2, 0, 0]} onClick={handleClick}>
             <boxGeometry args={[leafW, leafH, thickness]} />
-            <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} map={texture} />
+            <meshStandardMaterial key={texture ? texture.uuid : 'flat'} color={color} roughness={roughness} metalness={metalness} map={texture} />
           </mesh>
           <group position={[s * leafW / 2, 0, 0]}>
             <EdgeOutline width={leafW} height={leafH} depth={thickness} />

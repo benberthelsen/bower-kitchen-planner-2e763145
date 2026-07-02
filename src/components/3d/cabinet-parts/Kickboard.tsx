@@ -85,6 +85,7 @@ const Kickboard: React.FC<KickboardProps> = ({
         <mesh position={[kickAX, 0, kickAZ]}>
           <boxGeometry args={[kickAWidth, height, thickness]} />
           <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}
@@ -102,6 +103,7 @@ const Kickboard: React.FC<KickboardProps> = ({
           <mesh>
             <boxGeometry args={[kickBWidth, height, thickness]} />
             <meshStandardMaterial
+              key={texture ? texture.uuid : 'flat'}
               color={color}
               roughness={roughness}
               metalness={metalness}
@@ -123,7 +125,8 @@ const Kickboard: React.FC<KickboardProps> = ({
     <group position={position}>
       <mesh>
         <boxGeometry args={[kickWidth, height, thickness]} />
-        <meshStandardMaterial 
+        <meshStandardMaterial
+          key={texture ? texture.uuid : 'flat'}
           color={color}
           roughness={roughness}
           metalness={metalness}

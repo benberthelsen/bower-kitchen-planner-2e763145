@@ -54,7 +54,8 @@ const Shelf: React.FC<ShelfProps> = ({
     <group>
       <mesh position={adjustedPosition}>
         <boxGeometry args={[width, thickness, adjustedDepth]} />
-        <meshStandardMaterial 
+        <meshStandardMaterial
+          key={texture ? texture.uuid : 'flat'}
           color={color}
           roughness={roughness}
           metalness={metalness}

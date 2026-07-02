@@ -105,7 +105,8 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
           onPointerOut={() => { document.body.style.cursor = 'default'; }}
         >
           <boxGeometry args={[actualWidth, actualHeight, thickness]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}

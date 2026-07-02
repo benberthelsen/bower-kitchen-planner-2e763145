@@ -53,7 +53,8 @@ const BottomPanel: React.FC<BottomPanelProps> = ({
         {/* Front strip */}
         <mesh position={[0, 0, depth / 2 - frontDepth / 2]}>
           <boxGeometry args={[width, thickness, frontDepth]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}
@@ -64,7 +65,8 @@ const BottomPanel: React.FC<BottomPanelProps> = ({
         {/* Back strip */}
         <mesh position={[0, 0, -depth / 2 + backDepth / 2]}>
           <boxGeometry args={[width, thickness, backDepth]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}
@@ -75,7 +77,8 @@ const BottomPanel: React.FC<BottomPanelProps> = ({
         {/* Left side */}
         <mesh position={[-width / 2 + sideWidth / 2, 0, 0]}>
           <boxGeometry args={[sideWidth, thickness, sinkCutoutDepth]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}
@@ -86,7 +89,8 @@ const BottomPanel: React.FC<BottomPanelProps> = ({
         {/* Right side */}
         <mesh position={[width / 2 - sideWidth / 2, 0, 0]}>
           <boxGeometry args={[sideWidth, thickness, sinkCutoutDepth]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}
@@ -100,7 +104,8 @@ const BottomPanel: React.FC<BottomPanelProps> = ({
   return (
     <mesh position={position}>
       <boxGeometry args={[width, thickness, depth]} />
-      <meshStandardMaterial 
+      <meshStandardMaterial
+        key={texture ? texture.uuid : 'flat'}
         color={color}
         roughness={roughness}
         metalness={metalness}

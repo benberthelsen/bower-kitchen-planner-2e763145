@@ -113,7 +113,10 @@ const DoorFront: React.FC<DoorFrontProps> = ({
           onPointerOut={() => { document.body.style.cursor = 'default'; }}
         >
           <boxGeometry args={[actualWidth, actualHeight, thickness]} />
-          <meshStandardMaterial 
+          {/* key forces material recreation when the texture arrives async —
+              assigning map onto a compiled material won't recompile the shader */}
+          <meshStandardMaterial
+            key={texture ? texture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}

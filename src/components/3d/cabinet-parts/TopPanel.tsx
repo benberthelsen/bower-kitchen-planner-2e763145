@@ -39,7 +39,8 @@ const TopPanel: React.FC<TopPanelProps> = ({
   return (
     <mesh position={position}>
       <boxGeometry args={[width, thickness, depth]} />
-      <meshStandardMaterial 
+      <meshStandardMaterial
+        key={texture ? texture.uuid : 'flat'}
         color={color}
         roughness={roughness}
         metalness={metalness}

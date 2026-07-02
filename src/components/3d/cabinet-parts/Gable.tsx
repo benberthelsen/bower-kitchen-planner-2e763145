@@ -96,7 +96,8 @@ const Gable: React.FC<GableProps> = ({
         {/* Exterior half (finished face) */}
         <mesh position={[exteriorX, 0, 0]}>
           <boxGeometry args={[width / 2, height, depth]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={exteriorTexture ? exteriorTexture.uuid : 'flat'}
             color={color}
             roughness={roughness}
             metalness={metalness}
@@ -106,7 +107,8 @@ const Gable: React.FC<GableProps> = ({
         {/* Interior half (cabinet inside) */}
         <mesh position={[interiorX, 0, 0]}>
           <boxGeometry args={[width / 2, height, depth]} />
-          <meshStandardMaterial 
+          <meshStandardMaterial
+            key={intTexture ? intTexture.uuid : 'flat'}
             color={intColor}
             roughness={intRoughness}
             metalness={intMetalness}
@@ -125,7 +127,8 @@ const Gable: React.FC<GableProps> = ({
     <group position={position}>
       <mesh>
         <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial 
+        <meshStandardMaterial
+          key={exteriorTexture ? exteriorTexture.uuid : 'flat'}
           color={color}
           roughness={roughness}
           metalness={metalness}

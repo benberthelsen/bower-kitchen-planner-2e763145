@@ -21,6 +21,7 @@ import {
   EdgeOutline,
 } from './cabinet-parts';
 import FoldingDoor from './cabinet-parts/FoldingDoor';
+import CornerBiFold from './cabinet-parts/CornerBiFold';
 
 /**
  * Loads a supplier swatch/texture image as a THREE texture for the cabinet finish.
@@ -600,75 +601,57 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     const doorHeight = carcassHeight - topReveal - bottomReveal;
     const doorY = carcassYOffset;
 
-    // For L-shape (pie-cut) corner: the two door leaves sit on the two notch
-    // faces that meet at the internal corner, flush with the adjoining runs
-    // (matches CornerCarcass notch geometry and the Microvellum pie-cut look).
+    // For L-shape (pie-cut) corner: one linked BI-FOLD pair across the notch.
+    // Closed, the two leaves sit at 90° — one on each notch face. Open, the
+    // pair moves as one unit: the lead leaf swings on the carcase hinge while
+    // the fold flattens, and the handle (on the second leaf's free edge)
+    // travels with the doors — matching a real Microvellum pie-cut corner.
     if (cornerType === 'l-shape') {
       const notchX = -widthM / 2 + Math.min(leftArmDepthM, widthM - 0.05);
       const notchZ = -cornerFootprintDepthM / 2 + Math.min(rightArmDepthM, cornerFootprintDepthM - 0.05);
 
-      // Door 1: on the back arm's front face (plane z = notchZ, faces +Z)
+      // Leaf on the back arm's front face (plane z = notchZ, faces +Z)
       const d1Width = (widthM / 2 - notchX) - sideReveal * 2;
-      const d1X = (notchX + widthM / 2) / 2;
-      const d1Z = notchZ + doorThickness / 2 + shadowGap;
-
-      // Door 2: on the left arm's side face (plane x = notchX, faces +X)
+      // Leaf on the left arm's side face (plane x = notchX, faces +X)
       const d2Width = (cornerFootprintDepthM / 2 - notchZ) - sideReveal * 2;
-      const d2X = notchX + doorThickness / 2 + shadowGap;
-      const d2Z = (notchZ + cornerFootprintDepthM / 2) / 2;
 
-      return (
-        <>
-          {/* Door 1 - faces +Z; hinged at the inner (notch) edge, handle at the outer end */}
-          <DoorFront
-            width={d1Width}
+      // Hinge side picks which end of the pair is fixed to the carcase.
+      if (hingeLeft) {
+        // Carcase hinge at the FRONT end of the left-arm face; the pair folds
+        // from there around the internal corner onto the back-arm face.
+        return (
+          <CornerBiFold
+            leadWidth={d2Width}
+            secondWidth={d1Width}
             height={doorHeight}
             thickness={doorThickness}
-            position={[d1X, doorY, d1Z]}
             color={doorMat.color}
             roughness={doorMat.roughness}
             map={doorMat.map}
-            gap={0}
-            hingeLeft={true}
-            showHinges={false}
+            pivot={[notchX + shadowGap, doorY, cornerFootprintDepthM / 2 - sideReveal]}
+            dir={1}
+            yaw={Math.PI / 2}
+            handle={{ type: handle.type, color: handle.hex }}
             forceOpen={doorsOpen}
           />
-          <HandleMesh
-            type={handle.type}
-            color={handle.hex}
-            position={[
-              d1X + d1Width / 2 - 0.04,
-              doorY + doorHeight / 2 - 0.096,
-              d1Z + doorThickness / 2 + 0.015
-            ]}
-          />
-
-          {/* Door 2 - faces +X (rotated); hinged at the inner (notch) edge, handle at the outer end */}
-          <group position={[d2X, doorY, d2Z]} rotation={[0, -Math.PI / 2, 0]}>
-            <DoorFront
-              width={d2Width}
-              height={doorHeight}
-              thickness={doorThickness}
-              position={[0, 0, 0]}
-              color={doorMat.color}
-              roughness={doorMat.roughness}
-              map={doorMat.map}
-              gap={0}
-              hingeLeft={false}
-              showHinges={false}
-              forceOpen={doorsOpen}
-            />
-            <HandleMesh
-              type={handle.type}
-              color={handle.hex}
-              position={[
-                d2Width / 2 - 0.04,
-                doorHeight / 2 - 0.096,
-                doorThickness / 2 + 0.015
-              ]}
-            />
-          </group>
-        </>
+        );
+      }
+      // Carcase hinge at the RIGHT end of the back-arm face.
+      return (
+        <CornerBiFold
+          leadWidth={d1Width}
+          secondWidth={d2Width}
+          height={doorHeight}
+          thickness={doorThickness}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          pivot={[widthM / 2 - sideReveal, doorY, notchZ + shadowGap]}
+          dir={-1}
+          yaw={0}
+          handle={{ type: handle.type, color: handle.hex }}
+          forceOpen={doorsOpen}
+        />
       );
     }
     
@@ -689,11 +672,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             gap={doorGap}
             hingeLeft={true}
             forceOpen={doorsOpen}
-          />
-          <HandleMesh
-            type={handle.type}
-            color={handle.hex}
-            position={[diagonalDoorWidth / 2 - 0.06, doorY + doorHeight / 2 - 0.08, doorThickness + 0.02]}
+            handle={{
+              type: handle.type,
+              color: handle.hex,
+              x: diagonalDoorWidth / 2 - 0.06,
+              y: doorHeight / 2 - 0.08,
+            }}
           />
         </group>
       );
@@ -723,7 +707,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           hingeLeft={blindIsLeft}
           forceOpen={doorsOpen}
         />
-        {/* Door on the accessible side */}
+        {/* Door on the accessible side — handle mounted ON the door so it swings with it */}
         <DoorFront
           width={doorWidth}
           height={doorHeight}
@@ -735,11 +719,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           gap={0}
           hingeLeft={!blindIsLeft}
           forceOpen={doorsOpen}
-        />
-        <HandleMesh
-          type={handle.type}
-          color={handle.hex}
-          position={[blindIsLeft ? doorX - doorWidth / 2 + 0.04 : doorX + doorWidth / 2 - 0.04, doorY + doorHeight / 2 - 0.096, frontZ + doorThickness / 2 + 0.015]}
+          handle={{
+            type: handle.type,
+            color: handle.hex,
+            x: blindIsLeft ? -(doorWidth / 2 - 0.04) : doorWidth / 2 - 0.04,
+            y: doorHeight / 2 - 0.096,
+          }}
         />
       </>
     );

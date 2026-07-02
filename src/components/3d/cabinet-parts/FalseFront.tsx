@@ -45,7 +45,8 @@ const FalseFront: React.FC<FalseFrontProps> = ({
   return (
     <mesh position={position}>
       <boxGeometry args={[actualWidth, actualHeight, thickness]} />
-      <meshStandardMaterial 
+      <meshStandardMaterial
+        key={texture ? texture.uuid : 'flat'}
         color={color}
         roughness={roughness}
         metalness={metalness}

@@ -83,7 +83,10 @@ export function PartsListPanel({ cabinet, className = '' }: PartsListPanelProps)
         </div>
       )}
 
-      <ScrollArea className="flex-1">
+      {/* min-h-0 lets the list shrink inside the flex column (footer stays visible);
+          the viewport override stops Radix's display:table child from expanding
+          wider than the panel, which clipped the price column. */}
+      <ScrollArea className="flex-1 min-h-0 [&_[data-radix-scroll-area-viewport]>div]:!block">
         <div className="p-3 space-y-1.5">
           {/* Board parts — engine-sized from parts_pricing formulas */}
           {bom.parts.map((p, i) => {
