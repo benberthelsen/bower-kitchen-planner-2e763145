@@ -3,6 +3,7 @@ import { Search, Palette, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RoomConfig } from './index';
 import { type MaterialOptionRow, useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 
@@ -81,6 +82,72 @@ function MaterialPreview({ color, imageUrl, label }: { color: string; imageUrl?:
         <p className="text-sm text-trade-muted">{label}</p>
       </div>
     </div>
+  );
+}
+
+/** Visual colour browser — swatch grid over the same material list as the pickers. */
+function ColourBrowserDialog({
+  open,
+  onOpenChange,
+  title,
+  materials,
+  selectedId,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  materials: PickerMaterial[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return materials;
+    return materials.filter((m) => `${m.name} ${m.finish ?? ''}`.toLowerCase().includes(q));
+  }, [materials, search]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-trade-muted" />
+          <Input
+            placeholder="Search colours…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 overflow-y-auto pr-1 mt-2">
+          {filtered.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => { onSelect(m.id); onOpenChange(false); }}
+              className={`text-left rounded-lg border-2 p-1.5 transition hover:border-trade-amber focus:outline-none ${
+                m.id === selectedId ? 'border-trade-amber ring-1 ring-trade-amber' : 'border-trade-border'
+              }`}
+            >
+              {m.sampleImageUrl ? (
+                <img src={m.sampleImageUrl} alt={m.name} loading="lazy" className="w-full h-20 object-cover rounded bg-white" />
+              ) : (
+                <div className="w-full h-20 rounded" style={{ backgroundColor: m.color ?? '#EEE' }} />
+              )}
+              <div className="mt-1 text-[11px] leading-tight line-clamp-2">{m.name}</div>
+              {m.finish && <div className="text-[10px] text-trade-muted">{m.finish}</div>}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <div className="col-span-full text-sm text-trade-muted p-4 text-center">No colours match "{search}".</div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -276,6 +343,7 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
   // Real materials/edges from the pricing database (admin imports).
   // Mock entries remain only as a fallback while the tables are empty.
   const { materials: dbMaterials, edges: dbEdges, isLoading } = useMaterialsCatalog();
+  const [browsing, setBrowsing] = useState<null | 'exterior' | 'carcase'>(null);
 
   // Business rule: "Shop Materials" brand boards (16mm HMR Arctic White,
   // 15mm ply, etc.) are the shop's standing carcase/kick stock — they stay
@@ -387,9 +455,10 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
             </div>
           </div>
 
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="w-full border-trade-navy text-trade-navy hover:bg-trade-navy hover:text-white"
+            onClick={() => setBrowsing('exterior')}
           >
             <Palette className="h-4 w-4 mr-2" />
             Browse Colours
@@ -432,9 +501,10 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
             </div>
           </div>
 
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="w-full border-trade-navy text-trade-navy hover:bg-trade-navy hover:text-white"
+            onClick={() => setBrowsing('carcase')}
           >
             <Palette className="h-4 w-4 mr-2" />
             Browse Colours
@@ -448,6 +518,17 @@ export default function MaterialDefaultsStep({ config, updateConfig }: MaterialD
           </div>
         </div>
       </div>
+
+      <ColourBrowserDialog
+        open={browsing !== null}
+        onOpenChange={(open) => !open && setBrowsing(null)}
+        title={browsing === 'carcase' ? 'Browse Carcase Colours' : 'Browse Exterior Colours'}
+        materials={browsing === 'carcase' ? carcaseMatList : exteriorMatList}
+        selectedId={browsing === 'carcase' ? config.carcaseMaterial : config.exteriorMaterial}
+        onSelect={(id) =>
+          updateConfig(browsing === 'carcase' ? { carcaseMaterial: id } : { exteriorMaterial: id })
+        }
+      />
     </div>
   );
 }
