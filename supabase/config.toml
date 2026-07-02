@@ -1,7 +1,10 @@
-project_id = "wyiydozwukiayhwcdlcf"
+project_id = "ehtwywctledgkxexztbh"
 
 [functions.import-microvellum]
 verify_jwt = false
 
 [functions.process-dxf-geometry]
+verify_jwt = false
+
+[functions.scheduled-supplier-import]
 verify_jwt = false

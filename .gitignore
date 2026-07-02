@@ -30,3 +30,4 @@ smoke-out.txt
 public/backups/
 build-err.txt
 build-out.txt
+.env.backup-*

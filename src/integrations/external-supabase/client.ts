@@ -1,19 +1,18 @@
 /**
- * External Supabase client for the shared kitchen designer backend.
- * This connects to the existing Supabase project shared with the planner app.
- * Used for: kitchen_designs, website_analytics, leads tables
+ * DEPRECATED shim — the planner now uses ONE Supabase project (bower-cabinet-ai).
+ * This client used to point at a hard-coded third project; it now reuses the
+ * main env-configured client. Only legacy planner pages import it, and they are
+ * scheduled for removal (see docs/phase-1-architecture-note.md).
  */
 import { createClient } from '@supabase/supabase-js';
 
-const EXTERNAL_SUPABASE_URL = 'https://cfwywsrhwnfqzdxcgnmm.supabase.co';
-const EXTERNAL_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNmd3l3c3Jod25mcXpkeGNnbm1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyNzAwMDcsImV4cCI6MjA4MTg0NjAwN30.un4344b6czQrk56kAoND4FcCORKuY00mV3KEo4DfoCg';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export const externalSupabase = createClient(
-  EXTERNAL_SUPABASE_URL,
-  EXTERNAL_SUPABASE_ANON_KEY
-);
+export const externalSupabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: { persistSession: false },
+});
 
-// Types for the external tables
 export interface KitchenDesign {
   id?: string;
   design_name: string;
