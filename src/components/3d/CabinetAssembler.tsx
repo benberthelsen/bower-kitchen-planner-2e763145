@@ -1092,20 +1092,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         </mesh>
       )}
       
-      {/* Carcass interior — white fill visible through door gaps and when doors/drawers open.
-          No EdgeOutline here: its front-face rectangle appears as a "ghost door" when real
-          doors swing open. The carcass structural parts (gables, bottom, back) already
-          convey the box shape without needing an extra outline on the interior fill.
-          Corner cabinets: skip the rectangular interior fill — it bleeds into the notch area. */}
-      {!isCornerCabinet && (
-        <group position={[0, carcassYOffset, 0]}>
-          <mesh>
-            <boxGeometry args={[interiorWidth - 0.002, carcassHeight - 0.002, depthM - backPanelThickness - 0.002]} />
-            <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
-          </mesh>
-        </group>
-      )}
-      
+      {/* No solid interior fill: it buried the shelves and showed up as a flat
+          "solid face" behind opened doors. The real carcase parts (gables,
+          bottom, back, shelves) render the cavity properly — same as corners. */}
+
       {/* Cabinet structure */}
       {renderGables()}
       {renderBottom()}
