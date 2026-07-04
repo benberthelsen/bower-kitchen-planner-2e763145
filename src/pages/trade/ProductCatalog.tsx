@@ -21,6 +21,7 @@ import TradeLayout from './components/TradeLayout';
 import { useCatalog, ExtendedCatalogItem } from '@/hooks/useCatalog';
 import Product3DThumbnail from '@/components/3d/ProductThumbnail3D';
 import { useAuth } from '@/hooks/useAuth';
+import { useCatalogFavorites } from '@/hooks/useCatalogQuickPicks';
 
 type ViewMode = 'grid' | 'list';
 
@@ -64,29 +65,14 @@ export default function ProductCatalog() {
   
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchQuery, setSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('catalog-favorites');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
+  // Per-user favourites, shared with the planner sidebar's Quick Picks list.
+  const { favorites, toggleFavorite } = useCatalogFavorites();
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
   const activeSpecGroup = searchParams.get('specGroup') || 'all';
 
   const setActiveSpecGroup = (specGroup: string) => {
     setSearchParams({ specGroup });
-  };
-
-  const toggleFavorite = (id: string) => {
-    setFavorites(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      localStorage.setItem('catalog-favorites', JSON.stringify([...next]));
-      return next;
-    });
   };
 
   // Sort spec groups according to defined order

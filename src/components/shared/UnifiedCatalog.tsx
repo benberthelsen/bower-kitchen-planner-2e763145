@@ -4,9 +4,9 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Search, 
-  Plus, 
+import {
+  Search,
+  Plus,
   ChevronDown,
   ChevronUp,
   Grid3X3,
@@ -17,8 +17,10 @@ import {
   Droplets,
   CornerDownRight,
   LayoutGrid,
-  PanelTop
+  PanelTop,
+  Star
 } from 'lucide-react';
+import { useQuickPicks } from '@/hooks/useCatalogQuickPicks';
 import { cn } from '@/lib/utils';
 import {
   Collapsible,
@@ -211,10 +213,14 @@ export function UnifiedCatalog({
 }: UnifiedCatalogProps) {
   const { catalog, isLoading, isDynamic } = useCatalog(userType);
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedGroup, setExpandedGroup] = useState<string | null>('Base Cabinets');
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [draggedProduct, setDraggedProduct] = useState<string | null>(null);
 
   const isTrade = userType === 'trade' || userType === 'admin';
+
+  // Quick Picks: the user's own favourites + their most-used cabinets, seeded
+  // with the industry-standard workhorse set. Stars on any row manage the list.
+  const { quickPicks, favorites, toggleFavorite, recordUsage } = useQuickPicks(catalog);
 
   // Group by specGroup, filtering out hidden groups
   const groupedProducts = useMemo(() => {
@@ -269,6 +275,7 @@ export function UnifiedCatalog({
   // Drag handlers
   const handleDragStart = useCallback((e: React.DragEvent, product: ExtendedCatalogItem) => {
     setDraggedProduct(product.id);
+    recordUsage(product.id);
     e.dataTransfer.setData('definitionId', product.id);
     e.dataTransfer.setData('application/json', JSON.stringify({
       productId: product.id,
@@ -278,15 +285,67 @@ export function UnifiedCatalog({
       depth: product.defaultDepth,
     }));
     e.dataTransfer.effectAllowed = 'copy';
-  }, []);
+  }, [recordUsage]);
 
   const handleDragEnd = useCallback(() => {
     setDraggedProduct(null);
   }, []);
 
   const handleItemClick = useCallback((product: CatalogItemDefinition) => {
+    recordUsage(product.id);
     onSelectProduct(product.id);
-  }, [onSelectProduct]);
+  }, [onSelectProduct, recordUsage]);
+
+  // Shared row renderer for Quick Picks and the grouped catalog.
+  const renderProductRow = (product: ExtendedCatalogItem) => {
+    const isSelected = placementItemId === product.id;
+    const isFav = favorites.has(product.id);
+    return (
+      <div
+        key={product.id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, product)}
+        onDragEnd={handleDragEnd}
+        onClick={() => handleItemClick(product)}
+        className={cn(
+          "flex items-center gap-2 w-full p-2 rounded-md transition-colors text-left group cursor-grab active:cursor-grabbing",
+          isSelected
+            ? "bg-green-50 border border-green-400 ring-2 ring-green-200"
+            : draggedProduct === product.id
+              ? "bg-primary/20 ring-2 ring-primary"
+              : "hover:bg-primary/10 active:bg-primary/20"
+        )}
+        title={`Click to add or drag "${product.name}" to the scene`}
+      >
+        <GripVertical className="w-3 h-3 text-muted-foreground/50 group-hover:text-muted-foreground flex-shrink-0" />
+        <ProductThumbnail product={product} />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium truncate">{product.name}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {product.defaultWidth} × {product.defaultDepth}mm
+          </p>
+          <CabinetTypeIndicators item={product} />
+        </div>
+        <div className="flex flex-col items-center gap-1 flex-shrink-0">
+          {/* Star: add/remove from the user's own Quick Picks list */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggleFavorite(product.id); }}
+            className={cn(
+              "p-0.5 rounded transition-all",
+              isFav
+                ? "text-trade-amber"
+                : "text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-trade-amber"
+            )}
+            title={isFav ? 'Remove from Quick Picks' : 'Add to my Quick Picks'}
+          >
+            <Star className={cn("w-3.5 h-3.5", isFav && "fill-current")} />
+          </button>
+          <Plus className="w-3.5 h-3.5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className={cn("flex flex-col bg-background border-r h-full w-64", className)}>
@@ -393,6 +452,26 @@ export function UnifiedCatalog({
                 </div>
               )}
 
+              {/* Quick Picks — the user's favourites + most-used, seeded with the
+                  industry-standard workhorse set. Hidden while searching. */}
+              {!searchQuery.trim() && quickPicks.length > 0 && (
+                <div className="mb-2 pb-2 border-b">
+                  <div className="flex items-center gap-2 p-2">
+                    <Star className="w-3.5 h-3.5 text-trade-amber fill-current" />
+                    <span className="font-medium text-sm">Quick Picks</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                      {quickPicks.length}
+                    </Badge>
+                  </div>
+                  <p className="px-2 pb-1 text-[10px] text-muted-foreground">
+                    Your starred + most-used cabinets. Star ★ any product to add it here.
+                  </p>
+                  <div className="space-y-0.5 pl-2">
+                    {quickPicks.map(renderProductRow)}
+                  </div>
+                </div>
+              )}
+
               {sortedGroups.map((group) => (
                 <Collapsible
                   key={group}
@@ -415,40 +494,7 @@ export function UnifiedCatalog({
                   </CollapsibleTrigger>
                   <CollapsibleContent className="pl-2">
                     <div className="space-y-0.5">
-                      {filteredGroups[group].map((product) => {
-                        const isSelected = placementItemId === product.id;
-                        return (
-                          <div
-                            key={product.id}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, product)}
-                            onDragEnd={handleDragEnd}
-                            onClick={() => handleItemClick(product)}
-                            className={cn(
-                              "flex items-center gap-2 w-full p-2 rounded-md transition-colors text-left group cursor-grab active:cursor-grabbing",
-                              isSelected
-                                ? "bg-green-50 border border-green-400 ring-2 ring-green-200"
-                                : draggedProduct === product.id 
-                                  ? "bg-primary/20 ring-2 ring-primary" 
-                                  : "hover:bg-primary/10 active:bg-primary/20"
-                            )}
-                            title={`Click to add or drag "${product.name}" to the scene`}
-                          >
-                            <GripVertical className="w-3 h-3 text-muted-foreground/50 group-hover:text-muted-foreground flex-shrink-0" />
-                            <ProductThumbnail product={product} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">{product.name}</p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {product.defaultWidth} × {product.defaultDepth}mm
-                              </p>
-                              <CabinetTypeIndicators item={product} />
-                            </div>
-                            <div className="flex items-center gap-1 text-primary opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                              <Plus className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {filteredGroups[group].map(renderProductRow)}
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
