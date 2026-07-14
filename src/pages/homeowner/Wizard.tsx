@@ -938,7 +938,10 @@ export default function HomeownerWizard() {
   // retrieval goes through the tokenized edge function — anonymous visitors
   // never read the table (master plan §6.3). Tokenless staff visits fall back
   // to the direct read permitted by the staff RLS policy.
-  const handoffId = searchParams.get('handoff');
+  // Captured ONCE at mount: the design-params URL sync below rewrites the
+  // query string and would otherwise erase ?handoff= before the tokenized
+  // fetch resolves (test-pass finding F-2), flipping the query key to null.
+  const [handoffId] = useState<string | null>(() => searchParams.get('handoff'));
   const [handoffToken] = useState<string | null>(() => captureHandoffToken(handoffId));
   const tokenized = useTokenizedPlannerHandoff(handoffId, handoffToken);
   const { data: staffRow } = usePlannerHandoff(handoffToken ? null : handoffId);
