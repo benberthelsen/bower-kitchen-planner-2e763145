@@ -1,0 +1,19 @@
+project_id = "ehtwywctledgkxexztbh"
+
+[functions.import-microvellum]
+verify_jwt = false
+
+# The homeowner wizard (/wizard) is a PUBLIC page — anonymous visitors call
+# ai-designer. Match the public image functions so the anon call isn't gated.
+# The function still rate-limits per IP and only returns a price band + layout.
+[functions.ai-designer]
+verify_jwt = false
+
+# process-dxf-geometry now enforces an authenticated admin in-code for every
+# action (review #2), so require a JWT at the edge too. scheduled-supplier-import
+# stays open because pg_cron/pg_net invoke it with the service role, not a user JWT.
+[functions.process-dxf-geometry]
+verify_jwt = true
+
+[functions.scheduled-supplier-import]
+verify_jwt = false

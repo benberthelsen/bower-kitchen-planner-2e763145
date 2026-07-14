@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-13T11:14:56+10:00",
+  "bundleName": "bower-supplier-catalog",
+  "recordCount": 2207,
+  "materialRecordCount": 2207,
+  "hardwareRecordCount": 406,
+  "totalRecordCount": 2613,
+  "hash": "4f49becb997a5721068a85b4e6f860f15bc59c034a7b5ca614d01e2a2335aa26",
+  "files": [
+    "README.md",
+    "manifest.json",
+    "planner-materials.json"
+  ],
+  "seedFiles": [
+    "supplier-material-products.json",
+    "hafele-products.json",
+    "material_pricing.csv",
+    "material_pricing_enriched.csv",
+    "material_pricing_supabase_upsert.sql",
+    "hardware_pricing.csv",
+    "hardware_pricing_enriched.csv",
+    "hardware_pricing_supabase_upsert.sql"
+  ],
+  "copiedAssetCount": 775,
+  "priceBasis": "identity only — raw costs served from the authenticated DB (review #1)",
+  "plannerCopy": "C:\\Users\\bench\\Claude\\Projects\\kitchen online planner\\bower-kitchen-planner\\public\\data\\bower-supplier-catalog"
+}

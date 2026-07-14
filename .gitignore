@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.tmp-snap-test/
+vite-log.txt
+esbuild-out.txt
+smoke-out.txt
+public/backups/
+build-err.txt
+build-out.txt
+.env.backup-*
+.tmp-sweep/
+
+# Local secrets — never commit
+.env
+
+# Business documents kept alongside the repo (not code)
+/Bower Building - *.pdf
+/Bower Building - Templates/
+/New folder/
+/New folder (2)/

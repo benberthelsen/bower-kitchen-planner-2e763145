@@ -1,0 +1,45 @@
+/**
+ * Adapters between the homeowner wizard's simple state and the engine's
+ * DesignBrief/RoomSpec.
+ */
+
+import type { RoomConfig } from '@/types';
+import type { DesignBrief, RoomSpec } from './types';
+import type { LayoutShape } from './defaultSpec';
+
+/** Fill the optional arrays so the engine always sees a complete RoomSpec. */
+export function toRoomSpec(room: RoomConfig): RoomSpec {
+  return { ...room, openings: room.openings ?? [], services: room.services ?? [] };
+}
+
+export interface WizardLayoutInput {
+  roomShape: LayoutShape;
+  roomWidth: number;
+  roomDepth: number;
+  layoutStyle: 'minimal' | 'standard' | 'full-storage';
+}
+
+/** Map today's wizard fields to a DesignBrief (richer wizard steps can extend this). */
+export function briefFromWizard(input: WizardLayoutInput, room?: Partial<RoomConfig>): DesignBrief {
+  const depth = input.roomShape === 'single-wall'
+    ? Math.max(input.roomWidth * 0.7, 2400)
+    : input.roomDepth;
+
+  const roomSpec: RoomSpec = toRoomSpec({
+    width: input.roomWidth,
+    depth,
+    height: 2700,
+    shape: 'Rectangle',
+    cutoutWidth: 0,
+    cutoutDepth: 0,
+    ...room,
+  });
+
+  return {
+    room: roomSpec,
+    household: {},
+    priorities: input.layoutStyle === 'full-storage' ? ['storage'] : input.layoutStyle === 'minimal' ? ['bench-space'] : [],
+    appliances: { dishwasher: input.layoutStyle !== 'minimal', fridgeWidthMm: 940 },
+    island: 'no',
+  };
+}
