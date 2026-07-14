@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import type { Opening, ServicePoint } from '@/types';
 import RoomShapeStep from './RoomShapeStep';
+import RoomFeaturesStep from './RoomFeaturesStep';
 import MaterialDefaultsStep from './MaterialDefaultsStep';
 import HardwareDefaultsStep from './HardwareDefaultsStep';
 import DimensionDefaultsStep from './DimensionDefaultsStep';
@@ -27,8 +29,13 @@ export interface RoomConfig {
   leftWingDepth?: number;
   rightWingDepth?: number;
   corridorWidth?: number;
-  
-  // Step 2: Materials
+
+  // Step 2: Room Features (master plan §8.2) — doors/windows/walkways and
+  // service points, persisted into TradeRoom.config and job design_data.
+  openings: Opening[];
+  services: ServicePoint[];
+
+  // Step 3: Materials
   exteriorMaterial: string;
   exteriorEdge: string;
   doorStyle: string;
@@ -80,6 +87,9 @@ const defaultConfig: RoomConfig = {
   leftWingDepth: 1500,
   rightWingDepth: 1500,
   corridorWidth: 1200,
+  // Room features
+  openings: [],
+  services: [],
   // Materials
   exteriorMaterial: 'Antique Wiluna White Pearl - 16.5mm Formica MR MDF',
   exteriorEdge: '1mm Antique Wiluna White Formica Pearl',
@@ -110,10 +120,11 @@ const defaultConfig: RoomConfig = {
 
 const steps = [
   { id: 1, name: 'Room Shape', shortName: 'Shape' },
-  { id: 2, name: 'Material Defaults', shortName: 'Materials' },
-  { id: 3, name: 'Hardware Defaults', shortName: 'Hardware' },
-  { id: 4, name: 'Size Defaults', shortName: 'Dimensions' },
-  { id: 5, name: 'Gap Defaults', shortName: 'Gaps' },
+  { id: 2, name: 'Room Features', shortName: 'Features' },
+  { id: 3, name: 'Material Defaults', shortName: 'Materials' },
+  { id: 4, name: 'Hardware Defaults', shortName: 'Hardware' },
+  { id: 5, name: 'Size Defaults', shortName: 'Dimensions' },
+  { id: 6, name: 'Gap Defaults', shortName: 'Gaps' },
 ];
 
 interface RoomSetupWizardProps {
@@ -156,12 +167,14 @@ export default function RoomSetupWizard({ onComplete, onCancel, initialConfig }:
       case 1:
         return <RoomShapeStep config={config} updateConfig={updateConfig} />;
       case 2:
-        return <MaterialDefaultsStep config={config} updateConfig={updateConfig} />;
+        return <RoomFeaturesStep config={config} updateConfig={updateConfig} />;
       case 3:
-        return <HardwareDefaultsStep config={config} updateConfig={updateConfig} />;
+        return <MaterialDefaultsStep config={config} updateConfig={updateConfig} />;
       case 4:
-        return <DimensionDefaultsStep config={config} updateConfig={updateConfig} />;
+        return <HardwareDefaultsStep config={config} updateConfig={updateConfig} />;
       case 5:
+        return <DimensionDefaultsStep config={config} updateConfig={updateConfig} />;
+      case 6:
         return <GapDefaultsStep config={config} updateConfig={updateConfig} />;
       default:
         return null;

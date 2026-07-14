@@ -24,6 +24,7 @@ import { defaultCornerArmDepth, STANDARD_CORNER_ARM_DEPTH } from '@/lib/cornerDe
 import { calculateSnapPosition } from '@/utils/snapping';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { exportPlanViewPdf } from '@/lib/planViewPdf';
+import { computeOpeningWarnings } from '@/lib/trade/openingWarnings';
 import {
   ArrowLeft,
   Save,
@@ -175,6 +176,10 @@ export default function RoomPlanner() {
     shape: 'Rectangle' as const,
     cutoutWidth: currentRoom?.config.cutoutWidth || 0,
     cutoutDepth: currentRoom?.config.cutoutDepth || 0,
+    // Room features flow into the 3D scene (openings + service markers) —
+    // previously dropped here, which left the scene opening-blind.
+    openings: currentRoom?.config.openings ?? [],
+    services: currentRoom?.config.services ?? [],
   }), [currentRoom]);
 
   const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
@@ -600,6 +605,24 @@ export default function RoomPlanner() {
     }
   }, [cabinets, editDialogOpen, editDialogCabinet?.instanceId]);
 
+  // Warn-only opening conflicts — pure function over current room + cabinets,
+  // so any move/resize/rotate/delete/undo state change recomputes it.
+  const openingWarnings = useMemo(
+    () =>
+      currentRoom
+        ? computeOpeningWarnings(
+            {
+              width: currentRoom.config.width,
+              depth: currentRoom.config.depth,
+              openings: currentRoom.config.openings,
+            },
+            currentRoom.dimensions,
+            cabinets,
+          )
+        : [],
+    [currentRoom, cabinets],
+  );
+
   if (!currentRoom) {
     return (
       <TradeLayout>
@@ -634,6 +657,19 @@ export default function RoomPlanner() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Opening conflicts (master plan §8.2): warn-only, never blocks.
+                Recomputes via useMemo on every placement/edit/undo change. */}
+            {openingWarnings.length > 0 && (
+              <div
+                className="flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2 py-1 text-orange-800 cursor-help"
+                title={openingWarnings.map((w) => w.message).join('\n')}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-xs font-semibold">
+                  {openingWarnings.length} opening conflict{openingWarnings.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
             {/* Pricing-trust warnings (WS2 guard): unmatched/unpriced materials */}
             {(quoteBOM?.warnings?.length ?? 0) > 0 && (
               <div

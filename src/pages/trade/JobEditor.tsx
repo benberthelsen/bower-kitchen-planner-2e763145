@@ -10,6 +10,7 @@ import { TradeJobStatus, TRADE_JOB_STATUS_LABELS, isTradeJobStatus } from '@/typ
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { usePlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
+import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { JobNotes } from '@/components/shared/JobNotes';
 
@@ -80,6 +81,8 @@ const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   roomHeight: room.config.height,
   cutoutWidth: room.config.cutoutWidth,
   cutoutDepth: room.config.cutoutDepth,
+  openings: room.config.openings ?? [],
+  services: room.config.services ?? [],
   exteriorMaterial: room.materialDefaults.exteriorFinish,
   exteriorEdge: room.materialDefaults.edgeBanding,
   doorStyle: room.materialDefaults.doorStyle,
@@ -177,9 +180,21 @@ export default function JobEditor() {
         p.notes?.trim() ?? '',
       ].filter(Boolean).join(' | '),
     };
-    if (p.dimensions?.widthMm) cfg.roomWidth = p.dimensions.widthMm;
-    if (p.dimensions?.depthMm) cfg.roomDepth = p.dimensions.depthMm;
-    if (p.dimensions?.heightMm) cfg.roomHeight = p.dimensions.heightMm;
+    // Scanner-aware mapping: a validated room scan is authoritative for
+    // dimensions AND features; rough dimensions are the legacy fallback.
+    const parsed = parseLegacyWebsitePlannerHandoff(p);
+    const scan = parsed.ok ? parsed.handoff.roomScan : undefined;
+    if (scan) {
+      cfg.roomWidth = scan.room.width;
+      cfg.roomDepth = scan.room.depth;
+      cfg.roomHeight = scan.room.height;
+      cfg.openings = scan.room.openings;
+      cfg.services = scan.room.services;
+    } else {
+      if (p.dimensions?.widthMm) cfg.roomWidth = p.dimensions.widthMm;
+      if (p.dimensions?.depthMm) cfg.roomDepth = p.dimensions.depthMm;
+      if (p.dimensions?.heightMm) cfg.roomHeight = p.dimensions.heightMm;
+    }
     const exterior = matchMaterial(p.materials?.mainCabinet);
     if (exterior) cfg.exteriorMaterial = exterior;
     return cfg;
@@ -273,6 +288,9 @@ export default function JobEditor() {
           shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
           cutoutWidth: config.cutoutWidth || 0,
           cutoutDepth: config.cutoutDepth || 0,
+          // Room features survive every create/edit mapping (master plan §8.2)
+          openings: config.openings ?? [],
+          services: config.services ?? [],
         },
         dimensions: {
           ...DEFAULT_GLOBAL_DIMENSIONS,
@@ -337,6 +355,9 @@ export default function JobEditor() {
           shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
           cutoutWidth: config.cutoutWidth || 0,
           cutoutDepth: config.cutoutDepth || 0,
+          // Room features survive every create/edit mapping (master plan §8.2)
+          openings: config.openings ?? [],
+          services: config.services ?? [],
         },
         dimensions: {
           ...editingRoom.dimensions,
@@ -383,6 +404,9 @@ export default function JobEditor() {
           shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
           cutoutWidth: config.cutoutWidth || 0,
           cutoutDepth: config.cutoutDepth || 0,
+          // Room features survive every create/edit mapping (master plan §8.2)
+          openings: config.openings ?? [],
+          services: config.services ?? [],
         },
         dimensions: {
           ...DEFAULT_GLOBAL_DIMENSIONS,

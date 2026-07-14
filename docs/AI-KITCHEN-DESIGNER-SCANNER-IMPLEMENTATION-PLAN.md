@@ -460,7 +460,149 @@ Extend the existing compiler to handle:
 - cabinet locks during refinement; and
 - exact exterior/carcase/hardware material IDs on every output item.
 
-### 7.4 Validation levels
+### 7.4 Versioned kitchen rule engine
+
+Kitchen design rules must be executable code and versioned Bower configuration. They must
+not exist only in an AI prompt. The AI may request a design intent and explain a result, but
+it cannot bypass, rewrite or waive a rule.
+
+Use a rule pack such as `bower-au-kitchen-rules@1.0.0`. Store its version on every proposal,
+quote and promoted trade room so an old design can be reproduced after the rules change.
+
+Each rule definition needs:
+
+- a stable rule ID and version;
+- category and design phase;
+- applicability conditions;
+- severity: `blocker`, `warning` or `advisory`;
+- Bower-approved parameters rather than unexplained dimensions in source code;
+- affected wall, cabinet, appliance, opening and service IDs;
+- measured and required values for a useful error message;
+- deterministic repair actions in priority order; and
+- an optional staff-exception policy with required reason and audit record.
+
+```ts
+type KitchenRuleResultV1 = {
+  ruleId: string;
+  rulePackVersion: string;
+  severity: "blocker" | "warning" | "advisory";
+  status: "pass" | "fail" | "excepted";
+  messageKey: string;
+  entityIds: string[];
+  measured?: Record<string, number | string | boolean>;
+  required?: Record<string, number | string | boolean>;
+  repairOptions: Array<{
+    operation: DesignOperationV2;
+    cost: number;
+    reason: string;
+  }>;
+  exception?: {
+    staffUserId: string;
+    reason: string;
+    acceptedAt: string;
+  };
+};
+```
+
+The rule evaluator should run in the same deterministic library in the browser, Edge
+Function and tests. The server result remains authoritative.
+
+#### 7.4.1 Core cabinet and corner rules
+
+| Rule ID | Required behaviour | Default result | Deterministic repair order |
+|---|---|---|---|
+| `KRN-CORNER-001` | Every occupied internal corner must have an approved corner treatment. Prefer a standard corner cabinet when its two-wall envelope fits. | Blocker | Rotate/hand the standard corner; try another approved corner size; use an approved blind-corner cabinet; rebalance adjacent widths; use an approved dead-corner/filler treatment only under policy; reject candidate |
+| `KRN-CORNER-002` | A blind-corner cabinet must have the correct hand, door access, blind return, minimum opening and adjacent clearance. | Blocker | Change hand; change adjacent cabinet width/type; add required filler; reject candidate |
+| `KRN-CORNER-003` | Drawers, handles, appliance doors and pull-outs beside a corner must open without collision. | Blocker | Add/increase filler; swap drawer for hinged cabinet; move appliance; reject candidate |
+| `KRN-WIDTH-001` | Every cabinet width must be an allowed width or an approved resizable range for that exact product. | Blocker | Resolve nearest approved width; redistribute run slack; select approved alternate product; reject candidate |
+| `KRN-FILLER-001` | Required wall, corner, handle and scribe clearances must be represented by real fillers/panels, not invisible empty space. | Blocker at quote | Add filler/panel; resize neighbouring cabinets; reject candidate |
+| `KRN-END-001` | Every visible cabinet end that requires finishing must have the correct end panel/material. | Warning at concept, blocker at quote | Add matching end panel; change exposure; flag approved exception |
+
+Corner base and corner wall cabinetry must be evaluated separately. A valid base-cabinet
+corner does not prove that wall cabinets, doors or rangehoods above it are valid.
+
+#### 7.4.2 Sink, dishwasher and plumbing rules
+
+| Rule ID | Required behaviour | Default result | Deterministic repair order |
+|---|---|---|---|
+| `KRN-SINK-001` | The sink base must fit the nominated sink's full product envelope: overall body, bowl(s), cut-out, clips/rails, waste and plumbing zone. Bowl count alone is insufficient. | Blocker | Select a larger compatible sink base; use an approved sink-base variant; rebalance adjacent widths; move sink to another valid position; reject candidate |
+| `KRN-SINK-002` | Sink placement must not conflict with cabinet dividers, drawers, corner mechanisms, window restrictions or structural obstructions recorded in the room. | Blocker | Change cabinet internals; move sink within compatible base limits; move sink base; reject candidate |
+| `KRN-SINK-003` | A sink away from the confirmed water/waste service zone must be identified with distance and routing warning. | Warning, or blocker above Bower limit | Prefer service wall; move sink; record plumbing allowance; require staff exception if beyond configured limit |
+| `KRN-DW-001` | A requested dishwasher must be immediately beside the sink cabinet by default, preferably on the same run. | Blocker for public options | Move dishwasher opening beside sink; swap with adjacent cabinet; place on the other side of sink; move the sink group; reject candidate |
+| `KRN-DW-002` | Dishwasher opening width/height/depth and panel type must match the nominated appliance and installation method. | Blocker | Select correct opening/panel kit; resize adjacent cabinets; choose approved appliance alternative; reject candidate |
+| `KRN-DW-003` | Dishwasher hoses/services must have an approved route that does not rely on an unapproved corner, inaccessible void or excessive run. | Blocker at quote | Change side; add approved service route; move dishwasher; require documented staff exception |
+| `KRN-BIN-001` | Prefer the waste/bin cabinet in the sink/preparation zone without displacing a required dishwasher. | Advisory or brief-dependent warning | Place beside sink/prep zone; select compatible under-sink bin; retain as scored trade-off |
+
+If a dishwasher cannot be adjacent to the sink, the public planner must not silently produce
+that design. It may present another valid layout. A non-adjacent installation is a staff-only
+exception when Bower's configured plumbing policy allows it.
+
+#### 7.4.3 Cooking, refrigeration and appliance rules
+
+| Rule ID | Required behaviour | Default result |
+|---|---|---|
+| `KRN-COOK-001` | The cooktop must fit the exact supporting cabinet, cut-out and internal-clearance requirements. Drawers or oven below must be compatible. | Blocker |
+| `KRN-COOK-002` | Product-specific side, rear, overhead and combustible-surface clearances must come from approved appliance data. | Blocker at quote |
+| `KRN-RH-001` | Rangehood type, width, alignment, mounting height and duct route must be compatible with the cooktop and room. | Blocker at quote; duct movement may also warn |
+| `KRN-OVEN-001` | Oven opening, tower ventilation, support shelf and adjacent product restrictions must match the exact appliance. | Blocker |
+| `KRN-FRIDGE-001` | Fridge opening must include appliance envelope, ventilation, door/handle swing and access needed to remove drawers/shelves. | Blocker at quote |
+| `KRN-FRIDGE-002` | A fridge at a wall or tall-cabinet end must have required side clearance, filler or panel. | Blocker at quote |
+| `KRN-APPL-001` | Every required appliance must appear exactly once unless the brief explicitly requests multiples. | Blocker |
+| `KRN-APPL-002` | Appliance doors must open without colliding with opposite cabinets, islands, walls or other appliance doors. | Blocker |
+
+Exact appliance data may be incomplete during concept design. In that case use an explicitly
+labelled appliance envelope, retain an `appliance-details-pending` warning and prevent quote
+or production readiness until the actual model is confirmed.
+
+#### 7.4.4 Room, workflow and access rules
+
+| Rule ID | Required behaviour | Default result |
+|---|---|---|
+| `KRN-ROOM-001` | Cabinets, panels, worktops and appliance envelopes remain inside usable wall segments and out of openings/obstructions. | Blocker |
+| `KRN-OPEN-001` | Room doors, cabinet doors, drawers and appliance doors retain their required swing/access zones. | Blocker |
+| `KRN-AISLE-001` | Aisles and work zones meet the selected Bower configuration for the layout and occupancy. | Blocker at quote; warning at concept where data is provisional |
+| `KRN-WINDOW-001` | Wall cabinets, tall units, taps and worktops respect window position, sill and opening movement. | Blocker |
+| `KRN-BENCH-001` | Sink and cooktop have configured landing/preparation space where the room permits. | Warning by default; blocker for a Bower-mandated minimum |
+| `KRN-FLOW-001` | Sink, cooking and refrigeration positions are assessed for travel distance and obstruction. | Scoring/advisory, not a universal blocker |
+| `KRN-ISLAND-001` | An island must fit its cabinets, panels, overhang, seating kneespace, service needs and all surrounding aisles. | Blocker |
+| `KRN-TALL-001` | Tall units do not make corner storage inaccessible or block windows, doors, switches or recorded services. | Blocker |
+
+Workflow guidance such as a work triangle should improve scoring, but should not reject an
+otherwise practical kitchen by itself. Physical collisions, inaccessible products and exact
+product incompatibilities remain hard failures.
+
+#### 7.4.5 Style, material and catalogue rules
+
+- door style must be available for the selected cabinet/product family;
+- requested colour/finish IDs must resolve to active, customer-visible materials;
+- door, panel, filler, kickboard and exposed-side materials must form an approved combination;
+- handleless rails, handles, hinges and drawer hardware must be compatible with cabinet type;
+- nominated benchtop material must support the required sink/cooktop installation method;
+- unavailable products require an explicit approved substitution, never a name-based guess;
+- every selected item must remain renderable, priceable and convertible to a trade cabinet.
+
+These are blockers at quote readiness. A concept may show a clearly labelled pending
+substitution, but it must not claim the customer's exact style was applied.
+
+#### 7.4.6 Rule evaluation and auto-repair sequence
+
+For every candidate:
+
+1. Resolve exact room, opening, service, appliance and catalogue data.
+2. Place structural groups: corners, sink/dishwasher, cooking, fridge and tall storage.
+3. Fill remaining run capacity with approved functional cabinets.
+4. Evaluate geometry and collision blockers.
+5. Evaluate product and relational blockers.
+6. Apply the lowest-cost deterministic repair and evaluate again.
+7. Stop after a configured repair count or when the proposal fingerprint repeats.
+8. Reject any candidate with an unresolved blocker.
+9. Score warnings/advisories and retain their evidence for comparison and the design pack.
+
+Repairs must be typed operations and produce a before/after fingerprint. This prevents repair
+loops and makes every automatic cabinet substitution visible and testable. The AI can request
+one of these operations, but the rule engine decides whether the result is valid.
+
+### 7.5 Validation levels
 
 Use three explicit validation levels.
 
@@ -502,7 +644,7 @@ The application should not claim formal building, electrical, gas or plumbing co
 from AI rules. Any regulated or product-specific rule must come from Bower-approved data and
 remain subject to qualified review.
 
-### 7.5 Scoring and option diversity
+### 7.6 Scoring and option diversity
 
 Hard errors reject a candidate. Soft scoring ranks valid candidates across:
 
@@ -979,7 +1121,13 @@ Coverage must include:
 - required appliance combinations;
 - island/no-island cases;
 - exact and unavailable materials;
-- corner orientation;
+- standard corner, blind-corner, dead-corner and no-fit rejection paths;
+- left/right corner orientation and adjacent drawer/handle collisions;
+- single/double-bowl sink products against compatible and undersized sink bases;
+- dishwasher on either side of the sink, missing adjacency and invalid hose routes;
+- cooktop/cabinet, oven/tower, rangehood/cooktop and fridge-opening compatibility;
+- fillers, end panels, appliance opening and door-swing clearances;
+- deterministic repair ordering, repair-loop protection and staff exceptions;
 - locked cabinet refinement;
 - stale room/design revisions;
 - proposal-to-trade conversion and reload;
@@ -1076,6 +1224,7 @@ Before customer launch:
 
 - Add V2 brief, style, intent, operation, proposal and violation schemas.
 - Add approved cabinet capability mapping.
+- Add versioned kitchen-rule definitions, parameters, results and exception records.
 - Resolve roles to real available/visible/renderable/priceable catalogue products.
 - Record engine/catalogue versions and proposal fingerprints.
 - Update the shared Deno sync list and drift checks.
@@ -1085,7 +1234,11 @@ Before customer launch:
 ### Phase D2: Candidate generator and validation - 7 to 10 days
 
 - Enumerate feasible strategies and wall assignments.
-- Expand island, corner, filler, panel and appliance behaviour.
+- Implement structural groups for corners, sink/dishwasher, cooking, refrigeration and tall
+  storage before filling general cabinet space.
+- Implement corner fallback, exact sink/appliance compatibility, adjacency, collision,
+  filler, panel, aisle and service-route rules.
+- Add deterministic repair ordering, repair limits and fingerprint loop detection.
 - Add quote readiness validators and scoring.
 - Add option de-duplication/diversity.
 - Extend the placement sweep and golden fixtures.
@@ -1178,7 +1331,8 @@ Supabase/deployment access and prompt review from a Bower kitchen designer.
 - `src/lib/layout/solveRun.ts` - locks, fillers, panels and capability widths.
 - `src/lib/layout/compileSpec.ts` - real resolved products, island features and complete
   material fields.
-- `src/lib/layout/validate.ts` - concept checks; split quote/production readiness into
+- `src/lib/layout/validate.ts` - delegate concept checks to the versioned rule evaluator,
+  preserve rule IDs/evidence in violations and split quote/production readiness into
   additional modules.
 - `src/lib/layout/defaultSpec.ts` - deterministic fallback and candidate seeds.
 - `scripts/sync-ai-shared.mjs` - include every new engine module and fail on drift.
@@ -1201,6 +1355,12 @@ Supabase/deployment access and prompt review from a Bower kitchen designer.
 
 - `src/lib/layout/candidateGenerator.ts`
 - `src/lib/layout/catalogResolver.ts`
+- `src/lib/layout/rules/types.ts`
+- `src/lib/layout/rules/bowerKitchenRulesV1.ts`
+- `src/lib/layout/rules/evaluateKitchenRules.ts`
+- `src/lib/layout/rules/repairKitchenRule.ts`
+- `src/lib/layout/rules/applianceCompatibility.ts`
+- `src/lib/layout/rules/sinkCompatibility.ts`
 - `src/lib/layout/designOperations.ts`
 - `src/lib/layout/designScore.ts`
 - `src/lib/layout/proposalFingerprint.ts`
@@ -1243,17 +1403,19 @@ Implement these in order:
 2. Add a server-tracked validated proposal ID and make `finalize` ID-only.
 3. Disable automatic room mutation and add room-patch proposals.
 4. Create the V2 brief/style/proposal schemas and tests.
-5. Curate the first approved real-cabinet capability map.
-6. Build deterministic catalogue resolution and conversion tests.
-7. Add `proposalToTradeRoom()` and prove save/reload/BOM pricing.
-8. Repair Admin Leads promotion to write `tradeRooms` atomically.
-9. Upgrade the website handoff to exact material IDs.
-10. Wire confirmed scan rooms into the V2 brief.
-11. Add candidate generation, scoring and diversity.
-12. Upgrade the AI harness to rank/refine those candidates.
-13. Add the trade AI panel and diff/apply workflow.
-14. Build plan/elevation design pack output.
-15. Run the real-kitchen pilot before broader customer release.
+5. Define and approve the Bower kitchen rule pack and configurable measurements.
+6. Curate the first approved real-cabinet and appliance capability map.
+7. Implement corner, sink/dishwasher and appliance compatibility rule tests first.
+8. Build deterministic catalogue resolution and conversion tests.
+9. Add `proposalToTradeRoom()` and prove save/reload/BOM pricing.
+10. Repair Admin Leads promotion to write `tradeRooms` atomically.
+11. Upgrade the website handoff to exact material IDs.
+12. Wire confirmed scan rooms into the V2 brief.
+13. Add candidate generation, rule repair, scoring and diversity.
+14. Upgrade the AI harness to rank/refine valid candidates only.
+15. Add the trade AI panel and diff/apply workflow.
+16. Build plan/elevation design pack output.
+17. Run the real-kitchen pilot before broader customer release.
 
 This order produces useful trade conversion early and avoids spending time polishing AI
 conversation before the output can become a real cabinet job.
@@ -1282,6 +1444,8 @@ The implementation is complete when:
 - room shape and cabinet layout strategy are separate concepts;
 - exact nominated materials survive the website-to-planner handoff;
 - every displayed cabinet resolves to a real, renderable and priceable Bower catalogue item;
+- every proposal records its kitchen rule-pack version and complete rule results;
+- unresolved rule blockers prevent customer selection, quoting and promotion;
 - every displayed proposal has a server validation record and fingerprint;
 - chat produces typed, undoable operations;
 - room changes invalidate confirmation and stale all dependent proposals;

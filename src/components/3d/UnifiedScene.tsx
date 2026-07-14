@@ -81,6 +81,55 @@ function RoomOpenings({ room }: { room: RoomConfig }) {
   );
 }
 
+// Service-point colours — mirror RoomFeaturesEditor's chips.
+const SERVICE_COLORS: Record<string, string> = {
+  drain: '#2563eb',
+  'water-supply': '#0891b2',
+  gpo: '#dc2626',
+  gas: '#ca8a04',
+  'hood-duct': '#7c3aed',
+};
+
+/**
+ * Small wall-mounted markers for service points (plumbing / power / gas /
+ * ducting) from room.services — same plan convention as RoomOpenings. Sized
+ * 80mm so they read as fixtures, not cabinetry.
+ */
+function RoomServices({ room }: { room: RoomConfig }) {
+  const services = room.services ?? [];
+  if (!services.length) return null;
+  const widthM = room.width / 1000;
+  const depthM = room.depth / 1000;
+  const faceInset = 0.02;
+  const size = 0.08;
+
+  return (
+    <group>
+      {services.map((s) => {
+        const off = s.offsetMm / 1000;
+        const y = Math.max(size / 2, (s.heightMm ?? 300) / 1000);
+        let pos: [number, number, number];
+        let horizontal: boolean;
+        switch (s.wall) {
+          case 'N': pos = [off, y, faceInset]; horizontal = true; break;
+          case 'S': pos = [widthM - off, y, depthM - faceInset]; horizontal = true; break;
+          case 'W': pos = [faceInset, y, depthM - off]; horizontal = false; break;
+          default:  pos = [widthM - faceInset, y, off]; horizontal = false; break; // E
+        }
+        const args: [number, number, number] = horizontal
+          ? [size, size, size * 0.5]
+          : [size * 0.5, size, size];
+        return (
+          <mesh key={s.id} position={pos}>
+            <boxGeometry args={args} />
+            <meshStandardMaterial color={SERVICE_COLORS[s.type] ?? '#888'} roughness={0.4} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
 interface SnapState {
   snappedToItemId: string | null;
   snapEdge: SnapResult['snapEdge'];
@@ -900,6 +949,9 @@ export function UnifiedScene({
 
         {/* Doors, windows and walkways on the interior wall faces */}
         <RoomOpenings room={room} />
+
+        {/* Plumbing / power / gas / ducting markers on the walls */}
+        <RoomServices room={room} />
 
         {/* Render items using proper component dispatch */}
         {items.map(item => {

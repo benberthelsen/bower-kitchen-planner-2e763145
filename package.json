@@ -12,6 +12,7 @@
     "smoke:room-planner": "bash scripts/smoke-room-planner.sh",
     "test:functional": "node --test src/lib/trade/__tests__/workflowModel.test.mjs",
     "test:snapping": "esbuild src/utils/snapping/index.ts --bundle --format=esm --outfile=.tmp-snap-test/snap.mjs --alias:@=./src --platform=node && node scripts/snapping-smoke.mjs",
+    "test:openings": "esbuild src/lib/trade/openingWarnings.ts --bundle --format=esm --outfile=.tmp-snap-test/openingWarnings.mjs --alias:@=./src --platform=node && node scripts/opening-warnings-smoke.mjs",
     "test:layout": "esbuild src/lib/layout/index.ts --bundle --format=esm --outfile=.tmp-snap-test/layout.mjs \"--alias:@=./src\" --platform=node && node scripts/layout-smoke.mjs",
     "pricing:build": "esbuild scripts/pricing-smoke-entry.ts --bundle --format=esm --outfile=.tmp-snap-test/pricing.mjs \"--alias:@=./src\" --platform=node",
     "pricing:smoke": "npm run pricing:build && node scripts/pricing-smoke.mjs",
