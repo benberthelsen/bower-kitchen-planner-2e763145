@@ -17,6 +17,18 @@ export interface RoomSpec extends RoomConfig {
   services: ServicePoint[];
 }
 
+/** A room change suggested by AI. It is never applied without user review. */
+export interface ProposedRoomPatch {
+  width?: number;
+  depth?: number;
+  height?: number;
+  shape?: RoomConfig['shape'];
+  cutoutWidth?: number;
+  cutoutDepth?: number;
+  openings?: Opening[];
+  services?: ServicePoint[];
+}
+
 // ─── Design brief (what the user tells us) ─────────────────────────────────
 
 export type CookFrequency = 'rare' | 'daily' | 'entertainer';

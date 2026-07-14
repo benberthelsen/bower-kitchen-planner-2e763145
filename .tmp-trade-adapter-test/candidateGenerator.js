@@ -1,0 +1,195 @@
+"use strict";
+/**
+ * candidateGenerator — deterministic candidate pool before AI ranking
+ * (implementation plan §7.1 / Phase D2).
+ *
+ * Enumerates feasible layout strategies and emphasis variants for a brief,
+ * compiles each with the real engine, rejects hard errors, scores survivors
+ * (designScore.ts), removes near-duplicates and returns a diverse ranked
+ * pool. No randomness: identical input always yields the identical pool, in
+ * the same order. AI may rank/explain these candidates but never invents
+ * geometry.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.generateCandidatePool = generateCandidatePool;
+exports.candidateSummaryFor = candidateSummaryFor;
+const compileSpec_1 = require("./compileSpec");
+const validate_1 = require("./validate");
+const priceDesign_1 = require("./priceDesign");
+const defaultSpec_1 = require("./defaultSpec");
+const designScore_1 = require("./designScore");
+const ALL_STRATEGIES = ['single-wall', 'l-shape', 'u-shape', 'galley'];
+function seg(role, widthMm) {
+    return { kind: 'cabinet', role, ...(widthMm ? { widthMm } : {}) };
+}
+/** Cheap geometric pre-filter; final authority is compile + validate. */
+function strategyPlausible(strategy, brief) {
+    const { width, depth } = brief.room;
+    switch (strategy) {
+        case 'single-wall': return width >= 1800;
+        case 'l-shape': return width >= 2400 && depth >= 2100;
+        case 'u-shape': return width >= 2400 && depth >= 2400;
+        case 'galley': return width >= 2400 && depth >= 2400;
+    }
+}
+function canFitIsland(brief) {
+    return brief.room.depth >= 3800 && brief.room.width >= 3200;
+}
+/** Structural signature: wall → ordered cabinet roles, plus island features. */
+function fingerprintOf(spec) {
+    const runs = spec.runs
+        .map(run => `${run.wall}:${run.segments
+        .map(s => (s.kind === 'cabinet' ? s.role : s.kind))
+        .join(',')}${run.wallCabinets ? '+w' : ''}`)
+        .sort()
+        .join('|');
+    const island = spec.island ? `#island:${[...spec.island.features].sort().join(',')}` : '';
+    return runs + island;
+}
+/** Storage variant: lean the deterministic layout toward storage capacity. */
+function storageVariant(brief, strategy, style) {
+    const storageBrief = {
+        ...brief,
+        priorities: brief.priorities.includes('storage') ? brief.priorities : [...brief.priorities, 'storage'],
+    };
+    const spec = (0, defaultSpec_1.defaultSpecFor)(storageBrief, strategy, style);
+    const runs = spec.runs.map(run => ({ ...run, wallCabinets: true, segments: [...run.segments] }));
+    // Add one drawer bank to the least-loaded run (never before a corner seg).
+    const target = runs
+        .map((run, index) => ({ index, load: run.segments.length }))
+        .sort((a, b) => a.load - b.load || a.index - b.index)[0];
+    if (target)
+        runs[target.index].segments.push(seg('drawers', 600));
+    return { ...spec, runs, rationale: 'Storage-first layout: maximum drawers, pantry and overhead cabinets.' };
+}
+/** Social variant: island with seating where it fits, workflow otherwise. */
+function socialVariant(brief, strategy, style) {
+    if (!canFitIsland(brief) || strategy === 'galley')
+        return null;
+    const socialBrief = { ...brief, island: 'want' };
+    const spec = (0, defaultSpec_1.defaultSpecFor)(socialBrief, strategy, style);
+    if (!spec.island)
+        return null;
+    return {
+        ...spec,
+        island: { ...spec.island, features: ['storage', 'seating'] },
+        rationale: 'Entertainer layout: an island with seating keeps guests part of the conversation while you cook.',
+    };
+}
+/** Sink-wall alternative for l/u strategies: mirror the side runs. */
+function mirrorSideRuns(spec) {
+    const flip = { W: 'E', E: 'W' };
+    let changed = false;
+    const runs = spec.runs.map(run => {
+        const target = flip[run.wall];
+        if (!target)
+            return run;
+        changed = true;
+        return { ...run, wall: target, fromEnd: target === 'W' };
+    });
+    if (!changed)
+        return null;
+    return { ...spec, runs, rationale: `${spec.rationale} (mirrored to the opposite side wall.)` };
+}
+function generateCandidatePool(input) {
+    const { brief, style } = input;
+    const allowed = (input.allowedStrategies ?? ALL_STRATEGIES)
+        .filter(s => ALL_STRATEGIES.includes(s));
+    const maxCandidates = input.maxCandidates ?? 3;
+    const attempted = [];
+    const attempts = [];
+    for (const strategy of allowed) {
+        if (!strategyPlausible(strategy, brief))
+            continue;
+        attempted.push(strategy);
+        const workflow = (0, defaultSpec_1.defaultSpecFor)(brief, strategy, style);
+        attempts.push({ candidateId: `${strategy}/workflow`, strategy, emphasis: 'workflow', spec: workflow });
+        const mirrored = mirrorSideRuns(workflow);
+        if (mirrored) {
+            attempts.push({ candidateId: `${strategy}/workflow-mirrored`, strategy, emphasis: 'workflow', spec: mirrored });
+        }
+        attempts.push({
+            candidateId: `${strategy}/storage`, strategy, emphasis: 'storage',
+            spec: storageVariant(brief, strategy, style),
+        });
+        const social = socialVariant(brief, strategy, style);
+        if (social)
+            attempts.push({ candidateId: `${strategy}/social`, strategy, emphasis: 'social', spec: social });
+    }
+    const candidates = [];
+    const rejected = [];
+    for (const attempt of attempts) {
+        let compiled;
+        try {
+            compiled = (0, compileSpec_1.compileSpec)(attempt.spec, brief.room);
+        }
+        catch (err) {
+            rejected.push({
+                candidateId: attempt.candidateId, strategy: attempt.strategy, emphasis: attempt.emphasis,
+                reasons: [err instanceof Error ? err.message : 'compile failed'],
+            });
+            continue;
+        }
+        const violations = (0, validate_1.validate)(compiled, brief.room, brief);
+        const errors = violations.filter(v => v.severity === 'error');
+        if (errors.length > 0) {
+            rejected.push({
+                candidateId: attempt.candidateId, strategy: attempt.strategy, emphasis: attempt.emphasis,
+                reasons: errors.map(e => `${e.code}: ${e.message}`),
+            });
+            continue;
+        }
+        const band = (0, priceDesign_1.priceDesign)(compiled.items, attempt.spec.style);
+        candidates.push({
+            candidateId: attempt.candidateId,
+            strategy: attempt.strategy,
+            emphasis: attempt.emphasis,
+            spec: attempt.spec,
+            items: compiled.items,
+            violations,
+            priceBand: { lowAud: band.lowAud, highAud: band.highAud },
+            score: (0, designScore_1.scoreDesign)(brief, attempt.spec, violations),
+            fingerprint: fingerprintOf(attempt.spec),
+        });
+    }
+    // De-duplicate structurally identical candidates, keeping the best score.
+    const byFingerprint = new Map();
+    for (const c of candidates) {
+        const existing = byFingerprint.get(c.fingerprint);
+        if (!existing || c.score.total > existing.score.total)
+            byFingerprint.set(c.fingerprint, c);
+    }
+    // Rank, then pick with diversity: a new pick must add a new strategy or a
+    // new emphasis; never a colour-level variation of an already-picked design.
+    const ranked = [...byFingerprint.values()].sort((a, b) => b.score.total - a.score.total || a.candidateId.localeCompare(b.candidateId));
+    const picked = [];
+    for (const c of ranked) {
+        if (picked.length >= maxCandidates)
+            break;
+        const diverse = picked.every(p => p.strategy !== c.strategy || p.emphasis !== c.emphasis);
+        if (diverse)
+            picked.push(c);
+    }
+    // backfill if diversity left slots empty
+    for (const c of ranked) {
+        if (picked.length >= maxCandidates)
+            break;
+        if (!picked.includes(c))
+            picked.push(c);
+    }
+    return { candidates: picked, rejected, attemptedStrategies: attempted };
+}
+/** Compact summary for AI ranking prompts (§8.4): no geometry, no items. */
+function candidateSummaryFor(candidate) {
+    return {
+        candidateId: candidate.candidateId,
+        strategy: candidate.strategy,
+        emphasis: candidate.emphasis,
+        score: candidate.score.total,
+        scoreParts: candidate.score.parts,
+        priceBand: candidate.priceBand,
+        cabinetRoles: candidate.spec.runs.flatMap(r => r.segments.flatMap(s => (s.kind === 'cabinet' ? [`${r.wall}:${s.role}`] : []))),
+        island: candidate.spec.island ? [...candidate.spec.island.features] : null,
+        warnings: candidate.violations.filter(v => v.severity === 'warn').map(v => v.message),
+    };
+}

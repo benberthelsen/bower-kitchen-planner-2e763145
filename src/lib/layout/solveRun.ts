@@ -4,8 +4,8 @@
  *
  * Fitting strategy (deterministic):
  * 1. Pre-pass: while the run can't fit, drop the LEAST important segments
- *    first (doors → pantry → oven tower → drawers → dishwasher). Essentials
- *    (sink, cooktop, fridge, corner) are never pre-dropped.
+ *    first (doors, pantry, oven tower, then drawers). Required appliances and
+ *    essentials (sink, cooktop, dishwasher, fridge, corner) are never pre-dropped.
  * 2. Sequential placement left-to-right across usable intervals, shrinking
  *    flexible widths through each role's ladder.
  * 3. Leftover space in EVERY interval is filled with door-cabinet modules and
@@ -22,7 +22,7 @@ const MAX_END_FILLER = 100;
 const MIN_MODULE = 300;
 
 /** droppable roles, least-important first */
-const DROP_ORDER: SegmentRole[] = ['doors', 'pantry', 'oven-tower', 'drawers', 'dishwasher'];
+const DROP_ORDER: SegmentRole[] = ['doors', 'pantry', 'oven-tower', 'drawers'];
 
 const WALL_NAMES: Record<string, string> = { N: 'back', E: 'right', S: 'front', W: 'left' };
 const ROLE_NAMES: Record<SegmentRole, string> = {
@@ -102,16 +102,22 @@ export function solveRun(
   let iv = 0;
   let cursor = intervals[0].start;
   const remainingIn = (interval: Interval) => interval.end - cursor;
+  const remainingUsable = () => intervals
+    .slice(iv)
+    .reduce((sum, interval, index) => sum + (index === 0 ? remainingIn(interval) : interval.end - interval.start), 0);
 
   while (queue.length > 0 && iv < intervals.length) {
     const seg = queue[0];
     const interval = intervals[iv];
     let w = preferredWidth(seg);
 
-    // shrink through the ladder if needed
+    // Reserve minimum widths for later segments before selecting a wide
+    // cabinet variant, so required appliances are not squeezed out.
     if (seg.kind === 'cabinet' && !seg.widthMm) {
       const ladder = ROLE_PRODUCTS[seg.role].widths;
-      const fit = ladder.find(cand => cand <= remainingIn(interval));
+      const minimumAfter = queue.slice(1).reduce((sum, candidate) => sum + minWidth(candidate), 0);
+      const availableForSegment = remainingUsable() - minimumAfter;
+      const fit = ladder.find(cand => cand <= remainingIn(interval) && cand <= availableForSegment);
       w = fit ?? ladder[ladder.length - 1];
     }
 
@@ -152,10 +158,10 @@ export function solveRun(
     if (seg.kind === 'cabinet') notes.push(`Couldn't fit ${ROLE_NAMES[seg.role]} on the ${wallName}`);
   }
 
-  // ── essential rescue: if an essential (sink/cooktop/fridge/corner) was
+  // ── essential rescue: if an essential (sink/cooktop/dishwasher/fridge/corner) was
   // squeezed out by wall fragmentation, retry the whole run with one fewer
   // nice-to-have segment instead of losing the essential. ──
-  const ESSENTIALS: SegmentRole[] = ['sink', 'cooktop', 'fridge-gap', 'corner'];
+  const ESSENTIALS: SegmentRole[] = ['sink', 'cooktop', 'dishwasher', 'fridge-gap', 'corner'];
   const droppedEssential = run.segments.some(seg =>
     seg.kind === 'cabinet' && ESSENTIALS.includes(seg.role)
     && !resolved.some(rs => rs.segment === seg));

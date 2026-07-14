@@ -15,3 +15,19 @@ export { validate } from './validate';
 export { defaultSpecFor, type LayoutShape } from './defaultSpec';
 export { priceDesign } from './priceDesign';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter';
+export { scoreDesign, type DesignScore, type DesignScoreParts } from './designScore';
+export {
+  generateCandidatePool,
+  candidateSummaryFor,
+  type CandidateEmphasis,
+  type CandidatePool,
+  type DesignCandidate,
+  type GenerateCandidatesInput,
+  type RejectedCandidate,
+} from './candidateGenerator';
+export {
+  RequestProposalRegistry,
+  type ProposalSelection,
+  type ProposalSelectionResult,
+  type RegisteredProposal,
+} from './proposalState';

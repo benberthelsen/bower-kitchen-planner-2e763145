@@ -34,6 +34,7 @@ import NotFound from "./pages/NotFound";
 import DevNavBar from "./components/DevNavBar";
 import QuoteStatus from "./pages/homeowner/QuoteStatus";
 import AdminLeads from "./pages/admin/Leads";
+import AdminDesignRules from "./pages/admin/DesignRules";
 
 // Lazy-load all pages that import @react-three/drei (directly or transitively)
 // so the CJS pre-bundle issue doesn't block the initial startup chain.
@@ -93,6 +94,7 @@ const App = () => (
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="leads" element={<AdminLeads />} />
+                <Route path="design-rules" element={<AdminDesignRules />} />
                 <Route path="jobs" element={<AdminJobs />} />
                 <Route path="jobs/:id" element={<AdminJobDetail />} />
                 <Route path="customers" element={<AdminCustomers />} />

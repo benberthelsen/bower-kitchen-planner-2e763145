@@ -26,6 +26,7 @@ import {
   BarChart2,
   Upload,
   RefreshCw,
+  Ruler,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -33,6 +34,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 const navItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/admin/leads', label: 'Leads', icon: Inbox },
+  { path: '/admin/design-rules', label: 'Design Rules', icon: Ruler },
   { path: '/admin/jobs', label: 'Jobs', icon: FileText },
   { path: '/admin/analytics', label: 'Analytics', icon: BarChart2 },
   { path: '/admin/customers', label: 'Customers', icon: Users },

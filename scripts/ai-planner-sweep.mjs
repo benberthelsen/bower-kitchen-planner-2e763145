@@ -18,7 +18,7 @@ const ROOT = process.cwd();
 
 const OUT = path.join(ROOT, '.tmp-sweep'); mkdirSync(OUT, { recursive: true }); writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
-const LAYOUT_FILES = ['types','schemas','geometry','catalogRoles','solveRun','compileSpec','validate','defaultSpec','priceDesign','wizardAdapter','index'];
+const LAYOUT_FILES = ['types','schemas','geometry','catalogRoles','solveRun','compileSpec','validate','defaultSpec','priceDesign','wizardAdapter','proposalState','designScore','candidateGenerator','index'];
 
 writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, { get: () => undefined });\n');
 
@@ -62,17 +62,19 @@ function usableN(w, openings) {
 // A single-wall room is "reasonable" only if the three essentials (fridge 940,
 // sink 600, cooktop 600) can actually be placed in the usable intervals - a
 // mid-wall door can fragment a nominally wide wall below that.
-function essentialsFitSingleWall(w, openings) {
+function essentialsFitSingleWall(w, openings, dishwasher) {
   const iv = usableN(w, openings).sort((a, b) => b - a);
-  for (const need of [940, 600, 600]) {
+  // Sink + dishwasher must share an interval and touch, so model them as one
+  // 1200 mm block when the appliance is required.
+  for (const need of [940, dishwasher ? 1200 : 600, 600]) {
     const idx = iv.findIndex(len => len >= need);
     if (idx === -1) return false;
     iv[idx] -= need; iv.sort((a, b) => b - a);
   }
   return true;
 }
-function isReasonable(shape, w, d, openings) {
-  if (shape === 'single-wall') return w >= 3000 && essentialsFitSingleWall(w, openings);
+function isReasonable(shape, w, d, openings, dishwasher) {
+  if (shape === 'single-wall') return w >= 3000 && essentialsFitSingleWall(w, openings, dishwasher);
   if (shape === 'galley') return w >= 3000 && d >= 2400 + 2 * 650 + 1200;
   return w >= 3200 && d >= 3000;
 }
@@ -114,7 +116,7 @@ for (const ap of APPLIANCE_SETS) {
   const label = shape+' '+w+'x'+d+' '+style+' island='+island+' op='+op.tag+' sv='+sv.tag+' ap='+ap.tag;
   try {
     const brief = briefFromWizard(
-      { roomShape: shape, roomWidth: w, roomDepth: d, layoutStyle: style },
+      { layoutPreference: shape, roomWidth: w, roomDepth: d, layoutStyle: style },
       { openings: structuredClone(op.openings), services: structuredClone(sv.services) });
     brief.island = island;
     brief.appliances = { ...brief.appliances, ...ap.patch };
@@ -126,7 +128,7 @@ for (const ap of APPLIANCE_SETS) {
     const warns = vio.filter(x => x.severity === 'warn');
     errs.forEach(e => bump(errorsByCode, e.code));
     warns.forEach(e => bump(warnsByCode, e.code));
-    const good = isReasonable(shape, w, brief.room.depth, op.openings);
+    const good = isReasonable(shape, w, brief.room.depth, op.openings, brief.appliances.dishwasher);
     if (good) reasonable++;
     if (good && errs.length) bugs.push(label+' -> '+errs.map(e => e.code).join(','));
     else if (!good && errs.length) guardHits.push(label);

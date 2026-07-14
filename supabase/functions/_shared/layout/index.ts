@@ -16,3 +16,19 @@ export { validate } from './validate.ts';
 export { defaultSpecFor, type LayoutShape } from './defaultSpec.ts';
 export { priceDesign } from './priceDesign.ts';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter.ts';
+export { scoreDesign, type DesignScore, type DesignScoreParts } from './designScore.ts';
+export {
+  generateCandidatePool,
+  candidateSummaryFor,
+  type CandidateEmphasis,
+  type CandidatePool,
+  type DesignCandidate,
+  type GenerateCandidatesInput,
+  type RejectedCandidate,
+} from './candidateGenerator.ts';
+export {
+  RequestProposalRegistry,
+  type ProposalSelection,
+  type ProposalSelectionResult,
+  type RegisteredProposal,
+} from './proposalState.ts';

@@ -35,7 +35,43 @@ export const roomSpecSchema = z.object({
   cutoutDepth: z.number().min(0),
   openings: z.array(openingSchema),
   services: z.array(servicePointSchema),
+}).strict().superRefine((room, context) => {
+  if (room.shape === 'Rectangle' && (room.cutoutWidth !== 0 || room.cutoutDepth !== 0)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['shape'], message: 'Rectangular rooms cannot have a cutout' });
+  }
+  if (room.shape === 'LShape' && (
+    room.cutoutWidth <= 0 || room.cutoutDepth <= 0
+    || room.cutoutWidth >= room.width || room.cutoutDepth >= room.depth
+  )) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['shape'], message: 'L-shaped rooms require a cutout smaller than the room' });
+  }
+  for (const [index, opening] of room.openings.entries()) {
+    const wallLength = opening.wall === 'N' || opening.wall === 'S' ? room.width : room.depth;
+    if (opening.offsetMm + opening.widthMm > wallLength) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['openings', index], message: 'Opening extends beyond its wall' });
+    }
+  }
+  for (const [index, service] of room.services.entries()) {
+    const wallLength = service.wall === 'N' || service.wall === 'S' ? room.width : room.depth;
+    if (service.offsetMm > wallLength) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['services', index], message: 'Service point is beyond its wall' });
+    }
+  }
 });
+
+export const proposedRoomPatchSchema = z.object({
+  width: z.number().min(1200).max(12000).optional(),
+  depth: z.number().min(1200).max(12000).optional(),
+  height: z.number().min(2100).max(4000).optional(),
+  shape: z.enum(['Rectangle', 'LShape']).optional(),
+  cutoutWidth: z.number().min(0).max(12000).optional(),
+  cutoutDepth: z.number().min(0).max(12000).optional(),
+  openings: z.array(openingSchema).optional(),
+  services: z.array(servicePointSchema).optional(),
+}).strict().refine(
+  patch => Object.keys(patch).length > 0,
+  { message: 'At least one room change is required' },
+);
 
 export const designBriefSchema = z.object({
   room: roomSpecSchema,
@@ -93,4 +129,62 @@ export const kitchenSpecSchema = z.object({
   rationale: z.string().max(2000),
 });
 
+export const aiDesignerRequestSchema = z.object({
+  mode: z.enum(['generate', 'refine', 'style']).default('generate'),
+  brief: designBriefSchema,
+  shape: z.enum(['single-wall', 'l-shape', 'u-shape', 'galley']).default('l-shape'),
+  currentSpec: kitchenSpecSchema.optional(),
+  currentProposalId: z.string().uuid().optional(),
+  session: z.object({
+    id: z.string().uuid(),
+    token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+    designRevision: z.number().int().nonnegative(),
+  }).strict().optional(),
+  message: z.string().trim().max(2000).optional(),
+  history: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().max(2000),
+  }).strict()).max(12).default([]),
+}).strict().superRefine((request, context) => {
+  if (request.mode !== 'generate' && !request.currentSpec) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['currentSpec'],
+      message: `${request.mode} mode requires a current design`,
+    });
+  }
+  if (request.mode !== 'generate' && !request.session) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['session'],
+      message: `${request.mode} mode requires an authorized design session`,
+    });
+  }
+  if (request.mode !== 'generate' && !request.currentProposalId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['currentProposalId'],
+      message: `${request.mode} mode requires the current persisted proposal`,
+    });
+  }
+  if (request.mode === 'generate' && (request.session || request.currentProposalId)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'generate mode starts a new design session',
+    });
+  }
+});
+
+export const finalizeSelectionSchema = z.object({
+  options: z.array(z.object({
+    name: z.string().trim().min(1).max(120),
+    proposalId: z.string().min(10).max(160),
+  }).strict()).min(1).max(3),
+  changeSummary: z.string().max(1000).optional(),
+  unchanged: z.boolean().optional(),
+}).strict();
+
 export type KitchenSpecInput = z.infer<typeof kitchenSpecSchema>;
+export type AiDesignerRequestInput = z.infer<typeof aiDesignerRequestSchema>;
+export type ProposedRoomPatchInput = z.infer<typeof proposedRoomPatchSchema>;
+export type FinalizeSelectionInput = z.infer<typeof finalizeSelectionSchema>;

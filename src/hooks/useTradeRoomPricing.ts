@@ -98,28 +98,9 @@ export async function fetchPricingData(): Promise<PricingData> {
   };
 }
 
-export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: RoomMaterialDefaults): PlacedItem[] {
-  return cabinets.map((cabinet) => ({
-    instanceId: cabinet.instanceId,
-    definitionId: cabinet.definitionId,
-    itemType: cabinet.category === 'Appliance' ? 'Appliance' : 'Cabinet',
-    cabinetNumber: cabinet.cabinetNumber,
-    x: cabinet.position?.x ?? 0,
-    y: cabinet.position?.y ?? 0,
-    z: cabinet.position?.z ?? 0,
-    rotation: cabinet.position?.rotation ?? 0,
-    width: cabinet.dimensions.width,
-    depth: cabinet.dimensions.depth,
-    height: cabinet.dimensions.height,
-    hinge: 'Left',
-    finishColor: cabinet.materials?.exteriorFinish ?? materialDefaults?.exteriorFinish,
-    carcaseMaterialId: cabinet.materials?.carcaseFinish ?? materialDefaults?.carcaseFinish,
-    exteriorMaterialId: cabinet.materials?.exteriorFinish ?? materialDefaults?.exteriorFinish,
-    edgeId: cabinet.materials?.edgeBanding ?? materialDefaults?.edgeBanding,
-    handleType: cabinet.hardware?.handleType,
-    drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
-  }));
-}
+// Shared with proposalToTradeRoom (plan §11.1) so the two conversion
+// directions cannot drift — the implementation lives in the pure module.
+export { toPlacedItems } from '@/lib/trade/cabinetPlacedItem';
 
 function toHardwareOptions(hardwareDefaults: RoomHardwareDefaults): HardwareOptions {
   return {

@@ -21,12 +21,11 @@ import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS } from '@/c
 import {
   compileSpec, defaultSpecFor, validate,
 } from '@/lib/layout';
-import type { DesignBrief, KitchenSpec } from '@/lib/layout';
+import type { DesignBrief, KitchenSpec, ProposedRoomPatch } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { WizardDesign } from '../wizardBrief';
-import type { Opening, ServicePoint } from '@/types';
 
 interface Props {
   brief: DesignBrief;
@@ -34,7 +33,7 @@ interface Props {
   style: { finishId: string; benchtopId: string; handleId: string };
   design: WizardDesign | null;
   onDesignChange: (design: WizardDesign) => void;
-  onRoomPatched?: (patch: { openings?: Opening[]; services?: ServicePoint[] }) => void;
+  onRoomPatchProposed: (patch: ProposedRoomPatch) => void;
 }
 
 interface ChatEntry { role: 'user' | 'assistant'; content: string }
@@ -47,7 +46,7 @@ const LOADING_LINES = [
   'Pricing it up…',
 ];
 
-export default function StepDesign({ brief, shape, style, design, onDesignChange, onRoomPatched }: Props) {
+export default function StepDesign({ brief, shape, style, design, onDesignChange, onRoomPatchProposed }: Props) {
   const { generate, refine, loading, error } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
@@ -83,27 +82,23 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
 
   const compiled = useMemo(() => (activeSpec ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
 
-  // The engine lays cabinets out on the rectangular brief.room, but the SCENE
-  // should show an L-shaped room outline when the user picked L/U-shape — same
-  // mapping the Review step uses, so the two previews match. Cabinets sit on the
-  // back + one side wall, clear of the cut-out corner.
-  const room3D = useMemo(() => {
-    const isL = shape === 'l-shape' || shape === 'u-shape';
-    return {
-      ...brief.room,
-      shape: (isL ? 'LShape' : 'Rectangle') as typeof brief.room.shape,
-      cutoutWidth: isL ? Math.round(brief.room.width * 0.5) : 0,
-      cutoutDepth: isL ? Math.round(brief.room.depth * 0.5) : 0,
-    };
-  }, [brief.room, shape]);
+  const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
+  const violations = useMemo(
+    () => (compiled ? validate(compiled, brief.room, brief) : []),
+    [compiled, brief],
+  );
+  const blockingErrors = useMemo(
+    () => violations.filter(v => v.severity === 'error'),
+    [violations],
+  );
   const warnings = useMemo(() => {
     if (!compiled) return [];
     return Array.from(new Set<string>([
       ...compiled.notes,
-      ...validate(compiled, brief.room, brief).filter(v => v.severity === 'warn').map(v => v.message),
+      ...violations.filter(v => v.severity === 'warn').map(v => v.message),
     ]));
-  }, [compiled, brief]);
+  }, [compiled, violations]);
 
   const selectedFinish = FINISH_OPTIONS.find(f => f.id === style.finishId) ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === style.benchtopId) ?? BENCHTOP_OPTIONS[0];
@@ -121,30 +116,41 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
   };
 
   const selectOption = (opt: AiDesignOption) => {
+    const hardErrors = opt.violations.filter(v => v.severity === 'error');
+    if (hardErrors.length > 0) {
+      toast.error('This option has a blocking layout problem and cannot be selected.');
+      return;
+    }
     trackEvent('ai_option_selected', { name: opt.name });
     setUndoStack(design ? [...undoStack.slice(-9), design] : undoStack);
-    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true });
+    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId });
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
   const handleRefine = async () => {
     const msg = chatInput.trim();
     if (!msg || !design || !activeSpec) return;
+    if (!design.proposalId) {
+      toast.error('Generate a fresh AI option before asking for design changes.');
+      return;
+    }
     setChatInput('');
     setChatLog(log => [...log, { role: 'user', content: msg }]);
     trackEvent('ai_refine_used');
-    const res = await refine(brief, shape, activeSpec, msg, chatLog.slice(-6));
+    const res = await refine(brief, shape, activeSpec, design.proposalId, msg, chatLog.slice(-6));
     if (!res || res.options.length === 0) {
       setChatLog(log => [...log, { role: 'assistant', content: "Sorry — I couldn't apply that just now. Try rewording, or adjust it after you get your quote." }]);
       return;
     }
     const updated = res.options[0];
+    if (res.proposedRoomPatch) {
+      toast.info('Review the suggested change before redesigning your kitchen.');
+      onRoomPatchProposed(res.proposedRoomPatch);
+      return;
+    }
     if (!res.unchanged) {
       setUndoStack(stack => [...stack.slice(-9), design]);
-      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true });
-      if (res.room && onRoomPatched) {
-        onRoomPatched({ openings: res.room.openings, services: res.room.services });
-      }
+      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId });
     }
     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
   };
@@ -183,13 +189,16 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {options.map(opt => {
             const active = design?.name === opt.name && design.aiGenerated;
+            const optionErrors = opt.violations.filter(v => v.severity === 'error');
             return (
               <button
                 key={opt.name}
                 onClick={() => selectOption(opt)}
+                disabled={optionErrors.length > 0}
                 className={cn(
                   'text-left p-4 rounded-xl border-2 transition-all space-y-1.5',
                   active ? 'border-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-400 bg-white',
+                  optionErrors.length > 0 && 'border-red-300 bg-red-50 cursor-not-allowed opacity-80',
                 )}
               >
                 <p className="font-semibold text-sm text-slate-900">{opt.name}</p>
@@ -200,6 +209,11 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
                 {opt.violations.filter(v => v.severity === 'warn').length > 0 && (
                   <p className="text-[11px] text-amber-600">
                     {opt.violations.filter(v => v.severity === 'warn').length} thing(s) to know
+                  </p>
+                )}
+                {optionErrors.length > 0 && (
+                  <p className="text-[11px] font-medium text-red-700">
+                    Unavailable: {optionErrors[0].message}
                   </p>
                 )}
               </button>
@@ -258,6 +272,15 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-0.5">
           {warnings.map((w, i) => (
             <p key={i} className="text-xs text-amber-700">• {w}</p>
+          ))}
+        </div>
+      )}
+
+      {blockingErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1" role="alert">
+          <p className="text-xs font-semibold text-red-800">This layout needs repair before you continue</p>
+          {blockingErrors.map(error => (
+            <p key={`${error.code}-${error.message}`} className="text-xs text-red-700">{error.message}</p>
           ))}
         </div>
       )}

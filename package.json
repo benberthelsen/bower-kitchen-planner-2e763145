@@ -17,6 +17,7 @@
     "test:design-contracts": "esbuild src/lib/designV2/index.ts --bundle --format=esm --outfile=.tmp-snap-test/design-v2.mjs \"--alias:@=./src\" --platform=node && node scripts/design-contracts-smoke.mjs",
     "test:candidates": "node scripts/candidate-generator-smoke.mjs",
     "test:rules": "node scripts/rule-pack-smoke.mjs",
+    "test:trade-adapter": "node scripts/trade-adapter-smoke.mjs",
     "test:designer-persistence": "node scripts/designer-persistence-smoke.mjs",
     "pricing:build": "esbuild scripts/pricing-smoke-entry.ts --bundle --format=esm --outfile=.tmp-snap-test/pricing.mjs \"--alias:@=./src\" --platform=node",
     "pricing:smoke": "npm run pricing:build && node scripts/pricing-smoke.mjs",

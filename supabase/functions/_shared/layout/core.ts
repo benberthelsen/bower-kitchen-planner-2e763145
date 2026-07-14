@@ -38,6 +38,9 @@ export interface PlacedItem {
   handingOverride?: HandingOverride;
   endPanelLeft?: boolean;
   endPanelRight?: boolean;
+  /** Dishwasher/appliance openings: render benchtop-support top rails.
+   *  Defaults to on (undefined) — set false to leave the opening topless. */
+  topRail?: boolean;
   fillerLeft?: number;
   fillerRight?: number;
 

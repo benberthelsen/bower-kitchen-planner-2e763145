@@ -1,6 +1,8 @@
 # AI Kitchen Designer and Room Scanner Implementation Plan
 
-**Status:** Proposed canonical implementation plan for the next AI Designer build.
+**Status:** Canonical implementation plan. D0 safety repairs are complete locally and the V2
+contract foundation is underway; see `AI-KITCHEN-DESIGNER-IMPLEMENTATION-STATUS.md` for the
+verified implementation checkpoint and remaining milestones.
 Revision 3: review findings incorporated on 2026-07-14. This revision adds exact sink and
 appliance contracts, stage-specific readiness gates, immutable catalogue/pricing snapshots,
 rule ownership, model/prompt lineage, safe room-patch guidance and corrected implementation
@@ -12,8 +14,14 @@ AS/NZS 3000:2018 wet-area zones, NCC 2022 Livable Housing Design Standard) and N
 planning guidelines (new Section 7.4.7); a new electrical-zone rule `KRN-ELEC-001` added to
 7.4.4; Section 8.3 API-migration guidance re-verified current as of 2026-07; sources added
 to Section 22.
+Revision 5: review repairs incorporated on 2026-07-14. This revision replaces the proposed
+national regulatory defaults with jurisdiction- and project-scope-aware profiles; corrects
+the gas-renovation, electrical-zone and NCC adoption guidance; separates Bower dishwasher
+policy from ergonomic guidance; completes corner/capability/identity contracts; makes rule
+fingerprints deterministic; adds object-level authorization requirements; records the
+website tokenized handoff as repaired; and brings the OpenAI model migration work forward.
 
-**Last code review:** 2026-07-14 (two passes).
+**Last code review:** 2026-07-14 (two full passes plus the Revision 5 targeted recheck).
 
 **Planner:** `bower-kitchen-planner`
 
@@ -141,9 +149,9 @@ correct.
 | P0 | `buildBrief()` hard-codes 2700 mm height and synthesizes depth for single-wall designs | Confirmed scan height/depth can be discarded or replaced | Build the brief directly from the confirmed canonical room |
 | P0 | AI `patch_room` mutates server brief state immediately; client wiring applies only openings/services, not width/depth | Room facts can diverge and confirmed scans can be changed without reconfirmation | Return a proposed room patch, invalidate confirmation, and block design until reconfirmed |
 | P0 | Current role resolution maps nine broad roles to static template IDs | The AI does not reliably use the real available Bower cabinet variants | Add catalogue capability metadata and a deterministic resolver |
-| P0 | Website handoff carries material names rather than stable catalogue IDs | Similar names can map to the wrong finish, substrate or supplier row | Introduce a versioned exact-ID material selection contract |
+| P0 | Website handoff carries material names rather than a versioned catalogue identity tuple | Similar names or locally reused IDs can map to the wrong finish, substrate, bundle or supplier row | Carry source system, catalogue version, item ID and supplier source ID through the existing tokenized handoff |
 | P0 | Server finalize compiles finalized specs but does not filter options with error-severity violations, and `StepDesign.tsx` surfaces only `warn`-severity counts to the customer | A design with hard geometry errors can be displayed and selected with no visible flag — worse than the finalize bypass alone | Reject error-severity options server-side after the final compile AND display any residual errors prominently in the option UI |
-| P0 | The website still writes `planner_handoffs` through a direct anonymous REST insert (`dreamweaverBridge.ts` `createPlannerHandoff()`), even though the planner repo already ships a tokenized `create-planner-handoff` Edge Function | Violates the scanner master plan's secure handoff flow (§6.3) and this plan's §15; the deployed Edge Function is dead code until the website calls it | Switch `createPlannerHandoff()` to call the `create-planner-handoff` Edge Function and open `/wizard?handoff=<id>#handoffToken=<token>` |
+| ~~P0~~ Repaired | ~~The website wrote `planner_handoffs` through a direct anonymous REST insert~~ Verified 2026-07-14: `dreamweaverBridge.ts` now calls the tokenized `create-planner-handoff` Edge Function and opens `/wizard?handoff=<id>#handoffToken=<token>` | The secure transport gap is closed in the repository; deployment configuration still needs the normal live smoke test | Keep the tokenized path and its contract/RLS tests; do not restore anonymous table writes |
 | ~~P0~~ Largely repaired | ~~Homeowner submit still builds a partial `roomScan` stamp and directly inserts a job~~ Verified 2026-07-14: `Wizard.tsx` now builds a schema-validated `ConfirmedRoomScanV1` and submits through the atomic `submit-planner-enquiry` Edge Function with a durable `submissionKey` | Residual issues only: the scan candidate rebuilds `room` with a hard-coded 2700 mm height (an incoming scan's measured height is discarded), and a scan that fails validation is silently omitted (`console.warn`) rather than surfaced | Carry incoming confirmed-scan height/geometry through unchanged; surface scan-omission as a visible warning; fold the height fix into the `buildBrief()` repair above |
 | P1 | `StyleSpec` covers exterior finish, benchtop and handle (plus optional `kickId`/`tapId`) | Door profile, secondary colour, carcase and splashback are lost entirely; kick/tap are optional and unenforced | Add a richer style selection contract |
 | P1 | The requested layout shape is fixed before generation | Three AI options can be variations inside the same strategy instead of the best feasible alternatives | Deterministically enumerate allowed strategies, then rank diverse options |
@@ -169,9 +177,11 @@ Specifics from `HANDOVER-2026-07-14.md` still pending as of that date:
 - commit the regenerated `supabase/functions/_shared/layout/*` in both repos.
 
 Current repository default: OpenAI Chat Completions, `gpt-4o` unless overridden by
-`OPENAI_MODEL`, `tool_choice: 'required'`, and `MAX_TOOL_ROUNDS = 8`. This is not evidence of
-the deployed production model. Record the live value only after a successful production
-request identifies the deployed function version, model and prompt version.
+`OPENAI_MODEL`, `tool_choice: 'required'`, and `MAX_TOOL_ROUNDS = 8`. The current OpenAI model
+page marks `gpt-4o` deprecated, so D0 must verify the live model and select a supported
+tool-capable replacement before the V2 pilot. Repository configuration is not evidence of the
+deployed production model; record the live function, model and prompt versions from a
+successful production request.
 
 ### 3.4 Code-verification audit (2026-07-14, second pass)
 
@@ -186,7 +196,7 @@ Every Section 3.2 finding was re-verified directly against both repositories. Re
 | `buildBrief()` hard-codes room facts | Confirmed | `wizardBrief.ts:43-45` synthesizes depth for single-wall; `:57` hard-codes `height: 2700`; `Wizard.tsx:651` repeats the 2700 hard-code in the submitted scan |
 | Static role resolution | Confirmed | `catalogRoles.ts:19-29`: nine `SegmentRole`s to fixed `STATIC_LIBRARY_TEMPLATES` ids |
 | Website handoff carries names only | Confirmed | `dreamweaverBridge.ts` `WebsitePlannerHandoff.materials` is name strings; `FlatLayGeneratorPage.tsx:368` sends `mainFinish?.name` despite `FlatLayCatalogItem` having a stable `id` |
-| Website direct anon insert | New finding | `dreamweaverBridge.ts:273` POSTs directly to `/rest/v1/planner_handoffs`; no website code calls the existing `create-planner-handoff` Edge Function |
+| Website direct anon insert | Repaired in repository | `dreamweaverBridge.ts:239-287` now calls `create-planner-handoff`, validates the shared contract and returns a fragment-token wizard URL; production configuration and deployment still require a smoke test |
 | Lead conversion changes status only | Confirmed | `Leads.tsx:87-96` `convertToJob()` runs `.update({ status: 'draft' })` and nothing else |
 | Homeowner submit bypasses secure path | Stale — largely repaired | `Wizard.tsx:626-723` builds a schema-valid `ConfirmedRoomScanV1` and calls `submit-planner-enquiry` with a durable `submissionKey`; residuals noted in 3.2 |
 | Scanner master plan authority | Confirmed present | `docs/AI-ROOM-SCANNER-MASTER-PLAN.md` (1,315 lines) defines Phase 1A-min/1B, `ConfirmedRoomScanV1`, and the secure handoff flow this plan consumes |
@@ -234,7 +244,7 @@ compromise.
    come from the room contract and cannot be silently changed by AI.
 2. **AI expresses intent, not production geometry.** The model selects strategies and typed
    operations. Deterministic code owns positions, dimensions and catalogue resolution.
-3. **Exact selections remain exact.** Stable catalogue IDs are preserved through website,
+3. **Exact selections remain exact.** Versioned catalogue identities are preserved through website,
    planner, job, quote and production records.
 4. **Every displayed option is reproducible.** A proposal records room revision, brief
    revision, engine version, catalogue version, pricing version and a fingerprint.
@@ -284,8 +294,15 @@ type RequirementStrength = "required" | "preferred" | "open";
 
 type LayoutStrategy = "single-wall" | "l-shape" | "u-shape" | "galley";
 
+interface CatalogItemIdentityV2 {
+  sourceSystem: "bower-planner" | "website-flatlay" | "supplier" | "manufacturer";
+  catalogVersion: string;
+  itemId: string;
+  supplierSourceId: string | null;
+}
+
 type ProductIdentityV2 = {
-  catalogId: string | null;
+  catalogRef: CatalogItemIdentityV2 | null;
   brand: string | null;
   modelNumber: string | null;
   name: string;
@@ -350,6 +367,12 @@ interface SinkRequirementV2 {
 
 interface DesignBriefV2 {
   schemaVersion: 2;
+  projectContext: {
+    jurisdiction: AustralianJurisdictionV1 | null;
+    projectScope: KitchenProjectScopeV1 | null;
+    effectiveOn: string;
+    regulatoryProfileId: string | null;
+  };
   roomInput: DesignerRoomInput;
   household: {
     size?: number;
@@ -391,7 +414,7 @@ their source reference.
 
 ```ts
 interface CatalogMaterialRefV2 {
-  catalogId: string;
+  identity: CatalogItemIdentityV2;
   itemCode?: string;
   brand?: string;
   name: string;
@@ -417,8 +440,11 @@ interface StyleSelectionV2 {
 }
 ```
 
-The ID is authoritative. Name and brand are display/audit fields. If the ID is unavailable,
-the resolver follows the declared substitution policy and records the result for approval.
+The complete identity tuple is authoritative. `itemId` alone is insufficient because the
+website flat-lay currently has both an internal prefixed `id` and a supplier `sourceId`, and
+catalogue imports can reuse or change local IDs. Name and brand are display/audit fields. If
+the exact tuple is unavailable, the resolver follows the declared substitution policy and
+records the source and replacement identities for approval.
 
 ### 6.4 AI design intent
 
@@ -452,6 +478,18 @@ interface CabinetIntentV2 {
   strength: RequirementStrength;
   storageFunction?: "cutlery" | "pots" | "pantry" | "bins" | "general";
   applianceRef?: string;
+  productVariantId?: string;
+  corner?: {
+    treatment: "standard-corner" | "blind-corner" | "dead-corner";
+    hand: "left" | "right";
+    returnDepthMm: number;
+    minimumOpeningMm?: number;
+    adjacentClearanceMm?: number;
+  };
+  filler?: {
+    widthMm: number;
+    purpose: "wall-scribe" | "corner-clearance" | "handle-clearance" | "appliance-clearance";
+  };
   locked?: boolean;
 }
 
@@ -476,7 +514,7 @@ interface ValidationStageResultV2 {
   status: "pass" | "fail" | "pending";
   evaluatedAt: string;
   evaluatorVersion: string;
-  rulePackVersion: string;
+  rulePackVersions: string[];
   blockerRuleIds: string[];
   warningRuleIds: string[];
   resultFingerprint: string;
@@ -503,7 +541,7 @@ interface DesignProposalV2 {
   pricingVersion: string;
   pricingSnapshotId: string;
   pricingSnapshotHash: string;
-  rulePackVersion: string;
+  rulePackVersions: string[];
   ruleResults: KitchenRuleResultV1[];
   ruleResultsFingerprint: string;
   modelTrace: {
@@ -529,7 +567,24 @@ interface DesignProposalV2 {
     | "staff-reviewed"
     | "stale";
 }
+
+interface ProposalAuthorizationBindingV2 {
+  proposalId: string;
+  sessionId: string;
+  roomId: string;
+  roomRevision: number;
+  actorKind: "public-capability" | "staff-user";
+  capabilityGrantId: string | null;
+  staffUserId: string | null;
+  jobId: string | null;
+  tradeRoomId: string | null;
+}
 ```
+
+`ProposalAuthorizationBindingV2` is server-only authorization data, not a public response.
+Exactly one of `capabilityGrantId` and `staffUserId` is present. Every operation resolves the
+proposal through this binding and rejects a valid actor that supplies an ID from another
+session, room revision, job or trade room.
 
 Workflow status and validation readiness are separate. Apply these gates:
 
@@ -554,6 +609,13 @@ rule-results fingerprint. Exclude timestamps, workflow status and AI rationale t
 same controlled design produces the same fingerprint. Store AI model/prompt identity in
 `modelTrace` for explanation provenance without making deterministic replay depend on prose.
 
+Compute `ruleResultsFingerprint` from a canonical projection containing rule ID, rule-pack
+version, stage, severity, status, affected entity IDs, normalized measured/required values and
+the chosen repair operation identity. Sort maps and entity IDs before hashing. Exclude
+`evaluatedAt`, staff IDs, acceptance timestamps, free-form messages and audit-only exception
+metadata. If an exception changes readiness, include only its stable decision state and policy
+code in the projection; retain the person, reason and time in the separate audit record.
+
 ### 6.6 Typed refinement operations
 
 Free-form chat should be translated into a small operation set and then applied by code:
@@ -562,6 +624,9 @@ Free-form chat should be translated into a small operation set and then applied 
 - `add_role`;
 - `remove_role`;
 - `set_role_width`;
+- `set_product_variant`;
+- `set_corner_treatment`;
+- `set_filler_geometry`;
 - `set_layout_strategy`;
 - `set_island`;
 - `set_material`;
@@ -589,6 +654,9 @@ type DesignOperationV2 =
   | { operationId: string; type: "add_role"; intent: CabinetIntentV2 }
   | { operationId: string; type: "remove_role"; intentId: string }
   | { operationId: string; type: "set_role_width"; intentId: string; widthMm: number }
+  | { operationId: string; type: "set_product_variant"; intentId: string; productVariantId: string | null }
+  | { operationId: string; type: "set_corner_treatment"; intentId: string; corner: NonNullable<CabinetIntentV2["corner"]> }
+  | { operationId: string; type: "set_filler_geometry"; intentId: string; filler: NonNullable<CabinetIntentV2["filler"]> }
   | { operationId: string; type: "set_layout_strategy"; strategy: LayoutStrategy }
   | { operationId: string; type: "set_island"; island: DesignIntentV2["island"] | null }
   | { operationId: string; type: "set_material"; material: CatalogMaterialRefV2 }
@@ -632,23 +700,68 @@ rounds.
 capability view. Add a curated capability layer rather than inferring every role from names
 at runtime.
 
-Suggested fields:
+Define the first capability contract before curating products:
 
-- `product_id` / `definition_id`;
-- `designer_role`;
-- `category`;
-- allowed or preferred widths;
-- resizable/not resizable;
-- door and drawer counts;
-- sink/corner/blind/appliance flags;
-- compatible appliance type and size;
-- wall/base/tall mounting class;
-- renderable flag;
-- priceable flag;
-- customer-visible flag;
-- trade-visible flag;
-- active catalogue version; and
-- priority for deterministic selection.
+```ts
+interface CatalogCapabilityV2 {
+  identity: CatalogItemIdentityV2;
+  definitionId: string;
+  designerRoles: CabinetRoleV2[];
+  category: string;
+  mountingClass: "base" | "wall" | "tall" | "opening" | "panel" | "filler";
+  width: {
+    mode: "fixed" | "allowed-list" | "resizable-range";
+    allowedMm?: number[];
+    minimumMm?: number;
+    maximumMm?: number;
+    stepMm?: number;
+    preferredMm?: number[];
+  };
+  externalEnvelopeMm: { width: number; height: number; depth: number };
+  internalClearEnvelopeMm?: { width: number; height: number; depth: number };
+  front?: {
+    doorCount: number;
+    drawerCount: number;
+    hands: Array<"left" | "right" | "reversible">;
+    swingOrPulloutEnvelopeMm?: { front: number; left: number; right: number };
+  };
+  corner?: {
+    treatments: Array<"standard-corner" | "blind-corner" | "dead-corner">;
+    hands: Array<"left" | "right">;
+    returnDepthsMm: number[];
+    minimumOpeningMm: number;
+    minimumAdjacentClearanceMm: number;
+  };
+  sink?: {
+    maximumCutoutMm: { width: number; depth: number };
+    minimumInternalWidthMm: number;
+    railAndClipClearanceMm: number;
+    plumbingZoneMm: { width: number; height: number; depth: number };
+  };
+  appliance?: {
+    kinds: ApplianceKindV2[];
+    openingEnvelopeMm: { width: number; height: number; depth: number };
+    compatibleInstallationTypes: ApplianceRequirementV2["installation"][];
+    ventilationClearanceMm?: { top: number; rear: number; left: number; right: number };
+  };
+  filler?: {
+    minimumWidthMm: number;
+    maximumWidthMm: number;
+    purposes: NonNullable<CabinetIntentV2["filler"]>["purpose"][];
+  };
+  compatibleMaterialRoles: CatalogMaterialRefV2["role"][];
+  renderable: boolean;
+  priceable: boolean;
+  customerVisible: boolean;
+  tradeVisible: boolean;
+  priority: number;
+}
+```
+
+Rule evaluation must use these measured capability fields, not generic flags or product-name
+inference. A capability record is invalid when a declared role lacks the dimensions needed by
+that role's rules. For example, a sink base needs internal and cut-out clearances, while a
+blind corner needs hand, return, opening and adjacent-clearance data.
 
 This can start as a versioned TypeScript/JSON mapping for the small approved cabinet set.
 Move it into a table only when admin editing is needed. Do not ask the model to choose from
@@ -685,8 +798,18 @@ Kitchen design rules must be executable code and versioned Bower configuration. 
 not exist only in an AI prompt. The AI may request a design intent and explain a result, but
 it cannot bypass, rewrite or waive a rule.
 
-Use a rule pack such as `bower-au-kitchen-rules@1.0.0`. Store its version on every proposal,
-quote and promoted trade room so an old design can be reproduced after the rules change.
+Use layered rule packs rather than one national compliance pack:
+
+- `bower-kitchen-layout@1.0.0` for cabinet compatibility, Bower business rules and ergonomic
+  defaults; and
+- a qualified, jurisdiction-specific profile such as
+  `bower-regulatory-<jurisdiction>@<approved-version>` for regulated guidance Bower has approved
+  for that jurisdiction, project scope and effective date.
+
+Store every applied pack/profile version on each proposal, quote and promoted trade room so
+an old design can be reproduced after the rules change. If no approved regulatory profile
+matches the project, regulated checks remain `pending` and block quote readiness; they do not
+fall back to a national default.
 
 Each rule definition needs:
 
@@ -694,6 +817,7 @@ Each rule definition needs:
 - category and design phase;
 - a named Bower business owner and approver;
 - effective/superseded dates and a change reason;
+- jurisdiction, project-scope and standards-edition applicability where regulated;
 - applicability conditions;
 - severity: `blocker`, `warning` or `advisory`;
 - Bower-approved parameters rather than unexplained dimensions in source code;
@@ -708,7 +832,7 @@ type KitchenRuleResultV1 = {
   rulePackVersion: string;
   stage: ValidationStageV2;
   severity: "blocker" | "warning" | "advisory";
-  status: "pass" | "fail" | "excepted";
+  status: "pass" | "fail" | "excepted" | "pending" | "not-applicable";
   messageKey: string;
   entityIds: string[];
   measured?: Record<string, number | string | boolean>;
@@ -728,6 +852,10 @@ type KitchenRuleResultV1 = {
 
 The rule evaluator should run in the same deterministic library in the browser, Edge
 Function and tests. The server result remains authoritative.
+
+Use `pending` when a rule applies but required project, product or qualified-review data is
+not yet available. Use `not-applicable` only when the rule's declared applicability predicate
+is false. Never turn missing evidence into `pass`.
 
 Rule governance is not a software-only decision:
 
@@ -802,7 +930,7 @@ or production readiness until the actual model is confirmed.
 | `KRN-FLOW-001` | Sink, cooking and refrigeration positions are assessed for travel distance and obstruction. | Scoring/advisory, not a universal blocker |
 | `KRN-ISLAND-001` | An island must fit its cabinets, panels, overhang, seating kneespace, service needs and all surrounding aisles. | Blocker |
 | `KRN-TALL-001` | Tall units do not make corner storage inaccessible or block windows, doors, switches or recorded services. | Blocker |
-| `KRN-ELEC-001` | Recorded power points/switches must sit outside the AS/NZS 3000 wet-area zone around the sink (Section 7.4.7). A layout that moves the sink so an existing GPO lands inside the zone must be identified with the electrical-work consequence. | Warning at concept (electrical work is quotable); the design pack must list every affected GPO |
+| `KRN-ELEC-001` | Recorded electrical devices near a sink must be evaluated against the active jurisdiction/standards profile, including sink capacity, device type, location and any approved IP/RCD/cupboard protection. A layout that moves the sink so a recorded device becomes affected must identify the electrical-work consequence. | Warning or `pending` at concept; blocker at quote until the device facts and qualified resolution are recorded; list every affected device in the design pack |
 
 Workflow guidance such as a work triangle should improve scoring, but should not reject an
 otherwise practical kitchen by itself. Physical collisions, inaccessible products and exact
@@ -839,42 +967,75 @@ Repairs must be typed operations and produce a before/after fingerprint. This pr
 loops and makes every automatic cabinet substitution visible and testable. The AI can request
 one of these operations, but the rule engine decides whether the result is valid.
 
-#### 7.4.7 Seed rule-pack parameters (researched defaults, pending Bower approval)
+#### 7.4.7 Seed parameters and jurisdiction profiles
 
-`bower-au-kitchen-rules@1.0.0` needs concrete numbers, not placeholders. The values below
-are researched defaults for the initial configuration file. They fall into two classes with
-different exception policies. **Regulatory values may never be waived by a staff exception**
-— they can only change when the underlying standard or the appliance's approved installation
-data changes. **Ergonomic values are Bower-tunable defaults** drawn from NKBA planning
-guidelines (imperial converted to mm, rounded to sensible metric) and Australian trade
-convention; Bower approves or adjusts each one before the rule pack ships.
+Do not ship an executable national `bower-au` regulatory default. Australian adoption,
+legacy provisions and licensed-work requirements vary by jurisdiction, project date and work
+scope. The engine must receive a project context and match it to an approved profile:
 
-**Regulatory parameters (blockers; no staff exception):**
+```ts
+type AustralianJurisdictionV1 =
+  | "AU-ACT" | "AU-NSW" | "AU-NT" | "AU-QLD"
+  | "AU-SA" | "AU-TAS" | "AU-VIC" | "AU-WA";
 
-| Parameter | Value | Rule ID | Source |
-|---|---:|---|---|
-| Gas cooktop to rangehood, new installation | ≥ 650 mm from trivet top | `KRN-RH-001` | AS/NZS 5601.1:2022 cl 6.10.1.1 (ESV GIS 25); greater of this and appliance/rangehood instructions |
-| Gas cooktop to rangehood, existing installation/changeover | ≥ 600 mm from highest burner/hob | `KRN-RH-001` | AS/NZS 5601.1:2013 cl 6.10.1.1 (ESV GIS 25) |
-| Gas cooktop to exhaust fan | ≥ 750 mm | `KRN-RH-001` | ESV GIS 25 |
-| Gas cooktop to any downward-facing combustible surface | ≥ 650 mm new / 600 mm existing, else protect full cooking width/depth per AS/NZS 5601.1 App. C; absolute floor 450 mm | `KRN-RH-001`, `KRN-COOK-002` | ESV GIS 25 |
-| Electric/induction cooktop overhead clearance | Per manufacturer (typically ≥ 600 mm; IEC 60335-2-31 aligned) | `KRN-RH-001` | Appliance installation data — never invented by the model |
-| Sink electrical zone (sink < 45 L) | No socket/switch within 150 mm horizontal of sink edge or 400 mm above sink top | `KRN-ELEC-001` | AS/NZS 3000:2018 wet-area Zone 2 |
-| Sink electrical zone (sink ≥ 45 L) | No socket/switch within 500 mm horizontal or 1000 mm above | `KRN-ELEC-001` | AS/NZS 3000:2018 wet-area Zone 2 |
-| Cooktop rear/side clearance to combustible wall surface | Per AS/NZS 5601.1 and appliance data (commonly cited 200 mm to combustible, 50 mm to protected/non-combustible — **verify exact clause values before shipping the rule pack**) | `KRN-COOK-002` | AS/NZS 5601.1 / appliance data |
+type KitchenProjectScopeV1 =
+  | "new-kitchen"
+  | "full-kitchen-renovation"
+  | "cabinet-or-rangehood-renewal"
+  | "appliance-only-changeover";
 
-The engine cannot verify on-site electrical or gas compliance; these parameters exist to
-avoid *designing in* a known conflict and to surface the trade-work consequence on the
-design pack. Licensed-trade review remains mandatory (Section 7.5).
+interface RegulatoryProfileV1 {
+  profileId: string;
+  version: string;
+  jurisdiction: AustralianJurisdictionV1;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  projectScopes: KitchenProjectScopeV1[];
+  standardsEditions: Record<string, string>;
+  qualifiedApprover: string;
+  approvalDate: string;
+  contentHash: string;
+}
+```
+
+The project jurisdiction, work scope and effective date are required inputs to quote
+readiness. If any is unknown, or no approved profile matches them, affected regulated rules
+return `pending`. Research summaries may seed profile review, but they are not themselves a
+national compliance rule.
+
+**Regulatory seed decisions (disabled until approved in a matching profile):**
+
+| Parameter | Approved implementation direction | Rule ID | Source/limit |
+|---|---|---|---|
+| Gas cooktop overhead, new kitchen/full renovation/cabinet or rangehood renewal | Use at least 650 mm from the top of the trivet to the rangehood, or the greater appliance/rangehood instruction, when the approved profile confirms this requirement | `KRN-RH-001` | ESV GIS 25 is a Victoria implementation reference; confirm the applicable jurisdiction and standards edition |
+| Gas cooktop overhead, appliance-only legacy changeover | A 600 mm legacy path may be used only when a qualified reviewer confirms the installation is truly appliance-only and the active profile permits it; never use it for an AI-designed cabinet or full-kitchen renovation | `KRN-RH-001` | ESV GIS 25 expressly sends renewed cupboards/rangehoods and full renovations to the new-installation requirement |
+| Gas cooktop to exhaust fan or downward-facing combustible surface | Use the active approved profile plus the greater manufacturer requirement; ESV's reference values include 750 mm to an exhaust fan and specific protection conditions | `KRN-RH-001`, `KRN-COOK-002` | Do not copy a Victoria legacy allowance into another jurisdiction |
+| Electric/induction cooktop overhead, side and rear clearances | Use approved manufacturer installation data and any applicable profile minimum; never invent a typical value | `KRN-RH-001`, `KRN-COOK-002` | Exact appliance data required for quote readiness |
+| Sink electrical wet-area zones | Implement the zone geometry and permitted device/protection combinations from the approved standards profile. Do not use the former 45 L split or a blanket no-switch/no-socket rule | `KRN-ELEC-001` | NSW guidance describes under/over 40 L examples and conditional IP/RCD/cupboard protections; the profile still requires qualified approval |
+| Cooktop rear/side combustible-surface clearance | Use only approved standard clauses and exact appliance data | `KRN-COOK-002` | No commonly cited placeholder dimensions may ship |
+
+A protected device or another standards-permitted installation is a valid evaluated condition,
+not a staff waiver. A staff member cannot waive an actual regulatory minimum. Where device
+protection, sink capacity, installation scope or site evidence is incomplete, the result stays
+`pending` and blocks quote readiness until a qualified reviewer records the resolution.
+
+The engine cannot certify on-site electrical or gas compliance. These profiles prevent known
+design conflicts and expose trade-work consequences in the design pack. Licensed-trade and
+project-specific review remain mandatory (Section 7.5).
 
 **Ergonomic defaults (warnings/scoring; Bower-tunable):**
+
+Rule IDs prefixed `ERG-` are advisory/scoring rules that live in the Bower layout pack with
+no blocker severity at any stage; they exist so guidance can be reported and tuned without
+being confused with the `KRN-` rules that can block.
 
 | Parameter | Default | Rule ID | Basis |
 |---|---:|---|---|
 | Work aisle, single-cook | ≥ 1070 mm | `KRN-AISLE-001` | NKBA 42 in |
 | Work aisle, multi-cook household | ≥ 1220 mm | `KRN-AISLE-001` | NKBA 48 in |
 | Non-work walkway | ≥ 915 mm | `KRN-AISLE-001` | NKBA 36 in |
-| Dishwasher edge to sink edge | ≤ 915 mm (adjacent preferred) | `KRN-DW-001` | NKBA 36 in |
-| Standing space beside open dishwasher (perpendicular obstruction) | ≥ 530 mm | `KRN-DW-001` | NKBA 21 in |
+| Dishwasher edge to sink edge | ≤ 915 mm | `ERG-DW-DIST-001` (advisory only) | NKBA 36 in; does not weaken Bower's `KRN-DW-001` immediate-adjacency blocker |
+| Standing space beside open dishwasher (perpendicular obstruction) | ≥ 530 mm | `ERG-DW-CLEAR-001` | NKBA 21 in |
 | Sink landing | ≥ 610 mm one side, ≥ 460 mm other | `KRN-BENCH-001` | NKBA 24/18 in |
 | Continuous preparation bench adjacent to sink | ≥ 915 × 610 mm | `KRN-BENCH-001` | NKBA 36 × 24 in |
 | Cooktop landing | ≥ 380 mm one side, ≥ 305 mm other | `KRN-BENCH-001` | NKBA 15/12 in |
@@ -885,17 +1046,21 @@ design pack. Licensed-trade review remains mandatory (Section 7.5).
 | Benchtop height | 900 mm standard (850–1050 on request) | catalogue constraint | AU trade convention |
 | Benchtop depth | 600 mm standard | catalogue constraint | AU trade convention |
 
-Accessibility note: the NCC 2022 Livable Housing Design Standard (mandatory since 1 May
-2024) imposes no kitchen-specific clearances at the mandatory (silver) level — its kitchen
-provisions apply at the voluntary gold/platinum levels (e.g. 1200 mm clearance in front of
-benches). If Bower offers an "accessible kitchen" brief option, gate it on those gold-level
-values as a distinct rule-pack profile rather than inflating the standard defaults.
+Accessibility note: NCC 2022 Livable Housing Design Standard adoption and commencement vary
+by state and territory. Do not use 1 May 2024 as a national mandatory date. The silver level
+does not add kitchen-specific clearance provisions; kitchen provisions such as clearance in
+front of benches appear in the voluntary gold/platinum guidance. If Bower offers an
+"accessible kitchen" brief option, implement it as a distinct, jurisdiction-aware profile
+chosen from the customer's requirements and the project's applicable obligations. Do not
+silently apply voluntary gold values to every kitchen.
 
 Configuration rules for these values:
 
-- every parameter lives in the versioned rule-pack config with its source string, class
-  (`regulatory` | `ergonomic`) and unit — never as an unexplained literal in engine code;
-- regulatory parameters are compiled into rules whose exception policy is `none`;
+- every parameter lives in a versioned pack/profile with its source, jurisdiction, standards
+  edition, project scope, effective dates, class and unit — never as an unexplained literal;
+- regulated parameters remain disabled until the matching profile has qualified approval;
+- actual regulated minimums use exception policy `none`, while standards-permitted protected
+  alternatives are represented as explicit rule conditions rather than exceptions;
 - the concept/quote severity split in 7.4.4 still applies (e.g. aisle widths warn at concept
   on provisional data, block at quote);
 - NKBA-derived values are guidance defaults, not statutory requirements — label them as
@@ -920,6 +1085,10 @@ Use three explicit validation levels.
 
 **Quote readiness checks:**
 
+- project jurisdiction, work scope and effective date are known and match an approved
+  regulatory profile;
+- every applicable regulated rule is resolved rather than `pending`, with qualified-review
+  evidence where required;
 - nominated sink and required appliances have exact-model data with approved source
   references;
 - appliance openings match nominated appliance dimensions;
@@ -1017,30 +1186,32 @@ declared/required and `additionalProperties: false`.
 
 ### 8.3 API migration
 
-Keep the current Chat Completions implementation as the baseline while V2 tests are created.
-Then benchmark a migration to the Responses API with a current tool-capable model. Do not
-change the model and architecture in the same unmeasured release.
+Keep the current Chat Completions adapter only as the behavioral baseline while V2 tests are
+created. Because the repository default model is deprecated, select and benchmark a current
+supported tool-capable model during D0. Separate the model-only and API-surface changes so a
+quality or cost movement can be attributed to one variable.
 
 Migration sequence:
 
-1. Freeze a golden set against the current endpoint.
-2. Add strict schemas and the proposal-ID state machine.
-3. Run the same golden set.
-4. Add a Responses API adapter behind `AI_DESIGNER_API_VERSION`.
-5. Compare quality, latency, tool failures and cost.
-6. Promote only when the acceptance gate passes.
+1. Record the live endpoint, model, prompt, latency, token use and golden-set behavior.
+2. Benchmark current supported tool-capable models through the existing adapter.
+3. Replace the deprecated default behind `OPENAI_MODEL` only when the model acceptance gate
+   passes; keep a rollback value during the controlled release.
+4. Add strict schemas and the proposal-ID state machine, then rerun the golden set.
+5. Add a Responses API adapter behind `AI_DESIGNER_API_VERSION`.
+6. Compare quality, latency, tool failures and cost without changing the selected model.
+7. Promote the Responses adapter only when its separate acceptance gate passes.
 
 Use a pinned model snapshot in production when repeatability is more important than automatic
 upgrades. Record the model and prompt version on every proposal.
 
-Guidance re-verified 2026-07: OpenAI states Chat Completions remains supported with no
-deprecation planned, and recommends the Responses API for new projects — so the staged
-migration above is correct, not urgent. Two practical notes for the adapter: structured
-outputs move from `response_format` to `text.format` in Responses, and the Assistants API
-sunsets 2026-08-26 (not used here, but it signals where platform investment is going). The
-production default is still `gpt-4o` (Section 3.3), which is an old snapshot by mid-2026 —
-include at least one current tool-capable model in the benchmark matrix rather than only
-comparing API surfaces on the legacy model.
+Guidance re-verified 2026-07: Chat Completions is currently available and the Responses API is
+the recommended API for new projects. Do not claim that Chat Completions has no deprecation
+planned unless that wording is present in current official guidance at implementation time.
+Structured outputs move from `response_format` to `text.format` in Responses, and the
+Assistants API sunsets 2026-08-26. The immediate operational issue is the deprecated `gpt-4o`
+repository default; the API migration remains a measured follow-on after the model baseline is
+safe and the deterministic proposal state machine is covered by tests.
 
 ### 8.4 Prompt and catalogue context
 
@@ -1122,19 +1293,20 @@ The website already has stable flat-lay item IDs, but `createPlannerHandoff()` c
 only material names. The planner then converts these names into `styleWords` and asks AI to
 choose the nearest small static finish. This loses exact supplier identity.
 
-Verified 2026-07-14: `createPlannerHandoff()` also still performs a direct anonymous REST
-insert into `planner_handoffs` (`dreamweaverBridge.ts:273`) even though the planner repo
-ships a tokenized `create-planner-handoff` Edge Function. The V2 handoff upgrade below must
-also switch the website to that Edge Function and the
-`/wizard?handoff=<id>#handoffToken=<token>` open pattern from the scanner master plan §6.3 —
-do not layer exact-ID payloads onto the insecure write path.
+Re-verified for Revision 5: `createPlannerHandoff()` now validates the shared contract and
+uses the tokenized `create-planner-handoff` Edge Function. `plannerWizardUrl()` carries the
+capability token in the URL fragment. Preserve that transport and add a production smoke test;
+the remaining gap is the name-only material payload built by `FlatLayGeneratorPage.tsx`.
 
 ### 10.2 Versioned handoff upgrade
 
 Do not mutate valid V1 records in place. Add a V2 handoff reader/writer or a versioned design
 selection nested contract that carries:
 
-- catalogue ID;
+- source system/namespace;
+- catalogue or bundle version;
+- website item ID;
+- supplier source ID when present;
 - item code;
 - role;
 - brand;
@@ -1144,8 +1316,10 @@ selection nested contract that carries:
 - requirement strength; and
 - substitution policy.
 
-The website should build this from the selected `FlatLayCatalogItem`, not from rendered text.
-The planner verifies the IDs against its synchronized supplier bundle and DB.
+The website should build the `CatalogItemIdentityV2` tuple from the selected
+`FlatLayCatalogItem`, not from rendered text. The planner verifies the namespace, version,
+`itemId` and `supplierSourceId` against its synchronized supplier bundle and DB. An ID from a
+different namespace or catalogue version is unresolved, not an approximate match.
 
 ### 10.3 Style application
 
@@ -1163,7 +1337,7 @@ Replace the narrow `StyleSpec` path with a richer resolved style object that sup
 - texture URLs for rendering.
 
 The existing static quick styles can remain as offline starter presets, but each production
-preset should resolve to current exact catalogue IDs.
+preset should resolve to current exact catalogue identities.
 
 ### 10.4 Substitution behaviour
 
@@ -1468,6 +1642,11 @@ This plan depends on scanner master plan Phase 1A-min and Phase 1B.
 - Do not restore direct anonymous handoff table reads/writes.
 - Use the shared CORS, no-store, body-limit, redaction and throttling helper.
 - Require a valid public capability or authenticated staff user for AI calls.
+- Bind every AI session, room revision and server-issued proposal ID to its owning public
+  capability or authenticated staff user. Possessing a valid capability for one session must
+  never authorize IDs from another session.
+- On every propose, refine, finalize, promote and export call, verify the complete ownership
+  chain: actor/capability -> session -> room revision -> proposal -> job/trade room.
 - Require staff authorization for proposal promotion and production exports.
 - Use short-lived scoped capabilities for any customer design-share link.
 - Keep immutable snapshot writes service/staff-only and prevent public access to private
@@ -1478,6 +1657,8 @@ This plan depends on scanner master plan Phase 1A-min and Phase 1B.
 - Resolve short-lived signed photo URLs only for an approved vision feature.
 - Store model request metadata, not unnecessary private image copies.
 - Add kill switches for public AI generation, refinement and image generation separately.
+- Add negative authorization tests for guessed IDs, cross-session proposal IDs, stale room
+  revisions, cross-job promotion/export and a valid token used against the wrong handoff.
 
 ## 16. Testing and Acceptance
 
@@ -1530,9 +1711,13 @@ Automated graders should check:
 - zero hard violations;
 - all required appliances/functions present;
 - catalogue and material IDs resolve;
+- material identities resolve in the declared source system and catalogue version;
 - no unapproved substitutions;
+- a missing/mismatched regulatory profile produces `pending`, never `pass`;
+- a full kitchen renovation cannot select an appliance-only legacy gas-clearance path;
+- Bower dishwasher adjacency remains a blocker even when NKBA distance guidance passes;
 - price band is finite and sourced;
-- proposal is reproducible from versions/fingerprint; and
+- proposal and rule-result fingerprints repeat despite different evaluation timestamps; and
 - conversion creates a reloadable trade room.
 
 Human review should rate function, flow, storage, aesthetics, explanation quality and amount
@@ -1552,6 +1737,8 @@ At least 30 refinement commands should cover:
 - add/remove pantry;
 - add/remove island;
 - change exact style/material;
+- change corner hand/treatment and add the required filler;
+- select an approved product variant without changing the requested role;
 - lock a cabinet then revise;
 - impossible required choices;
 - question-only turns;
@@ -1568,6 +1755,10 @@ At least 30 refinement commands should cover:
 | Exact selected material IDs preserved or explicitly blocked/substituted | 100% |
 | Proposal-to-trade conversion/reload success | 100% |
 | Proposal version/snapshot/rule lineage complete | 100% |
+| Same deterministic evaluation produces the same fingerprints | 100% |
+| Quote issued without a matching approved regulatory profile | 0 cases |
+| Full kitchen renovation uses appliance-only legacy gas path | 0 cases |
+| Non-adjacent dishwasher passes the Bower public rule | 0 cases |
 | Room edit invalidates confirmation and proposals | 100% |
 | Provisional sink/appliance data can issue a quote | 0 cases |
 | Concept blocker can be selected/submitted/promoted | 0 cases |
@@ -1575,6 +1766,7 @@ At least 30 refinement commands should cover:
 | Production blocker can export Microvellum data | 0 cases |
 | AI finalize accepts an unvalidated raw spec | 0 cases |
 | Public response exposes raw supplier cost | 0 cases |
+| Valid capability accesses another session/proposal/job | 0 cases |
 | Staff can undo an applied AI change | 100% tested cases |
 | Three-option generation latency | Track p50/p95; pilot target p95 under 30 seconds |
 | Single refinement latency | Track p50/p95; pilot target p95 under 15 seconds |
@@ -1597,7 +1789,9 @@ Before customer launch:
 ### Phase D0: Critical current-state repairs - 3 to 5 days
 
 - Add the document authority banner.
-- Record live AI deployment/model/prompt status (complete the pending redeploy in 3.3).
+- Record live AI deployment/model/prompt status (complete the pending redeploy in 3.3),
+  benchmark a current supported tool-capable model and replace the deprecated repository
+  default behind configuration before the V2 pilot.
 - Fix room-geometry versus layout-preference naming.
 - Stop automatic AI room mutation.
 - Enforce finalization of only validated proposal IDs.
@@ -1612,15 +1806,19 @@ Before customer launch:
 **Exit:** current V1 cannot display an unvalidated or error-carrying spec or change a
 confirmed room silently.
 
-### Phase D1: Designer V2 contracts and catalogue resolver - 7 to 10 days
+### Phase D1: Designer V2 contracts and catalogue resolver - 7 to 10 engineering days
 
-- Add V2 brief, style, intent, operation, proposal and violation schemas.
+External qualified-review and Bower approval lead time is additional. Before D1 starts, name
+the first launch jurisdiction and supported project scopes; do not build a national regulatory
+default as a temporary shortcut.
+
+- Add V2 brief, style, identity, intent, corner/filler operation, proposal and violation
+  schemas.
 - Add exact/provisional appliance and sink product-envelope schemas and quote-pending rules.
 - Add approved cabinet capability mapping.
-- Add versioned kitchen-rule definitions, parameters, results and exception records,
-  seeded from the researched 7.4.7 values with their source and class fields; obtain
-  Bower sign-off on every ergonomic default and standards-copy verification of every
-  regulatory value in the same phase.
+- Add the versioned Bower layout pack plus one qualified jurisdiction/project-scope profile.
+  Use Section 7.4.7 only as review evidence: obtain Bower sign-off on every ergonomic default
+  and qualified standards-copy verification of every regulated condition before enabling it.
 - Add immutable catalogue/pricing snapshot contracts and content hashes.
 - Resolve roles to real available/visible/renderable/priceable catalogue products.
 - Record engine/catalogue/material/capability/rule/pricing/model/prompt versions and proposal
@@ -1806,27 +2004,31 @@ Implement these in order:
 
 1. Reject error-severity options server-side and show residual errors in the option UI
    (smallest change closing the worst live gap — see 3.4).
-2. Separate physical room geometry from cabinet layout preference.
-3. Add a server-tracked validated proposal ID and make `finalize` ID-only.
-4. Disable automatic room mutation and add room-patch proposals.
-5. Create the V2 brief/style/proposal schemas and tests.
-6. Define exact/provisional appliance and sink envelopes plus their quote-readiness policy.
-7. Define and approve the Bower kitchen rule pack and configurable measurements.
-8. Curate the first approved real-cabinet and appliance capability map.
-9. Add immutable catalogue/pricing snapshots and proposal version lineage.
-10. Implement corner, sink/dishwasher and appliance compatibility rule tests first.
-11. Build deterministic catalogue resolution and conversion tests.
-12. Add `proposalToTradeRoom()` and prove save/reload/BOM pricing.
-13. Repair Admin Leads promotion to write `tradeRooms` atomically.
-14. Upgrade the website handoff to exact material IDs AND move it onto the tokenized
-    `create-planner-handoff` Edge Function (one change — see 10.1).
-15. Wire confirmed scan rooms into the V2 brief (including measured height — drop the
+2. Verify the deployed model and replace the deprecated repository default through the
+   existing adapter after a golden-set benchmark.
+3. Separate physical room geometry from cabinet layout preference.
+4. Add a server-tracked validated proposal ID and make `finalize` ID-only.
+5. Disable automatic room mutation and add room-patch proposals.
+6. Create the V2 brief/style/identity/proposal schemas and tests.
+7. Define exact/provisional appliance and sink envelopes plus their quote-readiness policy.
+8. Name the pilot jurisdiction/project scopes; approve the Bower layout pack and the first
+   qualified regulatory profile. Unapproved regulated checks remain `pending`.
+9. Curate the first approved real-cabinet and appliance capability map, including corner,
+   internal-clearance, opening, swing and filler geometry.
+10. Add immutable catalogue/pricing snapshots and proposal version lineage.
+11. Implement corner, sink/dishwasher and appliance compatibility rule tests first.
+12. Build deterministic catalogue resolution and conversion tests.
+13. Add `proposalToTradeRoom()` and prove save/reload/BOM pricing.
+14. Repair Admin Leads promotion to write `tradeRooms` atomically.
+15. Upgrade the already-tokenized website handoff from material names to versioned exact
+    material identities (see 6.3 and 10.1).
+16. Wire confirmed scan rooms into the V2 brief (including measured height — drop the
     2700 mm hard-codes in `wizardBrief.ts` and `Wizard.tsx`).
-16. Add candidate generation, rule repair, scoring and diversity.
-17. Upgrade the AI harness to rank/refine valid candidates only.
-18. Add the trade AI panel and diff/apply workflow.
-19. Build plan/elevation design pack output.
-20. Run the real-kitchen pilot before broader customer release.
+17. Add candidate generation, typed rule repair, scoring and diversity.
+18. Upgrade the AI harness to rank/refine valid candidates only.
+19. Add the trade AI panel and diff/apply workflow.
+20. Build plan/elevation design pack output.
+21. Run the real-kitchen pilot before broader customer release.
 
 This order produces useful trade conversion early and avoids spending time polishing AI
 conversation before the output can become a real cabinet job.
@@ -1854,15 +2056,20 @@ The implementation is complete when:
 - a confirmed room scan or confirmed manual room is the sole geometry source;
 - room shape and cabinet layout strategy are separate concepts;
 - exact nominated materials survive the website-to-planner handoff;
+- exact material references include source system, catalogue version, item ID and supplier
+  source ID where available;
 - every displayed cabinet resolves to a real, renderable and priceable Bower catalogue item;
 - exact/provisional sink and appliance envelopes are explicit and provisional data visibly
   blocks quote readiness;
 - every proposal records immutable catalogue/pricing snapshots, all relevant versions, model
-  trace, kitchen rule-pack version and complete rule results;
+  trace, all applied rule-pack/profile versions and complete rule results;
+- regulated checks use an approved jurisdiction/project-scope profile or remain `pending`;
+- Bower dishwasher adjacency remains a distinct blocker from NKBA ergonomic scoring;
 - concept blockers prevent selection, submission and promotion;
 - quote blockers prevent quote issue but remain visible on a promoted draft trade room;
 - production blockers prevent Microvellum/production export;
 - every displayed proposal has a server validation record and fingerprint;
+- rule-result fingerprints are stable across repeated evaluations and exclude audit timestamps;
 - chat produces typed, undoable operations;
 - room changes invalidate confirmation and stale all dependent proposals;
 - selected customer proposals promote into editable, reloadable `tradeRooms`;
@@ -1870,7 +2077,8 @@ The implementation is complete when:
 - the BOM engine produces the quote values;
 - the design pack includes plan, elevations, schedules, materials and warnings;
 - Microvellum export remains blocked until check measure and staff approval;
-- deterministic, golden, security and live-pilot gates pass; and
+- deterministic, golden, security and live-pilot gates pass;
+- cross-session, cross-proposal and cross-job authorization tests fail closed; and
 - the planner still works when AI, WebXR or image generation is unavailable.
 
 ## 22. External Technical References
@@ -1885,16 +2093,20 @@ The implementation is complete when:
   https://developers.openai.com/api/docs/guides/prompt-caching
 - OpenAI model guidance:
   https://developers.openai.com/api/docs/guides/latest-model
+- OpenAI GPT-4o model status:
+  https://developers.openai.com/api/docs/models/gpt-4o
+- OpenAI API deprecations:
+  https://developers.openai.com/api/docs/deprecations
 - OpenAI evaluation guidance:
   https://developers.openai.com/api/docs/guides/evals
-- OpenAI Responses API migration (verified 2026-07: Chat Completions remains supported;
-  Responses recommended for new projects):
+- OpenAI Responses API migration (verified 2026-07: Responses recommended for new projects):
   https://platform.openai.com/docs/guides/migrate-to-responses
 
 Kitchen rule-pack parameter sources (Section 7.4.7):
 
-- Energy Safe Victoria GIS 25 — AS/NZS 5601.1:2022 cl 6.10.1.1 gas cooking overhead
-  clearances (650 mm new / 600 mm existing / 750 mm exhaust fan / 450 mm absolute floor):
+- Energy Safe Victoria GIS 25 — Victoria guidance for gas cooking overhead clearances,
+  including the rule that renewed cupboards/rangehoods and full kitchen renovations use the
+  new-installation path rather than the legacy appliance-changeover path:
   https://www.energysafe.vic.gov.au/industry-guidance/gas/gas-information-sheets/gis-25-domestic-gas-cooking-appliance-overhead
 - Tasmania CBOS technical compliance guide, gas cooking appliance clearances:
   https://www.cbos.tas.gov.au/__data/assets/pdf_file/0009/685467/CBOS-Technical-Compliance-Guide-Clearances-from-gas-cooking-appliances-to-rangehoods-and-exhaust-fans.pdf
@@ -1904,12 +2116,17 @@ Kitchen rule-pack parameter sources (Section 7.4.7):
   https://media.nkba.org/uploads/2022/05/Kitchen-Planning-Guidelines.pdf
 - NCC 2022 Livable Housing Design Standard (ABCB):
   https://ncc.abcb.gov.au/resource/standard/livable-housing-design-standard
+- ABCB NCC 2022 state and territory adoption dates:
+  https://www.abcb.gov.au/ncc-2022-state-and-territory-adoption-dates
+- Queensland NCC adoption and livable-housing commencement guidance:
+  https://www.business.qld.gov.au/industries/building-property-development/building-construction/laws-codes-standards/building
 - HIA — rangehood and splashback installation near cooktops:
   https://hia.com.au/resources-and-advice/building-it-right/kitchens-and-bathrooms/articles/installation-of-rangehoods-and-splashbacks-near-cooktops
 
-Bower must purchase/hold current copies of AS/NZS 5601.1, AS/NZS 3000 and AS/NZS 4386 for
-the values marked "verify exact clause" before the rule pack is approved; government
-information sheets summarize but do not replace the standards.
+Bower must purchase/hold current copies of AS/NZS 5601.1, AS/NZS 3000 and AS/NZS 4386 and
+obtain the appropriate qualified review before any matching regulatory profile is approved.
+Government information sheets are useful review evidence but do not replace the standards or
+project-specific licensed approval.
 
 ## 23. Appendix: Verified D0 Repair Sketches
 

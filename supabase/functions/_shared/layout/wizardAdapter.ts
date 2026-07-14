@@ -14,7 +14,7 @@ export function toRoomSpec(room: RoomConfig): RoomSpec {
 }
 
 export interface WizardLayoutInput {
-  roomShape: LayoutShape;
+  layoutPreference: LayoutShape;
   roomWidth: number;
   roomDepth: number;
   layoutStyle: 'minimal' | 'standard' | 'full-storage';
@@ -22,13 +22,9 @@ export interface WizardLayoutInput {
 
 /** Map today's wizard fields to a DesignBrief (richer wizard steps can extend this). */
 export function briefFromWizard(input: WizardLayoutInput, room?: Partial<RoomConfig>): DesignBrief {
-  const depth = input.roomShape === 'single-wall'
-    ? Math.max(input.roomWidth * 0.7, 2400)
-    : input.roomDepth;
-
   const roomSpec: RoomSpec = toRoomSpec({
     width: input.roomWidth,
-    depth,
+    depth: input.roomDepth,
     height: 2700,
     shape: 'Rectangle',
     cutoutWidth: 0,

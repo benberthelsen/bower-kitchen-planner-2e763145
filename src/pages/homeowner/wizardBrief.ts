@@ -5,15 +5,19 @@
  * "How you cook" step.
  */
 
-import type { Opening, ServicePoint } from '@/types';
+import type { Opening, RoomShape, ServicePoint } from '@/types';
 import { toRoomSpec } from '@/lib/layout';
 import type { DesignBrief, KitchenSpec, Priority } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 
 export interface WizardBriefFields {
-  roomShape: LayoutShape;
+  layoutPreference: LayoutShape;
   roomWidth: number;
   roomDepth: number;
+  roomHeight: number;
+  roomGeometryShape: RoomShape;
+  roomCutoutWidth: number;
+  roomCutoutDepth: number;
   layoutStyle: 'minimal' | 'standard' | 'full-storage';
   openings: Opening[];
   services: ServicePoint[];
@@ -37,13 +41,10 @@ export interface WizardDesign {
   name: string;
   spec: KitchenSpec;
   aiGenerated: boolean;
+  proposalId?: string;
 }
 
 export function buildBrief(f: WizardBriefFields): DesignBrief {
-  const depth = f.roomShape === 'single-wall'
-    ? Math.max(Math.round(f.roomWidth * 0.7), 2400)
-    : f.roomDepth;
-
   const priorities: Priority[] = f.priorities.length > 0
     ? f.priorities
     : f.layoutStyle === 'full-storage' ? ['storage']
@@ -53,11 +54,11 @@ export function buildBrief(f: WizardBriefFields): DesignBrief {
   return {
     room: toRoomSpec({
       width: f.roomWidth,
-      depth,
-      height: 2700,
-      shape: 'Rectangle',
-      cutoutWidth: 0,
-      cutoutDepth: 0,
+      depth: f.roomDepth,
+      height: f.roomHeight,
+      shape: f.roomGeometryShape,
+      cutoutWidth: f.roomCutoutWidth,
+      cutoutDepth: f.roomCutoutDepth,
       openings: f.openings,
       services: f.services,
     }),

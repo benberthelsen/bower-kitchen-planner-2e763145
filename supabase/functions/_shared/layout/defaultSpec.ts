@@ -42,6 +42,8 @@ export function defaultSpecFor(
 
   const primaryLen = wallLength('N', brief.room);
   const roomyPrimary = primaryLen >= 3600;
+  const fragmentedPrimary = brief.room.openings.some(opening =>
+    opening.wall === 'N' && (opening.type === 'door' || opening.type === 'walkway'));
 
   const mkPrimary = (withSink: boolean, withCooktop: boolean): Segment[] => {
     const s: Segment[] = [];
@@ -65,11 +67,12 @@ export function defaultSpecFor(
     case 'single-wall': {
       const s: Segment[] = [];
       if (wantsStorage && primaryLen >= 4200) s.push(seg('pantry'));
-      s.push(seg('fridge-gap', fridgeW));
-      s.push(seg('sink'));
+      if (!dw) s.push(seg('fridge-gap', fridgeW));
+      s.push(seg('sink', fragmentedPrimary ? 600 : undefined));
       if (dw) s.push(seg('dishwasher'));
       s.push(seg('drawers'));
       s.push(seg('cooktop'));
+      if (dw) s.push(seg('fridge-gap', fridgeW));
       runs = [{ wall: 'N', segments: s, wallCabinets: true }];
       break;
     }

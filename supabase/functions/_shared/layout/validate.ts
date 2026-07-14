@@ -106,12 +106,29 @@ export function validate(design: CompiledDesign, room: RoomSpec, brief?: DesignB
 
   // ── essentials present ──
   if (!sink) v.push({ code: 'no-sink', severity: 'error', message: 'Design has no sink cabinet' });
-  if (brief?.appliances.dishwasher && !rolePositions.dishwasher) {
-    v.push({ code: 'no-dishwasher', severity: 'warn', message: 'Dishwasher requested but not placed' });
+  if (!cooktop) v.push({ code: 'no-cooktop', severity: 'error', message: 'Design has no cooktop cabinet' });
+  const fridge = rolePositions['fridge-gap'];
+  if (!fridge) v.push({ code: 'no-fridge', severity: 'error', message: 'Design has no fridge space' });
+  const dishwasher = rolePositions.dishwasher;
+  if (brief?.appliances.dishwasher && !dishwasher) {
+    v.push({ code: 'no-dishwasher', severity: 'error', message: 'Dishwasher requested but not placed' });
+  }
+  if (brief?.appliances.dishwasher && sink && dishwasher) {
+    const adjacentOnSameWall = sink.wall === dishwasher.wall && (
+      Math.abs((sink.startMm + sink.widthMm) - dishwasher.startMm) <= 1
+      || Math.abs((dishwasher.startMm + dishwasher.widthMm) - sink.startMm) <= 1
+    );
+    if (!adjacentOnSameWall) {
+      v.push({
+        code: 'dishwasher-not-adjacent',
+        severity: 'error',
+        message: 'Dishwasher must be immediately beside the sink cabinet',
+        itemIds: [sink.item.instanceId, dishwasher.item.instanceId],
+      });
+    }
   }
 
   // ── work triangle ──
-  const fridge = rolePositions['fridge-gap'];
   if (sink && cooktop && fridge) {
     const pts = [sink.item, cooktop.item, fridge.item].map(i => ({ x: i.x, z: i.z }));
     const legs = [dist(pts[0], pts[1]), dist(pts[1], pts[2]), dist(pts[2], pts[0])];
