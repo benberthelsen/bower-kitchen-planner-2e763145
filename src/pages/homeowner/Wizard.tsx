@@ -12,6 +12,7 @@ import { handoffToStyleWords } from '@/lib/handoffBrief';
 import {
   confirmedRoomScanV1Schema,
   parseLegacyWebsitePlannerHandoff,
+  parseRoomScan,
   type CoordinateFrameV1,
   type RoomScanV1,
 } from '@/lib/roomScan/contract';
@@ -33,7 +34,7 @@ import {
   HANDLE_OPTIONS,
   DEFAULT_GLOBAL_DIMENSIONS,
 } from '@/constants';
-import type { Opening, PlacedItem, RoomConfig, RoomShape, ServicePoint } from '@/types';
+import type { Opening, RoomConfig, RoomShape, ServicePoint } from '@/types';
 import { briefFromWizard, compileSpec, defaultSpecFor, priceDesign, validate } from '@/lib/layout';
 import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
 import StepCook from './steps/StepCook';
@@ -41,18 +42,22 @@ import StepDesign from './steps/StepDesign';
 import { buildBrief, type WizardDesign } from './wizardBrief';
 import { STYLE_PRESETS } from '@/data/stylePresets';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
-import type { KitchenSpec, Priority } from '@/lib/layout';
+import type { KitchenSpec, Priority, ProposedRoomPatch } from '@/lib/layout';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type KitchenShape = 'single-wall' | 'l-shape' | 'u-shape' | 'galley';
+type LayoutPreference = 'single-wall' | 'l-shape' | 'u-shape' | 'galley';
 type LayoutStyle  = 'minimal' | 'standard' | 'full-storage';
 
 interface WizardState {
   step: 1 | 2 | 3 | 4 | 5;
-  roomShape:   KitchenShape;
+  layoutPreference: LayoutPreference;
   roomWidth:   number;   // mm
   roomDepth:   number;   // mm
+  roomHeight:  number;   // mm
+  roomGeometryShape: RoomShape;
+  roomCutoutWidth: number;
+  roomCutoutDepth: number;
   layoutStyle: LayoutStyle;
   finishId:    string;
   benchtopId:  string;
@@ -83,6 +88,7 @@ interface WizardState {
   handoffContext?: { handoffId: string; token?: string };
   incomingScan?: RoomScanV1;
   geometryEdits: number;
+  pendingRoomPatch?: ProposedRoomPatch;
 }
 
 /** Manual wizard entry is already in canonical mm plan coordinates. */
@@ -95,10 +101,14 @@ const IDENTITY_FRAME: CoordinateFrameV1 = {
   originDescription: 'north-west-corner-in-canonical-plan',
 };
 
-const DEFAULTS: Pick<WizardState, 'roomShape' | 'roomWidth' | 'roomDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId'> = {
-  roomShape:   'single-wall',
+const DEFAULTS: Pick<WizardState, 'layoutPreference' | 'roomWidth' | 'roomDepth' | 'roomHeight' | 'roomGeometryShape' | 'roomCutoutWidth' | 'roomCutoutDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId'> = {
+  layoutPreference: 'single-wall',
   roomWidth:   3600,
   roomDepth:   3000,
+  roomHeight:  2700,
+  roomGeometryShape: 'Rectangle',
+  roomCutoutWidth: 0,
+  roomCutoutDepth: 0,
   layoutStyle: 'standard',
   finishId:    'do-designer-white',
   benchtopId:  'egger-white-carrara',
@@ -107,11 +117,11 @@ const DEFAULTS: Pick<WizardState, 'roomShape' | 'roomWidth' | 'roomDepth' | 'lay
 
 // ─── URL serialisation helpers ──────────────────────────────────────────────────
 
-const SHAPE_CODES: Record<KitchenShape, string> = {
+const SHAPE_CODES: Record<LayoutPreference, string> = {
   'single-wall': 'sw', 'l-shape': 'l', 'u-shape': 'u', 'galley': 'g',
 };
-const CODE_SHAPES: Record<string, KitchenShape> = Object.fromEntries(
-  Object.entries(SHAPE_CODES).map(([k, v]) => [v, k as KitchenShape]),
+const CODE_SHAPES: Record<string, LayoutPreference> = Object.fromEntries(
+  Object.entries(SHAPE_CODES).map(([k, v]) => [v, k as LayoutPreference]),
 );
 const LAYOUT_CODES: Record<LayoutStyle, string> = {
   minimal: 'min', standard: 'std', 'full-storage': 'full',
@@ -122,9 +132,10 @@ const CODE_LAYOUTS: Record<string, LayoutStyle> = Object.fromEntries(
 
 function stateToParams(s: WizardState): URLSearchParams {
   const p = new URLSearchParams();
-  if (s.roomShape   !== DEFAULTS.roomShape)   p.set('s',  SHAPE_CODES[s.roomShape]);
+  if (s.layoutPreference !== DEFAULTS.layoutPreference) p.set('s', SHAPE_CODES[s.layoutPreference]);
   if (s.roomWidth   !== DEFAULTS.roomWidth)   p.set('w',  String(s.roomWidth));
   if (s.roomDepth   !== DEFAULTS.roomDepth)   p.set('d',  String(s.roomDepth));
+  if (s.roomHeight  !== DEFAULTS.roomHeight)  p.set('rh', String(s.roomHeight));
   if (s.layoutStyle !== DEFAULTS.layoutStyle) p.set('ls', LAYOUT_CODES[s.layoutStyle]);
   if (s.finishId    !== DEFAULTS.finishId)    p.set('f',  s.finishId);
   if (s.benchtopId  !== DEFAULTS.benchtopId)  p.set('b',  s.benchtopId);
@@ -134,9 +145,10 @@ function stateToParams(s: WizardState): URLSearchParams {
 
 function paramsToState(p: URLSearchParams): Partial<WizardState> {
   const out: Partial<WizardState> = {};
-  if (p.has('s'))  out.roomShape   = CODE_SHAPES[p.get('s')!]  ?? DEFAULTS.roomShape;
+  if (p.has('s'))  out.layoutPreference = CODE_SHAPES[p.get('s')!] ?? DEFAULTS.layoutPreference;
   if (p.has('w'))  out.roomWidth   = Math.max(1200, Math.min(8000, Number(p.get('w'))));
   if (p.has('d'))  out.roomDepth   = Math.max(1200, Math.min(6000, Number(p.get('d'))));
+  if (p.has('rh')) out.roomHeight  = Math.max(2100, Math.min(4000, Number(p.get('rh'))));
   if (p.has('ls')) out.layoutStyle = CODE_LAYOUTS[p.get('ls')!] ?? DEFAULTS.layoutStyle;
   if (p.has('f'))  out.finishId    = p.get('f')!;
   if (p.has('b'))  out.benchtopId  = p.get('b')!;
@@ -149,30 +161,34 @@ function paramsToState(p: URLSearchParams): Partial<WizardState> {
 // services/openings aware, validated geometry. Same signatures as the old
 // hard-coded preview so the rest of the wizard is unchanged.
 
-function generatePreviewItems(
-  shape: KitchenShape,
-  roomWidth: number,
-  roomDepth: number,
-  layoutStyle: LayoutStyle,
-  finishId: string,
-  openings: Opening[] = [],
-  services: ServicePoint[] = [],
-): PlacedItem[] {
-  const brief = briefFromWizard({ roomShape: shape, roomWidth, roomDepth, layoutStyle }, { openings, services });
-  const spec = defaultSpecFor(brief, shape, {
-    finishId,
-    benchtopId: DEFAULTS.benchtopId,
-    handleId: DEFAULTS.handleId,
-  });
-  return compileSpec(spec, brief.room).items;
-}
-
 function estimatePrice(
-  shape: KitchenShape, roomWidth: number, roomDepth: number, layoutStyle: LayoutStyle,
-  openings: Opening[] = [], services: ServicePoint[] = [],
+  state: Pick<WizardState,
+    | 'layoutPreference'
+    | 'roomWidth'
+    | 'roomDepth'
+    | 'roomHeight'
+    | 'roomGeometryShape'
+    | 'roomCutoutWidth'
+    | 'roomCutoutDepth'
+    | 'layoutStyle'
+    | 'openings'
+    | 'services'
+  >,
 ) {
-  const brief = briefFromWizard({ roomShape: shape, roomWidth, roomDepth, layoutStyle }, { openings, services });
-  const spec = defaultSpecFor(brief, shape);
+  const brief = briefFromWizard({
+    layoutPreference: state.layoutPreference,
+    roomWidth: state.roomWidth,
+    roomDepth: state.roomDepth,
+    layoutStyle: state.layoutStyle,
+  }, {
+    height: state.roomHeight,
+    shape: state.roomGeometryShape,
+    cutoutWidth: state.roomCutoutWidth,
+    cutoutDepth: state.roomCutoutDepth,
+    openings: state.openings,
+    services: state.services,
+  });
+  const spec = defaultSpecFor(brief, state.layoutPreference);
   const design = compileSpec(spec, brief.room);
   const band = priceDesign(design.items, spec.style);
   const lm = design.items
@@ -184,19 +200,6 @@ function estimatePrice(
 /** Buildability notes (validator warnings) for the current design — e.g.
  *  "sink far from plumbing: re-plumbing required". Errors are engine bugs and
  *  are logged rather than shown. */
-function designWarnings(
-  shape: KitchenShape, roomWidth: number, roomDepth: number, layoutStyle: LayoutStyle,
-  openings: Opening[], services: ServicePoint[],
-): string[] {
-  const brief = briefFromWizard({ roomShape: shape, roomWidth, roomDepth, layoutStyle }, { openings, services });
-  const spec = defaultSpecFor(brief, shape);
-  const design = compileSpec(spec, brief.room);
-  const violations = validate(design, brief.room, brief);
-  violations.filter(v => v.severity === 'error')
-    .forEach(v => console.warn('[wizard] layout error:', v.code, v.message));
-  return Array.from(new Set(violations.filter(v => v.severity === 'warn').map(v => v.message)));
-}
-
 // ─── Step indicator ─────────────────────────────────────────────────────────────
 
 const STEPS = ['Room', 'Cooking', 'Design', 'Style', 'Review'];
@@ -269,9 +272,9 @@ function ShareButton({ state }: { state: WizardState }) {
 
 // ─── Shape icons ────────────────────────────────────────────────────────────────
 
-function ShapeIcon({ shape, selected }: { shape: KitchenShape; selected: boolean }) {
+function ShapeIcon({ shape, selected }: { shape: LayoutPreference; selected: boolean }) {
   const s = selected ? '#0f172a' : '#94a3b8';
-  const icons: Record<KitchenShape, JSX.Element> = {
+  const icons: Record<LayoutPreference, JSX.Element> = {
     'single-wall': (
       <svg viewBox="0 0 60 40" className="w-10 h-7 sm:w-12 sm:h-8">
         <rect x="4" y="22" width="52" height="10" rx="2" fill={s} />
@@ -307,34 +310,77 @@ function ShapeIcon({ shape, selected }: { shape: KitchenShape; selected: boolean
 // ─── Step 1: Room ───────────────────────────────────────────────────────────────
 
 function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void }) {
-  const shapes: { id: KitchenShape; label: string; desc: string }[] = [
+  const shapes: { id: LayoutPreference; label: string; desc: string }[] = [
     { id: 'single-wall', label: 'Single Wall', desc: 'One wall of cabinets' },
     { id: 'l-shape',     label: 'L-Shape',     desc: 'Two adjoining walls' },
     { id: 'u-shape',     label: 'U-Shape',     desc: 'Three-wall storage' },
     { id: 'galley',      label: 'Galley',      desc: 'Two facing runs' },
   ];
-  const needsDepth = state.roomShape !== 'single-wall';
+  const pending = state.pendingRoomPatch;
+  const pendingSummary = pending ? [
+    pending.width !== undefined ? `Width: ${pending.width} mm` : null,
+    pending.depth !== undefined ? `Depth: ${pending.depth} mm` : null,
+    pending.height !== undefined ? `Ceiling: ${pending.height} mm` : null,
+    pending.shape !== undefined ? `Room shape: ${pending.shape === 'LShape' ? 'L-shaped' : 'Rectangular'}` : null,
+    pending.cutoutWidth !== undefined ? `Cutout width: ${pending.cutoutWidth} mm` : null,
+    pending.cutoutDepth !== undefined ? `Cutout depth: ${pending.cutoutDepth} mm` : null,
+    pending.openings !== undefined ? `Openings: ${pending.openings.length}` : null,
+    pending.services !== undefined ? `Services: ${pending.services.length}` : null,
+  ].filter((value): value is string => value !== null) : [];
+
+  const applyPendingRoomPatch = () => {
+    if (!pending) return;
+    const nextShape = pending.shape ?? state.roomGeometryShape;
+    onChange({
+      roomWidth: pending.width ?? state.roomWidth,
+      roomDepth: pending.depth ?? state.roomDepth,
+      roomHeight: pending.height ?? state.roomHeight,
+      roomGeometryShape: nextShape,
+      roomCutoutWidth: nextShape === 'Rectangle' ? 0 : (pending.cutoutWidth ?? state.roomCutoutWidth),
+      roomCutoutDepth: nextShape === 'Rectangle' ? 0 : (pending.cutoutDepth ?? state.roomCutoutDepth),
+      openings: pending.openings ?? state.openings,
+      services: pending.services ?? state.services,
+      pendingRoomPatch: undefined,
+    });
+    toast.success('Suggested room details applied. Check them, then continue to confirm.');
+  };
 
   return (
     <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">What shape is your kitchen?</h2>
-        <p className="text-sm text-slate-500">This helps us suggest the best layout for your space.</p>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1">Which cabinet layout do you prefer?</h2>
+        <p className="text-sm text-slate-500">This is your preferred cabinet strategy. Your measured room stays unchanged.</p>
       </div>
+
+      {pending && (
+        <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3" role="status">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">Review the AI-suggested room change</p>
+            <p className="text-xs text-amber-800 mt-1">Nothing has changed yet. Apply the suggestion, check the room details below, then continue to confirm them.</p>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {pendingSummary.map(item => <span key={item} className="text-xs text-amber-900">{item}</span>)}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={applyPendingRoomPatch}>Apply suggestion</Button>
+            <Button size="sm" variant="outline" onClick={() => onChange({ pendingRoomPatch: undefined })}>Keep measured room</Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {shapes.map(({ id, label, desc }) => (
           <button
             key={id}
-            onClick={() => onChange({ roomShape: id })}
+            onClick={() => onChange({ layoutPreference: id })}
             className={cn(
               'flex flex-col items-center gap-2 p-3 sm:p-4 rounded-xl border-2 text-center transition-all',
-              state.roomShape === id
+              state.layoutPreference === id
                 ? 'border-slate-900 bg-slate-50'
                 : 'border-slate-200 hover:border-slate-300 bg-white',
             )}
           >
-            <ShapeIcon shape={id} selected={state.roomShape === id} />
+            <ShapeIcon shape={id} selected={state.layoutPreference === id} />
             <div>
               <p className="text-xs sm:text-sm font-medium text-slate-900 leading-tight">{label}</p>
               <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">{desc}</p>
@@ -343,10 +389,10 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
         ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
         <div className="space-y-2">
           <Label htmlFor="room-width">
-            Wall length <span className="text-slate-400 font-normal">(mm)</span>
+            Room width <span className="text-slate-400 font-normal">(mm)</span>
           </Label>
           <Input
             id="room-width"
@@ -363,35 +409,77 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
           </p>
         </div>
 
-        {needsDepth && (
-          <div className="space-y-2">
-            <Label htmlFor="room-depth">
-              Side wall length <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-depth"
-              type="number"
-              inputMode="numeric"
-              min={1200}
-              max={6000}
-              step={100}
-              value={state.roomDepth}
-              onChange={e => onChange({ roomDepth: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">{(state.roomDepth / 1000).toFixed(1)} m</p>
-          </div>
-        )}
+        <div className="space-y-2">
+          <Label htmlFor="room-depth">
+            Room depth <span className="text-slate-400 font-normal">(mm)</span>
+          </Label>
+          <Input
+            id="room-depth"
+            type="number"
+            inputMode="numeric"
+            min={1200}
+            max={6000}
+            step={100}
+            value={state.roomDepth}
+            onChange={e => onChange({ roomDepth: Number(e.target.value) })}
+          />
+          <p className="text-xs text-slate-400">{(state.roomDepth / 1000).toFixed(1)} m</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="room-height">
+            Ceiling height <span className="text-slate-400 font-normal">(mm)</span>
+          </Label>
+          <Input
+            id="room-height"
+            type="number"
+            inputMode="numeric"
+            min={2100}
+            max={4000}
+            step={50}
+            value={state.roomHeight}
+            onChange={e => onChange({ roomHeight: Number(e.target.value) })}
+          />
+          <p className="text-xs text-slate-400">{(state.roomHeight / 1000).toFixed(2)} m</p>
+        </div>
       </div>
+
+      <ScanRoomEntry />
 
       <div className="pt-5 border-t border-slate-100">
         <RoomFeaturesEditor
           widthMm={state.roomWidth}
-          depthMm={needsDepth ? state.roomDepth : Math.max(Math.round(state.roomWidth * 0.7), 2400)}
+          depthMm={state.roomDepth}
           openings={state.openings}
           services={state.services}
           onChange={p => onChange(p)}
         />
       </div>
+    </div>
+  );
+}
+
+/** "Scan my room" entry — only rendered on devices that can actually run the
+ *  WebXR capture (master plan §10.1: capability check, never UA sniffing). */
+function ScanRoomEntry() {
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    if (!window.isSecureContext) return;
+    const xr = (navigator as unknown as { xr?: { isSessionSupported(m: string): Promise<boolean> } }).xr;
+    xr?.isSessionSupported('immersive-ar').then(setSupported).catch(() => {});
+  }, []);
+  if (!supported) return null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
+      <p className="text-xs text-slate-600">
+        Got your phone? Point the camera and tap each corner — the room measures itself.
+      </p>
+      <Link
+        to="/wizard/scan"
+        className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium px-3 py-2 hover:bg-slate-700"
+      >
+        Scan my room
+      </Link>
     </div>
   );
 }
@@ -404,7 +492,7 @@ function Step2Layout({ state, onChange }: { state: WizardState; onChange: (p: Pa
     { id: 'standard',     label: 'Balanced',          desc: 'Full base run + upper cabinets above the benchtop. The most popular choice.', icon: '◈' },
     { id: 'full-storage', label: 'Maximum Storage',   desc: 'Floor-to-ceiling storage including tall pantry cabinets.',                    icon: '⬛' },
   ];
-  const { low, high, linearMetres } = estimatePrice(state.roomShape, state.roomWidth, state.roomDepth, state.layoutStyle, state.openings, state.services);
+  const { low, high, linearMetres } = estimatePrice(state);
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -590,32 +678,22 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
 
   const brief = buildBrief(state);
   const activeSpec: KitchenSpec = {
-    ...(state.design?.spec ?? defaultSpecFor(brief, state.roomShape)),
+    ...(state.design?.spec ?? defaultSpecFor(brief, state.layoutPreference)),
     style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
   };
   const compiled = compileSpec(activeSpec, brief.room);
   const items = compiled.items;
+  const designViolations = validate(compiled, brief.room, brief);
+  const blockingErrors = designViolations.filter(v => v.severity === 'error');
   const buildNotes: string[] = Array.from(new Set<string>([
     ...compiled.notes,
-    ...validate(compiled, brief.room, brief)
+    ...designViolations
       .filter(v => v.severity === 'warn')
       .map(v => v.message),
   ]));
   const band = useWizardPricing(items, activeSpec.style);
 
-  const roomDepthForScene = state.roomShape === 'single-wall'
-    ? state.roomWidth * 0.7
-    : state.roomDepth;
-
-  const room3D: RoomConfig = {
-    width: state.roomWidth,
-    depth: roomDepthForScene,
-    height: 2700,
-    shape: (state.roomShape === 'single-wall' || state.roomShape === 'galley')
-      ? 'Rectangle' : 'LShape' as RoomShape,
-    cutoutWidth: Math.round(state.roomWidth * 0.5),
-    cutoutDepth: Math.round(roomDepthForScene * 0.5),
-  };
+  const room3D: RoomConfig = brief.room;
 
   const low = band.lowAud;
   const high = band.highAud;
@@ -624,6 +702,10 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
 
   const handleSubmit = async () => {
+    if (blockingErrors.length > 0) {
+      toast.error('This layout has a blocking problem. Return to Design and choose or generate another option.');
+      return;
+    }
     if (!state.contactName.trim() || !state.contactEmail.trim()) {
       toast.error('Please enter your name and email');
       return;
@@ -648,35 +730,52 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         room: {
           width: state.roomWidth,
           depth: state.roomDepth,
-          height: 2700,
-          shape: 'Rectangle' as const,
-          cutoutWidth: 0,
-          cutoutDepth: 0,
+          height: state.roomHeight,
+          shape: state.roomGeometryShape,
+          cutoutWidth: state.roomCutoutWidth,
+          cutoutDepth: state.roomCutoutDepth,
           openings: state.openings,
           services: state.services,
         },
-        confidence: incoming?.confidence ?? {
-          overall: 1,
-          fields: {
-            height: 'default' as const,
-            openings: state.openings.length ? ('user-marked' as const) : ('none-captured' as const),
-            services: state.services.length ? ('user-marked' as const) : ('none-captured' as const),
-          },
-        },
+        confidence: incoming
+          ? {
+              ...incoming.confidence,
+              fields: {
+                ...incoming.confidence.fields,
+                ...(state.roomHeight !== incoming.room.height ? { height: 'estimated' as const } : {}),
+              },
+            }
+          : {
+              overall: 1,
+              fields: {
+                height: state.roomHeight === DEFAULTS.roomHeight ? ('default' as const) : ('estimated' as const),
+                openings: state.openings.length ? ('user-marked' as const) : ('none-captured' as const),
+                services: state.services.length ? ('user-marked' as const) : ('none-captured' as const),
+              },
+            },
         ...(incoming?.photos ? { photos: incoming.photos } : {}),
         ...(incoming?.rawArtifacts ? { rawArtifacts: incoming.rawArtifacts } : {}),
         ...(incoming?.normalizationWarnings ? { normalizationWarnings: incoming.normalizationWarnings } : {}),
         capturedAt: incoming?.capturedAt ?? now,
         confirmedAt: now,
       };
-      // Never block the enquiry on scan validity — an invalid build is a bug,
-      // logged and omitted rather than shipped as trusted geometry.
       const scanParse = confirmedRoomScanV1Schema.safeParse(scanCandidate);
-      if (!scanParse.success) console.warn('[wizard] roomScan omitted:', scanParse.error.issues[0]);
+      if (!scanParse.success) {
+        console.error('[wizard] room confirmation invalid:', scanParse.error.issues);
+        toast.error('Please review the room measurements and openings before requesting a quote.');
+        return;
+      }
 
       const designData = {
         wizardVersion: 2,
-        roomShape: state.roomShape, roomWidth: state.roomWidth, roomDepth: state.roomDepth,
+        roomShape: state.layoutPreference,
+        layoutPreference: state.layoutPreference,
+        roomWidth: state.roomWidth,
+        roomDepth: state.roomDepth,
+        roomHeight: state.roomHeight,
+        roomGeometryShape: state.roomGeometryShape,
+        roomCutoutWidth: state.roomCutoutWidth,
+        roomCutoutDepth: state.roomCutoutDepth,
         layoutStyle: state.layoutStyle, finishId: state.finishId,
         benchtopId: state.benchtopId, handleId: state.handleId, items,
         openings: state.openings, services: state.services,
@@ -684,7 +783,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         designName: state.design?.name ?? 'Standard layout',
         aiGenerated: state.design?.aiGenerated ?? false,
         priceBand: { low, high, source: band.isBomBacked ? 'bom' : 'estimator' },
-        ...(scanParse.success ? { roomScan: scanParse.data } : {}),
+        roomScan: scanParse.data,
         buildNotes,
       };
       // Atomic server-side submission (master plan §6.4): one restricted RPC
@@ -702,7 +801,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
               `Contact: ${state.contactName}`,
               `Email: ${state.contactEmail}`,
               state.contactPhone ? `Phone: ${state.contactPhone}` : null,
-              `Kitchen shape: ${state.roomShape}`,
+              `Cabinet layout preference: ${state.layoutPreference}`,
               `Width: ${(state.roomWidth / 1000).toFixed(1)} m`,
               `Layout: ${state.layoutStyle}`,
               `Finish: ${selectedFinish.name}`,
@@ -721,7 +820,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       if (error) throw error;
       const jobId = (submitData as { jobId?: string } | null)?.jobId;
       if (jobId) setSubmittedJobId(jobId);
-      trackEvent('quote_requested', { shape: state.roomShape, layout: state.layoutStyle });
+      trackEvent('quote_requested', { shape: state.layoutPreference, layout: state.layoutStyle });
 
       // Fire admin alert email (non-blocking — don't fail the submission if email fails)
       supabase.functions.invoke('send-email', {
@@ -731,7 +830,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
             contact_name: state.contactName,
             contact_email: state.contactEmail,
             contact_phone: state.contactPhone || undefined,
-            room_shape: state.roomShape,
+            room_shape: state.layoutPreference,
             room_count: 1,
             admin_url: `${window.location.origin}/admin/leads`,
           },
@@ -815,7 +914,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
           }>
             <UnifiedScene
               items={items}
-              room={brief.room}
+              room={room3D}
               globalDimensions={DEFAULT_GLOBAL_DIMENSIONS}
               selectedItemId={null}
               draggedItemId={null}
@@ -836,6 +935,15 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
           <p className="text-xs font-semibold text-amber-800">Things to know about this layout</p>
           {buildNotes.map((m, i) => (
             <p key={i} className="text-xs text-amber-700">• {m}</p>
+          ))}
+        </div>
+      )}
+
+      {blockingErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 space-y-1" role="alert">
+          <p className="text-xs font-semibold text-red-800">Quote request blocked until the layout is repaired</p>
+          {blockingErrors.map(error => (
+            <p key={`${error.code}-${error.message}`} className="text-xs text-red-700">{error.message}</p>
           ))}
         </div>
       )}
@@ -876,7 +984,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         </div>
         <Button
           className="w-full bg-slate-900 hover:bg-slate-800 text-white h-11"
-          disabled={submitting}
+          disabled={submitting || blockingErrors.length > 0}
           onClick={handleSubmit}
         >
           {submitting
@@ -919,10 +1027,14 @@ export default function HomeownerWizard() {
       const fromHandoff = 'incomingScan' in patch;
       const touchesGeometry =
         !fromHandoff &&
-        (['roomWidth', 'roomDepth', 'openings', 'services'] as const).some(k => k in patch);
+        (['roomWidth', 'roomDepth', 'roomHeight', 'roomGeometryShape', 'roomCutoutWidth', 'roomCutoutDepth', 'openings', 'services'] as const)
+          .some(k => k in patch);
       return {
         ...prev,
         ...patch,
+        design: touchesGeometry || 'layoutPreference' in patch
+          ? null
+          : ('design' in patch ? patch.design ?? null : prev.design),
         geometryEdits: touchesGeometry ? prev.geometryEdits + 1 : prev.geometryEdits,
       };
     });
@@ -964,6 +1076,10 @@ export default function HomeownerWizard() {
             incomingScan: scan,
             roomWidth: scan.room.width,
             roomDepth: scan.room.depth,
+            roomHeight: scan.room.height,
+            roomGeometryShape: scan.room.shape,
+            roomCutoutWidth: scan.room.cutoutWidth,
+            roomCutoutDepth: scan.room.cutoutDepth,
             openings: scan.room.openings,
             services: scan.room.services,
           }
@@ -976,27 +1092,64 @@ export default function HomeownerWizard() {
     if (scan) toast.success('Room scan loaded — please check the room details.');
   }, [handoffPayload, handoffId, handoffToken, onChange]);
 
+  // WebXR capture handoff (/wizard/scan → sessionStorage → here). One-shot:
+  // the pending scan is consumed on pickup; parse failures fall back to the
+  // manual wizard without crashing (master plan §5.3 — unconfirmed scans
+  // pre-fill the editor, never drive generation until confirmed).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('bower.pendingScan');
+      if (!raw) return;
+      sessionStorage.removeItem('bower.pendingScan');
+      const parsed = parseRoomScan(JSON.parse(raw));
+      if (!parsed.ok || parsed.scan.state !== 'unconfirmed') return;
+      const scan = parsed.scan;
+      onChange({
+        incomingScan: scan,
+        roomWidth: scan.room.width,
+        roomDepth: scan.room.depth,
+        openings: scan.room.openings,
+        services: scan.room.services,
+      });
+      toast.success('Room scanned — check the size and mark doors, windows and plumbing.');
+    } catch {
+      // Storage unavailable or corrupt payload — manual entry still works.
+    }
+  }, [onChange]);
+
   // Sync design state to URL whenever it changes (not contact info)
   useEffect(() => {
     const params = stateToParams(state);
     setSearchParams(params, { replace: true });
   }, [
-    state.roomShape, state.roomWidth, state.roomDepth,
+    state.layoutPreference, state.roomWidth, state.roomDepth, state.roomHeight,
     state.layoutStyle, state.finishId, state.benchtopId, state.handleId,
     // intentionally omitting step / doorsOpen / contact fields
   ]);
 
+  const selectedDesignHasBlockingErrors = (() => {
+    if (!state.design) return false;
+    const brief = buildBrief(state);
+    const spec = {
+      ...state.design.spec,
+      style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
+    };
+    return validate(compileSpec(spec, brief.room), brief.room, brief)
+      .some(violation => violation.severity === 'error');
+  })();
+
   const canAdvance =
-    state.step === 1 ? state.roomWidth >= 1200 :
+    state.step === 1
+      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 :
     state.step === 2 ? true :
-    state.step === 3 ? state.design !== null :
+    state.step === 3 ? state.design !== null && !selectedDesignHasBlockingErrors :
     state.step === 4 ? true : false;
 
   const advance = () => {
     if (state.step < 5) {
       trackEvent('step_complete', {
         step: state.step,
-        shape: state.roomShape,
+        shape: state.layoutPreference,
         layout: state.layoutStyle,
       });
       onChange({ step: (state.step + 1) as WizardState['step'] });
@@ -1031,11 +1184,11 @@ export default function HomeownerWizard() {
         {state.step === 3 && (
           <StepDesign
             brief={buildBrief(state)}
-            shape={state.roomShape}
+            shape={state.layoutPreference}
             style={{ finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId }}
             design={state.design}
             onDesignChange={d => onChange({ design: d })}
-            onRoomPatched={patch => onChange(patch)}
+            onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
           />
         )}
         {state.step === 4 && <Step3Style state={state} onChange={onChange} />}
