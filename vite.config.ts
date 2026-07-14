@@ -2,6 +2,14 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import basicSsl from "@vitejs/plugin-basic-ssl";
+
+// Opt-in HTTPS dev server for WebXR room scanning (the phone camera flow at
+// /wizard/scan requires a secure context). Normal dev is unchanged:
+//   BOWER_DEV_HTTPS=1 npm run dev     (Windows: set BOWER_DEV_HTTPS=1&& npm run dev)
+// then open https://<this-machine's-LAN-IP>:8080/wizard/scan on the phone and
+// accept the self-signed certificate warning once.
+const devHttps = process.env.BOWER_DEV_HTTPS === "1";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -9,7 +17,11 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    mode === "development" && componentTagger(),
+    devHttps && basicSsl(),
+  ].filter(Boolean),
   // Force dev mode for esbuild dep optimizer so React's CJS conditionals
   // (process.env.NODE_ENV === 'production') resolve to false and the
   // development builds (with jsxDEV, warnings etc.) are used.
