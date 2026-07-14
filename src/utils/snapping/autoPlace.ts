@@ -86,6 +86,38 @@ function mergeIntervals(intervals: Interval[]): Interval[] {
   return merged;
 }
 
+/**
+ * F-11: is a room corner clear of openings along BOTH adjoining walls for a
+ * corner unit whose arms reach `armMm` from the corner? Doors/walkways always
+ * block; windows only block wall/tall corner units (same matrix as the
+ * placement warnings).
+ */
+export function isCornerClear(
+  room: RoomConfig,
+  corner: { x: number; z: number },
+  armMm: number,
+  category: 'Base' | 'Wall' | 'Tall' | 'Appliance' = 'Base',
+): boolean {
+  const openings = room.openings ?? [];
+  if (!openings.length) return true;
+  const roomW = room.width;
+  const roomD = room.depth;
+
+  const xWall: 'N' | 'S' = corner.z === 0 ? 'N' : 'S';
+  const zWall: 'W' | 'E' = corner.x === 0 ? 'W' : 'E';
+  const xSpan: Interval = corner.x === 0 ? [0, armMm] : [roomW - armMm, roomW];
+  const zSpan: Interval = corner.z === 0 ? [0, armMm] : [roomD - armMm, roomD];
+
+  for (const op of openings) {
+    const blocksThis = op.type === 'window' ? category === 'Wall' || category === 'Tall' : true;
+    if (!blocksThis) continue;
+    const iv = openingInterval(op, roomW, roomD);
+    if (op.wall === xWall && Math.min(iv[1], xSpan[1]) - Math.max(iv[0], xSpan[0]) > 10) return false;
+    if (op.wall === zWall && Math.min(iv[1], zSpan[1]) - Math.max(iv[0], zSpan[0]) > 10) return false;
+  }
+  return true;
+}
+
 export function findAutoWallPlacement(req: AutoPlaceRequest): AutoPlacement | null {
   const { room, width, depth, category, obstacles } = req;
   const wallGap = req.wallGap ?? 10;

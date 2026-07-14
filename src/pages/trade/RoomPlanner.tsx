@@ -21,7 +21,7 @@ import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
 import { defaultCornerArmDepth, STANDARD_CORNER_ARM_DEPTH } from '@/lib/cornerDefaults';
-import { calculateSnapPosition, findAutoWallPlacement } from '@/utils/snapping';
+import { calculateSnapPosition, findAutoWallPlacement, isCornerClear } from '@/utils/snapping';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { exportPlanViewPdf } from '@/lib/planViewPdf';
 import { computeOpeningWarnings } from '@/lib/trade/openingWarnings';
@@ -422,7 +422,16 @@ export default function RoomPlanner() {
           return Math.hypot(c.position.x - cx, c.position.z - cz) <
             Math.max(c.dimensions.width, c.dimensions.depth);
         });
-      const free = cornerPoints.find(({ cx, cz }) => !cornerOccupied(cx, cz));
+      // F-11: prefer corners whose adjoining walls are clear of openings —
+      // seating a corner unit across a doorway just trips the conflict
+      // warning. Falls back to any free corner when every corner has one.
+      const armReach = Math.max(defaultWidth, defaultDepth) + 50;
+      const free =
+        cornerPoints.find(
+          ({ cx, cz }) =>
+            !cornerOccupied(cx, cz) &&
+            isCornerClear(currentRoom.config, { x: cx, z: cz }, armReach, category as 'Base' | 'Wall' | 'Tall' | 'Appliance'),
+        ) ?? cornerPoints.find(({ cx, cz }) => !cornerOccupied(cx, cz));
       if (free) {
         const halfW = defaultWidth / 2;
         const halfD = defaultDepth / 2;

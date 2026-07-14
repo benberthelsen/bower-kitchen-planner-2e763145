@@ -80,5 +80,16 @@ const base = { width: 600, depth: 575, category: 'Base', obstacles: [] };
   check('impossible room returns null', p === null, JSON.stringify(p));
 }
 
+// 9-11. F-11: corner clearance vs openings.
+{
+  const { isCornerClear } = S;
+  const withDoor = room([{ id: 'd', wall: 'N', type: 'door', offsetMm: 0, widthMm: 900 }]);
+  check('NW corner blocked by N-wall door', isCornerClear(withDoor, { x: 0, z: 0 }, 950, 'Base') === false);
+  check('NE corner clear of that door', isCornerClear(withDoor, { x: 3600, z: 0 }, 950, 'Base') === true);
+  const withWin = room([{ id: 'w', wall: 'N', type: 'window', offsetMm: 0, widthMm: 900, heightMm: 1200, sillHeightMm: 900 }]);
+  check('window does not block BASE corner', isCornerClear(withWin, { x: 0, z: 0 }, 950, 'Base') === true);
+  check('window blocks WALL corner', isCornerClear(withWin, { x: 0, z: 0 }, 950, 'Wall') === false);
+}
+
 console.log(`autoplace smoke: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -8,7 +8,7 @@ import { CONSTRUCTION_STANDARDS } from '@/types/cabinetConfig';
 
 // Re-export for backwards compatibility
 export { checkCollision, getRotatedBounds } from './bounds';
-export { findAutoWallPlacement } from './autoPlace';
+export { findAutoWallPlacement, isCornerClear } from './autoPlace';
 export type { AutoPlaceObstacle, AutoPlaceRequest, AutoPlacement } from './autoPlace';
 export { CABINET_SNAP_THRESHOLD } from './cabinetSnapping';
 export { WALL_SNAP_THRESHOLD, getWallSurfaces, findNearestWallSurface } from './wallSnapping';
