@@ -99,6 +99,27 @@ back-left corner whose wall span holds the door, immediately (and correctly) tri
 the conflict warning. Prefer corners whose adjoining wall spans are opening-free before
 falling back.
 
+## Autonomous session (Ben away) — status
+
+- **HTTPS dev for phone scanning: DONE** (commit 88bcd0b). `set BOWER_DEV_HTTPS=1&& npm run dev`,
+  then open `https://<LAN-IP>:8080/wizard/scan` on the phone and accept the self-signed cert
+  once. An HTTPS instance was left running on **https://192.168.7.6:8443** for immediate
+  phone testing.
+- **F-11 DONE** (6027dc2): corner auto-placement prefers corners clear of openings
+  (windows only matter for wall/tall corner units); 4 new checks, 15/15 autoplace suite.
+- **F-10 SHIPPED, visual QA pending** (see below): doors now render architrave + timber
+  leaf with recessed panels + handle + floor swing arc; windows get frame/glazing/mullions/
+  protruding sill; walkways get jamb reveals; services render as GPO faceplates, colour-
+  capped pipe stubs, and a rangehood duct collar. Build green; live visual check was
+  blocked (next item), so eyeball homeowner + trade scenes before calling it closed.
+- **OBSERVATION (not scanner work):** the trade planner currently crashes at runtime with
+  `ReferenceError: toPlacedItems is not defined` in `src/hooks/useTradeRoomPricing.ts` —
+  an uncommitted edit from the parallel AI-designer-V2 workstream (file untouched by the
+  scanner work). Expected to resolve when that edit completes; mentioning it so the error
+  page isn't attributed to F-10.
+- **Stopped at genuine blockers:** F-7 drag-feel and F-9 editor design pass need Ben
+  driving; scanner accuracy discovery runs need Ben's Android phone (HTTPS is ready).
+
 ## Environment notes
 - Use bun (not npm) for installs in both repos; npm fights the bun lockfile (broke
   esbuild mid-pass — recovered with `bun add`).

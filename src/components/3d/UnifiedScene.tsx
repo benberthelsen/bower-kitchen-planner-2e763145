@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { WALL_THICKNESS, SNAP_INCREMENT } from '@/constants';
 import { calculateSnapPosition, SnapResult, checkCollision } from '@/utils/snapping';
-import { RoomConfig, PlacedItem, GlobalDimensions, CatalogItemDefinition, MaterialOption, Opening } from '@/types';
+import { RoomConfig, PlacedItem, GlobalDimensions, CatalogItemDefinition, MaterialOption, Opening, ServicePoint } from '@/types';
 import { FINISH_OPTIONS } from '@/constants';
 import { useCatalog } from '@/hooks/useCatalog';
 import CabinetMesh from './CabinetMesh';
@@ -31,50 +31,120 @@ const OPENING_COLORS: Record<Opening['type'], string> = {
  * → head height), windows as a glazed opening at sill height, walkways as an
  * open floor threshold. Offsets follow RoomFeaturesEditor's plan convention.
  */
+/** Anchor a composite on a wall: local +x runs along the wall (left→right as
+ *  viewed from inside), local +z points INTO the room. `u` is the centre of
+ *  the feature measured along the wall in the editor's offset convention. */
+function wallAnchor(
+  wall: Opening['wall'],
+  u: number,
+  widthM: number,
+  depthM: number,
+): { pos: [number, number, number]; rotY: number } {
+  switch (wall) {
+    case 'N': return { pos: [u, 0, 0], rotY: 0 };
+    case 'S': return { pos: [widthM - u, 0, depthM], rotY: Math.PI };
+    case 'W': return { pos: [0, 0, depthM - u], rotY: Math.PI / 2 };
+    default:  return { pos: [widthM, 0, u], rotY: -Math.PI / 2 }; // E
+  }
+}
+
+const TIMBER = '#a97142';
+const ARCHITRAVE = '#e7e0d5';
+const FRAME_WHITE = '#f8fafc';
+
+/** F-10: modelled door — architrave, timber leaf, handle, floor swing arc. */
+function DoorComposite({ o, heightM }: { o: Opening; heightM: number }) {
+  const w = o.widthMm / 1000;
+  const h = Math.min(heightM, (o.heightMm ?? 2040) / 1000);
+  const hingeLeft = o.swing === 'in-left';
+  const showArc = o.swing === 'in-left' || o.swing === 'in-right';
+  const hingeX = hingeLeft ? -w / 2 : w / 2;
+  return (
+    <group>
+      {/* architrave: lintel + jambs */}
+      <mesh position={[0, h + 0.04, 0.012]}><boxGeometry args={[w + 0.14, 0.08, 0.025]} /><meshStandardMaterial color={ARCHITRAVE} roughness={0.7} /></mesh>
+      <mesh position={[-(w / 2 + 0.035), h / 2, 0.012]}><boxGeometry args={[0.07, h, 0.025]} /><meshStandardMaterial color={ARCHITRAVE} roughness={0.7} /></mesh>
+      <mesh position={[w / 2 + 0.035, h / 2, 0.012]}><boxGeometry args={[0.07, h, 0.025]} /><meshStandardMaterial color={ARCHITRAVE} roughness={0.7} /></mesh>
+      {/* leaf */}
+      <mesh position={[0, h / 2, 0.028]} castShadow><boxGeometry args={[w - 0.02, h - 0.02, 0.04]} /><meshStandardMaterial color={TIMBER} roughness={0.55} /></mesh>
+      {/* recessed panels for depth */}
+      <mesh position={[0, h * 0.72, 0.05]}><boxGeometry args={[w * 0.6, h * 0.32, 0.005]} /><meshStandardMaterial color="#8f5e37" roughness={0.6} /></mesh>
+      <mesh position={[0, h * 0.28, 0.05]}><boxGeometry args={[w * 0.6, h * 0.32, 0.005]} /><meshStandardMaterial color="#8f5e37" roughness={0.6} /></mesh>
+      {/* handle on the latch side */}
+      {o.swing !== 'slider' && (
+        <mesh position={[hingeLeft ? w / 2 - 0.07 : -(w / 2 - 0.07), 1.0, 0.06]}>
+          <sphereGeometry args={[0.022, 12, 12]} />
+          <meshStandardMaterial color="#64748b" metalness={0.8} roughness={0.25} />
+        </mesh>
+      )}
+      {/* floor swing arc */}
+      {showArc && (
+        <mesh position={[hingeX, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[Math.max(0.05, w - 0.03), w, 32, 1, hingeLeft ? 0 : Math.PI / 2, Math.PI / 2]} />
+          <meshBasicMaterial color="#94a3b8" transparent opacity={0.45} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+/** F-10: modelled window — frame, glazing, mullions, protruding sill. */
+function WindowComposite({ o, heightM }: { o: Opening; heightM: number }) {
+  const w = o.widthMm / 1000;
+  const sill = (o.sillHeightMm ?? 900) / 1000;
+  const h = Math.min(heightM - sill, (o.heightMm ?? 1200) / 1000);
+  const yC = sill + h / 2;
+  const f = 0.05; // frame member size
+  return (
+    <group>
+      {/* frame */}
+      <mesh position={[0, sill + h + f / 2, 0.015]}><boxGeometry args={[w + 2 * f, f, 0.05]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.5} /></mesh>
+      <mesh position={[0, sill - f / 2, 0.015]}><boxGeometry args={[w + 2 * f, f, 0.05]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.5} /></mesh>
+      <mesh position={[-(w / 2 + f / 2), yC, 0.015]}><boxGeometry args={[f, h, 0.05]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.5} /></mesh>
+      <mesh position={[w / 2 + f / 2, yC, 0.015]}><boxGeometry args={[f, h, 0.05]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.5} /></mesh>
+      {/* glazing */}
+      <mesh position={[0, yC, 0.01]}><boxGeometry args={[w, h, 0.012]} /><meshStandardMaterial color="#bfdbfe" roughness={0.05} metalness={0.15} transparent opacity={0.35} /></mesh>
+      {/* mullions */}
+      <mesh position={[0, yC, 0.018]}><boxGeometry args={[0.035, h, 0.02]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.5} /></mesh>
+      <mesh position={[0, yC, 0.018]}><boxGeometry args={[w, 0.035, 0.02]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.5} /></mesh>
+      {/* sill board into the room */}
+      <mesh position={[0, sill - 0.015, 0.055]} castShadow><boxGeometry args={[w + 0.12, 0.03, 0.11]} /><meshStandardMaterial color={FRAME_WHITE} roughness={0.45} /></mesh>
+    </group>
+  );
+}
+
+/** F-10: walkway — open jambs + header reveal, floor threshold. */
+function WalkwayComposite({ o, heightM }: { o: Opening; heightM: number }) {
+  const w = o.widthMm / 1000;
+  const h = Math.min(heightM, (o.heightMm ?? 2040) / 1000);
+  return (
+    <group>
+      <mesh position={[-(w / 2 + 0.03), h / 2, 0.012]}><boxGeometry args={[0.06, h, 0.03]} /><meshStandardMaterial color={ARCHITRAVE} roughness={0.7} /></mesh>
+      <mesh position={[w / 2 + 0.03, h / 2, 0.012]}><boxGeometry args={[0.06, h, 0.03]} /><meshStandardMaterial color={ARCHITRAVE} roughness={0.7} /></mesh>
+      <mesh position={[0, h + 0.03, 0.012]}><boxGeometry args={[w + 0.12, 0.06, 0.03]} /><meshStandardMaterial color={ARCHITRAVE} roughness={0.7} /></mesh>
+      <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[w, 0.12]} /><meshBasicMaterial color="#cbd5e1" transparent opacity={0.6} /></mesh>
+    </group>
+  );
+}
+
 function RoomOpenings({ room }: { room: RoomConfig }) {
   const openings = room.openings ?? [];
   if (!openings.length) return null;
   const widthM = room.width / 1000;
   const depthM = room.depth / 1000;
   const heightM = (room.height || 2700) / 1000;
-  const faceInset = 0.012; // panel sits just inside the wall face
 
   return (
     <group>
       {openings.map((o) => {
-        const color = OPENING_COLORS[o.type] ?? '#888';
-        const w = o.widthMm / 1000;
-        const off = o.offsetMm / 1000;
-        const isWindow = o.type === 'window';
-        const isWalkway = o.type === 'walkway';
-        const sill = isWindow ? (o.sillHeightMm ?? 900) / 1000 : 0;
-        const panelH = isWindow
-          ? Math.min(heightM - sill, (o.heightMm ?? 1200) / 1000)
-          : isWalkway
-            ? heightM
-            : Math.min(heightM, (o.heightMm ?? 2040) / 1000);
-        const yCenter = sill + panelH / 2;
-
-        // Interior-face centre + orientation per wall.
-        let pos: [number, number, number];
-        let horizontal: boolean; // true → panel spans X (N/S walls)
-        switch (o.wall) {
-          case 'N': pos = [off + w / 2, yCenter, faceInset]; horizontal = true; break;
-          case 'S': pos = [widthM - off - w / 2, yCenter, depthM - faceInset]; horizontal = true; break;
-          case 'W': pos = [faceInset, yCenter, depthM - off - w / 2]; horizontal = false; break;
-          default:  pos = [widthM - faceInset, yCenter, off + w / 2]; horizontal = false; break; // E
-        }
-        const args: [number, number, number] = horizontal ? [w, panelH, 0.03] : [0.03, panelH, w];
-
+        const u = (o.offsetMm + o.widthMm / 2) / 1000;
+        const { pos, rotY } = wallAnchor(o.wall, u, widthM, depthM);
         return (
-          <mesh key={o.id} position={pos}>
-            <boxGeometry args={args} />
-            {isWindow ? (
-              <meshStandardMaterial color="#bfdbfe" roughness={0.1} metalness={0.1} transparent opacity={0.4} />
-            ) : (
-              <meshStandardMaterial color={color} roughness={0.6} opacity={isWalkway ? 0.35 : 1} transparent={isWalkway} />
-            )}
-          </mesh>
+          <group key={o.id} position={pos} rotation={[0, rotY, 0]}>
+            {o.type === 'door' && <DoorComposite o={o} heightM={heightM} />}
+            {o.type === 'window' && <WindowComposite o={o} heightM={heightM} />}
+            {o.type === 'walkway' && <WalkwayComposite o={o} heightM={heightM} />}
+          </group>
         );
       })}
     </group>
@@ -90,40 +160,54 @@ const SERVICE_COLORS: Record<string, string> = {
   'hood-duct': '#7c3aed',
 };
 
-/**
- * Small wall-mounted markers for service points (plumbing / power / gas /
- * ducting) from room.services — same plan convention as RoomOpenings. Sized
- * 80mm so they read as fixtures, not cabinetry.
- */
+/** F-10: modelled service fixtures — GPO faceplates, capped pipe stubs for
+ *  water/drain/gas, and a rangehood duct collar. Same wall convention as
+ *  openings; local +z faces into the room. */
+function ServiceComposite({ s }: { s: ServicePoint }) {
+  const y = Math.max(0.06, (s.heightMm ?? 300) / 1000);
+  switch (s.type) {
+    case 'gpo':
+      return (
+        <group position={[0, y, 0.012]}>
+          <mesh><boxGeometry args={[0.115, 0.075, 0.014]} /><meshStandardMaterial color="#fafafa" roughness={0.35} /></mesh>
+          <mesh position={[-0.026, 0, 0.008]}><boxGeometry args={[0.028, 0.028, 0.006]} /><meshStandardMaterial color="#334155" roughness={0.5} /></mesh>
+          <mesh position={[0.026, 0, 0.008]}><boxGeometry args={[0.028, 0.028, 0.006]} /><meshStandardMaterial color="#334155" roughness={0.5} /></mesh>
+        </group>
+      );
+    case 'hood-duct':
+      return (
+        <group position={[0, y, 0.03]}>
+          <mesh><boxGeometry args={[0.24, 0.18, 0.06]} /><meshStandardMaterial color="#94a3b8" metalness={0.4} roughness={0.4} /></mesh>
+          <mesh position={[0, 0, 0.032]}><boxGeometry args={[0.18, 0.12, 0.006]} /><meshStandardMaterial color="#475569" roughness={0.6} /></mesh>
+        </group>
+      );
+    default: {
+      // capped pipe stub — colour-coded cap: drain blue, water cyan, gas brass.
+      const cap = SERVICE_COLORS[s.type] ?? '#64748b';
+      return (
+        <group position={[0, y, 0.03]}>
+          <mesh rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.022, 0.022, 0.06, 16]} /><meshStandardMaterial color="#cbd5e1" metalness={0.7} roughness={0.25} /></mesh>
+          <mesh position={[0, 0, 0.034]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.026, 0.026, 0.012, 16]} /><meshStandardMaterial color={cap} metalness={0.5} roughness={0.35} /></mesh>
+        </group>
+      );
+    }
+  }
+}
+
 function RoomServices({ room }: { room: RoomConfig }) {
   const services = room.services ?? [];
   if (!services.length) return null;
   const widthM = room.width / 1000;
   const depthM = room.depth / 1000;
-  const faceInset = 0.02;
-  const size = 0.08;
 
   return (
     <group>
       {services.map((s) => {
-        const off = s.offsetMm / 1000;
-        const y = Math.max(size / 2, (s.heightMm ?? 300) / 1000);
-        let pos: [number, number, number];
-        let horizontal: boolean;
-        switch (s.wall) {
-          case 'N': pos = [off, y, faceInset]; horizontal = true; break;
-          case 'S': pos = [widthM - off, y, depthM - faceInset]; horizontal = true; break;
-          case 'W': pos = [faceInset, y, depthM - off]; horizontal = false; break;
-          default:  pos = [widthM - faceInset, y, off]; horizontal = false; break; // E
-        }
-        const args: [number, number, number] = horizontal
-          ? [size, size, size * 0.5]
-          : [size * 0.5, size, size];
+        const { pos, rotY } = wallAnchor(s.wall, s.offsetMm / 1000, widthM, depthM);
         return (
-          <mesh key={s.id} position={pos}>
-            <boxGeometry args={args} />
-            <meshStandardMaterial color={SERVICE_COLORS[s.type] ?? '#888'} roughness={0.4} />
-          </mesh>
+          <group key={s.id} position={pos} rotation={[0, rotY, 0]}>
+            <ServiceComposite s={s} />
+          </group>
         );
       })}
     </group>
