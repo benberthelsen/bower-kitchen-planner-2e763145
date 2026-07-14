@@ -3,6 +3,7 @@ import { PlacedItem } from '../../types';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
+import { handleItemPointerDown } from './selectionGesture';
 
 interface StructureMeshProps {
   item: PlacedItem;
@@ -37,17 +38,24 @@ const StructureMesh: React.FC<StructureMeshProps> = ({
 
   const position: [number, number, number] = [item.x / 1000, (item.y / 1000) + (heightM / 2), item.z / 1000];
 
+  // Select-then-move + Alt-dive (shared gesture — see selectionGesture.ts).
   const handlePointerDown = (e: any) => {
-    e.stopPropagation();
-    handleSelect?.(item.instanceId);
-    handleDragStart?.(item.instanceId, item.x, item.z);
+    handleItemPointerDown({
+      e,
+      itemId: item.instanceId,
+      isSelected,
+      x: item.x,
+      z: item.z,
+      onSelect: handleSelect,
+      onDragStart: handleDragStart,
+    });
   };
 
   const isWindow = def.sku.includes('WIN');
   const isDoor = def.sku.includes('DR');
 
   return (
-    <group position={position} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} onPointerDown={handlePointerDown} onPointerOver={() => setHovered(true)} onPointerOut={() => setHovered(false)}>
+    <group position={position} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} userData={{ itemId: item.instanceId }} onPointerDown={handlePointerDown} onPointerOver={() => setHovered(true)} onPointerOut={() => setHovered(false)}>
       {(isSelected || hovered || isDragged) && (
         <mesh><boxGeometry args={[widthM + 0.05, heightM + 0.05, depthM + 0.05]} /><meshBasicMaterial color={isDragged ? "#2563eb" : "#3b82f6"} wireframe opacity={0.5} transparent /></mesh>
       )}

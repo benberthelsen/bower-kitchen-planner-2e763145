@@ -88,6 +88,17 @@ mullions, GPO faceplates, cooktop gas symbol; reuse across homeowner + trade sce
 Suggested refine run order: F-6 + F-8 (same subsystem, biggest quoting impact) → F-7 →
 F-10 → F-9 (design session first).
 
+**F-6/F-8 SHIPPED** (commit 01a3c75), verified live in Test Kitchen: click-added Base 2
+Door seated flush on the back wall past the doorway ("Flush back wall"); pie-cut corner
+unit nested into the back-left corner, both backs on both walls. Opening-conflict pill
+fired correctly when the corner unit overlapped the doorway.
+
+### F-11 · Corner auto-placement should prefer corners clear of openings — POLISH
+The corner picker checks cabinet occupancy only; in the Test Kitchen it chose the
+back-left corner whose wall span holds the door, immediately (and correctly) tripping
+the conflict warning. Prefer corners whose adjoining wall spans are opening-free before
+falling back.
+
 ## Environment notes
 - Use bun (not npm) for installs in both repos; npm fights the bun lockfile (broke
   esbuild mid-pass — recovered with `bun add`).

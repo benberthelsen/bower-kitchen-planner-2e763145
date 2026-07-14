@@ -6,6 +6,7 @@ import { resolveHandleDefinition, handleFinishHex } from '../../lib/handleStyles
 import { useCatalogItem, useCatalog } from '../../hooks/useCatalog';
 import { useCabinetMaterials } from '../../hooks/useCabinetMaterials';
 import CabinetAssembler from './CabinetAssembler';
+import { handleItemPointerDown } from './selectionGesture';
 import { CabinetRenderConfig } from '../../types/cabinetConfig';
 
 interface CabinetMeshProps {
@@ -179,10 +180,17 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
     return null;
   }
 
+  // Select-then-move + Alt-dive (shared gesture — see selectionGesture.ts).
   const handlePointerDown = (e: any) => {
-    e.stopPropagation();
-    handleSelect?.(item.instanceId);
-    handleDragStart?.(item.instanceId, item.x, item.z);
+    handleItemPointerDown({
+      e,
+      itemId: item.instanceId,
+      isSelected,
+      x: item.x,
+      z: item.z,
+      onSelect: handleSelect,
+      onDragStart: handleDragStart,
+    });
   };
 
   // Create safe item with validated dimensions (no hook to avoid hook-order issues)
@@ -194,9 +202,10 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   };
 
   return (
-    <group 
-      position={position} 
-      rotation={[0, -THREE.MathUtils.degToRad(item.rotation || 0), 0]} 
+    <group
+      position={position}
+      rotation={[0, -THREE.MathUtils.degToRad(item.rotation || 0), 0]}
+      userData={{ itemId: item.instanceId }}
       onPointerDown={handlePointerDown}
       onDoubleClick={(e) => { e.stopPropagation(); onEdit?.(item.instanceId); }}
       onPointerOver={() => setHovered(true)} 

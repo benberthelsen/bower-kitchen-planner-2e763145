@@ -693,6 +693,20 @@ export function UnifiedScene({
   // Auto-fit is handled by <SceneAutoFit/> inside the Canvas, which fires once
   // the camera + OrbitControls are actually ready (and on every view change).
 
+  // Escape: drop any armed drag and clear the selection — a predictable
+  // bail-out when the pointer is over the wrong cabinet.
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      draggedIdSyncRef.current = null;
+      onDragEnd?.();
+      onItemSelect(null);
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [onDragEnd, onItemSelect]);
+
   // Toggle debug overlay with 'D' key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
