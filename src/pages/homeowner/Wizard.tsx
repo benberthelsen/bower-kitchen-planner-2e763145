@@ -7,8 +7,14 @@
 
 import React, { useState, Suspense, useCallback, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { usePlannerHandoff } from '@/hooks/usePlannerHandoff';
-import { handoffToStyleWords, handoffDimensions } from '@/lib/handoffBrief';
+import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff } from '@/hooks/usePlannerHandoff';
+import { handoffToStyleWords } from '@/lib/handoffBrief';
+import {
+  confirmedRoomScanV1Schema,
+  parseLegacyWebsitePlannerHandoff,
+  type CoordinateFrameV1,
+  type RoomScanV1,
+} from '@/lib/roomScan/contract';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck,
 } from 'lucide-react';
@@ -71,7 +77,23 @@ interface WizardState {
   contactName:  string;
   contactEmail: string;
   contactPhone: string;
+  // Scanner handoff context (master plan §5.3/§6.3): the tokenized capability
+  // for atomic submission, the incoming (unconfirmed) scan pre-filling the
+  // editor, and an edit counter that bumps roomRevision on any geometry change.
+  handoffContext?: { handoffId: string; token?: string };
+  incomingScan?: RoomScanV1;
+  geometryEdits: number;
 }
+
+/** Manual wizard entry is already in canonical mm plan coordinates. */
+const IDENTITY_FRAME: CoordinateFrameV1 = {
+  assignment: 'source-orientation',
+  sourcePlanAxes: 'x-z',
+  sourceUnits: 'millimetres',
+  sourceToCanonicalMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  snappedQuarterTurnDegrees: 0,
+  originDescription: 'north-west-corner-in-canonical-plan',
+};
 
 const DEFAULTS: Pick<WizardState, 'roomShape' | 'roomWidth' | 'roomDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId'> = {
   roomShape:   'single-wall',
@@ -562,6 +584,9 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
+  // Durable idempotency key: generated before the first submit attempt and
+  // retained across retries so a lost response never creates two enquiries.
+  const submissionKeyRef = useRef<string>(crypto.randomUUID());
 
   const brief = buildBrief(state);
   const activeSpec: KitchenSpec = {
@@ -605,6 +630,50 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
     }
     setSubmitting(true);
     try {
+      // Build a schema-valid CONFIRMED room scan (master plan §5.3): pressing
+      // "send" IS the person's confirmation of the geometry on screen. Any
+      // edit since an incoming scanner capture bumps the revision.
+      const incoming = state.incomingScan;
+      const roomRevision = incoming
+        ? incoming.roomRevision + (state.geometryEdits > 0 ? 1 : 0)
+        : 1;
+      const now = new Date().toISOString();
+      const scanCandidate = {
+        state: 'confirmed' as const,
+        schemaVersion: 1 as const,
+        source: incoming?.source ?? ('manual' as const),
+        roomRevision,
+        confirmedRevision: roomRevision,
+        coordinateFrame: incoming?.coordinateFrame ?? IDENTITY_FRAME,
+        room: {
+          width: state.roomWidth,
+          depth: state.roomDepth,
+          height: 2700,
+          shape: 'Rectangle' as const,
+          cutoutWidth: 0,
+          cutoutDepth: 0,
+          openings: state.openings,
+          services: state.services,
+        },
+        confidence: incoming?.confidence ?? {
+          overall: 1,
+          fields: {
+            height: 'default' as const,
+            openings: state.openings.length ? ('user-marked' as const) : ('none-captured' as const),
+            services: state.services.length ? ('user-marked' as const) : ('none-captured' as const),
+          },
+        },
+        ...(incoming?.photos ? { photos: incoming.photos } : {}),
+        ...(incoming?.rawArtifacts ? { rawArtifacts: incoming.rawArtifacts } : {}),
+        ...(incoming?.normalizationWarnings ? { normalizationWarnings: incoming.normalizationWarnings } : {}),
+        capturedAt: incoming?.capturedAt ?? now,
+        confirmedAt: now,
+      };
+      // Never block the enquiry on scan validity — an invalid build is a bug,
+      // logged and omitted rather than shipped as trusted geometry.
+      const scanParse = confirmedRoomScanV1Schema.safeParse(scanCandidate);
+      if (!scanParse.success) console.warn('[wizard] roomScan omitted:', scanParse.error.issues[0]);
+
       const designData = {
         wizardVersion: 2,
         roomShape: state.roomShape, roomWidth: state.roomWidth, roomDepth: state.roomDepth,
@@ -615,31 +684,43 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         designName: state.design?.name ?? 'Standard layout',
         aiGenerated: state.design?.aiGenerated ?? false,
         priceBand: { low, high, source: band.isBomBacked ? 'bom' : 'estimator' },
-        roomScan: { source: 'manual', confidence: { overall: 1 }, capturedAt: new Date().toISOString() },
+        ...(scanParse.success ? { roomScan: scanParse.data } : {}),
         buildNotes,
       };
-      const { data: inserted, error } = await supabase.from('jobs').insert([{
-        name: `${state.contactName} – Kitchen Enquiry`,
-        notes: [
-          `Contact: ${state.contactName}`,
-          `Email: ${state.contactEmail}`,
-          state.contactPhone ? `Phone: ${state.contactPhone}` : null,
-          `Kitchen shape: ${state.roomShape}`,
-          `Width: ${(state.roomWidth / 1000).toFixed(1)} m`,
-          `Layout: ${state.layoutStyle}`,
-          `Finish: ${selectedFinish.name}`,
-          `Benchtop: ${selectedBenchtop.name}`,
-          `Handle: ${selectedHandle.name}`,
-          `Estimate: $${low.toLocaleString()} – $${high.toLocaleString()} AUD`,
-        ].filter(Boolean).join('\n'),
-        design_data: designData as any,
-        cost_excl_tax: (low + high) / 2 / 1.1,
-        cost_incl_tax: (low + high) / 2,
-        status: 'enquiry',
-        delivery_method: 'pickup',
-      }]).select('id').single();
+      // Atomic server-side submission (master plan §6.4): one restricted RPC
+      // creates the job and consumes/links the handoff; the browser never
+      // inserts into jobs directly.
+      const { data: submitData, error } = await supabase.functions.invoke('submit-planner-enquiry', {
+        body: {
+          submissionKey: submissionKeyRef.current,
+          ...(state.handoffContext?.token
+            ? { handoffId: state.handoffContext.handoffId, token: state.handoffContext.token }
+            : {}),
+          job: {
+            name: `${state.contactName} – Kitchen Enquiry`,
+            notes: [
+              `Contact: ${state.contactName}`,
+              `Email: ${state.contactEmail}`,
+              state.contactPhone ? `Phone: ${state.contactPhone}` : null,
+              `Kitchen shape: ${state.roomShape}`,
+              `Width: ${(state.roomWidth / 1000).toFixed(1)} m`,
+              `Layout: ${state.layoutStyle}`,
+              `Finish: ${selectedFinish.name}`,
+              `Benchtop: ${selectedBenchtop.name}`,
+              `Handle: ${selectedHandle.name}`,
+              `Estimate: $${low.toLocaleString()} – $${high.toLocaleString()} AUD`,
+            ].filter(Boolean).join('\n'),
+            design_data: designData,
+            cost_excl_tax: (low + high) / 2 / 1.1,
+            cost_incl_tax: (low + high) / 2,
+            status: 'enquiry',
+            delivery_method: 'pickup',
+          },
+        },
+      });
       if (error) throw error;
-      if (inserted?.id) setSubmittedJobId(inserted.id);
+      const jobId = (submitData as { jobId?: string } | null)?.jobId;
+      if (jobId) setSubmittedJobId(jobId);
       trackEvent('quote_requested', { shape: state.roomShape, layout: state.layoutStyle });
 
       // Fire admin alert email (non-blocking — don't fail the submission if email fails)
@@ -825,12 +906,26 @@ export default function HomeownerWizard() {
     design: null,
     doorsOpen: false,
     contactName: '', contactEmail: '', contactPhone: '',
+    geometryEdits: 0,
     ...DEFAULTS,
     ...paramsToState(searchParams),
   }));
 
   const onChange = useCallback((patch: Partial<WizardState>) => {
-    setState(prev => ({ ...prev, ...patch }));
+    setState(prev => {
+      // Any user change to dimensions/openings/services bumps the revision
+      // counter so a previously confirmed capture cannot stay "confirmed"
+      // (master plan §5.3). Handoff application (incomingScan) is exempt.
+      const fromHandoff = 'incomingScan' in patch;
+      const touchesGeometry =
+        !fromHandoff &&
+        (['roomWidth', 'roomDepth', 'openings', 'services'] as const).some(k => k in patch);
+      return {
+        ...prev,
+        ...patch,
+        geometryEdits: touchesGeometry ? prev.geometryEdits + 1 : prev.geometryEdits,
+      };
+    });
   }, []);
 
   // Track wizard start once on mount
@@ -838,24 +933,45 @@ export default function HomeownerWizard() {
     trackEvent('wizard_started');
   }, []);
 
-  // Website flat-lay / design-scope handoff (?handoff=<id>): prefill the room
-  // size and carry the client's chosen finishes + inspiration as styleWords, so
-  // the AI designer builds around what they picked on the website.
+  // Website handoff (?handoff=<id>#handoffToken=<token>): the fragment token
+  // is captured once, stashed in session storage, scrubbed from the URL, and
+  // retrieval goes through the tokenized edge function — anonymous visitors
+  // never read the table (master plan §6.3). Tokenless staff visits fall back
+  // to the direct read permitted by the staff RLS policy.
   const handoffId = searchParams.get('handoff');
-  const { data: handoff } = usePlannerHandoff(handoffId);
+  const [handoffToken] = useState<string | null>(() => captureHandoffToken(handoffId));
+  const tokenized = useTokenizedPlannerHandoff(handoffId, handoffToken);
+  const { data: staffRow } = usePlannerHandoff(handoffToken ? null : handoffId);
+  const handoffPayload = tokenized.data?.payload ?? staffRow?.payload ?? null;
   const handoffApplied = useRef(false);
   useEffect(() => {
-    if (!handoff?.payload || handoffApplied.current) return;
+    if (!handoffPayload || handoffApplied.current || !handoffId) return;
     handoffApplied.current = true;
-    const p = handoff.payload;
-    const dims = handoffDimensions(p);
-    const styleWords = handoffToStyleWords(p);
+    // Defensive parse — legacy v0 payloads normalize; invalid nested capture
+    // data is stripped with issues rather than crashing the wizard.
+    const parsed = parseLegacyWebsitePlannerHandoff(handoffPayload);
+    if (!parsed.ok) return;
+    const h = parsed.handoff;
+    const styleWords = handoffToStyleWords(h);
+    const scan = h.roomScan;
     onChange({
-      ...(dims.widthMm ? { roomWidth: dims.widthMm } : {}),
-      ...(dims.depthMm ? { roomDepth: dims.depthMm } : {}),
+      handoffContext: { handoffId, ...(handoffToken ? { token: handoffToken } : {}) },
+      ...(scan
+        ? {
+            incomingScan: scan,
+            roomWidth: scan.room.width,
+            roomDepth: scan.room.depth,
+            openings: scan.room.openings,
+            services: scan.room.services,
+          }
+        : {
+            ...(h.dimensions?.widthMm ? { roomWidth: h.dimensions.widthMm } : {}),
+            ...(h.dimensions?.depthMm ? { roomDepth: h.dimensions.depthMm } : {}),
+          }),
       ...(styleWords ? { styleWords } : {}),
     });
-  }, [handoff, onChange]);
+    if (scan) toast.success('Room scan loaded — please check the room details.');
+  }, [handoffPayload, handoffId, handoffToken, onChange]);
 
   // Sync design state to URL whenever it changes (not contact info)
   useEffect(() => {

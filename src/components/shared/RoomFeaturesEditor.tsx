@@ -43,8 +43,10 @@ const OPENING_KINDS: { id: Opening['type']; label: string; color: string; defaul
 
 const SERVICE_KINDS: { id: ServicePoint['type']; label: string; color: string; defaultHeight: number }[] = [
   { id: 'drain', label: 'Sink / drain', color: '#2563eb', defaultHeight: 400 },
+  { id: 'water-supply', label: 'Water supply', color: '#0891b2', defaultHeight: 500 },
   { id: 'gpo', label: 'Power point', color: '#dc2626', defaultHeight: 300 },
   { id: 'gas', label: 'Gas point', color: '#ca8a04', defaultHeight: 250 },
+  { id: 'hood-duct', label: 'Rangehood duct', color: '#7c3aed', defaultHeight: 2100 },
 ];
 
 const WALL_LABELS: Record<WallId, string> = { N: 'back wall', E: 'right wall', S: 'front wall', W: 'left wall' };

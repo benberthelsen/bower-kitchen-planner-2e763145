@@ -9,7 +9,7 @@ import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
 import { TradeJobStatus, TRADE_JOB_STATUS_LABELS, isTradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
-import { usePlannerHandoff, markHandoffConsumed } from '@/hooks/usePlannerHandoff';
+import { usePlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { JobNotes } from '@/components/shared/JobNotes';
 
@@ -185,11 +185,12 @@ export default function JobEditor() {
     return cfg;
   }, [handoffQuery.data, catalogMaterials]);
 
-  // Mark the handoff consumed once loaded (job id is linked after creation).
+  // Loading a handoff never consumes it (master plan §6.3 step 7 / defect
+  // D-3): consumption/linking happens only in handleRoomComplete after the
+  // job actually exists, via the link-trade-handoff function.
   useEffect(() => {
     const row = handoffQuery.data;
     if (row && !row.consumed_at) {
-      void markHandoffConsumed(row.id);
       toast.success('Website design scope loaded — the wizard is pre-filled.');
     }
   }, [handoffQuery.data]);
@@ -314,8 +315,9 @@ export default function JobEditor() {
         return;
       }
       // WS5 loop closure: link the created job back onto the handoff/lead row
-      // so admin Leads can connect lead → job.
-      if (handoffId) void markHandoffConsumed(handoffId, newId);
+      // so admin Leads can connect lead → job. Runs through the authenticated
+      // link_trade_handoff_v1 RPC — direct table updates are RLS-denied.
+      if (handoffId) void linkTradeHandoff(handoffId, newId);
 
       toast.success(`Room "${config.name}" created`);
       navigate(`/trade/job/${newId}/room/${firstRoom.id}/planner`);
