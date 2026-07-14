@@ -1,0 +1,324 @@
+[
+  {
+    "name": "manual-confirmed-rectangle",
+    "kind": "scan",
+    "data": {
+      "state": "confirmed",
+      "schemaVersion": 1,
+      "source": "manual",
+      "roomRevision": 1,
+      "confirmedRevision": 1,
+      "coordinateFrame": {
+        "assignment": "source-orientation",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "millimetres",
+        "sourceToCanonicalMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3600,
+        "depth": 3000,
+        "height": 2700,
+        "shape": "Rectangle",
+        "cutoutWidth": 0,
+        "cutoutDepth": 0,
+        "openings": [
+          { "id": "o-door", "wall": "S", "type": "door", "offsetMm": 100, "widthMm": 870, "swing": "in-left" },
+          { "id": "o-win", "wall": "N", "type": "window", "offsetMm": 1200, "widthMm": 1200, "heightMm": 1200, "sillHeightMm": 900 }
+        ],
+        "services": [
+          { "id": "s-drain", "wall": "N", "type": "drain", "offsetMm": 1800 },
+          { "id": "s-gpo", "wall": "E", "type": "gpo", "offsetMm": 600, "heightMm": 1050 }
+        ]
+      },
+      "confidence": { "overall": 1, "fields": { "height": "measured", "openings": "user-marked", "services": "user-marked" } },
+      "capturedAt": "2026-07-14T00:00:00.000Z",
+      "confirmedAt": "2026-07-14T00:05:00.000Z"
+    }
+  },
+  {
+    "name": "webxr-unconfirmed-rectangle",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "mainWallSourceId": "wall-a",
+        "sourceWallToCanonical": { "wall-a": "N", "wall-b": "E", "wall-c": "S", "wall-d": "W" },
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3600,
+        "depth": 3000,
+        "height": 2700,
+        "shape": "Rectangle",
+        "cutoutWidth": 0,
+        "cutoutDepth": 0,
+        "openings": [
+          { "id": "o-door", "wall": "S", "type": "door", "offsetMm": 100, "widthMm": 870 }
+        ],
+        "services": []
+      },
+      "confidence": {
+        "overall": 0.8,
+        "perWall": { "N": 0.9, "E": 0.8, "S": 0.85, "W": 0.7 },
+        "fields": { "height": "estimated", "openings": "user-marked", "services": "none-captured" }
+      },
+      "normalizationWarnings": ["wall W snapped 2.4 degrees to axis"],
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "webxr-confirmed-rebuilt-after-edit",
+    "kind": "scan",
+    "data": {
+      "state": "confirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 2,
+      "confirmedRevision": 2,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3620,
+        "depth": 3000,
+        "height": 2700,
+        "shape": "Rectangle",
+        "cutoutWidth": 0,
+        "cutoutDepth": 0,
+        "openings": [
+          { "id": "o-door", "wall": "S", "type": "door", "offsetMm": 120, "widthMm": 870, "swing": "in-right" }
+        ],
+        "services": [
+          { "id": "s-water", "wall": "N", "type": "water-supply", "offsetMm": 1700 }
+        ]
+      },
+      "confidence": { "overall": 0.9, "fields": { "height": "measured", "openings": "user-marked", "services": "user-marked" } },
+      "capturedAt": "2026-07-14T01:00:00.000Z",
+      "confirmedAt": "2026-07-14T01:12:00.000Z"
+    }
+  },
+  {
+    "name": "roomplan-unconfirmed-with-structured-artifact",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "roomplan",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "longest-wall",
+        "sourcePlanAxes": "x-y",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [0, -1000, 2800, 1000, 0, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 90,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 4200,
+        "depth": 2800,
+        "height": 2650,
+        "shape": "Rectangle",
+        "cutoutWidth": 0,
+        "cutoutDepth": 0,
+        "openings": [
+          { "id": "rp-door", "wall": "E", "type": "door", "offsetMm": 400, "widthMm": 920 }
+        ],
+        "services": []
+      },
+      "confidence": { "overall": 0.85, "fields": { "height": "measured", "openings": "detected", "services": "none-captured" } },
+      "rawArtifacts": [
+        {
+          "storagePath": "handoffs/8b0c8d10-0000-4000-8000-000000000001/rp-structured.json",
+          "kind": "source-structured",
+          "mediaType": "application/json",
+          "byteSize": 48213,
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        },
+        {
+          "storagePath": "handoffs/8b0c8d10-0000-4000-8000-000000000001/rp-visual.usdz",
+          "kind": "visualization",
+          "mediaType": "model/vnd.usdz+zip",
+          "byteSize": 5242880,
+          "sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+        }
+      ],
+      "capturedAt": "2026-07-14T02:00:00.000Z"
+    }
+  },
+  {
+    "name": "cubicasa-unconfirmed-sample",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "cubicasa",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "longest-wall",
+        "sourcePlanAxes": "x-y",
+        "sourceUnits": "millimetres",
+        "sourceToCanonicalMatrix": [1, 0, -150, 0, 1, -80, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3800,
+        "depth": 3200,
+        "height": 2400,
+        "shape": "Rectangle",
+        "cutoutWidth": 0,
+        "cutoutDepth": 0,
+        "openings": [
+          { "id": "cc-door", "wall": "W", "type": "door", "offsetMm": 300, "widthMm": 820 },
+          { "id": "cc-win", "wall": "N", "type": "window", "offsetMm": 900, "widthMm": 1500, "heightMm": 1200, "sillHeightMm": 900 }
+        ],
+        "services": []
+      },
+      "confidence": { "overall": 0.75, "fields": { "height": "estimated", "openings": "detected", "services": "none-captured" } },
+      "normalizationWarnings": ["vendor polygon deviated 14mm from bounding rectangle"],
+      "capturedAt": "2026-07-14T03:00:00.000Z"
+    }
+  },
+  {
+    "name": "draft-photos-only",
+    "kind": "draft",
+    "data": {
+      "schemaVersion": 1,
+      "state": "draft",
+      "source": "manual",
+      "photos": [
+        {
+          "storagePath": "handoffs/8b0c8d10-0000-4000-8000-000000000002/kitchen-1.jpg",
+          "mediaType": "image/jpeg",
+          "byteSize": 2400000,
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "tag": "general"
+        }
+      ],
+      "notes": "Customer photos from the quote form; no measurements yet.",
+      "capturedAt": "2026-07-14T04:00:00.000Z"
+    }
+  },
+  {
+    "name": "draft-abandoned-partial-corners",
+    "kind": "draft",
+    "data": {
+      "schemaVersion": 1,
+      "state": "draft",
+      "source": "webxr",
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "photos": [],
+      "partialGeometry": {
+        "cornersMm": [
+          { "x": 0, "z": 0 },
+          { "x": 3600, "z": 0 },
+          { "x": 3600, "z": 3000 }
+        ],
+        "closureComplete": false
+      },
+      "adapterState": { "step": "corners", "cornerCount": 3 },
+      "capturedAt": "2026-07-14T05:00:00.000Z"
+    }
+  },
+  {
+    "name": "handoff-v1-dimensions-only",
+    "kind": "handoff",
+    "data": {
+      "handoffSchemaVersion": 1,
+      "source": "website",
+      "roomType": "kitchen",
+      "dimensions": { "widthMm": 3600, "depthMm": 3000 },
+      "styleTags": ["coastal", "light oak"],
+      "materials": { "mainCabinet": "Prime Oak", "benchtop": "Meganite Alabaster" },
+      "notes": "prefers drawers over doors"
+    }
+  },
+  {
+    "name": "handoff-v1-with-unconfirmed-scan",
+    "kind": "handoff",
+    "data": {
+      "handoffSchemaVersion": 1,
+      "source": "scanner",
+      "roomType": "kitchen",
+      "styleTags": [],
+      "materials": {},
+      "roomScan": {
+        "state": "unconfirmed",
+        "schemaVersion": 1,
+        "source": "webxr",
+        "roomRevision": 1,
+        "coordinateFrame": {
+          "assignment": "user-main-wall",
+          "sourcePlanAxes": "x-z",
+          "sourceUnits": "metres",
+          "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+          "snappedQuarterTurnDegrees": 0,
+          "originDescription": "north-west-corner-in-canonical-plan"
+        },
+        "room": {
+          "width": 3600,
+          "depth": 3000,
+          "height": 2700,
+          "shape": "Rectangle",
+          "cutoutWidth": 0,
+          "cutoutDepth": 0,
+          "openings": [],
+          "services": []
+        },
+        "confidence": { "overall": 0.8 },
+        "capturedAt": "2026-07-14T01:00:00.000Z"
+      }
+    }
+  },
+  {
+    "name": "legacy-handoff-no-scan",
+    "kind": "legacy",
+    "expect": { "hasScan": false, "hasDraft": false },
+    "data": {
+      "source": "design_scope_builder",
+      "roomType": "kitchen",
+      "dimensions": { "widthMm": 3600, "depthMm": 3000 },
+      "styleTags": ["hamptons"],
+      "materials": { "mainCabinet": "Polar White", "hardware": "Brushed brass" },
+      "notes": "from the flat-lay page"
+    }
+  },
+  {
+    "name": "legacy-invalid-partial-scan-stamp",
+    "kind": "legacy",
+    "expect": { "hasScan": false, "hasDraft": false, "strippedScan": true },
+    "data": {
+      "source": "website",
+      "roomType": "kitchen",
+      "styleTags": [],
+      "materials": {},
+      "roomScan": {
+        "source": "manual",
+        "confidence": { "overall": 1 },
+        "capturedAt": "2026-07-01T00:00:00.000Z"
+      }
+    }
+  }
+]

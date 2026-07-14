@@ -1,0 +1,419 @@
+[
+  {
+    "name": "scan-missing-schema-version",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-non-integer-units",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600.5, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-opening-overflow",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0,
+        "openings": [{ "id": "o1", "wall": "N", "type": "window", "offsetMm": 3000, "widthMm": 1200 }],
+        "services": []
+      },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-duplicate-feature-ids",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0,
+        "openings": [{ "id": "dup", "wall": "N", "type": "door", "offsetMm": 100, "widthMm": 870 }],
+        "services": [{ "id": "dup", "wall": "S", "type": "gpo", "offsetMm": 500 }]
+      },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-invalid-vertical-sill-plus-height",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": {
+        "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0,
+        "openings": [{ "id": "w1", "wall": "N", "type": "window", "offsetMm": 500, "widthMm": 1200, "heightMm": 1200, "sillHeightMm": 2000 }],
+        "services": []
+      },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-confidence-out-of-range",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 1.5 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-lshape-rejected",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "LShape", "cutoutWidth": 900, "cutoutDepth": 900, "openings": [], "services": [] },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-negative-determinant-mirror",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, -1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 0.8 },
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "draft-canonical-corners-without-frame",
+    "kind": "draft",
+    "data": {
+      "schemaVersion": 1,
+      "state": "draft",
+      "source": "webxr",
+      "photos": [],
+      "partialGeometry": {
+        "cornersMm": [{ "x": 0, "z": 0 }, { "x": 3600, "z": 0 }],
+        "closureComplete": false
+      },
+      "capturedAt": "2026-07-14T05:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-confirmed-without-confirmedAt",
+    "kind": "scan",
+    "data": {
+      "state": "confirmed",
+      "schemaVersion": 1,
+      "source": "manual",
+      "roomRevision": 1,
+      "confirmedRevision": 1,
+      "coordinateFrame": {
+        "assignment": "source-orientation",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "millimetres",
+        "sourceToCanonicalMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 1 },
+      "capturedAt": "2026-07-14T00:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-unconfirmed-with-confirmedAt",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "manual",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "source-orientation",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "millimetres",
+        "sourceToCanonicalMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 1 },
+      "capturedAt": "2026-07-14T00:00:00.000Z",
+      "confirmedAt": "2026-07-14T00:05:00.000Z"
+    }
+  },
+  {
+    "name": "scan-confirmedAt-before-capturedAt",
+    "kind": "scan",
+    "data": {
+      "state": "confirmed",
+      "schemaVersion": 1,
+      "source": "manual",
+      "roomRevision": 1,
+      "confirmedRevision": 1,
+      "coordinateFrame": {
+        "assignment": "source-orientation",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "millimetres",
+        "sourceToCanonicalMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 1 },
+      "capturedAt": "2026-07-14T00:10:00.000Z",
+      "confirmedAt": "2026-07-14T00:05:00.000Z"
+    }
+  },
+  {
+    "name": "scan-revision-mismatch",
+    "kind": "scan",
+    "data": {
+      "state": "confirmed",
+      "schemaVersion": 1,
+      "source": "manual",
+      "roomRevision": 3,
+      "confirmedRevision": 2,
+      "coordinateFrame": {
+        "assignment": "source-orientation",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "millimetres",
+        "sourceToCanonicalMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 1 },
+      "capturedAt": "2026-07-14T00:00:00.000Z",
+      "confirmedAt": "2026-07-14T00:05:00.000Z"
+    }
+  },
+  {
+    "name": "handoff-missing-version-strict",
+    "kind": "handoff",
+    "data": {
+      "source": "website",
+      "roomType": "kitchen",
+      "styleTags": [],
+      "materials": {}
+    }
+  },
+  {
+    "name": "handoff-dual-capture",
+    "kind": "handoff",
+    "data": {
+      "handoffSchemaVersion": 1,
+      "source": "scanner",
+      "roomType": "kitchen",
+      "styleTags": [],
+      "materials": {},
+      "roomScan": {
+        "state": "unconfirmed",
+        "schemaVersion": 1,
+        "source": "webxr",
+        "roomRevision": 1,
+        "coordinateFrame": {
+          "assignment": "user-main-wall",
+          "sourcePlanAxes": "x-z",
+          "sourceUnits": "metres",
+          "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+          "snappedQuarterTurnDegrees": 0,
+          "originDescription": "north-west-corner-in-canonical-plan"
+        },
+        "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+        "confidence": { "overall": 0.8 },
+        "capturedAt": "2026-07-14T01:00:00.000Z"
+      },
+      "roomCaptureDraft": {
+        "schemaVersion": 1,
+        "state": "draft",
+        "source": "manual",
+        "photos": [],
+        "notes": "also a draft",
+        "capturedAt": "2026-07-14T01:00:00.000Z"
+      }
+    }
+  },
+  {
+    "name": "handoff-capture-plus-conflicting-dimensions",
+    "kind": "handoff",
+    "data": {
+      "handoffSchemaVersion": 1,
+      "source": "scanner",
+      "roomType": "kitchen",
+      "dimensions": { "widthMm": 4000 },
+      "styleTags": [],
+      "materials": {},
+      "roomScan": {
+        "state": "unconfirmed",
+        "schemaVersion": 1,
+        "source": "webxr",
+        "roomRevision": 1,
+        "coordinateFrame": {
+          "assignment": "user-main-wall",
+          "sourcePlanAxes": "x-z",
+          "sourceUnits": "metres",
+          "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+          "snappedQuarterTurnDegrees": 0,
+          "originDescription": "north-west-corner-in-canonical-plan"
+        },
+        "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+        "confidence": { "overall": 0.8 },
+        "capturedAt": "2026-07-14T01:00:00.000Z"
+      }
+    }
+  },
+  {
+    "name": "scan-persisted-signed-url",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "webxr",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "user-main-wall",
+        "sourcePlanAxes": "x-z",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [1000, 0, 0, 0, 1000, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 0,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 0.8 },
+      "photos": [
+        {
+          "storagePath": "https://ehtwywctledgkxexztbh.supabase.co/storage/v1/object/sign/room-captures/x.jpg?token=abc123",
+          "mediaType": "image/jpeg",
+          "byteSize": 100000,
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      ],
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  },
+  {
+    "name": "scan-heic-photo-rejected",
+    "kind": "scan",
+    "data": {
+      "state": "unconfirmed",
+      "schemaVersion": 1,
+      "source": "roomplan",
+      "roomRevision": 1,
+      "coordinateFrame": {
+        "assignment": "longest-wall",
+        "sourcePlanAxes": "x-y",
+        "sourceUnits": "metres",
+        "sourceToCanonicalMatrix": [0, -1000, 3000, 1000, 0, 0, 0, 0, 1],
+        "snappedQuarterTurnDegrees": 90,
+        "originDescription": "north-west-corner-in-canonical-plan"
+      },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "Rectangle", "cutoutWidth": 0, "cutoutDepth": 0, "openings": [], "services": [] },
+      "confidence": { "overall": 0.8 },
+      "photos": [
+        {
+          "storagePath": "handoffs/8b0c8d10-0000-4000-8000-000000000003/photo.heic",
+          "mediaType": "image/heic",
+          "byteSize": 100000,
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      ],
+      "capturedAt": "2026-07-14T01:00:00.000Z"
+    }
+  }
+]

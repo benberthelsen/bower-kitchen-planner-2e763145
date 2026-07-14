@@ -16,8 +16,12 @@
     "pricing:build": "esbuild scripts/pricing-smoke-entry.ts --bundle --format=esm --outfile=.tmp-snap-test/pricing.mjs \"--alias:@=./src\" --platform=node",
     "pricing:smoke": "npm run pricing:build && node scripts/pricing-smoke.mjs",
     "pricing:runthrough": "npm run pricing:build && node scripts/pricing-runthrough.mjs",
-    "ai:sync-shared": "node scripts/sync-ai-shared.mjs",
-    "ai:sweep": "node scripts/ai-planner-sweep.mjs"
+    "ai:sync-shared": "node scripts/sync-ai-shared.mjs && node scripts/sync-room-scan-contract.mjs",
+    "ai:sweep": "node scripts/ai-planner-sweep.mjs",
+    "roomscan:test": "esbuild src/lib/roomScan/contract.ts --bundle --format=esm --outfile=.tmp-snap-test/roomscan.mjs --platform=node && node scripts/roomscan-smoke.mjs",
+    "roomscan:compat": "tsc --noEmit -p tsconfig.roomscan.json",
+    "roomscan:sync": "node scripts/sync-room-scan-contract.mjs",
+    "roomscan:check": "node scripts/check-room-scan-contract.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
