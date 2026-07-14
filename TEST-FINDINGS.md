@@ -48,6 +48,14 @@ defaults in code cover localhost dev only.
   planner, plan-view PDF export, admin Leads linkage after a submitted enquiry, legacy
   job load. The underlying paths are covered by unit/E2E suites; this is UI confirmation.
 
+### F-5 · Room-feature measurement fields untypeable (reported by Ben) — DEFECT, FIXED
+The detail-panel inputs committed on every keystroke, and the setters clamp
+(e.g. width `Math.max(200, v)`): typing "9" became 200, further digits appended to the
+clamped value ("920" → 20020), and clearing the field snapped to 0. Pre-existing editor
+behaviour, surfaced by trade QA. Fixed in RoomFeaturesEditor: `NumField` now edits a
+local draft and commits the clamped value on blur/Enter. Verified live in the trade
+Features step (870 → 920 types cleanly).
+
 ## Environment notes
 - Use bun (not npm) for installs in both repos; npm fights the bun lockfile (broke
   esbuild mid-pass — recovered with `bun add`).

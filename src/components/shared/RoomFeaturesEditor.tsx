@@ -61,6 +61,50 @@ let seq = 1;
 const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${seq++}`;
 const snap = (v: number, step = 10) => Math.round(v / step) * step;
 
+/**
+ * Numeric field that edits a LOCAL DRAFT and commits on blur/Enter. Committing
+ * per keystroke fought the setters' clamping (typing "9" into a min-200 field
+ * became 200, then digits appended → garbage) and made clearing impossible
+ * (Number('') = 0). The clamped/validated value only lands when editing ends.
+ */
+function NumField({
+  label, value, onCommit, min, max, step,
+}: {
+  label: string;
+  value: number | undefined;
+  onCommit: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number(draft);
+    if (draft.trim() !== '' && Number.isFinite(n)) onCommit(n);
+    setDraft(null); // fall back to the (clamped) prop value
+  };
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-slate-500">{label}</Label>
+      <Input
+        type="number" inputMode="numeric"
+        min={min ?? 0} max={max} step={step ?? 10}
+        value={draft ?? (value ?? '')}
+        onChange={e => setDraft(e.target.value)}
+        onFocus={() => setDraft(value != null ? String(value) : '')}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+        className="h-8 text-sm"
+      />
+    </div>
+  );
+}
+
 const VIEW = 300;
 const PAD = 34;
 
@@ -220,16 +264,7 @@ export function RoomFeaturesEditor({ widthMm, depthMm, openings, services, onCha
     label: string, value: number | undefined, set: (v: number) => void,
     opts: { min?: number; max?: number; step?: number } = {},
   ) => (
-    <div className="space-y-1">
-      <Label className="text-xs text-slate-500">{label}</Label>
-      <Input
-        type="number" inputMode="numeric"
-        min={opts.min ?? 0} max={opts.max} step={opts.step ?? 10}
-        value={value ?? ''}
-        onChange={e => set(Number(e.target.value))}
-        className="h-8 text-sm"
-      />
-    </div>
+    <NumField key={`${selectedId}-${label}`} label={label} value={value} onCommit={set} {...opts} />
   );
 
   return (
