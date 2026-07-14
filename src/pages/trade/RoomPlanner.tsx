@@ -21,7 +21,7 @@ import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
 import { PlacedItem } from '@/types';
 import { defaultCornerArmDepth, STANDARD_CORNER_ARM_DEPTH } from '@/lib/cornerDefaults';
-import { calculateSnapPosition } from '@/utils/snapping';
+import { calculateSnapPosition, findAutoWallPlacement } from '@/utils/snapping';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { exportPlanViewPdf } from '@/lib/planViewPdf';
 import { computeOpeningWarnings } from '@/lib/trade/openingWarnings';
@@ -366,14 +366,37 @@ export default function RoomPlanner() {
       : null;
     const defaultDepth = roomCarcaseDepth ?? catalogItem.defaultDepth ?? 580;
 
-    let rawPosition = calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
-
     const category = catalogItem.itemType === 'Appliance'
       ? 'Appliance'
       : catalogItem.renderConfig?.category
         || getCategoryFromSpecGroup(catalogItem.specGroup)
         || catalogItem.category
         || 'Base';
+
+    // Refine F-6: new cabinets back onto the nearest wall with a free run
+    // (opening-aware, level-aware) instead of free-floating mid-room. Falls
+    // back to the legacy row placement only when every wall is full.
+    const autoObstacles = cabinets
+      .filter((c) => c.isPlaced && c.position)
+      .map((c) => ({
+        x: c.position!.x,
+        z: c.position!.z,
+        rotation: c.position!.rotation,
+        width: c.dimensions.width,
+        depth: c.dimensions.depth,
+        blocksFloor: c.category !== 'Wall',
+        blocksWall: c.category === 'Wall' || c.category === 'Tall',
+      }));
+    const auto = findAutoWallPlacement({
+      room: currentRoom.config,
+      width: defaultWidth,
+      depth: defaultDepth,
+      category: category as 'Base' | 'Wall' | 'Tall' | 'Appliance',
+      obstacles: autoObstacles,
+    });
+    let rawPosition = auto
+      ? { x: auto.x, y: 0, z: auto.z, rotation: auto.rotation }
+      : calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
 
     // Corner cabinets start at the nearest FREE room corner so the snapping
     // engine nests them into it with the correct rotation (doors facing the

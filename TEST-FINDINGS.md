@@ -56,6 +56,38 @@ behaviour, surfaced by trade QA. Fixed in RoomFeaturesEditor: `NumField` now edi
 local draft and commits the clamped value on blur/Enter. Verified live in the trade
 Features step (870 → 920 types cleanly).
 
+## Refine backlog from Ben's trade QA (2026-07-14)
+
+### F-6 · Cabinets don't back onto walls by default — DEFECT/UX
+Adding from the catalog places the cabinet free-floating; wall snap only engages when a
+drag brings the back within 200mm (`WALL_SNAP_THRESHOLD`). Fix path: on add, auto-snap to
+the nearest wall with free run (base/tall/wall categories), keeping drag-snap as-is;
+consider raising the drag threshold to ~300mm.
+
+### F-7 · Cabinet movement feels clunky — UX
+Drag uses snap hysteresis (200 engage / 350 release) with hard position jumps and no
+preview. Fix path: ghost/preview outline with snap guides before commit, smaller snap
+jump animation, and pointer-plane tuning. Needs an iteration session with Ben driving.
+
+### F-8 · Corner cabinets should sit with both backs against both walls — DEFECT/UX
+Corner nesting logic exists (CORNER_SNAP_THRESHOLD 300, solid corner nests by rotation)
+but only triggers within 300mm of BOTH walls and doesn't run on initial placement. Fix
+path: same auto-snap-on-add for corner products (choose nearest corner), verify arm
+depths leave no wall gap, widen trigger.
+
+### F-9 · Room features editor looks basic / not intuitive — UX REDESIGN
+Works functionally (post F-5) but needs: to-scale feature sizing on the diagram,
+dimension labels while dragging, clearer wall hit targets, icons on chips, maybe an
+onboarding hint. Schedule as a design pass with Ben's input rather than a code-only fix.
+
+### F-10 · Doors/windows/power points need better 3D detail — 3D POLISH
+Current 3D: flat colored panels (openings) and small colored cubes (services). Fix path:
+modeled door leaf + architrave with swing direction, framed window with glazing +
+mullions, GPO faceplates, cooktop gas symbol; reuse across homeowner + trade scenes.
+
+Suggested refine run order: F-6 + F-8 (same subsystem, biggest quoting impact) → F-7 →
+F-10 → F-9 (design session first).
+
 ## Environment notes
 - Use bun (not npm) for installs in both repos; npm fights the bun lockfile (broke
   esbuild mid-pass — recovered with `bun add`).

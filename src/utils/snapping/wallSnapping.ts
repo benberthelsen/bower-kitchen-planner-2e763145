@@ -4,7 +4,9 @@ import { getEffectiveDimensions } from './bounds';
 
 export const WALL_SNAP_THRESHOLD = 200; // mm - distance from cabinet edge to wall to trigger snap
 export const WALL_RELEASE_THRESHOLD = 350; // mm - hysteresis to release from wall
-export const CORNER_SNAP_THRESHOLD = 300; // mm - distance from cabinet edge to trigger corner snap
+// Refine F-8: widened from 300 so dragged corner units seat into the corner
+// (both backs against both walls) without pixel-perfect aim.
+export const CORNER_SNAP_THRESHOLD = 450; // mm - distance from cabinet edge to trigger corner snap
 
 /**
  * Calculate distance from cabinet edge to each wall and determine snap info
