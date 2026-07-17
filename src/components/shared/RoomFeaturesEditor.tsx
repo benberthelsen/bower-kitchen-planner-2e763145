@@ -16,7 +16,10 @@
  */
 
 import React, { useRef, useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import {
+  AppWindow, DoorOpen, Droplet, Droplets, Fan, Flame, MoveHorizontal, Trash2, X, Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,6 +28,11 @@ import type { Opening, ServicePoint, WallId } from '@/types';
 
 type FeatureKind = Opening['type'] | ServicePoint['type'];
 
+/** Cabinet layout preference — drawn as shaded runs so the diagram responds
+ *  to the user's layout selection (visual feedback only; room geometry is
+ *  separate from cabinet strategy per the implementation plan §9.2). */
+export type CabinetLayoutPreview = 'single-wall' | 'l-shape' | 'u-shape' | 'galley';
+
 interface Props {
   /** room size in mm */
   widthMm: number;
@@ -32,21 +40,25 @@ interface Props {
   openings: Opening[];
   services: ServicePoint[];
   onChange: (patch: { openings?: Opening[]; services?: ServicePoint[] }) => void;
+  /** when provided, the selected cabinet layout is sketched into the diagram */
+  cabinetLayout?: CabinetLayoutPreview;
+  /** hide the built-in heading when the host page provides its own */
+  showHeading?: boolean;
   className?: string;
 }
 
-const OPENING_KINDS: { id: Opening['type']; label: string; color: string; defaults: Partial<Opening> }[] = [
-  { id: 'door', label: 'Door', color: '#b45309', defaults: { widthMm: 870, heightMm: 2040, swing: 'in-left' } },
-  { id: 'window', label: 'Window', color: '#0369a1', defaults: { widthMm: 1200, heightMm: 1200, sillHeightMm: 900 } },
-  { id: 'walkway', label: 'Open walkway', color: '#a1a1aa', defaults: { widthMm: 1200 } },
+const OPENING_KINDS: { id: Opening['type']; label: string; color: string; icon: LucideIcon; defaults: Partial<Opening> }[] = [
+  { id: 'door', label: 'Door', color: '#b45309', icon: DoorOpen, defaults: { widthMm: 870, heightMm: 2040, swing: 'in-left' } },
+  { id: 'window', label: 'Window', color: '#0369a1', icon: AppWindow, defaults: { widthMm: 1200, heightMm: 1200, sillHeightMm: 900 } },
+  { id: 'walkway', label: 'Walkway', color: '#a1a1aa', icon: MoveHorizontal, defaults: { widthMm: 1200 } },
 ];
 
-const SERVICE_KINDS: { id: ServicePoint['type']; label: string; color: string; defaultHeight: number }[] = [
-  { id: 'drain', label: 'Sink / drain', color: '#2563eb', defaultHeight: 400 },
-  { id: 'water-supply', label: 'Water supply', color: '#0891b2', defaultHeight: 500 },
-  { id: 'gpo', label: 'Power point', color: '#dc2626', defaultHeight: 300 },
-  { id: 'gas', label: 'Gas point', color: '#ca8a04', defaultHeight: 250 },
-  { id: 'hood-duct', label: 'Rangehood duct', color: '#7c3aed', defaultHeight: 2100 },
+const SERVICE_KINDS: { id: ServicePoint['type']; label: string; color: string; icon: LucideIcon; defaultHeight: number }[] = [
+  { id: 'drain', label: 'Sink / drain', color: '#2563eb', icon: Droplet, defaultHeight: 400 },
+  { id: 'water-supply', label: 'Water', color: '#0891b2', icon: Droplets, defaultHeight: 500 },
+  { id: 'gpo', label: 'Power', color: '#dc2626', icon: Zap, defaultHeight: 300 },
+  { id: 'gas', label: 'Gas', color: '#ca8a04', icon: Flame, defaultHeight: 250 },
+  { id: 'hood-duct', label: 'Rangehood', color: '#7c3aed', icon: Fan, defaultHeight: 2100 },
 ];
 
 const WALL_LABELS: Record<WallId, string> = { N: 'back wall', E: 'right wall', S: 'front wall', W: 'left wall' };
@@ -108,7 +120,7 @@ function NumField({
 const VIEW = 300;
 const PAD = 34;
 
-export function RoomFeaturesEditor({ widthMm, depthMm, openings, services, onChange, className }: Props) {
+export function RoomFeaturesEditor({ widthMm, depthMm, openings, services, onChange, cabinetLayout, showHeading = true, className }: Props) {
   const [mode, setMode] = useState<FeatureKind>('door');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const dragRef = useRef<{ id: string; kind: 'opening' | 'service'; moved: boolean } | null>(null);
@@ -269,29 +281,49 @@ export function RoomFeaturesEditor({ widthMm, depthMm, openings, services, onCha
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div>
-        <p className="text-sm font-medium text-slate-900">Doors, windows &amp; connections</p>
-        <p className="text-xs text-slate-500">
-          Pick a feature and tap the wall where it sits — then drag it to fine-tune, or tap it to
-          edit exact measurements. This keeps the sink near your plumbing and doorways clear.
-        </p>
-      </div>
+      {showHeading && (
+        <div>
+          <p className="text-sm font-medium text-slate-900">Doors, windows &amp; connections</p>
+          <p className="text-xs text-slate-500">
+            Pick a feature and tap the wall where it sits — then drag it to fine-tune, or tap it to
+            edit exact measurements. This keeps the sink near your plumbing and doorways clear.
+          </p>
+        </div>
+      )}
 
-      {/* mode picker */}
-      <div className="flex flex-wrap gap-1.5">
-        {[...OPENING_KINDS, ...SERVICE_KINDS].map(k => (
-          <button
-            key={k.id}
-            type="button"
-            onClick={() => setMode(k.id as FeatureKind)}
-            className={cn(
-              'px-2.5 py-1 rounded-full border text-xs flex items-center gap-1.5 transition-colors',
-              mode === k.id ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-400',
-            )}
-          >
-            <span className="w-2 h-2 rounded-full" style={{ background: (k as { color: string }).color }} />
-            {k.label}
-          </button>
+      {/* mode picker — grouped, icon-led, thumb-sized */}
+      <div className="space-y-2">
+        {([
+          { heading: 'Openings', kinds: OPENING_KINDS },
+          { heading: 'Plumbing & power', kinds: SERVICE_KINDS },
+        ] as const).map(group => (
+          <div key={group.heading}>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 mb-1.5">{group.heading}</p>
+            <div className="flex flex-wrap gap-2">
+              {group.kinds.map(k => {
+                const active = mode === k.id;
+                const Icon = k.icon;
+                return (
+                  <button
+                    key={k.id}
+                    type="button"
+                    onClick={() => setMode(k.id as FeatureKind)}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-xs font-medium transition-all',
+                      active
+                        ? 'text-white shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+                    )}
+                    style={active ? { background: k.color, borderColor: k.color } : undefined}
+                    aria-pressed={active}
+                  >
+                    <Icon className="w-4 h-4" style={active ? undefined : { color: k.color }} />
+                    {k.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ))}
       </div>
 
@@ -308,6 +340,46 @@ export function RoomFeaturesEditor({ widthMm, depthMm, openings, services, onCha
         aria-label="Room diagram — tap a wall to add the selected feature; drag features to move them"
       >
         <rect x={x0} y={y0} width={rw} height={rd} fill="white" stroke="#0f172a" strokeWidth={3} />
+
+        {/* cabinet layout preview — updates live with the layout selection */}
+        {cabinetLayout && (() => {
+          const benchDepth = Math.min(600 * scale, Math.min(rw, rd) * 0.28);
+          const runs: { x: number; y: number; w: number; h: number }[] = [];
+          const inset = 3;
+          if (cabinetLayout === 'single-wall' || cabinetLayout === 'l-shape' || cabinetLayout === 'u-shape' || cabinetLayout === 'galley') {
+            runs.push({ x: x0 + inset, y: y0 + inset, w: rw - inset * 2, h: benchDepth }); // back wall
+          }
+          if (cabinetLayout === 'l-shape' || cabinetLayout === 'u-shape') {
+            runs.push({ x: x0 + inset, y: y0 + inset, w: benchDepth, h: rd - inset * 2 }); // left wall
+          }
+          if (cabinetLayout === 'u-shape') {
+            runs.push({ x: x0 + rw - inset - benchDepth, y: y0 + inset, w: benchDepth, h: rd - inset * 2 }); // right wall
+          }
+          if (cabinetLayout === 'galley') {
+            runs.push({ x: x0 + inset, y: y0 + rd - inset - benchDepth, w: rw - inset * 2, h: benchDepth }); // front wall
+          }
+          return (
+            <g pointerEvents="none">
+              {runs.map((r, i) => (
+                <rect
+                  key={i}
+                  x={r.x} y={r.y} width={r.w} height={r.h} rx={3}
+                  fill="#d6c9b6" opacity={0.55}
+                  stroke="#a89880" strokeWidth={1} strokeDasharray="4 3"
+                />
+              ))}
+              <text
+                x={x0 + inset + 6}
+                y={y0 + inset + benchDepth / 2 + 3}
+                fontSize={8}
+                fill="#8a7a62"
+              >
+                cabinets
+              </text>
+            </g>
+          );
+        })()}
+
         <text x={VIEW / 2} y={y0 - 12} textAnchor="middle" fontSize={10} fill="#64748b">
           Back · {(widthMm / 1000).toFixed(1)}m
         </text>

@@ -17,7 +17,7 @@ import {
   type RoomScanV1,
 } from '@/lib/roomScan/contract';
 import {
-  Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck,
+  Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, Sparkles,
 } from 'lucide-react';
 import { trackEvent } from '@/lib/analytics';
 import { Button } from '@/components/ui/button';
@@ -82,6 +82,10 @@ interface WizardState {
   contactName:  string;
   contactEmail: string;
   contactPhone: string;
+  /** Lead gate (pipeline capture): set once contact details are collected at
+   *  the entry to the Design step — after the user has invested in room +
+   *  cooking answers, before AI designs and prices are revealed. */
+  leadGateDone: boolean;
   // Scanner handoff context (master plan §5.3/§6.3): the tokenized capability
   // for atomic submission, the incoming (unconfirmed) scan pre-filling the
   // editor, and an edit counter that bumps roomRevision on any geometry change.
@@ -309,39 +313,53 @@ function ShareButton({ state }: { state: WizardState }) {
 
 // ─── Shape icons ────────────────────────────────────────────────────────────────
 
+/** Stylised mini floor-plan for each cabinet layout: soft room outline, warm
+ *  timber benchtop runs with rounded ends, and a subtle floor wash. */
 function ShapeIcon({ shape, selected }: { shape: LayoutPreference; selected: boolean }) {
-  const s = selected ? '#0f172a' : '#94a3b8';
-  const icons: Record<LayoutPreference, JSX.Element> = {
-    'single-wall': (
-      <svg viewBox="0 0 60 40" className="w-10 h-7 sm:w-12 sm:h-8">
-        <rect x="4" y="22" width="52" height="10" rx="2" fill={s} />
-        <rect x="4" y="6"  width="52" height="8"  rx="2" fill={s} opacity="0.35" />
-      </svg>
-    ),
+  const bench = selected ? '#b08d57' : '#cbbba2';
+  const benchEdge = selected ? '#8a6d3f' : '#b3a488';
+  const floor = selected ? '#f8f5f0' : '#fafafa';
+  const wall = selected ? '#0f172a' : '#cbd5e1';
+
+  const Run = (p: { x: number; y: number; w: number; h: number }) => (
+    <rect x={p.x} y={p.y} width={p.w} height={p.h} rx={4}
+      fill={bench} stroke={benchEdge} strokeWidth={1} />
+  );
+
+  const runs: Record<LayoutPreference, JSX.Element> = {
+    'single-wall': <Run x={10} y={10} w={44} h={11} />,
     'l-shape': (
-      <svg viewBox="0 0 60 60" className="w-10 h-10 sm:w-12 sm:h-12">
-        <rect x="4"  y="4"  width="52" height="10" rx="2" fill={s} />
-        <rect x="4"  y="4"  width="10" height="52" rx="2" fill={s} />
-        <rect x="4"  y="34" width="52" height="10" rx="2" fill={s} opacity="0.3" />
-        <rect x="34" y="4"  width="10" height="52" rx="2" fill={s} opacity="0.3" />
-      </svg>
+      <>
+        <Run x={10} y={10} w={44} h={11} />
+        <Run x={10} y={10} w={11} h={44} />
+      </>
     ),
     'u-shape': (
-      <svg viewBox="0 0 60 60" className="w-10 h-10 sm:w-12 sm:h-12">
-        <rect x="4"  y="4"  width="52" height="10" rx="2" fill={s} />
-        <rect x="4"  y="4"  width="10" height="52" rx="2" fill={s} />
-        <rect x="46" y="4"  width="10" height="52" rx="2" fill={s} />
-        <rect x="4"  y="34" width="52" height="10" rx="2" fill={s} opacity="0.3" />
-      </svg>
+      <>
+        <Run x={10} y={10} w={44} h={11} />
+        <Run x={10} y={10} w={11} h={44} />
+        <Run x={43} y={10} w={11} h={44} />
+      </>
     ),
     galley: (
-      <svg viewBox="0 0 60 60" className="w-10 h-10 sm:w-12 sm:h-12">
-        <rect x="4" y="6"  width="52" height="10" rx="2" fill={s} />
-        <rect x="4" y="44" width="52" height="10" rx="2" fill={s} />
-      </svg>
+      <>
+        <Run x={10} y={10} w={44} h={11} />
+        <Run x={10} y={43} w={44} h={11} />
+      </>
     ),
   };
-  return <div className={cn('rounded-md p-1', selected && 'bg-slate-100')}>{icons[shape]}</div>;
+
+  return (
+    <svg viewBox="0 0 64 64" className="w-16 h-16 sm:w-20 sm:h-20">
+      {/* floor */}
+      <rect x={6} y={6} width={52} height={52} rx={6} fill={floor} />
+      {/* benchtop runs */}
+      {runs[shape]}
+      {/* room outline drawn last so runs tuck under the walls */}
+      <rect x={6} y={6} width={52} height={52} rx={6}
+        fill="none" stroke={wall} strokeWidth={selected ? 2.5 : 1.5} />
+    </svg>
+  );
 }
 
 // ─── Step 1: Room ───────────────────────────────────────────────────────────────
@@ -382,13 +400,25 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
     toast.success('Suggested room details applied. Check them, then continue to confirm.');
   };
 
-  return (
-    <div className="space-y-6 sm:space-y-8">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">Which cabinet layout do you prefer?</h2>
-        <p className="text-sm text-slate-500">This is your preferred cabinet strategy. Your measured room stays unchanged.</p>
+  const Section = ({ n, title, subtitle, children }: {
+    n: number; title: string; subtitle: string; children: React.ReactNode;
+  }) => (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+      <div className="flex items-start gap-3 mb-4 sm:mb-5">
+        <span className="flex-shrink-0 w-7 h-7 rounded-full bg-slate-900 text-white text-sm font-semibold flex items-center justify-center">
+          {n}
+        </span>
+        <div>
+          <h2 className="text-base sm:text-lg font-semibold text-slate-900 leading-tight">{title}</h2>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>
+        </div>
       </div>
+      {children}
+    </section>
+  );
 
+  return (
+    <div className="space-y-4 sm:space-y-5">
       {pending && (
         <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3" role="status">
           <div>
@@ -405,93 +435,105 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-        {shapes.map(({ id, label, desc }) => (
-          <button
-            key={id}
-            onClick={() => onChange({ layoutPreference: id })}
-            className={cn(
-              'flex flex-col items-center gap-2 p-3 sm:p-4 rounded-xl border-2 text-center transition-all',
-              state.layoutPreference === id
-                ? 'border-slate-900 bg-slate-50'
-                : 'border-slate-200 hover:border-slate-300 bg-white',
-            )}
-          >
-            <ShapeIcon shape={id} selected={state.layoutPreference === id} />
-            <div>
-              <p className="text-xs sm:text-sm font-medium text-slate-900 leading-tight">{label}</p>
-              <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">{desc}</p>
-            </div>
-          </button>
-        ))}
-      </div>
+      <Section n={1} title="Your room" subtitle="Rough sizes are fine to start — scan with your phone or type them in.">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="room-width">
+              Room width <span className="text-slate-400 font-normal">(mm)</span>
+            </Label>
+            <Input
+              id="room-width"
+              type="number"
+              inputMode="numeric"
+              min={1200}
+              max={8000}
+              step={100}
+              value={state.roomWidth}
+              onChange={e => onChange({ roomWidth: Number(e.target.value) })}
+            />
+            <p className="text-xs text-slate-400">
+              {(state.roomWidth / 1000).toFixed(1)} m · typically 2.4–6 m
+            </p>
+          </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-        <div className="space-y-2">
-          <Label htmlFor="room-width">
-            Room width <span className="text-slate-400 font-normal">(mm)</span>
-          </Label>
-          <Input
-            id="room-width"
-            type="number"
-            inputMode="numeric"
-            min={1200}
-            max={8000}
-            step={100}
-            value={state.roomWidth}
-            onChange={e => onChange({ roomWidth: Number(e.target.value) })}
-          />
-          <p className="text-xs text-slate-400">
-            {(state.roomWidth / 1000).toFixed(1)} m · typically 2.4–6 m
-          </p>
+          <div className="space-y-2">
+            <Label htmlFor="room-depth">
+              Room depth <span className="text-slate-400 font-normal">(mm)</span>
+            </Label>
+            <Input
+              id="room-depth"
+              type="number"
+              inputMode="numeric"
+              min={1200}
+              max={6000}
+              step={100}
+              value={state.roomDepth}
+              onChange={e => onChange({ roomDepth: Number(e.target.value) })}
+            />
+            <p className="text-xs text-slate-400">{(state.roomDepth / 1000).toFixed(1)} m</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="room-height">
+              Ceiling height <span className="text-slate-400 font-normal">(mm)</span>
+            </Label>
+            <Input
+              id="room-height"
+              type="number"
+              inputMode="numeric"
+              min={2100}
+              max={4000}
+              step={50}
+              value={state.roomHeight}
+              onChange={e => onChange({ roomHeight: Number(e.target.value) })}
+            />
+            <p className="text-xs text-slate-400">{(state.roomHeight / 1000).toFixed(2)} m</p>
+          </div>
         </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="room-depth">
-            Room depth <span className="text-slate-400 font-normal">(mm)</span>
-          </Label>
-          <Input
-            id="room-depth"
-            type="number"
-            inputMode="numeric"
-            min={1200}
-            max={6000}
-            step={100}
-            value={state.roomDepth}
-            onChange={e => onChange({ roomDepth: Number(e.target.value) })}
-          />
-          <p className="text-xs text-slate-400">{(state.roomDepth / 1000).toFixed(1)} m</p>
+        <div className="mt-4">
+          <ScanRoomEntry />
         </div>
+      </Section>
 
-        <div className="space-y-2">
-          <Label htmlFor="room-height">
-            Ceiling height <span className="text-slate-400 font-normal">(mm)</span>
-          </Label>
-          <Input
-            id="room-height"
-            type="number"
-            inputMode="numeric"
-            min={2100}
-            max={4000}
-            step={50}
-            value={state.roomHeight}
-            onChange={e => onChange({ roomHeight: Number(e.target.value) })}
-          />
-          <p className="text-xs text-slate-400">{(state.roomHeight / 1000).toFixed(2)} m</p>
+      <Section n={2} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+          {shapes.map(({ id, label, desc }) => (
+            <button
+              key={id}
+              onClick={() => onChange({ layoutPreference: id })}
+              className={cn(
+                'group flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-2xl border-2 text-center transition-all',
+                state.layoutPreference === id
+                  ? 'border-slate-900 bg-gradient-to-b from-slate-50 to-white shadow-sm'
+                  : 'border-slate-200 hover:border-slate-300 hover:shadow-sm bg-white',
+              )}
+            >
+              <ShapeIcon shape={id} selected={state.layoutPreference === id} />
+              <div>
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 leading-tight">{label}</p>
+                <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 hidden sm:block">{desc}</p>
+              </div>
+              {state.layoutPreference === id && (
+                <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Selected
+                </span>
+              )}
+            </button>
+          ))}
         </div>
-      </div>
+      </Section>
 
-      <ScanRoomEntry />
-
-      <div className="pt-5 border-t border-slate-100">
+      <Section n={3} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
         <RoomFeaturesEditor
           widthMm={state.roomWidth}
           depthMm={state.roomDepth}
           openings={state.openings}
           services={state.services}
+          cabinetLayout={state.layoutPreference}
+          showHeading={false}
           onChange={p => onChange(p)}
         />
-      </div>
+      </Section>
     </div>
   );
 }
@@ -1028,6 +1070,89 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   );
 }
 
+// ─── Lead gate ──────────────────────────────────────────────────────────────────
+// Pipeline capture at the moment of maximum investment: the user has entered
+// their room and how they cook; the AI designs + price band are the payoff.
+// Contact details unlock the payoff and prefill the final Review step.
+
+function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void }) {
+  const [name, setName]   = useState(state.contactName);
+  const [email, setEmail] = useState(state.contactEmail);
+  const [phone, setPhone] = useState(state.contactPhone);
+  const [touched, setTouched] = useState(false);
+
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+  const nameValid = name.trim().length >= 2;
+  const canUnlock = nameValid && emailValid;
+
+  const unlock = () => {
+    setTouched(true);
+    if (!canUnlock) return;
+    trackEvent('lead_captured', {
+      stage: 'design-gate',
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim() || undefined,
+      shape: state.layoutPreference,
+    });
+    onChange({
+      contactName: name.trim(),
+      contactEmail: email.trim(),
+      contactPhone: phone.trim(),
+      leadGateDone: true,
+    });
+  };
+
+  return (
+    <div className="max-w-lg mx-auto">
+      <div className="text-center mb-8">
+        <div className="w-14 h-14 mx-auto rounded-full bg-slate-900 text-white flex items-center justify-center mb-4">
+          <Sparkles className="w-7 h-7" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-900">Your kitchen designs are ready to build</h2>
+        <p className="mt-3 text-slate-500 text-sm sm:text-base">
+          We've got your room and how you cook. Tell us where to send your three AI-designed
+          layouts and price estimate — then watch them appear.
+        </p>
+      </div>
+
+      <div className="space-y-4 bg-slate-50 border border-slate-100 rounded-xl p-5 sm:p-6">
+        <div className="space-y-1.5">
+          <Label htmlFor="lg-name">Your name <span className="text-red-500">*</span></Label>
+          <Input id="lg-name" placeholder="Jane Smith" value={name}
+            onChange={e => setName(e.target.value)} autoComplete="name" />
+          {touched && !nameValid && <p className="text-xs text-red-500">Please enter your name.</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="lg-email">Email <span className="text-red-500">*</span></Label>
+          <Input id="lg-email" type="email" placeholder="jane@example.com" value={email}
+            onChange={e => setEmail(e.target.value)} autoComplete="email" />
+          {touched && !emailValid && <p className="text-xs text-red-500">Please enter a valid email address.</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="lg-phone">Phone <span className="text-slate-400 font-normal">(optional)</span></Label>
+          <Input id="lg-phone" type="tel" placeholder="04xx xxx xxx" value={phone}
+            onChange={e => setPhone(e.target.value)} autoComplete="tel" />
+        </div>
+
+        <Button onClick={unlock} className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white gap-2">
+          <Sparkles className="w-4 h-4" /> Show my designs
+        </Button>
+        <p className="text-xs text-center text-slate-400">
+          No spam — your designs and estimate are saved to this email. Bower will only reach
+          out about this project.
+        </p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-3 gap-3 text-center text-xs text-slate-400">
+        <div>3 AI layouts<br />around your room</div>
+        <div>Walk-around<br />3D preview</div>
+        <div>Instant price<br />estimate</div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main shell ──────────────────────────────────────────────────────────────────
 
 export default function HomeownerWizard() {
@@ -1047,6 +1172,7 @@ export default function HomeownerWizard() {
     design: null,
     doorsOpen: false,
     contactName: '', contactEmail: '', contactPhone: '',
+    leadGateDone: false,
     geometryEdits: 0,
     ...DEFAULTS,
     ...loadSavedWizardState(),
@@ -1218,7 +1344,8 @@ export default function HomeownerWizard() {
 
         {state.step === 1 && <Step1Room state={state} onChange={onChange} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
-        {state.step === 3 && (
+        {state.step === 3 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
+        {state.step === 3 && state.leadGateDone && (
           <StepDesign
             brief={buildBrief(state)}
             shape={state.layoutPreference}
