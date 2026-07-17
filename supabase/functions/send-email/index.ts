@@ -21,6 +21,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { gate, jsonResponse } from '../_shared/roomScan/security.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -84,7 +85,7 @@ function tplNewLead(payload: Record<string, unknown>): { subject: string; html: 
   const address = String(payload.address ?? '—');
   const rooms = String(payload.room_count ?? '1');
   const shape = String(payload.room_shape ?? '—');
-  const adminUrl = String(payload.admin_url ?? 'https://app.bowerkitchens.com.au/admin/leads');
+  const adminUrl = String(payload.admin_url ?? 'https://planner.bowercabinets.com/admin/leads');
 
   return {
     subject: `New Kitchen Enquiry — ${name}`,
@@ -195,38 +196,38 @@ function tplJobStatusChange(payload: Record<string, unknown>): { subject: string
 // ---------------------------------------------------------------------------
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
-  }
+  const gated = gate(req);
+  if (gated) return gated;
 
   try {
-    // Verify auth: accept service role key OR valid user JWT
+    // Authorization (pre-live audit P1.3): recipients used to come straight
+    // from the request payload while ANY logged-in user could call this —
+    // letting a trade customer send Bower-branded email to arbitrary
+    // addresses. Now:
+    //   - service role (other edge functions / pg_cron): any template;
+    //   - Bower staff JWT: quote_confirmed and job_status_change;
+    //   - everyone else: rejected. new_lead is server-initiated only.
     const authHeader = req.headers.get('authorization') ?? '';
     const token = authHeader.replace(/^Bearer\s+/i, '');
     const supabaseUrl = env('SUPABASE_URL');
     const serviceRoleKey = env('SUPABASE_SERVICE_ROLE_KEY');
 
-    let authed = false;
+    let isService = false;
+    let isStaff = false;
     if (token === serviceRoleKey) {
-      authed = true;
-    } else {
-      const client = createClient(supabaseUrl, env('SUPABASE_ANON_KEY'), {
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
-      const { data: { user } } = await client.auth.getUser();
-      authed = !!user;
+      isService = true;
+    } else if (token) {
+      const service = createClient(supabaseUrl, serviceRoleKey);
+      const { data: userData } = await service.auth.getUser(token);
+      const userId = userData?.user?.id;
+      if (userId) {
+        const { data: staff } = await service.rpc('is_bower_staff', { p_user: userId });
+        isStaff = staff === true;
+      }
     }
 
-    if (!authed) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!isService && !isStaff) {
+      return jsonResponse(req, 403, { error: 'not_authorized' });
     }
 
     const body: EmailRequest = await req.json();
@@ -238,6 +239,8 @@ serve(async (req: Request) => {
 
     switch (type) {
       case 'new_lead': {
+        // Fixed recipient — never from the payload.
+        if (!isService) return jsonResponse(req, 403, { error: 'not_authorized' });
         to = env('ADMIN_EMAIL');
         ({ subject, html } = tplNewLead(payload));
         break;
@@ -262,14 +265,10 @@ serve(async (req: Request) => {
 
     await sendViaResend({ to, subject, html });
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return jsonResponse(req, 200, { ok: true });
   } catch (err) {
     console.error('[send-email]', err);
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // Generic public error — never echo internals to the caller.
+    return jsonResponse(req, 500, { error: 'email_failed' });
   }
 });

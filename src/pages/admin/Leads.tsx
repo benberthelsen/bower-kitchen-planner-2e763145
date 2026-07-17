@@ -84,20 +84,59 @@ export default function AdminLeads() {
     }
   };
 
+  /** Staff promotion (plan §11.2): the promote-ai-design Edge Function
+   *  recompiles + validates the customer's design server-side and writes real
+   *  design_data.tradeRooms — not just a status flip. */
   const convertToJob = async (lead: Lead) => {
     setConvertingId(lead.id);
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ status: 'draft' })
-        .eq('id', lead.id);
-
-      if (error) throw error;
-      toast.success('Lead converted to job');
+      const { data, error } = await supabase.functions.invoke('promote-ai-design', {
+        body: { jobId: lead.id },
+      });
+      if (error) {
+        // FunctionsHttpError carries the response; surface the server's code.
+        let code = 'promote_failed';
+        let detail: { violations?: Array<{ message?: string }> } = {};
+        const ctx = (error as { context?: Response }).context;
+        if (ctx && typeof ctx.json === 'function') {
+          try {
+            const body = await ctx.json();
+            code = body?.error ?? code;
+            detail = body ?? {};
+          } catch { /* keep generic code */ }
+        }
+        const messages: Record<string, string> = {
+          not_authorized: 'You need Bower staff access to promote a lead.',
+          invalid_job_status: 'This lead has already been converted or is no longer an enquiry.',
+          unconfirmed_room: 'This lead has no confirmed room — it cannot be promoted to editable cabinets.',
+          invalid_spec: 'The stored design is not a valid kitchen spec — open the lead and regenerate the design.',
+          proposal_mismatch: 'The submitted design does not match the server-validated proposal — do not promote it.',
+          concept_blockers: `The design has blocking geometry errors and cannot be promoted${
+            detail.violations?.length ? `: ${detail.violations.map(v => v.message).join('; ')}` : '.'}`,
+        };
+        toast.error(messages[code] ?? 'Promotion failed. Check the function logs and try again.');
+        return;
+      }
+      const res = data as {
+        tradeRoomId?: string;
+        cabinetCount?: number | null;
+        alreadyPromoted?: boolean;
+        quoteWarnings?: string[];
+      } | null;
+      if (res?.alreadyPromoted) {
+        toast.info('Lead was already promoted — its draft job and cabinets are unchanged.');
+      } else {
+        const warnings = res?.quoteWarnings?.length
+          ? ` ${res.quoteWarnings.length} warning${res.quoteWarnings.length === 1 ? '' : 's'} to review before quoting.`
+          : '';
+        toast.success(
+          `Lead promoted to a draft job with ${res?.cabinetCount ?? 0} editable cabinets.${warnings}`,
+        );
+      }
       loadLeads();
     } catch (err) {
       console.error(err);
-      toast.error('Conversion failed');
+      toast.error('Promotion failed. Please try again.');
     } finally {
       setConvertingId(null);
     }
@@ -216,7 +255,7 @@ export default function AdminLeads() {
                           className="text-xs h-8"
                         >
                           <CheckSquare className="w-3.5 h-3.5 mr-1" />
-                          {convertingId === lead.id ? 'Converting…' : 'Convert to Job'}
+                          {convertingId === lead.id ? 'Promoting…' : 'Promote to Job'}
                         </Button>
                         <Link to={`/admin/jobs/${lead.id}`}>
                           <Button size="sm" variant="ghost" className="text-xs h-8">

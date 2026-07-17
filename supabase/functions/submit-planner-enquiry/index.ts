@@ -118,6 +118,44 @@ serve(async (req) => {
     return errorResponse(req, 500, 'submit_failed');
   }
 
+  // Admin new-lead alert, server-initiated with the service role (pre-live
+  // audit P1.2: the old client-side call always failed with 401 because
+  // anonymous wizard visitors have no user JWT). Never blocks the submission —
+  // the lead is already durable in jobs.
+  const result = data as { jobId?: string; idempotentReplay?: boolean } | null;
+  if (result?.jobId && !result.idempotentReplay) {
+    try {
+      const notes = validJob.notes ?? '';
+      const grab = (label: string) =>
+        notes.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1]?.trim() ?? '';
+      const dd = (validJob.design_data ?? {}) as Record<string, unknown>;
+      const origin = req.headers.get('Origin');
+      const emailResp = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'new_lead',
+          payload: {
+            contact_name: grab('Contact') || validJob.name,
+            contact_email: grab('Email'),
+            contact_phone: grab('Phone') || undefined,
+            room_shape: typeof dd.layoutPreference === 'string' ? dd.layoutPreference : undefined,
+            room_count: 1,
+            ...(origin ? { admin_url: `${origin}/admin/leads` } : {}),
+          },
+        }),
+      });
+      if (!emailResp.ok) {
+        console.error('[submit-planner-enquiry] new_lead email failed', emailResp.status);
+      }
+    } catch (err) {
+      console.error('[submit-planner-enquiry] new_lead email error', String(err).slice(0, 200));
+    }
+  }
+
   logOutcome('submit-planner-enquiry', rid, 'ok', started);
   return jsonResponse(req, 200, data);
 });

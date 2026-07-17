@@ -143,6 +143,43 @@ function stateToParams(s: WizardState): URLSearchParams {
   return p;
 }
 
+// ─── Session persistence ────────────────────────────────────────────────────────
+// Mobile browsers aggressively reload background tabs; without this a tester
+// who scans a room, switches apps, and comes back loses everything (pre-live
+// audit item 4). Tab-scoped (sessionStorage), 24 h freshness cap, cleared on
+// successful submission. URL params still win over restored state.
+
+export const WIZARD_STATE_KEY = 'bower.wizard.state.v2';
+const WIZARD_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function loadSavedWizardState(): Partial<WizardState> {
+  try {
+    const raw = sessionStorage.getItem(WIZARD_STATE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as { v?: number; savedAt?: number; state?: WizardState };
+    if (parsed?.v !== 2 || typeof parsed.savedAt !== 'number'
+      || Date.now() - parsed.savedAt > WIZARD_STATE_MAX_AGE_MS
+      || typeof parsed.state !== 'object' || parsed.state === null
+      || typeof parsed.state.step !== 'number') {
+      sessionStorage.removeItem(WIZARD_STATE_KEY);
+      return {};
+    }
+    return parsed.state;
+  } catch {
+    return {};
+  }
+}
+
+export function saveWizardState(state: WizardState): void {
+  try {
+    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 2, savedAt: Date.now(), state }));
+  } catch { /* storage full or unavailable — persistence is best-effort */ }
+}
+
+export function clearSavedWizardState(): void {
+  try { sessionStorage.removeItem(WIZARD_STATE_KEY); } catch { /* ignore */ }
+}
+
 function paramsToState(p: URLSearchParams): Partial<WizardState> {
   const out: Partial<WizardState> = {};
   if (p.has('s'))  out.layoutPreference = CODE_SHAPES[p.get('s')!] ?? DEFAULTS.layoutPreference;
@@ -782,6 +819,9 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         spec: activeSpec,
         designName: state.design?.name ?? 'Standard layout',
         aiGenerated: state.design?.aiGenerated ?? false,
+        // Server-side proposal lineage: staff promotion (promote-ai-design)
+        // verifies the submitted spec against this stored proposal row.
+        aiProposalId: state.design?.proposalId ?? null,
         priceBand: { low, high, source: band.isBomBacked ? 'bom' : 'estimator' },
         roomScan: scanParse.data,
         buildNotes,
@@ -822,21 +862,12 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       if (jobId) setSubmittedJobId(jobId);
       trackEvent('quote_requested', { shape: state.layoutPreference, layout: state.layoutStyle });
 
-      // Fire admin alert email (non-blocking — don't fail the submission if email fails)
-      supabase.functions.invoke('send-email', {
-        body: {
-          type: 'new_lead',
-          payload: {
-            contact_name: state.contactName,
-            contact_email: state.contactEmail,
-            contact_phone: state.contactPhone || undefined,
-            room_shape: state.layoutPreference,
-            room_count: 1,
-            admin_url: `${window.location.origin}/admin/leads`,
-          },
-        },
-      }).catch((e: unknown) => console.warn('[send-email] new_lead failed:', e));
+      // The admin new-lead alert email is sent server-side by
+      // submit-planner-enquiry with the service role — an anonymous browser
+      // call could never authenticate (pre-live audit P1.2).
 
+      // A completed enquiry ends the session — don't restore it on reload.
+      clearSavedWizardState();
       setSubmitted(true);
       toast.success("Quote request sent! We'll be in touch soon.");
     } catch (err) {
@@ -1002,7 +1033,9 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
 export default function HomeownerWizard() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Initialise from URL params on first mount
+  // Initialise from defaults ← saved session (mobile reload survival) ← URL
+  // params. URL params win: they are synced FROM state, so on a plain reload
+  // they agree with the saved copy, and an explicit deep link still applies.
   const [state, setState] = useState<WizardState>(() => ({
     step: 1,
     openings: [],
@@ -1016,8 +1049,12 @@ export default function HomeownerWizard() {
     contactName: '', contactEmail: '', contactPhone: '',
     geometryEdits: 0,
     ...DEFAULTS,
+    ...loadSavedWizardState(),
     ...paramsToState(searchParams),
   }));
+
+  // Persist every change for the life of the tab (cleared on submit).
+  useEffect(() => { saveWizardState(state); }, [state]);
 
   const onChange = useCallback((patch: Partial<WizardState>) => {
     setState(prev => {

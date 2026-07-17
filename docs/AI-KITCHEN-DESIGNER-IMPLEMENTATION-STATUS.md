@@ -1,9 +1,46 @@
 # AI Kitchen Designer Implementation Status
 
-**Date:** 2026-07-14  
+**Date:** 2026-07-15  
 **Plan:** `AI-KITCHEN-DESIGNER-SCANNER-IMPLEMENTATION-PLAN.md` Revision 5  
-**Current milestone:** D0 safety repairs and D1 persistence foundation complete locally  
+**Current milestone:** D0 safety repairs, D1 persistence foundation and the §11.2 staff
+promotion path (`promote-ai-design`) complete locally  
 **Deployment:** Not deployed or production-smoke-tested by this work
+
+## 0. 2026-07-15 checkpoint — staff-only promotion path (§11.2)
+
+Completed locally:
+
+- New `supabase/functions/promote-ai-design` Edge Function: staff JWT verified against
+  `public.is_bower_staff`; loads the enquiry job; re-validates the confirmed room scan with
+  the full Zod schema; when `design_data.aiProposalId` is present, loads the persisted
+  proposal row and requires the submitted spec's canonical fingerprint to match the
+  server-stored spec (the stored proposal wins); recompiles and validates server-side;
+  error-severity violations stop promotion; converts through the shared §11.1
+  `proposalToTradeRoom` adapter; reprices with current pricing and records the diff against
+  the customer's original band; records concept-pass / quote-pending / production-pending
+  readiness (quote never passes while the catalogue role map is provisional).
+- New migration `20260715090000_promote_ai_design.sql`: restricted `promote_ai_design_v1`
+  RPC (service_role only) re-verifies staff, locks the job row, requires status `enquiry`
+  with no existing `tradeRooms`, writes `design_data.tradeRooms` + `aiPromotion` lineage
+  atomically (original customer spec/items/priceBand/roomScan retained for audit), sets the
+  job to draft only, replays idempotently, marks the stored proposal `promoted` and links
+  its designer session to the job.
+- `scripts/sync-ai-shared.mjs` now also mirrors `src/types/trade.ts` and
+  `src/lib/trade/{cabinetPlacedItem,proposalToTradeRoom}.ts` into
+  `supabase/functions/_shared/trade/` so the Edge Function and client round-trip tests share
+  one conversion.
+- Admin Leads `convertToJob` now calls `promote-ai-design` instead of flipping
+  `jobs.status`, and surfaces server error codes (unconfirmed room, concept blockers,
+  proposal mismatch, not staff) plus cabinet count and quote-warning count on success.
+- The wizard submission now records `design_data.aiProposalId` so new leads carry
+  server-verifiable proposal lineage. Older leads without lineage still promote through the
+  recompile-and-validate path.
+
+Verified locally: trade-adapter round-trip smoke (8 checks) and a promotion-pipeline smoke
+(stored-spec reparse, brief-less validation, repricing, conversion, wire-format for
+`useTradeJobPersistence`) pass; the function and generated shared modules transpile clean.
+Not yet done: migration applied to staging, function deployed, authenticated end-to-end
+promote test (deploy commands below in the pending list).
 
 ## 1. Completed Locally
 

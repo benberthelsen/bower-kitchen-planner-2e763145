@@ -382,7 +382,24 @@ serve(async (req) => {
       return errorResponse(req, 500, 'designer_not_configured');
     }
 
-    if (rateLimited(`ai-designer:${await ipKey(req)}`, 20)) {
+    const service = createClient(supabaseUrl, serviceKey);
+
+    // Durable shared rate limit (fixed hourly window in Postgres) with the
+    // per-instance limiter retained as a fast path / fallback. The key is the
+    // day-salted pseudonymous IP hash — raw IPs never leave the function.
+    const rateKey = `ai-designer:${await ipKey(req)}`;
+    let throttled = rateLimited(rateKey, 20);
+    if (!throttled) {
+      const { data: allowed, error: rateError } = await service
+        .rpc('bump_edge_rate_limit_v1', { p_key: rateKey, p_limit: 20, p_window_seconds: 3600 });
+      if (rateError) {
+        // Fail open to the in-memory limiter, but record the degradation.
+        console.error('[ai-designer] durable rate limit unavailable', rateError.message);
+      } else if (allowed === false) {
+        throttled = true;
+      }
+    }
+    if (throttled) {
       logOutcome('ai-designer', requestId, 'throttled', started);
       return errorResponse(req, 429, 'rate_limited');
     }
@@ -396,7 +413,6 @@ serve(async (req) => {
     }
     const request = requestParsed.data;
     const { mode, shape, currentSpec, message, history, brief } = request;
-    const service = createClient(supabaseUrl, serviceKey);
     const persistence = await preparePersistenceContext(service, request);
 
     // Conversation state. The confirmed room remains immutable for the entire
@@ -430,6 +446,10 @@ serve(async (req) => {
           tools: TOOLS,
           tool_choice: 'required',
           parallel_tool_calls: false,
+          // gpt-5.6 models reject function tools on /v1/chat/completions
+          // unless reasoning is disabled (verified live 2026-07-16). Remove
+          // when the §8.3 Responses-API migration lands.
+          reasoning_effort: 'none',
           messages,
         }),
       });
