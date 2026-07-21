@@ -81,6 +81,9 @@ exports.designBriefSchema = zod_1.z.object({
     island: zod_1.z.enum(['want', 'no', 'if-it-fits']),
     styleWords: zod_1.z.string().max(500).optional(),
     budgetBand: zod_1.z.enum(['value', 'mid', 'premium']).optional(),
+    // Wizard wall picker — without this line zod strips the field and the
+    // edge function would silently ignore the customer's wall choices.
+    allowedWalls: zod_1.z.array(exports.wallSchema).max(4).optional(),
 });
 exports.segmentRoleSchema = zod_1.z.enum([
     'sink', 'cooktop', 'dishwasher', 'drawers', 'doors',

@@ -8,6 +8,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FIXED_WIDTH_ROLES = exports.FRIDGE_TOP_ID = exports.RANGEHOOD_ID = exports.WALL_CAB = exports.ROLE_PRODUCTS = void 0;
 exports.resolveDefinition = resolveDefinition;
+exports.resolveCornerVariant = resolveCornerVariant;
 exports.ROLE_PRODUCTS = {
     sink: { definitionId: 'sink_base_2_door', widths: [900, 800, 600], kind: 'base', priceWeight: 620 },
     cooktop: { definitionId: 'base_2_door', widths: [900, 600], kind: 'base', priceWeight: 560 },
@@ -28,6 +29,14 @@ function resolveDefinition(role, widthMm) {
     if (role === 'drawers' && widthMm <= 450)
         return 'base_3_drawer';
     return exports.ROLE_PRODUCTS[role].definitionId;
+}
+/**
+ * Blind-corner variant by which side of the cabinet (as seen from the room,
+ * i.e. in wall-offset terms: low-t = Left) faces the corner. The blind panel
+ * must be on the corner side so the doors open clear of the adjacent run.
+ */
+function resolveCornerVariant(blindSide) {
+    return blindSide === 'Left' ? 'base_corner_blind_left' : 'base_corner_blind_right';
 }
 /** Wall-cabinet fill products (above base runs). */
 exports.WALL_CAB = { definitionId: 'wall_2_door', narrowId: 'wall_1_door', widths: [900, 600, 450, 300] };

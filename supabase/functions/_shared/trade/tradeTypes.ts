@@ -61,6 +61,8 @@ export interface CabinetConstruction {
   toeKickHeight?: number;       // mm — overrides room default (MV: Toe Kick Height)
   leftFillerWidth?: number;     // mm (MV: Left Filler Width)
   rightFillerWidth?: number;    // mm (MV: Right Filler Width)
+  endPanelLeft?: boolean;       // finished panel on the cabinet's local left end
+  endPanelRight?: boolean;      // finished panel on the cabinet's local right end
   blindSide?: 'Left' | 'Right'; // blind corner orientation
   hingeSide?: 'Left' | 'Right'; // door hinging
   frontType?: 'PieCut' | 'Angled'; // corner front style (MV: PieCut/Angled Front)

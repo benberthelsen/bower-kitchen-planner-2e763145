@@ -188,8 +188,11 @@ export default function JobEditor() {
       cfg.roomWidth = scan.room.width;
       cfg.roomDepth = scan.room.depth;
       cfg.roomHeight = scan.room.height;
-      cfg.openings = scan.room.openings;
-      cfg.services = scan.room.services;
+      // parseLegacyWebsitePlannerHandoff has already runtime-validated these
+      // against the canonical scanner contract. The app-facing types are kept
+      // compile-checked in roomScan/compat-test.ts under strict mode.
+      cfg.openings = scan.room.openings as RoomConfig['openings'];
+      cfg.services = scan.room.services as RoomConfig['services'];
     } else {
       if (p.dimensions?.widthMm) cfg.roomWidth = p.dimensions.widthMm;
       if (p.dimensions?.depthMm) cfg.roomDepth = p.dimensions.depthMm;

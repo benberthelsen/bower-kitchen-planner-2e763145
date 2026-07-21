@@ -15,6 +15,7 @@
 
 import type { GlobalDimensions, PlacedItem, RoomConfig } from '../layout/core.ts';
 import type {
+  CabinetConstruction,
   ConfiguredCabinet,
   RoomHardwareDefaults,
   RoomMaterialDefaults,
@@ -102,6 +103,16 @@ export function proposalToTradeRoom(
     const category = item.itemType === 'Appliance'
       ? 'Appliance' as const
       : categoryForDefinition(item.definitionId);
+    const construction: CabinetConstruction = {
+      ...(item.fillerLeft ? { leftFillerWidth: item.fillerLeft } : {}),
+      ...(item.fillerRight ? { rightFillerWidth: item.fillerRight } : {}),
+      ...(item.endPanelLeft ? { endPanelLeft: true } : {}),
+      ...(item.endPanelRight ? { endPanelRight: true } : {}),
+      ...(item.blindSide ? { blindSide: item.blindSide } : {}),
+      ...(item.hinge ? { hingeSide: item.hinge } : {}),
+      ...(item.drawerFrontHeights ? { drawerFrontHeights: [...item.drawerFrontHeights] } : {}),
+      ...(category === 'Appliance' ? { topRail: true } : {}),
+    };
     return {
       instanceId: item.instanceId,
       definitionId: item.definitionId,
@@ -131,7 +142,7 @@ export function proposalToTradeRoom(
         softCloseUpgrade: false,
         specialFittings: [],
       },
-      ...(category === 'Appliance' ? { construction: { topRail: true } } : {}),
+      ...(Object.keys(construction).length ? { construction } : {}),
       position: { x: item.x, y: item.y, z: item.z, rotation: item.rotation },
       isPlaced: true,
       createdAt: now,

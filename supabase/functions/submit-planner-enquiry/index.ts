@@ -57,7 +57,24 @@ serve(async (req) => {
   const gated = gate(req);
   if (gated) return gated;
 
-  if (rateLimited(`submit:${await ipKey(req)}`, 20)) {
+  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const rateKey = `submit-planner-enquiry:${await ipKey(req)}`;
+  let throttled = rateLimited(rateKey, 20);
+  if (!throttled) {
+    const { data: allowed, error: rateError } = await service.rpc('bump_edge_rate_limit_v1', {
+      p_key: rateKey,
+      p_limit: 20,
+      p_window_seconds: 3600,
+    });
+    if (rateError) {
+      // Keep the per-instance limiter as a fail-open fallback, but make the
+      // loss of distributed protection visible in edge logs.
+      console.error('[submit-planner-enquiry] durable rate limit unavailable', rateError.message);
+    } else if (allowed === false) {
+      throttled = true;
+    }
+  }
+  if (throttled) {
     logOutcome('submit-planner-enquiry', rid, 'throttled', started);
     return errorResponse(req, 429, 'rate_limited');
   }
@@ -89,7 +106,6 @@ serve(async (req) => {
   const fingerprint = await fingerprintV1({ job: validJob, handoffId: (handoffId as string) ?? null });
   const tokenHash = typeof token === 'string' ? await sha256Hex(token) : null;
 
-  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data, error } = await service.rpc('submit_planner_enquiry_v1', {
     p_submission_key: submissionKey,
     p_fingerprint: fingerprint,
@@ -129,7 +145,10 @@ serve(async (req) => {
       const grab = (label: string) =>
         notes.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1]?.trim() ?? '';
       const dd = (validJob.design_data ?? {}) as Record<string, unknown>;
-      const origin = req.headers.get('Origin');
+      // Do NOT pass an admin_url derived from the request Origin — a direct
+      // caller can forge it into a phishing link inside the staff email
+      // (release blocker 6.4). send-email derives the admin link server-side
+      // from PLANNER_ADMIN_URL, host-restricted.
       const emailResp = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
         headers: {
@@ -144,7 +163,6 @@ serve(async (req) => {
             contact_phone: grab('Phone') || undefined,
             room_shape: typeof dd.layoutPreference === 'string' ? dd.layoutPreference : undefined,
             room_count: 1,
-            ...(origin ? { admin_url: `${origin}/admin/leads` } : {}),
           },
         }),
       });

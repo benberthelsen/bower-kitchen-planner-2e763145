@@ -10,6 +10,7 @@
  * sorted; no timestamps or randomness.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAPPED_VIOLATION_CODES = void 0;
 exports.evaluateKitchenRules = evaluateKitchenRules;
 exports.hasConceptBlocker = hasConceptBlocker;
 exports.quoteBlockers = quoteBlockers;
@@ -19,14 +20,19 @@ const rulePack_1 = require("./rulePack");
 const VIOLATION_RULES = {
     'out-of-room': { ruleId: 'KRN-ROOM-001', stage: 'concept', severity: 'blocker' },
     'overlap': { ruleId: 'KRN-ROOM-001', stage: 'concept', severity: 'blocker' },
+    'faces-wall': { ruleId: 'KRN-FACE-001', stage: 'concept', severity: 'blocker' },
     'narrow-aisle': { ruleId: 'KRN-AISLE-001', stage: 'concept', severity: 'blocker' },
     'narrow-galley': { ruleId: 'KRN-AISLE-001', stage: 'concept', severity: 'blocker' },
     'door-swing': { ruleId: 'KRN-OPEN-001', stage: 'concept', severity: 'warning' },
+    'doorway-tight': { ruleId: 'KRN-OPEN-002', stage: 'concept', severity: 'warning' },
     'no-sink': { ruleId: 'KRN-APPL-001', stage: 'concept', severity: 'blocker' },
     'no-dishwasher': { ruleId: 'KRN-APPL-001', stage: 'concept', severity: 'warning' },
     'no-fridge': { ruleId: 'KRN-APPL-001', stage: 'concept', severity: 'blocker' },
     'no-cooktop': { ruleId: 'KRN-APPL-001', stage: 'concept', severity: 'blocker' },
+    'appliance-gap-fit': { ruleId: 'KRN-APPL-002', stage: 'quote', severity: 'warning' },
     'dishwasher-not-adjacent': { ruleId: 'KRN-DW-001', stage: 'concept', severity: 'blocker' },
+    'corner-integrity': { ruleId: 'KRN-CORNER-001', stage: 'concept', severity: 'warning' },
+    'island-exposed': { ruleId: 'KRN-JOIN-001', stage: 'concept', severity: 'warning' },
     'cooktop-landing': { ruleId: 'KRN-BENCH-001', stage: 'concept', severity: 'warning' },
     'prep-space': { ruleId: 'KRN-BENCH-001', stage: 'concept', severity: 'warning' },
     'replumb': { ruleId: 'KRN-SINK-003', stage: 'quote', severity: 'warning' },
@@ -34,6 +40,10 @@ const VIOLATION_RULES = {
     'triangle-size': { ruleId: 'KRN-FLOW-001', stage: 'concept', severity: 'advisory' },
     'triangle-leg': { ruleId: 'KRN-FLOW-001', stage: 'concept', severity: 'advisory' },
 };
+/** Every engine rule code this policy layer maps. `evaluateDesign` asserts the
+ *  live rule registry (RULE_INDEX) is a subset of these, so a new geometric
+ *  rule can never silently fall through to the generic bucket. */
+exports.MAPPED_VIOLATION_CODES = new Set(Object.keys(VIOLATION_RULES));
 function ruleResult(partial) {
     return { entityIds: [], repairOptions: [], ...partial };
 }

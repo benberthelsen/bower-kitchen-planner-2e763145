@@ -21,7 +21,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { gate, jsonResponse } from '../_shared/roomScan/security.ts';
+import { gate, jsonResponse, readJsonBody } from '../_shared/roomScan/security.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -44,6 +44,42 @@ function env(key: string): string {
   const val = Deno.env.get(key);
   if (!val) throw new Error(`Missing env var: ${key}`);
   return val;
+}
+
+// Bower's canonical host — every link in an email must resolve here (release
+// blocker 6.4: a forged Origin previously injected an arbitrary admin link).
+const BOWER_HOST = 'bowercabinets.com';
+
+/** Escape every payload-derived value before it enters HTML. Customer name,
+ *  email and free text reach these templates unfiltered (via the wizard and,
+ *  for new_lead, a regex over the notes field), so raw interpolation was an
+ *  HTML/email-injection vector. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function plainText(value: unknown, fallback: string, max = 300): string {
+  const text = String(value ?? fallback).replace(/[\r\n]+/g, ' ').trim();
+  return (text || fallback).slice(0, max);
+}
+
+/** Accept only an HTTPS URL on the allowed host; anything else (including a
+ *  forged Origin or a javascript: URL) falls back to a safe default. The
+ *  result is still escaped by the caller before it enters an HTML attribute. */
+function safeUrl(raw: string, fallback: string, hostSuffix = BOWER_HOST): string {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:') return fallback;
+    if (u.hostname !== hostSuffix && !u.hostname.endsWith('.' + hostSuffix)) return fallback;
+    return u.toString();
+  } catch {
+    return fallback;
+  }
 }
 
 async function sendViaResend(opts: {
@@ -79,16 +115,20 @@ async function sendViaResend(opts: {
 // ---------------------------------------------------------------------------
 
 function tplNewLead(payload: Record<string, unknown>): { subject: string; html: string } {
-  const name = String(payload.contact_name ?? 'Unknown');
-  const email = String(payload.contact_email ?? '—');
-  const phone = String(payload.contact_phone ?? '—');
-  const address = String(payload.address ?? '—');
-  const rooms = String(payload.room_count ?? '1');
-  const shape = String(payload.room_shape ?? '—');
-  const adminUrl = String(payload.admin_url ?? 'https://planner.bowercabinets.com/admin/leads');
+  const nameText = plainText(payload.contact_name, 'Unknown');
+  const name = escapeHtml(nameText);
+  const email = escapeHtml(plainText(payload.contact_email, '—'));
+  const phone = escapeHtml(plainText(payload.contact_phone, '—'));
+  const address = escapeHtml(plainText(payload.address, '—', 500));
+  const rooms = escapeHtml(plainText(payload.room_count, '1', 20));
+  const shape = escapeHtml(plainText(payload.room_shape, '—', 80));
+  // Admin link is derived server-side (PLANNER_ADMIN_URL) and host-restricted —
+  // never the request Origin, which a direct caller can forge.
+  const adminDefault = Deno.env.get('PLANNER_ADMIN_URL') ?? 'https://planner.bowercabinets.com/admin/leads';
+  const adminUrl = escapeHtml(safeUrl(adminDefault, 'https://planner.bowercabinets.com/admin/leads'));
 
   return {
-    subject: `New Kitchen Enquiry — ${name}`,
+    subject: `New Kitchen Enquiry — ${nameText}`,
     html: `
 <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
   <div style="background:#1e293b;padding:24px 32px;border-radius:8px 8px 0 0">
@@ -112,13 +152,14 @@ function tplNewLead(payload: Record<string, unknown>): { subject: string; html: 
 }
 
 function tplQuoteConfirmed(payload: Record<string, unknown>): { subject: string; html: string } {
-  const name = String(payload.homeowner_name ?? 'there');
-  const quoteRef = String(payload.quote_ref ?? '—');
-  const total = String(payload.total_display ?? '—');
-  const trackUrl = String(payload.track_url ?? '#');
+  const quoteRefText = plainText(payload.quote_ref, '—', 100);
+  const name = escapeHtml(plainText(payload.homeowner_name, 'there'));
+  const quoteRef = escapeHtml(quoteRefText);
+  const total = escapeHtml(plainText(payload.total_display, '—', 100));
+  const trackUrl = escapeHtml(safeUrl(String(payload.track_url ?? '#'), '#'));
 
   return {
-    subject: `Your Kitchen Quote — ${quoteRef}`,
+    subject: `Your Kitchen Quote — ${quoteRefText}`,
     html: `
 <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
   <div style="background:#1e293b;padding:24px 32px;border-radius:8px 8px 0 0">
@@ -150,11 +191,12 @@ function tplQuoteConfirmed(payload: Record<string, unknown>): { subject: string;
 }
 
 function tplJobStatusChange(payload: Record<string, unknown>): { subject: string; html: string } {
-  const name = String(payload.trade_name ?? 'there');
-  const jobTitle = String(payload.job_title ?? 'your job');
-  const newStatus = String(payload.new_status ?? '—');
-  const note = payload.change_note ? `<p style="background:#fef3c7;border-left:3px solid #f59e0b;padding:12px 16px;border-radius:0 6px 6px 0;margin:16px 0"><strong>Admin note:</strong> ${String(payload.change_note)}</p>` : '';
-  const jobUrl = String(payload.job_url ?? '#');
+  const jobTitleText = plainText(payload.job_title, 'your job');
+  const name = escapeHtml(plainText(payload.trade_name, 'there'));
+  const jobTitle = escapeHtml(jobTitleText);
+  const newStatus = plainText(payload.new_status, '—', 80);
+  const note = payload.change_note ? `<p style="background:#fef3c7;border-left:3px solid #f59e0b;padding:12px 16px;border-radius:0 6px 6px 0;margin:16px 0"><strong>Admin note:</strong> ${escapeHtml(plainText(payload.change_note, '', 2000))}</p>` : '';
+  const jobUrl = escapeHtml(safeUrl(String(payload.job_url ?? '#'), '#'));
 
   const isApproved = newStatus === 'approved';
   const statusLabel = isApproved ? '✅ Approved' : '🔄 Changes Requested';
@@ -163,7 +205,7 @@ function tplJobStatusChange(payload: Record<string, unknown>): { subject: string
     : 'The admin has reviewed your job and requested some changes before we can proceed.';
 
   return {
-    subject: `Job Update: ${jobTitle} — ${statusLabel}`,
+    subject: `Job Update: ${jobTitleText} — ${statusLabel}`,
     html: `
 <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
   <div style="background:#1e293b;padding:24px 32px;border-radius:8px 8px 0 0">
@@ -230,8 +272,15 @@ serve(async (req: Request) => {
       return jsonResponse(req, 403, { error: 'not_authorized' });
     }
 
-    const body: EmailRequest = await req.json();
-    const { type, payload } = body;
+    const body = await readJsonBody(req);
+    if (body instanceof Response) return body;
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return jsonResponse(req, 400, { error: 'invalid_email_request' });
+    }
+    const { type, payload } = body as Partial<EmailRequest>;
+    if (!type || typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+      return jsonResponse(req, 400, { error: 'invalid_email_request' });
+    }
 
     let to: string | string[];
     let subject: string;

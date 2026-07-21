@@ -50,7 +50,7 @@ export interface RulePackParameter {
 }
 
 /** Ergonomic defaults (NKBA-derived, metric-rounded). Guidance, not statute. */
-export const ERGONOMIC_PARAMETERS: RulePackParameter[] = [
+const ERGONOMIC_PARAMETER_SEEDS: RulePackParameter[] = [
   { parameterId: 'work-aisle-single-cook-min', class: 'ergonomic', value: 1070, unit: 'mm', source: 'NKBA 42in work aisle', bowerApproved: false },
   { parameterId: 'work-aisle-multi-cook-min', class: 'ergonomic', value: 1220, unit: 'mm', source: 'NKBA 48in work aisle', bowerApproved: false },
   { parameterId: 'walkway-min', class: 'ergonomic', value: 915, unit: 'mm', source: 'NKBA 36in walkway', bowerApproved: false },
@@ -65,7 +65,10 @@ export const ERGONOMIC_PARAMETERS: RulePackParameter[] = [
   { parameterId: 'benchtop-height-standard', class: 'ergonomic', value: 900, unit: 'mm', source: 'AU trade convention', bowerApproved: false },
   { parameterId: 'benchtop-depth-standard', class: 'ergonomic', value: 600, unit: 'mm', source: 'AU trade convention', bowerApproved: false },
   // Ergonomic working values signed off by the owner — see PACK_SIGN_OFF.
-].map(p => ({ ...p, bowerApproved: true }));
+];
+
+export const ERGONOMIC_PARAMETERS: RulePackParameter[] =
+  ERGONOMIC_PARAMETER_SEEDS.map((parameter) => ({ ...parameter, bowerApproved: true }));
 
 /**
  * QLD regulatory profile DRAFT — seed decisions awaiting a qualified approver.

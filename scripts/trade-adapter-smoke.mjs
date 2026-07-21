@@ -17,7 +17,7 @@ const OUT = path.join(ROOT, '.tmp-trade-adapter-test');
 mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 
-const LAYOUT = ['types', 'schemas', 'geometry', 'catalogRoles', 'solveRun', 'compileSpec', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'index'];
+const LAYOUT = ['types', 'schemas', 'geometry', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec', 'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'index'];
 const TRADE = ['cabinetPlacedItem', 'proposalToTradeRoom'];
 
 writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, { get: () => undefined });\n');

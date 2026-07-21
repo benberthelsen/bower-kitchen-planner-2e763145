@@ -51,6 +51,10 @@ export interface DesignBrief {
   island: 'want' | 'no' | 'if-it-fits';
   styleWords?: string;
   budgetBand?: BudgetBand;
+  /** Walls the customer wants cabinetry on (wizard wall selection).
+   *  Omitted/empty = engine decides. Strategies needing a disallowed wall are
+   *  skipped by the candidate generator. */
+  allowedWalls?: Wall[];
 }
 
 // ─── KitchenSpec DSL (what the AI writes) ──────────────────────────────────

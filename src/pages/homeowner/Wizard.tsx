@@ -1,6 +1,10 @@
 /**
  * R4: Homeowner Guided Wizard
- * Step-by-step flow: Room → Layout → Style → Review & Quote
+ * Step-by-step flow: Room → Cooking → Style → Design → Review & Quote
+ * Style comes BEFORE the AI design step (style dictates layout and cabinet
+ * use, and options generate/price with the real finishes from the start).
+ * The room step includes wall selection (which walls may hold cabinets) —
+ * fed to the engine as DesignBrief.allowedWalls.
  * No login required — consumer-facing lead capture.
  * URL state: design params synced to query string for sharing / bookmarking.
  */
@@ -35,7 +39,12 @@ import {
   DEFAULT_GLOBAL_DIMENSIONS,
 } from '@/constants';
 import type { Opening, RoomConfig, RoomShape, ServicePoint } from '@/types';
-import { briefFromWizard, compileSpec, defaultSpecFor, priceDesign, validate } from '@/lib/layout';
+import { z } from 'zod';
+import {
+  briefFromWizard, compileSpec, defaultSpecFor, priceDesign, validate,
+  kitchenSpecSchema, openingSchema, servicePointSchema,
+} from '@/lib/layout';
+import type { Wall } from '@/lib/layout';
 import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
 import StepCook from './steps/StepCook';
 import StepDesign from './steps/StepDesign';
@@ -64,6 +73,8 @@ interface WizardState {
   handleId:    string;
   openings:    Opening[];
   services:    ServicePoint[];
+  /** Walls the customer wants cabinetry on. Empty = auto (engine decides). */
+  cabinetWalls: Wall[];
   // "How you cook" (step 2)
   householdSize?: number;
   cooks?:       'rare' | 'daily' | 'entertainer';
@@ -144,6 +155,7 @@ function stateToParams(s: WizardState): URLSearchParams {
   if (s.finishId    !== DEFAULTS.finishId)    p.set('f',  s.finishId);
   if (s.benchtopId  !== DEFAULTS.benchtopId)  p.set('b',  s.benchtopId);
   if (s.handleId    !== DEFAULTS.handleId)    p.set('h',  s.handleId);
+  if (s.cabinetWalls.length > 0)              p.set('cw', s.cabinetWalls.join(''));
   return p;
 }
 
@@ -153,7 +165,9 @@ function stateToParams(s: WizardState): URLSearchParams {
 // audit item 4). Tab-scoped (sessionStorage), 24 h freshness cap, cleared on
 // successful submission. URL params still win over restored state.
 
-export const WIZARD_STATE_KEY = 'bower.wizard.state.v2';
+// v3: step order changed (Style before Design) + cabinetWalls added — old
+// saved states use the previous step numbering and are discarded.
+export const WIZARD_STATE_KEY = 'bower.wizard.state.v3';
 const WIZARD_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function loadSavedWizardState(): Partial<WizardState> {
@@ -161,7 +175,7 @@ function loadSavedWizardState(): Partial<WizardState> {
     const raw = sessionStorage.getItem(WIZARD_STATE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as { v?: number; savedAt?: number; state?: WizardState };
-    if (parsed?.v !== 2 || typeof parsed.savedAt !== 'number'
+    if (parsed?.v !== 3 || typeof parsed.savedAt !== 'number'
       || Date.now() - parsed.savedAt > WIZARD_STATE_MAX_AGE_MS
       || typeof parsed.state !== 'object' || parsed.state === null
       || typeof parsed.state.step !== 'number') {
@@ -176,7 +190,7 @@ function loadSavedWizardState(): Partial<WizardState> {
 
 export function saveWizardState(state: WizardState): void {
   try {
-    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 2, savedAt: Date.now(), state }));
+    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 3, savedAt: Date.now(), state }));
   } catch { /* storage full or unavailable — persistence is best-effort */ }
 }
 
@@ -184,17 +198,222 @@ export function clearSavedWizardState(): void {
   try { sessionStorage.removeItem(WIZARD_STATE_KEY); } catch { /* ignore */ }
 }
 
+/** Parse a numeric query param, ignoring anything non-finite so a stray or
+ *  corrupt value can never hydrate a dimension as NaN. (The rich-share payload
+ *  now lives under `sd`, never `d` — but this guard is the belt to that
+ *  braces: `d` is only ever a depth number now, and any junk is dropped.) */
+function numParam(p: URLSearchParams, key: string, min: number, max: number): number | undefined {
+  if (!p.has(key)) return undefined;
+  const n = Number(p.get(key));
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(min, Math.min(max, n));
+}
+
 function paramsToState(p: URLSearchParams): Partial<WizardState> {
   const out: Partial<WizardState> = {};
   if (p.has('s'))  out.layoutPreference = CODE_SHAPES[p.get('s')!] ?? DEFAULTS.layoutPreference;
-  if (p.has('w'))  out.roomWidth   = Math.max(1200, Math.min(8000, Number(p.get('w'))));
-  if (p.has('d'))  out.roomDepth   = Math.max(1200, Math.min(6000, Number(p.get('d'))));
-  if (p.has('rh')) out.roomHeight  = Math.max(2100, Math.min(4000, Number(p.get('rh'))));
+  const w = numParam(p, 'w', 1200, 8000);   if (w  !== undefined) out.roomWidth  = w;
+  const d = numParam(p, 'd', 1200, 6000);   if (d  !== undefined) out.roomDepth  = d;
+  const rh = numParam(p, 'rh', 2100, 4000); if (rh !== undefined) out.roomHeight = rh;
   if (p.has('ls')) out.layoutStyle = CODE_LAYOUTS[p.get('ls')!] ?? DEFAULTS.layoutStyle;
   if (p.has('f'))  out.finishId    = p.get('f')!;
   if (p.has('b'))  out.benchtopId  = p.get('b')!;
   if (p.has('h'))  out.handleId    = p.get('h')!;
+  if (p.has('cw')) {
+    const walls = p.get('cw')!.split('').filter((c): c is Wall => ['N', 'E', 'S', 'W'].includes(c));
+    out.cabinetWalls = [...new Set(walls)];
+  }
   return out;
+}
+
+// ─── Rich share payload ─────────────────────────────────────────────────────────
+// The short params above carry dimensions and style only. A shared link used
+// to lose everything else — the chosen design, doors/windows/services, the
+// room cutout, the cooking answers — so the recipient saw a default kitchen
+// in an empty rectangle. The `sd` param fixes that: deflate-compressed
+// base64url JSON of the full design context, decoded defensively (zod) on
+// load. It uses its OWN key `sd` — NOT `d`, which already carries room depth;
+// sharing both under `d` corrupted the recipient's depth to NaN. The payload
+// is self-contained (it carries width/depth/height too), so it restores fully
+// even if the short params are absent. Older browsers without CompressionStream
+// simply share the short link.
+
+interface SharePayloadV1 {
+  v: 1;
+  room?: { widthMm: number; depthMm: number; heightMm: number; shape: RoomShape; cutoutWidth: number; cutoutDepth: number };
+  openings?: Opening[];
+  services?: ServicePoint[];
+  cabinetWalls?: Wall[];
+  cook?: {
+    householdSize?: number;
+    cooks?: WizardState['cooks'];
+    priorities: Priority[];
+    oven?: '600' | '900';
+    cooktop?: 'gas' | 'induction';
+    dishwasher: boolean;
+    fridgeWidthMm: number;
+    island: WizardState['island'];
+  };
+  styleWords?: string;
+  /** proposalId is deliberately NOT shared — the recipient regenerates before
+   *  chat-refining; the spec itself is the portable source of truth. */
+  design?: { name: string; spec: KitchenSpec; aiGenerated: boolean } | null;
+}
+
+const MAX_SHARE_ENCODED_CHARS = 6000;
+const MAX_SHARE_DECODED_BYTES = 64 * 1024;
+
+function bytesToB64u(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64uToBytes(s: string): Uint8Array {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+
+async function pipeBytes(
+  bytes: Uint8Array,
+  stream: CompressionStream | DecompressionStream,
+  maxOutputBytes: number,
+): Promise<Uint8Array> {
+  const reader = new Blob([bytes as BlobPart]).stream().pipeThrough(stream).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = value as Uint8Array;
+    total += chunk.byteLength;
+    if (total > maxOutputBytes) {
+      await reader.cancel('share payload exceeds limit');
+      throw new Error('share payload exceeds limit');
+    }
+    chunks.push(chunk);
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+export async function encodeSharePayload(state: WizardState): Promise<string | null> {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const payload: SharePayloadV1 = {
+      v: 1,
+      room: {
+        widthMm: state.roomWidth,
+        depthMm: state.roomDepth,
+        heightMm: state.roomHeight,
+        shape: state.roomGeometryShape,
+        cutoutWidth: state.roomCutoutWidth,
+        cutoutDepth: state.roomCutoutDepth,
+      },
+      ...(state.openings.length ? { openings: state.openings } : {}),
+      ...(state.services.length ? { services: state.services } : {}),
+      ...(state.cabinetWalls.length ? { cabinetWalls: state.cabinetWalls } : {}),
+      cook: {
+        householdSize: state.householdSize,
+        cooks: state.cooks,
+        priorities: state.priorities,
+        oven: state.oven,
+        cooktop: state.cooktop,
+        dishwasher: state.dishwasher,
+        fridgeWidthMm: state.fridgeWidthMm,
+        island: state.island,
+      },
+      ...(state.styleWords ? { styleWords: state.styleWords } : {}),
+      ...(state.design
+        ? { design: { name: state.design.name, spec: state.design.spec, aiGenerated: state.design.aiGenerated } }
+        : {}),
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    if (bytes.byteLength > MAX_SHARE_DECODED_BYTES) return null;
+    const packed = await pipeBytes(bytes, new CompressionStream('deflate-raw'), MAX_SHARE_ENCODED_CHARS);
+    const encoded = bytesToB64u(packed);
+    // Keep total URLs comfortably under browser/proxy limits.
+    return encoded.length <= MAX_SHARE_ENCODED_CHARS ? encoded : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function decodeSharePayload(encoded: string): Promise<Partial<WizardState> | null> {
+  if (typeof DecompressionStream === 'undefined') return null;
+  if (!encoded || encoded.length > MAX_SHARE_ENCODED_CHARS || !/^[A-Za-z0-9_-]+$/.test(encoded)) return null;
+  try {
+    const json = new TextDecoder().decode(
+      await pipeBytes(
+        b64uToBytes(encoded),
+        new DecompressionStream('deflate-raw'),
+        MAX_SHARE_DECODED_BYTES,
+      ),
+    );
+    const raw = JSON.parse(json) as SharePayloadV1;
+    if (raw?.v !== 1) return null;
+    const patch: Partial<WizardState> = {};
+
+    if (raw.room && (raw.room.shape === 'Rectangle' || raw.room.shape === 'LShape')) {
+      const dim = (v: unknown, min: number, max: number): number | undefined => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : undefined;
+      };
+      const w = dim(raw.room.widthMm, 1200, 8000);
+      const d = dim(raw.room.depthMm, 1200, 6000);
+      const h = dim(raw.room.heightMm, 2100, 4000);
+      if (w !== undefined) patch.roomWidth = w;
+      if (d !== undefined) patch.roomDepth = d;
+      if (h !== undefined) patch.roomHeight = h;
+      patch.roomGeometryShape = raw.room.shape;
+      patch.roomCutoutWidth = raw.room.shape === 'Rectangle' ? 0
+        : Math.max(0, Math.min(12000, Number(raw.room.cutoutWidth) || 0));
+      patch.roomCutoutDepth = raw.room.shape === 'Rectangle' ? 0
+        : Math.max(0, Math.min(12000, Number(raw.room.cutoutDepth) || 0));
+    }
+    const openings = z.array(openingSchema).max(12).safeParse(raw.openings ?? []);
+    if (openings.success && openings.data.length) patch.openings = openings.data as unknown as Opening[];
+    const services = z.array(servicePointSchema).max(12).safeParse(raw.services ?? []);
+    if (services.success && services.data.length) patch.services = services.data as unknown as ServicePoint[];
+    if (Array.isArray(raw.cabinetWalls)) {
+      patch.cabinetWalls = [...new Set(raw.cabinetWalls.filter((w): w is Wall => ['N', 'E', 'S', 'W'].includes(w)))];
+    }
+    if (raw.cook && typeof raw.cook === 'object') {
+      const c = raw.cook;
+      if (typeof c.householdSize === 'number') patch.householdSize = Math.max(1, Math.min(12, Math.round(c.householdSize)));
+      if (c.cooks === 'rare' || c.cooks === 'daily' || c.cooks === 'entertainer') patch.cooks = c.cooks;
+      if (Array.isArray(c.priorities)) {
+        patch.priorities = c.priorities.filter((p): p is Priority =>
+          ['storage', 'bench-space', 'entertaining', 'baking', 'budget'].includes(p));
+      }
+      if (c.oven === '600' || c.oven === '900') patch.oven = c.oven;
+      if (c.cooktop === 'gas' || c.cooktop === 'induction') patch.cooktop = c.cooktop;
+      if (typeof c.dishwasher === 'boolean') patch.dishwasher = c.dishwasher;
+      if (typeof c.fridgeWidthMm === 'number') patch.fridgeWidthMm = Math.max(500, Math.min(1400, c.fridgeWidthMm));
+      if (c.island === 'want' || c.island === 'no' || c.island === 'if-it-fits') patch.island = c.island;
+    }
+    if (typeof raw.styleWords === 'string' && raw.styleWords.trim()) {
+      patch.styleWords = raw.styleWords.slice(0, 500);
+    }
+    if (raw.design && typeof raw.design === 'object') {
+      const spec = kitchenSpecSchema.safeParse(raw.design.spec);
+      if (spec.success) {
+        patch.design = {
+          name: String(raw.design.name ?? 'Shared design').slice(0, 120) || 'Shared design',
+          spec: spec.data as unknown as KitchenSpec,
+          aiGenerated: raw.design.aiGenerated === true,
+        };
+      }
+    }
+    return patch;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Layout engine bridge ───────────────────────────────────────────────────────
@@ -243,7 +462,78 @@ function estimatePrice(
  *  are logged rather than shown. */
 // ─── Step indicator ─────────────────────────────────────────────────────────────
 
-const STEPS = ['Room', 'Cooking', 'Design', 'Style', 'Review'];
+const STEPS = ['Room', 'Cooking', 'Style', 'Design', 'Review'];
+
+// ─── Wall selection ─────────────────────────────────────────────────────────────
+// Which walls each layout strategy needs: every inner group must have at least
+// one allowed wall. Mirrors strategyPlausible() in the layout engine.
+const SHAPE_WALL_NEEDS: Record<LayoutPreference, Wall[][]> = {
+  'single-wall': [['N']],
+  'l-shape':     [['N'], ['W', 'E']],
+  'u-shape':     [['N'], ['W'], ['E']],
+  galley:        [['N'], ['S']],
+};
+
+function shapeCompatibleWithWalls(shape: LayoutPreference, walls: Wall[]): boolean {
+  if (walls.length === 0) return true; // auto — engine decides
+  return SHAPE_WALL_NEEDS[shape].every(group => group.some(w => walls.includes(w)));
+}
+
+/** Tappable mini floor-plan: toggle which walls may hold cabinets. */
+function WallPicker({ value, onChange }: { value: Wall[]; onChange: (walls: Wall[]) => void }) {
+  const toggle = (w: Wall) => {
+    onChange(value.includes(w) ? value.filter(x => x !== w) : [...value, w]);
+  };
+  const wallBtn = (w: Wall, label: string, cls: string) => {
+    const on = value.includes(w);
+    return (
+      <button
+        type="button"
+        onClick={() => toggle(w)}
+        aria-pressed={on}
+        className={cn(
+          'absolute flex items-center justify-center text-[11px] font-medium rounded-md border-2 transition-all',
+          cls,
+          on
+            ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400',
+        )}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-4">
+      <div className="relative w-48 h-40 flex-shrink-0">
+        <div className="absolute inset-6 rounded-lg bg-slate-50 border border-dashed border-slate-200 flex items-center justify-center">
+          <span className="text-[10px] text-slate-400">your room</span>
+        </div>
+        {wallBtn('N', 'Back wall',  'top-0 left-8 right-8 h-7')}
+        {wallBtn('S', 'Front wall', 'bottom-0 left-8 right-8 h-7')}
+        {wallBtn('W', 'Left',       'left-0 top-9 bottom-9 w-7 [writing-mode:vertical-rl] rotate-180')}
+        {wallBtn('E', 'Right',      'right-0 top-9 bottom-9 w-7 [writing-mode:vertical-rl]')}
+      </div>
+      <div className="text-xs text-slate-500 space-y-1.5">
+        {value.length === 0 ? (
+          <p><span className="font-medium text-slate-700">Auto:</span> the designer picks the best walls for your room.</p>
+        ) : (
+          <p>
+            Cabinets only on: <span className="font-medium text-slate-700">
+              {value.map(w => ({ N: 'back', E: 'right', S: 'front', W: 'left' } as const)[w]).join(', ')}
+            </span> wall{value.length > 1 ? 's' : ''}.
+          </p>
+        )}
+        <p className="text-slate-400">Tap walls to include or exclude them — e.g. leave out a wall of windows or an open side.</p>
+        {value.length > 0 && (
+          <button type="button" className="text-slate-500 underline underline-offset-2" onClick={() => onChange([])}>
+            Reset to auto
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -288,18 +578,23 @@ function ShareButton({ state }: { state: WizardState }) {
   const [, setSearchParams] = useSearchParams();
 
   const handleShare = async () => {
-    // Sync current design to URL first
     const params = stateToParams(state);
-    setSearchParams(params, { replace: true });
+    // The copied link and address-bar fallback carry the same full context
+    // (openings, services, cooking answers, chosen design spec) so the
+    // recipient sees the actual kitchen, not a default in an empty room.
+    const rich = await encodeSharePayload(state);
+    const shareParams = new URLSearchParams(params);
+    if (rich) shareParams.set('sd', rich); // own key — never 'd' (room depth)
+    setSearchParams(shareParams, { replace: true });
 
-    const url = `${window.location.origin}/wizard${params.toString() ? '?' + params.toString() : ''}`;
+    const url = `${window.location.origin}/wizard${shareParams.toString() ? '?' + shareParams.toString() : ''}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      toast.success('Link copied to clipboard');
+      toast.success(rich ? 'Design link copied — it carries your full design' : 'Link copied to clipboard');
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      toast.error('Could not copy — copy the URL from your browser address bar');
+      toast.error('Could not copy automatically — the full design link is now in your browser address bar');
     }
   };
 
@@ -495,23 +790,47 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
         </div>
       </Section>
 
-      <Section n={2} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
+      <Section n={2} title="Which walls should hold cabinets?" subtitle="Leave it on auto, or rule walls in and out — windows, open sides, walkways.">
+        <WallPicker
+          value={state.cabinetWalls}
+          onChange={walls => {
+            const patch: Partial<WizardState> = { cabinetWalls: walls };
+            if (!shapeCompatibleWithWalls(state.layoutPreference, walls)) {
+              const fallback = (['l-shape', 'single-wall', 'galley', 'u-shape'] as LayoutPreference[])
+                .find(s => shapeCompatibleWithWalls(s, walls));
+              if (fallback) {
+                patch.layoutPreference = fallback;
+                toast.info('Layout shape adjusted to fit your wall choices.');
+              }
+            }
+            onChange(patch);
+          }}
+        />
+      </Section>
+
+      <Section n={3} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-          {shapes.map(({ id, label, desc }) => (
+          {shapes.map(({ id, label, desc }) => {
+            const compatible = shapeCompatibleWithWalls(id, state.cabinetWalls);
+            return (
             <button
               key={id}
-              onClick={() => onChange({ layoutPreference: id })}
+              onClick={() => compatible && onChange({ layoutPreference: id })}
+              disabled={!compatible}
               className={cn(
                 'group flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-2xl border-2 text-center transition-all',
                 state.layoutPreference === id
                   ? 'border-slate-900 bg-gradient-to-b from-slate-50 to-white shadow-sm'
                   : 'border-slate-200 hover:border-slate-300 hover:shadow-sm bg-white',
+                !compatible && 'opacity-40 cursor-not-allowed hover:border-slate-200 hover:shadow-none',
               )}
             >
               <ShapeIcon shape={id} selected={state.layoutPreference === id} />
               <div>
                 <p className="text-xs sm:text-sm font-semibold text-slate-900 leading-tight">{label}</p>
-                <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 hidden sm:block">{desc}</p>
+                <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 hidden sm:block">
+                  {compatible ? desc : 'Not with your wall picks'}
+                </p>
               </div>
               {state.layoutPreference === id && (
                 <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
@@ -519,11 +838,12 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
                 </span>
               )}
             </button>
-          ))}
+            );
+          })}
         </div>
       </Section>
 
-      <Section n={3} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
+      <Section n={4} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
         <RoomFeaturesEditor
           widthMm={state.roomWidth}
           depthMm={state.roomDepth}
@@ -1165,6 +1485,7 @@ export default function HomeownerWizard() {
     step: 1,
     openings: [],
     services: [],
+    cabinetWalls: [],
     priorities: [],
     dishwasher: true,
     fridgeWidthMm: 940,
@@ -1195,7 +1516,7 @@ export default function HomeownerWizard() {
       return {
         ...prev,
         ...patch,
-        design: touchesGeometry || 'layoutPreference' in patch
+        design: touchesGeometry || 'layoutPreference' in patch || 'cabinetWalls' in patch
           ? null
           : ('design' in patch ? patch.design ?? null : prev.design),
         geometryEdits: touchesGeometry ? prev.geometryEdits + 1 : prev.geometryEdits,
@@ -1207,6 +1528,25 @@ export default function HomeownerWizard() {
   useEffect(() => {
     trackEvent('wizard_started');
   }, []);
+
+  // Rich share payload (?sd=): captured once at mount (the URL-sync effect
+  // rewrites the query string and would erase it), decoded async, applied
+  // directly via setState — bypassing onChange on purpose, since onChange
+  // would see the openings in the patch and null out the restored design.
+  const [sharedPayload] = useState<string | null>(() => searchParams.get('sd'));
+  const sharedApplied = useRef(false);
+  useEffect(() => {
+    if (!sharedPayload || sharedApplied.current) return;
+    sharedApplied.current = true;
+    decodeSharePayload(sharedPayload).then(patch => {
+      if (!patch) return;
+      setState(prev => ({ ...prev, ...patch }));
+      trackEvent('shared_design_opened', { hasDesign: !!patch.design });
+      if (patch.design) {
+        toast.success(`Shared design loaded: “${patch.design.name}” — continue through to the Design step to view or revise it.`);
+      }
+    });
+  }, [sharedPayload]);
 
   // Website handoff (?handoff=<id>#handoffToken=<token>): the fragment token
   // is captured once, stashed in session storage, scrubbed from the URL, and
@@ -1243,8 +1583,8 @@ export default function HomeownerWizard() {
             roomGeometryShape: scan.room.shape,
             roomCutoutWidth: scan.room.cutoutWidth,
             roomCutoutDepth: scan.room.cutoutDepth,
-            openings: scan.room.openings,
-            services: scan.room.services,
+            openings: scan.room.openings as Opening[],
+            services: scan.room.services as ServicePoint[],
           }
         : {
             ...(h.dimensions?.widthMm ? { roomWidth: h.dimensions.widthMm } : {}),
@@ -1271,8 +1611,8 @@ export default function HomeownerWizard() {
         incomingScan: scan,
         roomWidth: scan.room.width,
         roomDepth: scan.room.depth,
-        openings: scan.room.openings,
-        services: scan.room.services,
+        openings: scan.room.openings as Opening[],
+        services: scan.room.services as ServicePoint[],
       });
       toast.success('Room scanned — check the size and mark doors, windows and plumbing.');
     } catch {
@@ -1305,8 +1645,8 @@ export default function HomeownerWizard() {
     state.step === 1
       ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 :
     state.step === 2 ? true :
-    state.step === 3 ? state.design !== null && !selectedDesignHasBlockingErrors :
-    state.step === 4 ? true : false;
+    state.step === 3 ? true :
+    state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors : false;
 
   const advance = () => {
     if (state.step < 5) {
@@ -1344,8 +1684,9 @@ export default function HomeownerWizard() {
 
         {state.step === 1 && <Step1Room state={state} onChange={onChange} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
-        {state.step === 3 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
-        {state.step === 3 && state.leadGateDone && (
+        {state.step === 3 && <Step3Style state={state} onChange={onChange} />}
+        {state.step === 4 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
+        {state.step === 4 && state.leadGateDone && (
           <StepDesign
             brief={buildBrief(state)}
             shape={state.layoutPreference}
@@ -1355,7 +1696,6 @@ export default function HomeownerWizard() {
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
           />
         )}
-        {state.step === 4 && <Step3Style state={state} onChange={onChange} />}
         {state.step === 5 && <Step4Review state={state} onChange={onChange} />}
 
         {/* Nav footer */}
@@ -1384,7 +1724,7 @@ export default function HomeownerWizard() {
         ) : (
           <div className="mt-5 pt-4 border-t border-slate-100">
             <Button variant="ghost" onClick={back} className="gap-1 text-slate-500">
-              <ChevronLeft className="w-4 h-4" /> Edit style
+              <ChevronLeft className="w-4 h-4" /> Edit design
             </Button>
           </div>
         )}

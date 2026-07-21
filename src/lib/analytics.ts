@@ -18,7 +18,9 @@ export type FunnelEventType =
   | 'ai_generate_failed'
   | 'ai_generate_succeeded'
   | 'ai_option_selected'
-  | 'ai_refine_used';
+  | 'ai_refine_used'
+  | 'lead_captured'
+  | 'shared_design_opened';
 
 function getSessionId(): string {
   const KEY = '_bwr_sid';
@@ -35,11 +37,12 @@ export async function trackEvent(
   metadata: Record<string, unknown> = {},
 ): Promise<void> {
   try {
-    await supabase.from('funnel_events').insert({
+    const { error } = await supabase.from('funnel_events').insert({
       session_id: getSessionId(),
       event_type: type,
       metadata: metadata as Json,
     });
+    if (error) console.warn('[analytics] event insert failed', error.code);
   } catch {
     // Silently swallow — analytics must not crash the app
   }

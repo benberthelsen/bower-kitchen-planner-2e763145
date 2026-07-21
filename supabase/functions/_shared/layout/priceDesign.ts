@@ -52,6 +52,9 @@ export function priceDesign(items: PlacedItem[], style: StyleSpec): PriceBand {
     let benchLm = 0;
     let fronts = 0;
 
+    const END_PANEL_AUD = 110;
+    const FILLER_AUD_PER_100 = 18;
+
     for (const item of items) {
       const base = DEFN_WEIGHTS[item.definitionId] ?? 480;
       // scale by width relative to 600mm module
@@ -59,6 +62,14 @@ export function priceDesign(items: PlacedItem[], style: StyleSpec): PriceBand {
       if (item.y === 0 && item.height <= 800) benchLm += item.width / 1000;
       // crude front count for handle pricing
       if (item.itemType === 'Cabinet') fronts += item.width > 600 ? 2 : 1;
+      // joinery intent set by the compiler: finished ends + fillers
+      if (item.endPanelLeft) cabinets += END_PANEL_AUD;
+      if (item.endPanelRight) cabinets += END_PANEL_AUD;
+      const fillerMm = (item.fillerLeft ?? 0) + (item.fillerRight ?? 0);
+      if (fillerMm > 0) {
+        cabinets += Math.ceil(fillerMm / 100) * FILLER_AUD_PER_100;
+        benchLm += item.y === 0 && item.height <= 800 ? fillerMm / 1000 : 0;
+      }
     }
 
     const cost =

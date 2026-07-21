@@ -250,6 +250,42 @@ check('door mid-wall: both sides of the opening get cabinets', () => {
   assert.deepEqual(errors.map(error => error.code), []);
 });
 
+check('customer-selected walls are enforced by final validation', () => {
+  const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4200, roomDepth: 3200, layoutStyle: 'standard' });
+  brief.allowedWalls = ['W'];
+  const spec = defaultSpecFor(brief, 'single-wall');
+  const design = compileSpec(spec, brief.room);
+  const errors = validate(design, brief.room, brief).filter(x => x.severity === 'error');
+  assert.ok(errors.some(error => error.code === 'allowed-wall'),
+    `expected allowed-wall, got: ${errors.map(error => error.code).join(',')}`);
+});
+
+check('fromEnd run assigns panels to physical exposed sides', () => {
+  const brief = briefFromWizard({ layoutPreference: 'l-shape', roomWidth: 4200, roomDepth: 4000, layoutStyle: 'standard' });
+  brief.room.openings.push({ id: 'w-door', wall: 'W', type: 'door', offsetMm: 1800, widthMm: 900, swing: 'in-left' });
+  const style = defaultSpecFor(brief, 'l-shape').style;
+  const spec = {
+    runs: [{
+      wall: 'W', fromEnd: true, wallCabinets: false,
+      segments: [
+        { kind: 'cabinet', role: 'corner' },
+        { kind: 'cabinet', role: 'sink' },
+        { kind: 'cabinet', role: 'dishwasher' },
+      ],
+    }],
+    style,
+    rationale: 'fromEnd joinery test',
+  };
+  const design = compileSpec(spec, brief.room);
+  const sink = design.rolePositions.sink.item;
+  const dishwasher = design.rolePositions.dishwasher.item;
+  const corner = design.rolePositions.corner.item;
+  assert.equal(dishwasher.endPanelLeft, true, 'low-t exposed run end needs a left panel');
+  assert.equal(sink.endPanelRight, true, 'doorway side of the low-t group needs a right panel');
+  assert.equal(corner.endPanelLeft, true, 'doorway side of the high-t corner group needs a left panel');
+  assert.notEqual(corner.endPanelRight, true, 'room-corner side must not receive an exposed-end panel');
+});
+
 
 // ── fragmented wall (two doors): essentials still placed via rescue retry ──
 check('fragmented wall keeps sink + cooktop (drops extras instead)', () => {

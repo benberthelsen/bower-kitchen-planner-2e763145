@@ -6,6 +6,11 @@ import { GlobalDimensions, HardwareOptions, PlacedItem } from '@/types';
 import { generateQuoteBOM, PricingData, QuoteBOM } from '@/lib/pricing';
 import { useClientMarkup } from '@/hooks/useClientMarkup';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
+// Local binding: `export { … } from` (below) is a re-export only and does NOT
+// bind toPlacedItems in this module's scope — calling it locally without this
+// import is a `Cannot find name` typecheck error + runtime ReferenceError
+// (release blocker 6.1).
+import { toPlacedItems } from '@/lib/trade/cabinetPlacedItem';
 
 export interface TradeRoomPricingInput {
   cabinets: ConfiguredCabinet[];
@@ -100,7 +105,9 @@ export async function fetchPricingData(): Promise<PricingData> {
 
 // Shared with proposalToTradeRoom (plan §11.1) so the two conversion
 // directions cannot drift — the implementation lives in the pure module.
-export { toPlacedItems } from '@/lib/trade/cabinetPlacedItem';
+// Re-export the locally-imported binding (imported at the top) so callers of
+// this module keep the public API while the local calls resolve correctly.
+export { toPlacedItems };
 
 function toHardwareOptions(hardwareDefaults: RoomHardwareDefaults): HardwareOptions {
   return {

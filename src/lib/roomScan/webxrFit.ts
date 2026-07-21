@@ -15,8 +15,35 @@ import { parseRoomScan, type RoomScanV1 } from './contract';
 export interface XrCorner { x: number; z: number } // metres, XR local-floor plan
 
 export const MIN_ROOM_WIDTH_MM = 1200;
-export const MIN_ROOM_DEPTH_MM = 900;
+export const MIN_ROOM_DEPTH_MM = 1200;
 export const RECT_WARN_MM = 50;
+export const RECT_REJECT_MM = 250;
+export const MIN_CORNER_SEPARATION_M = 0.25;
+export const MAX_CAPTURE_CORNERS = 8;
+
+const distance = (a: XrCorner, b: XrCorner): number => Math.hypot(a.x - b.x, a.z - b.z);
+const cross = (a: XrCorner, b: XrCorner, c: XrCorner): number =>
+  (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+
+function properSegmentsCross(a: XrCorner, b: XrCorner, c: XrCorner, d: XrCorner): boolean {
+  const abC = cross(a, b, c);
+  const abD = cross(a, b, d);
+  const cdA = cross(c, d, a);
+  const cdB = cross(c, d, b);
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+function hasCrossedEdges(corners: XrCorner[]): boolean {
+  for (let i = 0; i < corners.length; i++) {
+    const nextI = (i + 1) % corners.length;
+    for (let j = i + 1; j < corners.length; j++) {
+      const nextJ = (j + 1) % corners.length;
+      if (i === j || nextI === j || nextJ === i) continue;
+      if (properSegmentsCross(corners[i], corners[nextI], corners[j], corners[nextJ])) return true;
+    }
+  }
+  return false;
+}
 
 export function buildScanFromCorners(
   corners: XrCorner[],
@@ -24,7 +51,24 @@ export function buildScanFromCorners(
 ):
   | { ok: true; scan: RoomScanV1; warnings: string[] }
   | { ok: false; reason: string } {
-  if (corners.length < 3) return { ok: false, reason: 'mark at least 3 corners' };
+  if (corners.length < 4) return { ok: false, reason: 'mark all 4 corners of the room in order' };
+  if (corners.length > MAX_CAPTURE_CORNERS) return { ok: false, reason: `mark no more than ${MAX_CAPTURE_CORNERS} corners` };
+  if (corners.some(c => !Number.isFinite(c.x) || !Number.isFinite(c.z))) {
+    return { ok: false, reason: 'one or more corner measurements were invalid — scan the room again' };
+  }
+  for (let i = 0; i < corners.length; i++) {
+    for (let j = i + 1; j < corners.length; j++) {
+      if (distance(corners[i], corners[j]) < MIN_CORNER_SEPARATION_M) {
+        return { ok: false, reason: 'two marked corners are too close together — undo the duplicate point' };
+      }
+    }
+  }
+  if (distance(corners[0], corners[1]) < 0.5) {
+    return { ok: false, reason: 'the first wall is too short — mark two different room corners first' };
+  }
+  if (hasCrossedEdges(corners)) {
+    return { ok: false, reason: 'the corner path crosses itself — mark each corner in order around the room' };
+  }
 
   const yaw = Math.atan2(corners[1].z - corners[0].z, corners[1].x - corners[0].x);
   const cos = Math.cos(-yaw);
@@ -51,6 +95,12 @@ export function buildScanFromCorners(
     const du = Math.min(Math.abs(p.u - minU), Math.abs(p.u - maxU));
     const dv = Math.min(Math.abs(p.v - minV), Math.abs(p.v - maxV));
     worst = Math.max(worst, Math.min(du, dv) * 1000);
+  }
+  if (worst > RECT_REJECT_MM) {
+    return {
+      ok: false,
+      reason: 'this scan is not rectangular enough for automatic fitting — use manual room entry or request a designer review',
+    };
   }
   if (worst > RECT_WARN_MM) {
     warnings.push(`room shape simplified — corners deviate up to ${Math.round(worst)}mm from a rectangle`);
@@ -102,6 +152,6 @@ export function buildScanFromCorners(
   };
 
   const parsed = parseRoomScan(candidate);
-  if (!parsed.ok) return { ok: false, reason: parsed.reason };
+  if ('reason' in parsed) return { ok: false, reason: parsed.reason };
   return { ok: true, scan: parsed.scan, warnings };
 }

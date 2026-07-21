@@ -36,6 +36,15 @@ export function resolveDefinition(role: SegmentRole, widthMm: number): string {
   return ROLE_PRODUCTS[role].definitionId;
 }
 
+/**
+ * Blind-corner variant by which side of the cabinet (as seen from the room,
+ * i.e. in wall-offset terms: low-t = Left) faces the corner. The blind panel
+ * must be on the corner side so the doors open clear of the adjacent run.
+ */
+export function resolveCornerVariant(blindSide: 'Left' | 'Right'): string {
+  return blindSide === 'Left' ? 'base_corner_blind_left' : 'base_corner_blind_right';
+}
+
 /** Wall-cabinet fill products (above base runs). */
 export const WALL_CAB = { definitionId: 'wall_2_door', narrowId: 'wall_1_door', widths: [900, 600, 450, 300] };
 export const RANGEHOOD_ID = 'wall_rangehood';

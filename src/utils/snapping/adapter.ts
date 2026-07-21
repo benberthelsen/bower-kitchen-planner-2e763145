@@ -28,6 +28,8 @@ export function cabinetToPlacedItem(
     rightCarcaseDepth: cabinet.construction?.cabinetDepthRight,
     fillerLeft: cabinet.construction?.leftFillerWidth,
     fillerRight: cabinet.construction?.rightFillerWidth,
+    endPanelLeft: cabinet.construction?.endPanelLeft,
+    endPanelRight: cabinet.construction?.endPanelRight,
     blindSide: cabinet.construction?.blindSide,
   };
 }

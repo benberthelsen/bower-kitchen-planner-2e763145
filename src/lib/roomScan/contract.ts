@@ -572,14 +572,14 @@ export function parseLegacyWebsitePlannerHandoff(input: unknown): ParseHandoffRe
   let roomScan: RoomScanV1 | undefined;
   if (input.roomScan !== undefined) {
     const s = parseRoomScan(input.roomScan);
-    if (s.ok) roomScan = s.scan;
+    if ('scan' in s) roomScan = s.scan;
     else issues.push({ path: 'roomScan', code: 'invalid_scan_stripped', message: s.reason });
   }
 
   let roomCaptureDraft: RoomCaptureDraftV1 | undefined;
   if (input.roomCaptureDraft !== undefined) {
     const d = parseRoomCaptureDraft(input.roomCaptureDraft);
-    if (d.ok) roomCaptureDraft = d.draft;
+    if ('draft' in d) roomCaptureDraft = d.draft;
     else issues.push({ path: 'roomCaptureDraft', code: 'invalid_draft_stripped', message: d.reason });
   }
 

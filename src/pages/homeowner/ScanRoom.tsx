@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Camera, Check, CircleDot, Redo2, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { buildScanFromCorners, type XrCorner } from '@/lib/roomScan/webxrFit';
 
 export const PENDING_SCAN_KEY = 'bower.pendingScan';
@@ -32,11 +33,13 @@ export default function ScanRoom() {
   const navigate = useNavigate();
   const [support, setSupport] = useState<Support>('checking');
   const [scanning, setScanning] = useState(false);
+  const [hasSurface, setHasSurface] = useState(false);
   const [corners, setCorners] = useState<Corner[]>([]);
   const [error, setError] = useState<string | null>(null);
   const sessionRef = useRef<XRSession | null>(null);
   const cornersRef = useRef<Corner[]>([]);
   const lastHitRef = useRef<Corner | null>(null);
+  const hasSurfaceRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,13 +54,15 @@ export default function ScanRoom() {
   const endSession = useCallback(async () => {
     try { await sessionRef.current?.end(); } catch { /* already ended */ }
     sessionRef.current = null;
+    hasSurfaceRef.current = false;
+    setHasSurface(false);
     setScanning(false);
   }, []);
 
   const finish = useCallback(async () => {
     const result = buildScanFromCorners(cornersRef.current);
     await endSession();
-    if (!result.ok) { setError(result.reason); return; }
+    if ('reason' in result) { setError(result.reason); return; }
     try {
       sessionStorage.setItem(PENDING_SCAN_KEY, JSON.stringify(result.scan));
     } catch {
@@ -72,6 +77,8 @@ export default function ScanRoom() {
     setCorners([]);
     cornersRef.current = [];
     lastHitRef.current = null;
+    hasSurfaceRef.current = false;
+    setHasSurface(false);
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
     if (!xr) return;
 
@@ -90,8 +97,9 @@ export default function ScanRoom() {
       const refSpace = await session.requestReferenceSpace('local-floor');
       const viewerSpace = await session.requestReferenceSpace('viewer');
       const hitTestSource = await (session as XRSession & {
-        requestHitTestSource(o: { space: XRReferenceSpace }): Promise<XRHitTestSource>;
+        requestHitTestSource(o: { space: XRReferenceSpace }): Promise<XRHitTestSource | undefined>;
       }).requestHitTestSource({ space: viewerSpace });
+      if (!hitTestSource) throw new Error('AR surface tracking could not start');
 
       // Tap anywhere = mark the corner currently under the reticle.
       session.addEventListener('select', () => {
@@ -103,6 +111,8 @@ export default function ScanRoom() {
       });
       session.addEventListener('end', () => {
         sessionRef.current = null;
+        hasSurfaceRef.current = false;
+        setHasSurface(false);
         setScanning(false);
       });
 
@@ -111,7 +121,19 @@ export default function ScanRoom() {
         const results = frame.getHitTestResults(hitTestSource);
         if (results.length) {
           const pose = results[0].getPose(refSpace);
-          if (pose) lastHitRef.current = { x: pose.transform.position.x, z: pose.transform.position.z };
+          if (pose) {
+            lastHitRef.current = { x: pose.transform.position.x, z: pose.transform.position.z };
+            if (!hasSurfaceRef.current) {
+              hasSurfaceRef.current = true;
+              setHasSurface(true);
+            }
+          }
+        } else {
+          lastHitRef.current = null;
+          if (hasSurfaceRef.current) {
+            hasSurfaceRef.current = false;
+            setHasSurface(false);
+          }
         }
         session.requestAnimationFrame(onFrame);
       };
@@ -155,7 +177,7 @@ export default function ScanRoom() {
         {support === 'checking' && <p className="text-center text-sm text-slate-400">Checking your device…</p>}
 
         {support !== 'checking' && support !== 'ready' && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-center">
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4 space-y-3 text-center">
             <p className="text-sm text-slate-600">{supportCopy[support]}</p>
             <Button onClick={() => navigate('/wizard')} className="bg-slate-900 text-white hover:bg-slate-700">
               <Ruler className="w-4 h-4 mr-2" /> Enter room manually
@@ -165,7 +187,7 @@ export default function ScanRoom() {
 
         {support === 'ready' && !scanning && (
           <div className="space-y-3">
-            <ol className="text-sm text-slate-600 space-y-2 rounded-xl border border-slate-200 p-4">
+            <ol className="text-sm text-slate-600 space-y-2 rounded-md border border-slate-200 p-4">
               <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Stand where you can see the floor. Move your phone slowly until a marker appears.</li>
               <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Start at one corner of the room and tap the screen to mark it.</li>
               <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Walk to each corner in order and mark it — 4 corners for a normal room.</li>
@@ -188,6 +210,24 @@ export default function ScanRoom() {
               : `${corners.length} corner${corners.length === 1 ? '' : 's'} marked — walk to the next one`}
           </span>
         </div>
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
+          <div className={cn(
+            'relative w-14 h-14 rounded-full border-2 transition-colors',
+            hasSurface ? 'border-emerald-400 bg-emerald-400/15' : 'border-white/70 bg-black/10',
+          )}>
+            <span className={cn(
+              'absolute left-1/2 top-2 bottom-2 w-0.5 -translate-x-1/2',
+              hasSurface ? 'bg-emerald-300' : 'bg-white/70',
+            )} />
+            <span className={cn(
+              'absolute top-1/2 left-2 right-2 h-0.5 -translate-y-1/2',
+              hasSurface ? 'bg-emerald-300' : 'bg-white/70',
+            )} />
+          </div>
+          <span className="rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">
+            {hasSurface ? 'Floor found — aim at the corner and tap' : 'Move slowly to find the floor'}
+          </span>
+        </div>
         <div className="absolute bottom-6 inset-x-0 flex items-center justify-center gap-3 pointer-events-auto">
           <Button
             variant="outline"
@@ -203,7 +243,7 @@ export default function ScanRoom() {
           <Button
             className="bg-emerald-600 text-white hover:bg-emerald-500 h-12 px-6"
             onClick={finish}
-            disabled={corners.length < 3}
+            disabled={corners.length < 4}
           >
             <Check className="w-4 h-4 mr-1" /> Finish ({corners.length})
           </Button>

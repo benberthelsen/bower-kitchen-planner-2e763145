@@ -58,6 +58,7 @@ interface ChatTurn { role: 'user' | 'assistant'; content: string }
 export function useAiDesigner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasActiveSession, setHasActiveSession] = useState(false);
   const sessionRef = useRef<AuthorizedDesignSession | null>(null);
 
   const call = useCallback(async (body: Record<string, unknown>): Promise<AiDesignResult | null> => {
@@ -82,7 +83,10 @@ export function useAiDesigner() {
       const result = data as AiDesignResult;
       if (result.session) {
         const token = result.session.token ?? sessionRef.current?.token;
-        if (token) sessionRef.current = { ...result.session, token };
+        if (token) {
+          sessionRef.current = { ...result.session, token };
+          setHasActiveSession(true);
+        }
       }
       return result;
     } catch (e) {
@@ -128,5 +132,5 @@ export function useAiDesigner() {
     [call],
   );
 
-  return { generate, refine, restyle, loading, error };
+  return { generate, refine, restyle, loading, error, hasActiveSession };
 }

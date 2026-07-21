@@ -13,6 +13,30 @@ export * from './catalogRoles.ts';
 export { solveRun } from './solveRun.ts';
 export { compileSpec, type CompiledDesign } from './compileSpec.ts';
 export { validate } from './validate.ts';
+export {
+  polygonFromRoom,
+  segmentToWorld,
+  pointInPolygon,
+  rectInsidePolygon,
+  rotationFromNormal,
+  interiorAngles,
+  type Vec2,
+  type WallSegment,
+  type RoomPolygon,
+  type CutoutCorner,
+} from './polygon.ts';
+export {
+  evaluateRules,
+  ruleWhy,
+  RULES,
+  RULE_INDEX,
+  RESERVED_RULE_IDS,
+  type Rule,
+  type RuleTier,
+  type RuleScope,
+  type RuleFinding,
+  type RuleContext,
+} from './rules.ts';
 export { defaultSpecFor, type LayoutShape } from './defaultSpec.ts';
 export { priceDesign } from './priceDesign.ts';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter.ts';

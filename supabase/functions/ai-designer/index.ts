@@ -67,11 +67,31 @@ function catalogSummary() {
   };
 }
 
-function compileAndScore(spec: unknown, room: unknown, brief: unknown) {
+function layoutShapeError(spec: KitchenSpecInput, shape: string): string | null {
+  const walls = spec.runs.map(run => run.wall);
+  const unique = [...new Set(walls)];
+  if (unique.length !== walls.length) return 'A wall may only have one run definition';
+  const opposite = (a: string, b: string) =>
+    (a === 'N' && b === 'S') || (a === 'S' && b === 'N')
+    || (a === 'E' && b === 'W') || (a === 'W' && b === 'E');
+  if (shape === 'single-wall' && unique.length !== 1) return 'Single-wall layouts must use exactly one wall';
+  if (shape === 'l-shape' && (unique.length !== 2 || opposite(unique[0], unique[1]))) {
+    return 'L-shaped layouts must use exactly two adjoining walls';
+  }
+  if (shape === 'u-shape' && unique.length !== 3) return 'U-shaped layouts must use exactly three walls';
+  if (shape === 'galley' && (unique.length !== 2 || !opposite(unique[0], unique[1]))) {
+    return 'Galley layouts must use exactly two opposite walls';
+  }
+  return null;
+}
+
+function compileAndScore(spec: unknown, room: unknown, brief: unknown, shape: string) {
   const parsed = kitchenSpecSchema.safeParse(spec);
   if (!parsed.success) {
     return { ok: false as const, error: `Invalid KitchenSpec: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}` };
   }
+  const shapeError = layoutShapeError(parsed.data, shape);
+  if (shapeError) return { ok: false as const, error: shapeError };
   // deno-lint-ignore no-explicit-any
   const design = compileSpec(parsed.data as any, room as any);
   // deno-lint-ignore no-explicit-any
@@ -354,15 +374,19 @@ Catalog: ${JSON.stringify(catalogSummary())}
 Room+brief: ${JSON.stringify(brief)}
 Kitchen shape: ${shape}`;
 
+  const wallRule = Array.isArray((brief as { allowedWalls?: unknown }).allowedWalls)
+    ? `\nCUSTOMER WALL RESTRICTION: use only these cabinet walls: ${JSON.stringify((brief as { allowedWalls: unknown }).allowedWalls)}. This is mandatory, not a preference.`
+    : '';
+
   if (mode === 'generate') {
-    return base + `
+    return base + wallRule + `
 Task: produce 3 DISTINCT named options (vary layout strategy — e.g. work-triangle optimised, storage maximised, entertainer/social — not just colours). finalize with all 3.`;
   }
   if (mode === 'style') {
-    return base + `
+    return base + wallRule + `
 Task: the user describes a look. Change ONLY the style ids of the current spec (and rationale). finalize with 1 option.`;
   }
-  return base + `
+  return base + wallRule + `
 Task: chat-driven plan editing. Apply layout, functionality or style requests to the current spec. For room facts, call propose_room_patch; the current room remains unchanged until the user reviews and reconfirms it. If they only asked a question, validate the current spec with propose_layout and finalize its proposalId with {unchanged:true, changeSummary: answer}. Otherwise finalize 1 validated proposalId + changeSummary.`;
 }
 
@@ -413,6 +437,10 @@ serve(async (req) => {
     }
     const request = requestParsed.data;
     const { mode, shape, currentSpec, message, history, brief } = request;
+    if (brief.room.shape === 'LShape') {
+      logOutcome('ai-designer', requestId, 'unsupported_l_shape', started);
+      return errorResponse(req, 422, 'unsupported_l_shape');
+    }
     const persistence = await preparePersistenceContext(service, request);
 
     // Conversation state. The confirmed room remains immutable for the entire
@@ -471,7 +499,7 @@ serve(async (req) => {
         // model answered without a tool call — treat text as a Q&A answer in refine mode
         const text = assistant.content ?? '';
         if (mode === 'refine' && currentSpec) {
-          const current = compileAndScore(currentSpec, brief.room, brief);
+          const current = compileAndScore(currentSpec, brief.room, brief, shape);
           if (!current.ok) return json({ error: 'Current design is invalid', detail: current.error }, 409);
           const hardErrors = current.violations.filter(v => v.severity === 'error');
           if (hardErrors.length > 0) {
@@ -493,7 +521,7 @@ serve(async (req) => {
         try { input = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave empty */ }
         let content: string;
         if (tc.function.name === 'propose_layout') {
-          const r = compileAndScore(input.spec, brief.room, brief);
+          const r = compileAndScore(input.spec, brief.room, brief, shape);
           if (!r.ok) {
             content = JSON.stringify({ error: r.error });
           } else {
@@ -566,7 +594,7 @@ serve(async (req) => {
     // current design unchanged and let the user review/reconfirm the patch in
     // the canonical Room step before generating again.
     if (proposedRoomPatch && mode === 'refine' && currentSpec) {
-      const current = compileAndScore(currentSpec, brief.room, brief);
+      const current = compileAndScore(currentSpec, brief.room, brief, shape);
       if (!current.ok) return json({ error: 'Current design is invalid', detail: current.error }, 409);
       const hardErrors = current.violations.filter(v => v.severity === 'error');
       if (hardErrors.length > 0) {
@@ -585,7 +613,7 @@ serve(async (req) => {
     // Compile server-side; never trust raw model output.
     const options: PersistableOption[] = [];
     for (const opt of finalized.options.slice(0, 3)) {
-      const r = compileAndScore(opt.spec, brief.room, brief);
+      const r = compileAndScore(opt.spec, brief.room, brief, shape);
       if (!r.ok) continue;
       if (r.violations.some(v => v.severity === 'error')) continue;
       options.push({

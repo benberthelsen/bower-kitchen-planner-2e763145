@@ -5,18 +5,23 @@
  * Conventions (MUST match UnifiedScene's room rendering — corner origin):
  * - Room spans x ∈ [0, width], z ∈ [0, depth] (mm; scene divides by 1000).
  * - N wall (back) at z = 0, items face +z, rotation 0.
- * - E wall (right) at x = width, rotation 270.
+ * - E wall (right) at x = width, rotation 90.
  * - S wall (front) at z = depth, rotation 180.
- * - W wall (left) at x = 0, rotation 90.
+ * - W wall (left) at x = 0, rotation 270.
+ *   (CabinetMesh applies rotation as -degToRad(θ); these values match the
+ *   manual planner's wallSnapping.ts — left wall 270, right wall 90. The old
+ *   E:270/W:90 mapping rendered side-wall runs facing INTO the wall.)
  * - Wall offsets (t, mm) are measured from the wall's LEFT corner when facing
- *   the wall from inside the room.
+ *   the wall from inside the room. Under this convention, low-t is always the
+ *   cabinet row's LEFT end as seen from the room, on every wall — which is
+ *   what PlacedItem.endPanelLeft / fillerLeft refer to.
  */
 
 import type { Opening, RoomConfig } from './core.ts';
 import type { PlacedItem } from './core.ts';
 import type { Wall } from './types.ts';
 
-export const WALL_ROTATION: Record<Wall, number> = { N: 0, E: 270, S: 180, W: 90 };
+export const WALL_ROTATION: Record<Wall, number> = { N: 0, E: 90, S: 180, W: 270 };
 
 export function wallLength(wall: Wall, room: RoomConfig): number {
   return wall === 'N' || wall === 'S' ? room.width : room.depth;
@@ -30,9 +35,9 @@ export function wallToWorld(
   const c = t + widthMm / 2; // center along the wall
   switch (wall) {
     case 'N': return { x: c, z: depthMm / 2, rotation: 0 };
-    case 'E': return { x: room.width - depthMm / 2, z: c, rotation: 270 };
+    case 'E': return { x: room.width - depthMm / 2, z: c, rotation: 90 };
     case 'S': return { x: room.width - c, z: room.depth - depthMm / 2, rotation: 180 };
-    case 'W': return { x: depthMm / 2, z: room.depth - c, rotation: 90 };
+    case 'W': return { x: depthMm / 2, z: room.depth - c, rotation: 270 };
   }
 }
 
@@ -58,8 +63,10 @@ export function rectsOverlap(a: PlanRect, b: PlanRect, toleranceMm = 1): boolean
 /** 1-D interval on a wall. */
 export interface Interval { start: number; end: number }
 
-/** Blocked intervals on a wall for BASE/TALL cabinets: doors + walkways (+margin). */
-export function baseBlockedIntervals(wall: Wall, openings: Opening[], marginMm = 25): Interval[] {
+/** Blocked intervals on a wall for BASE/TALL cabinets: doors + walkways (+margin).
+ *  Margin covers the architrave plus a scribe allowance so cabinets never butt
+ *  hard against a doorway (the run closes the gap with a filler). */
+export function baseBlockedIntervals(wall: Wall, openings: Opening[], marginMm = 50): Interval[] {
   return openings
     .filter(o => o.wall === wall && (o.type === 'door' || o.type === 'walkway'))
     .map(o => ({ start: o.offsetMm - marginMm, end: o.offsetMm + o.widthMm + marginMm }));
@@ -67,7 +74,7 @@ export function baseBlockedIntervals(wall: Wall, openings: Opening[], marginMm =
 
 /** Blocked intervals for WALL cabinets: doors, walkways, and windows.
  *  (Base cabinets can sit under a window; wall cabinets cannot cross one.) */
-export function wallCabBlockedIntervals(wall: Wall, openings: Opening[], marginMm = 25): Interval[] {
+export function wallCabBlockedIntervals(wall: Wall, openings: Opening[], marginMm = 50): Interval[] {
   return openings
     .filter(o => o.wall === wall)
     .map(o => ({ start: o.offsetMm - marginMm, end: o.offsetMm + o.widthMm + marginMm }));

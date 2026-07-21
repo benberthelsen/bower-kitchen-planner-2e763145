@@ -47,7 +47,7 @@ const LOADING_LINES = [
 ];
 
 export default function StepDesign({ brief, shape, style, design, onDesignChange, onRoomPatchProposed }: Props) {
-  const { generate, refine, loading, error } = useAiDesigner();
+  const { generate, refine, loading, error, hasActiveSession } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -103,7 +103,17 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
   const selectedFinish = FINISH_OPTIONS.find(f => f.id === style.finishId) ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === style.benchtopId) ?? BENCHTOP_OPTIONS[0];
 
+  // L-shaped rooms are gated out of automatic AI generation (release blocker
+  // 6.5): the engine treats every room as its bounding rectangle and would
+  // place cabinets into the missing corner. Blocked until polygon geometry
+  // lands; the manual/full planner still works.
+  const isLShape = brief.room.shape === 'LShape';
+
   const handleGenerate = async () => {
+    if (isLShape) {
+      toast.error('Automatic AI design is not available for L-shaped rooms yet — it would ignore the missing corner. Use the standard layout, or the full planner, for now.');
+      return;
+    }
     trackEvent('ai_generate_requested', { shape });
     const res = await generate(brief, shape);
     if (!res || res.options.length === 0) {
@@ -113,6 +123,14 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
     }
     trackEvent('ai_generate_succeeded', { count: res.options.length });
     setOptions(res.options);
+    // Fresh generation starts a NEW AI session. Any previously selected option
+    // still holds a proposalId from the OLD session; refining it against the
+    // new session fails (invalid_parent_proposal) or edits the wrong lineage.
+    // Clear the selection, chat and undo history so the user must pick one of
+    // these new options before refining. (Release blocker 6.3.)
+    setChatLog([]);
+    setUndoStack([]);
+    onDesignChange({ name: 'Standard layout', spec: defaultSpecFor(brief, shape, style), aiGenerated: false });
   };
 
   const selectOption = (opt: AiDesignOption) => {
@@ -132,6 +150,10 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
     if (!msg || !design || !activeSpec) return;
     if (!design.proposalId) {
       toast.error('Generate a fresh AI option before asking for design changes.');
+      return;
+    }
+    if (!hasActiveSession) {
+      toast.error('Generate fresh options before revising this restored design.');
       return;
     }
     setChatInput('');
@@ -168,24 +190,43 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Design your kitchen</h2>
         <p className="text-sm text-slate-500">
-          Let our AI designer plan it around your room and habits — or keep the standard layout and tweak the style next.
+          Let our AI designer plan it around your room, your habits and your chosen style — or keep the standard layout. You can revise any option below.
         </p>
       </div>
 
+      {isLShape && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-1" role="status">
+          <p className="text-xs font-semibold text-amber-800">L-shaped room — automatic design isn’t available yet</p>
+          <p className="text-xs text-amber-700">
+            Our AI placement doesn’t model the missing corner of an L-shaped room yet, so the
+            preview below is indicative only. Continue with it for a rough estimate, or ask us to
+            plan this room by hand — we’ll confirm the layout and price at your consultation.
+          </p>
+        </div>
+      )}
+
       {/* AI generate / options */}
       {!options && (
-        <Button
-          onClick={handleGenerate}
-          disabled={loading}
-          className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
-        >
-          {loading
-            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
-            : <><Sparkles className="w-4 h-4 mr-2" /> Design my kitchen with AI</>}
-        </Button>
+        <div className="space-y-1.5">
+          <Button
+            onClick={handleGenerate}
+            disabled={loading || isLShape}
+            className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
+          >
+            {loading
+              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
+              : <><Sparkles className="w-4 h-4 mr-2" /> Design my kitchen with AI</>}
+          </Button>
+          {isLShape && (
+            <p className="text-[11px] text-slate-400 text-center">
+              Available for rectangular rooms — L-shaped support is coming soon.
+            </p>
+          )}
+        </div>
       )}
 
       {options && (
+        <>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {options.map(opt => {
             const active = design?.name === opt.name && design.aiGenerated;
@@ -220,6 +261,20 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
             );
           })}
         </div>
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleGenerate}
+            disabled={loading}
+            className="gap-1.5 text-slate-500"
+          >
+            {loading
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {LOADING_LINES[loadingLine]}</>
+              : <><Sparkles className="w-3.5 h-3.5" /> Generate three fresh options</>}
+          </Button>
+        </div>
+        </>
       )}
 
       {error && !loading && (
@@ -286,7 +341,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
       )}
 
       {/* chat refine */}
-      {design?.aiGenerated && (
+      {design?.aiGenerated && design.proposalId && hasActiveSession && (
         <div className="space-y-2">
           {chatLog.length > 0 && (
             <div className="max-h-40 overflow-y-auto space-y-1.5 px-0.5">

@@ -7,7 +7,7 @@
 
 import type { Opening, RoomShape, ServicePoint } from '@/types';
 import { toRoomSpec } from '@/lib/layout';
-import type { DesignBrief, KitchenSpec, Priority } from '@/lib/layout';
+import type { DesignBrief, KitchenSpec, Priority, Wall } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 
 export interface WizardBriefFields {
@@ -33,6 +33,9 @@ export interface WizardBriefFields {
   /** Inspiration + client-chosen finishes (e.g. from a website flat-lay handoff).
    *  The AI designer treats this as a strong style preference. */
   styleWords?: string;
+  /** Walls the customer wants cabinetry on (wizard wall picker). Empty/absent
+   *  = auto. Fed to the engine as DesignBrief.allowedWalls. */
+  cabinetWalls?: Wall[];
 }
 
 /** A chosen design in wizard state: the spec is the source of truth; items,
@@ -73,5 +76,6 @@ export function buildBrief(f: WizardBriefFields): DesignBrief {
     },
     island: f.island,
     ...(f.styleWords ? { styleWords: f.styleWords } : {}),
+    ...(f.cabinetWalls && f.cabinetWalls.length > 0 ? { allowedWalls: f.cabinetWalls } : {}),
   };
 }

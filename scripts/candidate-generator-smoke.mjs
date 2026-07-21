@@ -16,8 +16,8 @@ mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
 const LAYOUT_FILES = [
-  'types', 'schemas', 'geometry', 'catalogRoles', 'solveRun', 'compileSpec',
-  'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState',
+  'types', 'schemas', 'geometry', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec',
+  'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState',
   'designScore', 'candidateGenerator', 'index',
 ];
 
@@ -114,6 +114,20 @@ check('allowedStrategies is respected', () => {
   const pool = generateCandidatePool({ brief: roomyBrief(), allowedStrategies: ['galley'] });
   assert(pool.attemptedStrategies.every(s => s === 'galley'), 'attempted a disallowed strategy');
   assert(pool.candidates.every(c => c.strategy === 'galley'), 'returned a disallowed strategy');
+});
+
+check('allowedWalls is authoritative for original and mirrored candidates', () => {
+  const brief = roomyBrief();
+  brief.allowedWalls = ['N', 'W'];
+  const pool = generateCandidatePool({ brief, allowedStrategies: ['l-shape'], maxCandidates: 12 });
+  assert(pool.candidates.length > 0, 'wall-restricted brief produced no candidates');
+  for (const candidate of pool.candidates) {
+    const used = candidate.spec.runs.map(run => run.wall);
+    assert(used.every(wall => brief.allowedWalls.includes(wall)),
+      `${candidate.candidateId} used disallowed walls: ${used.join(',')}`);
+  }
+  assert(!pool.candidates.some(candidate => candidate.candidateId.includes('mirrored')),
+    'mirrored candidate escaped onto the disallowed E wall');
 });
 
 check('drain wall drives the sink run and mirrored variant differs', () => {

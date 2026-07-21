@@ -45,20 +45,28 @@ const apply = (m, p) => ({ x: m[0] * p.x + m[1] * p.z + m[2], z: m[3] * p.x + m[
   }
 }
 
-// 3. Noisy corner within tolerance → clean; big deviation → warned, capped confidence.
+// 3. Noisy corner within tolerance → clean; a non-rectangular capture is rejected.
 {
   const mild = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4.02, z: 3 }, { x: 0, z: 3 }]);
   check('20mm noise stays clean', mild.ok && mild.warnings.length === 0, mild.ok ? JSON.stringify(mild.warnings) : mild.reason);
   const rough = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0.4, z: 1.5 }, { x: 0, z: 3 }]);
-  check('L-ish shape warns + caps confidence', rough.ok && rough.warnings.length === 1 && rough.scan.confidence.overall === 0.5, rough.ok ? JSON.stringify(rough.warnings) : rough.reason);
+  check('L-ish shape is rejected rather than inflated to a rectangle', !rough.ok, rough.ok ? JSON.stringify(rough.scan.room) : '');
 }
 
 // 4. Failure modes.
 {
   const few = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }]);
   check('two corners rejected', !few.ok);
+  const triangle = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 2, z: 3 }]);
+  check('three-corner bounding box rejected', !triangle.ok);
   const tiny = buildScanFromCorners([{ x: 0, z: 0 }, { x: 0.8, z: 0 }, { x: 0.8, z: 0.5 }, { x: 0, z: 0.5 }]);
   check('tiny capture rejected', !tiny.ok);
+  const shallow = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 0.9 }, { x: 0, z: 0.9 }]);
+  check('planner-incompatible 900mm depth rejected', !shallow.ok);
+  const duplicate = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 4.05, z: 3.02 }, { x: 0, z: 3 }]);
+  check('duplicate corner rejected', !duplicate.ok);
+  const crossed = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 3 }, { x: 4, z: 0 }, { x: 0, z: 3 }]);
+  check('self-crossing corner order rejected', !crossed.ok);
 }
 
 console.log(`webxr fit smoke: ${pass} passed, ${fail} failed`);

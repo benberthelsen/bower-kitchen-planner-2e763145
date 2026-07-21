@@ -76,7 +76,9 @@ export function defaultSpecFor(
       break;
     }
     case 'l-shape': {
-      const side = sinkWall(brief, ['W', 'E']);
+      const sideChoices = (['W', 'E'] as Wall[])
+        .filter(w => !brief.allowedWalls?.length || brief.allowedWalls.includes(w));
+      const side = sinkWall(brief, sideChoices.length ? sideChoices : ['W', 'E']);
       const sinkSide: Segment[] = [seg('corner'), seg('sink')];
       if (dw) sinkSide.push(seg('dishwasher'));
       sinkSide.push(seg('drawers'));

@@ -25,11 +25,14 @@ function seg(role, widthMm) {
 /** Cheap geometric pre-filter; final authority is compile + validate. */
 function strategyPlausible(strategy, brief) {
     const { width, depth } = brief.room;
+    const allowed = brief.allowedWalls && brief.allowedWalls.length > 0 ? brief.allowedWalls : null;
+    const ok = (...walls) => !allowed || walls.every(w => allowed.includes(w));
+    const okAny = (...walls) => !allowed || walls.some(w => allowed.includes(w));
     switch (strategy) {
-        case 'single-wall': return width >= 1800;
-        case 'l-shape': return width >= 2400 && depth >= 2100;
-        case 'u-shape': return width >= 2400 && depth >= 2400;
-        case 'galley': return width >= 2400 && depth >= 2400;
+        case 'single-wall': return width >= 1800 && ok('N');
+        case 'l-shape': return width >= 2400 && depth >= 2100 && ok('N') && okAny('W', 'E');
+        case 'u-shape': return width >= 2400 && depth >= 2400 && ok('N', 'W', 'E');
+        case 'galley': return width >= 2400 && depth >= 2400 && ok('N', 'S');
     }
 }
 function canFitIsland(brief) {
@@ -77,12 +80,15 @@ function socialVariant(brief, strategy, style) {
     };
 }
 /** Sink-wall alternative for l/u strategies: mirror the side runs. */
-function mirrorSideRuns(spec) {
+function mirrorSideRuns(spec, allowedWalls) {
     const flip = { W: 'E', E: 'W' };
+    const allowed = allowedWalls?.length ? new Set(allowedWalls) : null;
     let changed = false;
     const runs = spec.runs.map(run => {
         const target = flip[run.wall];
         if (!target)
+            return run;
+        if (allowed && !allowed.has(target))
             return run;
         changed = true;
         return { ...run, wall: target, fromEnd: target === 'W' };
@@ -104,7 +110,7 @@ function generateCandidatePool(input) {
         attempted.push(strategy);
         const workflow = (0, defaultSpec_1.defaultSpecFor)(brief, strategy, style);
         attempts.push({ candidateId: `${strategy}/workflow`, strategy, emphasis: 'workflow', spec: workflow });
-        const mirrored = mirrorSideRuns(workflow);
+        const mirrored = mirrorSideRuns(workflow, brief.allowedWalls);
         if (mirrored) {
             attempts.push({ candidateId: `${strategy}/workflow-mirrored`, strategy, emphasis: 'workflow', spec: mirrored });
         }

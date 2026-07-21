@@ -29,6 +29,11 @@ export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: 
     exteriorMaterialId: cabinet.materials?.exteriorFinish ?? materialDefaults?.exteriorFinish,
     edgeId: cabinet.materials?.edgeBanding ?? materialDefaults?.edgeBanding,
     handleType: cabinet.hardware?.handleType,
+    endPanelLeft: cabinet.construction?.endPanelLeft,
+    endPanelRight: cabinet.construction?.endPanelRight,
+    fillerLeft: cabinet.construction?.leftFillerWidth,
+    fillerRight: cabinet.construction?.rightFillerWidth,
+    blindSide: cabinet.construction?.blindSide,
     drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
   }));
 }

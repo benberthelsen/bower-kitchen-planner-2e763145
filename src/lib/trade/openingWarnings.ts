@@ -18,8 +18,8 @@
  * PlannerScene.OpeningFootprints).
  */
 
-import type { Opening } from '@/types';
-import type { ConfiguredCabinet, GlobalDimensions } from '@/types/trade';
+import type { GlobalDimensions, Opening } from '@/types';
+import type { ConfiguredCabinet } from '@/types/trade';
 
 export interface PlacementWarning {
   cabinetId: string;

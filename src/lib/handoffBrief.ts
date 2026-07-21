@@ -6,11 +6,22 @@
  * AI entry points: the homeowner wizard and the trade planner.
  */
 
-import type { WebsitePlannerHandoff } from '@/hooks/usePlannerHandoff';
+interface HandoffStyleInput {
+  styleTags?: string[];
+  materials?: {
+    mainCabinet?: string;
+    secondaryFinish?: string;
+    benchtop?: string;
+    splashback?: string;
+    hardware?: string;
+  };
+  notes?: string;
+  dimensions?: { widthMm?: number; depthMm?: number; heightMm?: number };
+}
 
 /** Condense the handoff's style tags + chosen materials + notes into a single
  *  descriptive string (<=500 chars, matching designBriefSchema.styleWords). */
-export function handoffToStyleWords(payload: WebsitePlannerHandoff): string {
+export function handoffToStyleWords(payload: HandoffStyleInput): string {
   const parts: string[] = [];
 
   if (payload.styleTags?.length) {
@@ -32,7 +43,7 @@ export function handoffToStyleWords(payload: WebsitePlannerHandoff): string {
 }
 
 /** Room dimensions from the handoff, if the client gave them. */
-export function handoffDimensions(payload: WebsitePlannerHandoff): { widthMm?: number; depthMm?: number; heightMm?: number } {
+export function handoffDimensions(payload: HandoffStyleInput): { widthMm?: number; depthMm?: number; heightMm?: number } {
   return {
     widthMm: payload.dimensions?.widthMm,
     depthMm: payload.dimensions?.depthMm,

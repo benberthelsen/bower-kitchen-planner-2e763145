@@ -18,7 +18,7 @@ const ROOT = process.cwd();
 
 const OUT = path.join(ROOT, '.tmp-sweep'); mkdirSync(OUT, { recursive: true }); writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
-const LAYOUT_FILES = ['types','schemas','geometry','catalogRoles','solveRun','compileSpec','validate','defaultSpec','priceDesign','wizardAdapter','proposalState','designScore','candidateGenerator','index'];
+const LAYOUT_FILES = ['types','schemas','geometry','polygon','catalogRoles','solveRun','compileSpec','rules','validate','defaultSpec','priceDesign','wizardAdapter','proposalState','designScore','candidateGenerator','index'];
 
 writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, { get: () => undefined });\n');
 

@@ -12,6 +12,30 @@ export * from './catalogRoles';
 export { solveRun } from './solveRun';
 export { compileSpec, type CompiledDesign } from './compileSpec';
 export { validate } from './validate';
+export {
+  polygonFromRoom,
+  segmentToWorld,
+  pointInPolygon,
+  rectInsidePolygon,
+  rotationFromNormal,
+  interiorAngles,
+  type Vec2,
+  type WallSegment,
+  type RoomPolygon,
+  type CutoutCorner,
+} from './polygon';
+export {
+  evaluateRules,
+  ruleWhy,
+  RULES,
+  RULE_INDEX,
+  RESERVED_RULE_IDS,
+  type Rule,
+  type RuleTier,
+  type RuleScope,
+  type RuleFinding,
+  type RuleContext,
+} from './rules';
 export { defaultSpecFor, type LayoutShape } from './defaultSpec';
 export { priceDesign } from './priceDesign';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter';
