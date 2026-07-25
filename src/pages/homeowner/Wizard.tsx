@@ -702,7 +702,84 @@ function ShapeIcon({ shape, selected }: { shape: LayoutPreference; selected: boo
 
 // ─── Step 1: Room ───────────────────────────────────────────────────────────────
 
-function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void }) {
+/** Draft-then-commit numeric input for the room measurements. Mirrors the
+ *  NumField pattern in RoomFeaturesEditor (TEST-FINDINGS.md F-5): typing does
+ *  NOT clamp mid-stroke, so "3600" survives and "50" is not silently rewritten
+ *  to 1200. The committed value is only applied on blur/Enter, and out-of-range
+ *  values keep the user's text visible with aria-invalid + an inline message. */
+function RoomMmField({
+  id, label, hint, value, min, max, step, invalidMessage, onCommit, onInvalidChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  invalidMessage: string;
+  onCommit: (v: number) => void;
+  onInvalidChange: (bad: boolean) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
+
+  useEffect(() => { onInvalidChange(invalid); }, [invalid, onInvalidChange]);
+  useEffect(() => () => { onInvalidChange(false); }, [onInvalidChange]);
+
+  const errId = `${id}-err`;
+  const hintId = `${id}-hint`;
+
+  const commit = () => {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    const n = Number(trimmed);
+    if (trimmed === '' || !Number.isFinite(n) || n < min || n > max) {
+      setInvalid(true);
+      // Keep the draft visible so the user can correct it in place.
+      return;
+    }
+    setInvalid(false);
+    onCommit(n);
+    setDraft(null);
+  };
+
+  const shown = draft ?? String(value);
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={step}
+        value={shown}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? errId : hintId}
+        onChange={e => { setDraft(e.target.value); if (invalid) setInvalid(false); }}
+        onFocus={() => setDraft(String(value))}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+      {invalid ? (
+        <p id={errId} role="alert" className="text-xs text-red-600">{invalidMessage}</p>
+      ) : (
+        <p id={hintId} className="text-xs text-slate-400">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void; onValidityChange: (hasInvalid: boolean) => void }) {
+  const [invalidMap, setInvalidMap] = useState<{ w: boolean; d: boolean; h: boolean }>({ w: false, d: false, h: false });
+  useEffect(() => {
+    onValidityChange(invalidMap.w || invalidMap.d || invalidMap.h);
+  }, [invalidMap, onValidityChange]);
+  useEffect(() => () => { onValidityChange(false); }, [onValidityChange]);
+
   const shapes: { id: LayoutPreference; label: string; desc: string }[] = [
     { id: 'single-wall', label: 'Single Wall', desc: 'One wall of cabinets' },
     { id: 'l-shape',     label: 'L-Shape',     desc: 'Two adjoining walls' },
