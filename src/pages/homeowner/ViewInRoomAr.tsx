@@ -22,6 +22,8 @@ import { itemRect } from '@/lib/layout';
 import type { PlacedItem } from '@/types';
 import { getApplianceMaterial, resolveFinishKey } from '@/components/3d/materials/applianceMaterials';
 import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
+import { resolveApplianceModelUrl } from '@/components/3d/applianceModelUrl';
+import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 
 
 export const VIEW_AR_KEY = 'bower.viewArPayload';
