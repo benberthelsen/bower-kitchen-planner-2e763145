@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { PlacedItem, GlobalDimensions } from '../../types';
 import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
+import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
 
