@@ -1,10 +1,97 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { gate, jsonResponse, readJsonBody } from '../_shared/roomScan/security.ts';
-import { parseSyntheticTestContext } from '../_shared/syntheticTest.ts';
 
 const allowedStatuses = new Set(['planned', 'running', 'completed', 'failed', 'paused']);
 const allowedDevices = new Set(['mobile', 'desktop', 'tablet']);
+const testRunPattern = /^[A-Z0-9][A-Z0-9_-]{5,63}$/;
+const personaPattern = /^SYN-P(?:00[1-9]|0[1-9][0-9]|100)$/;
+const maxBodyBytes = 512 * 1024;
+
+type SyntheticTestContext = { testRunId: string; personaId: string };
+
+function headers(req: Request): Record<string, string> {
+  const allowed = (Deno.env.get('SCANNER_ALLOWED_ORIGINS') ?? '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const origin = req.headers.get('Origin');
+  const result: Record<string, string> = {
+    'Cache-Control': 'no-store',
+    Pragma: 'no-cache',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    Vary: 'Origin',
+  };
+  if (origin && allowed.includes(origin)) {
+    result['Access-Control-Allow-Origin'] = origin;
+    result['Access-Control-Allow-Headers'] = 'authorization, x-client-info, apikey, content-type, x-bower-synthetic-secret';
+    result['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
+  }
+  return result;
+}
+
+function jsonResponse(req: Request, status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...headers(req), 'Content-Type': 'application/json' },
+  });
+}
+
+function gate(req: Request): Response | null {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: headers(req) });
+  if (req.method !== 'POST') return jsonResponse(req, 405, { error: 'method_not_allowed' });
+  return null;
+}
+
+async function readJsonBody(req: Request): Promise<unknown | Response> {
+  const length = Number(req.headers.get('content-length') ?? '0');
+  if (length > maxBodyBytes) return jsonResponse(req, 413, { error: 'body_too_large' });
+  const text = await req.text();
+  if (text.length > maxBodyBytes) return jsonResponse(req, 413, { error: 'body_too_large' });
+  try {
+    return JSON.parse(text);
+  } catch {
+    return jsonResponse(req, 400, { error: 'invalid_json' });
+  }
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+
+function parseSyntheticTestContext(req: Request, body: unknown): SyntheticTestContext {
+  const supplied = req.headers.get('x-bower-synthetic-secret') ?? '';
+  const expected = Deno.env.get('SYNTHETIC_TEST_SECRET') ?? '';
+  if (
+    supplied.length < 32
+    || expected.length < 32
+    || !constantTimeEqual(supplied, expected)
+    || typeof body !== 'object'
+    || body === null
+    || Array.isArray(body)
+  ) {
+    throw new Error('invalid_synthetic_test');
+  }
+  const candidate = (body as Record<string, unknown>).syntheticTest;
+  if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+    throw new Error('invalid_synthetic_test');
+  }
+  const { testRunId, personaId } = candidate as Record<string, unknown>;
+  if (
+    typeof testRunId !== 'string'
+    || !testRunPattern.test(testRunId)
+    || typeof personaId !== 'string'
+    || !personaPattern.test(personaId)
+  ) {
+    throw new Error('invalid_synthetic_test');
+  }
+  return { testRunId, personaId };
+}
 
 serve(async (req) => {
   const gated = gate(req);
@@ -83,4 +170,3 @@ serve(async (req) => {
 
   return jsonResponse(req, 400, { error: 'invalid_action' });
 });
-

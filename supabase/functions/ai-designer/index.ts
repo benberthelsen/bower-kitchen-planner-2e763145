@@ -47,10 +47,51 @@ import {
 // Material catalogs live in the merged core module (src/types.ts + constants.ts),
 // which index.ts does not re-export — import them directly to avoid a boot crash.
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, HANDLE_OPTIONS } from '../_shared/layout/core.ts';
-import {
-  parseSyntheticTestContext,
-  type SyntheticTestContext,
-} from '../_shared/syntheticTest.ts';
+type SyntheticTestContext = {
+  testRunId: string;
+  personaId: string;
+};
+
+const SYNTHETIC_TEST_RUN_RE = /^[A-Z0-9][A-Z0-9_-]{5,63}$/;
+const SYNTHETIC_PERSONA_RE = /^SYN-P(?:00[1-9]|0[1-9][0-9]|100)$/;
+
+function syntheticConstantTimeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return mismatch === 0;
+}
+
+function parseSyntheticTestContext(req: Request, body: unknown): SyntheticTestContext | null {
+  const candidate = typeof body === 'object' && body !== null && !Array.isArray(body)
+    ? (body as Record<string, unknown>).syntheticTest
+    : undefined;
+  const supplied = req.headers.get('x-bower-synthetic-secret') ?? '';
+  if (candidate === undefined && !supplied) return null;
+  const expected = Deno.env.get('SYNTHETIC_TEST_SECRET') ?? '';
+  if (
+    supplied.length < 32
+    || expected.length < 32
+    || !syntheticConstantTimeEqual(supplied, expected)
+    || typeof candidate !== 'object'
+    || candidate === null
+    || Array.isArray(candidate)
+  ) {
+    throw new Error('invalid_synthetic_test');
+  }
+  const { testRunId, personaId } = candidate as Record<string, unknown>;
+  if (
+    typeof testRunId !== 'string'
+    || !SYNTHETIC_TEST_RUN_RE.test(testRunId)
+    || typeof personaId !== 'string'
+    || !SYNTHETIC_PERSONA_RE.test(personaId)
+  ) {
+    throw new Error('invalid_synthetic_test');
+  }
+  return { testRunId, personaId };
+}
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = Deno.env.get('OPENAI_MODEL') ?? 'gpt-5.6-terra';

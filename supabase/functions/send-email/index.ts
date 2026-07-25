@@ -22,7 +22,27 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, jsonResponse, readJsonBody } from '../_shared/roomScan/security.ts';
-import { validateSyntheticTestContext, type SyntheticTestContext } from '../_shared/syntheticTest.ts';
+type SyntheticTestContext = {
+  testRunId: string;
+  personaId: string;
+};
+
+const SYNTHETIC_TEST_RUN_RE = /^[A-Z0-9][A-Z0-9_-]{5,63}$/;
+const SYNTHETIC_PERSONA_RE = /^SYN-P(?:00[1-9]|0[1-9][0-9]|100)$/;
+
+function validateSyntheticTestContext(value: unknown): SyntheticTestContext | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const { testRunId, personaId } = value as Record<string, unknown>;
+  if (
+    typeof testRunId !== 'string'
+    || !SYNTHETIC_TEST_RUN_RE.test(testRunId)
+    || typeof personaId !== 'string'
+    || !SYNTHETIC_PERSONA_RE.test(personaId)
+  ) {
+    return null;
+  }
+  return { testRunId, personaId };
+}
 
 const RESEND_URL = 'https://api.resend.com/emails';
 

@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 
 interface Lead {
+  is_synthetic_test?: boolean;
+  persona_id?: string | null;
   id: string;
   name: string;
   notes: string | null;
@@ -163,6 +165,15 @@ export default function AdminLeads() {
           <Badge variant="secondary" className="text-base px-3 py-1">
             {leads.length} {leads.length === 1 ? 'lead' : 'leads'}
           </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            className={showSynthetic ? 'border-amber-400 text-amber-700' : ''}
+            onClick={() => setShowSynthetic(v => !v)}
+            title="Synthetic usability-test records are hidden from the lead pipeline by default"
+          >
+            {showSynthetic ? 'Hide synthetic tests' : 'Show synthetic tests'}
+          </Button>
           <Button variant="outline" size="sm" onClick={loadLeads} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -222,6 +233,11 @@ export default function AdminLeads() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-gray-900 truncate">{lead.name}</p>
+                        {lead.is_synthetic_test && (
+                          <Badge className="text-xs bg-amber-100 text-amber-800 border border-amber-300">
+                            Synthetic {lead.persona_id ?? ''}
+                          </Badge>
+                        )}
                         <Badge variant="outline" className="text-xs capitalize">{shape}</Badge>
                         <Badge variant="outline" className="text-xs capitalize">{layoutStyle}</Badge>
                       </div>
