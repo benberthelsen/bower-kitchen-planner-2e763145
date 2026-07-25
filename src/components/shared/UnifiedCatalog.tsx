@@ -215,6 +215,13 @@ export function UnifiedCatalog({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [draggedProduct, setDraggedProduct] = useState<string | null>(null);
+  // Per-product Apple Quick Look shows only on iOS (rel="ar" is a no-op elsewhere).
+  const isIOSDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    return /Mac/.test(ua) && (navigator as any).maxTouchPoints > 1;
+  }, []);
 
   const isTrade = userType === 'trade' || userType === 'admin';
 
