@@ -379,6 +379,65 @@ const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
 
 const STATIC_LIBRARY_CATALOG: ExtendedCatalogItem[] = STATIC_LIBRARY_TEMPLATES.map(transformStaticTemplate);
 
+/**
+ * Stage 1 — turn an `appliance_products` row into a planner catalog entry.
+ * Uses cutout dims when present (that's the opening the cabinet run needs
+ * to leave for the appliance) and falls back to overall dims.
+ */
+function transformApplianceProduct(product: ApplianceProductRecord): ExtendedCatalogItem {
+  const width = product.cutout_width_mm ?? product.width_mm ?? 600;
+  const height = product.cutout_height_mm ?? product.height_mm ?? 870;
+  const depth = product.cutout_depth_mm ?? product.depth_mm ?? 580;
+  const displayPrice = product.installed_price ?? product.sell_price ?? product.rrp ?? 0;
+  const category: CabinetType = height >= 1500 ? 'Tall' : (height <= 500 ? 'Wall' : 'Base');
+  return {
+    id: `${APPLIANCE_CATALOG_ID_PREFIX}${product.id}`,
+    sku: product.item_code || product.id.slice(0, 8).toUpperCase(),
+    name: product.brand ? `${product.brand} ${product.name}` : product.name,
+    itemType: 'Appliance',
+    category,
+    defaultWidth: width,
+    defaultDepth: depth,
+    defaultHeight: height,
+    price: displayPrice,
+    specGroup: APPLIANCE_CATALOG_SPEC_GROUP,
+    displayOrder: product.sort_order ?? null,
+    microvellumLinkId: null,
+    applianceProduct: product,
+    renderConfig: {
+      productId: `${APPLIANCE_CATALOG_ID_PREFIX}${product.id}`,
+      productName: product.name,
+      category,
+      cabinetType: 'Standard',
+      productType: 'appliance' as const,
+      specGroup: APPLIANCE_CATALOG_SPEC_GROUP,
+      doorCount: 0,
+      drawerCount: 0,
+      isCorner: false,
+      isSink: /sink/i.test(product.category) || /sink/i.test(product.name),
+      isBlind: false,
+      isPantry: false,
+      isAppliance: true,
+      isOven: /oven/i.test(product.category) || /oven/i.test(product.name),
+      isFridge: /fridge/i.test(product.category) || /fridge/i.test(product.name),
+      isRangehood: /rangehood|hood/i.test(product.category) || /rangehood|hood/i.test(product.name),
+      isDishwasher: /dishwasher/i.test(product.category) || /dishwasher/i.test(product.name),
+      hasFalseFront: false,
+      hasAdjustableShelves: false,
+      shelfCount: 0,
+      cornerType: null,
+      leftArmDepth: depth,
+      rightArmDepth: depth,
+      blindDepth: 0,
+      fillerWidth: 0,
+      hasReturnFiller: false,
+      defaultWidth: width,
+      defaultHeight: height,
+      defaultDepth: depth,
+    },
+  };
+}
+
 // Minimal fallback catalog for offline/error cases
 const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
   {
