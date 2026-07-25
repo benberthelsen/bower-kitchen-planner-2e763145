@@ -454,26 +454,81 @@ export default function ScanRoom() {
 
   const handleImportFile = useCallback(async (file: File) => {
     setImportError(null);
+    setPreviewScan(null);
     setImporting(true);
     try {
       const text = await file.text();
       const result = importRoomPlanFileText(text);
       if ('reason' in result) { setImportError(result.reason); return; }
-      if (!storeAndGo(result.scan)) {
-        setImportError('could not store the scan — your browser may be blocking storage');
-      }
+      const scan = result.scan;
+      const doors = scan.room.openings.filter((o) => o.type === 'door').length;
+      const windows = scan.room.openings.filter((o) => o.type === 'window').length;
+      const walkways = scan.room.openings.filter((o) => o.type === 'walkway').length;
+      setPreviewScan({
+        scan,
+        summary: { walls: 4, doors, windows, walkways, heightMm: scan.room.height },
+      });
     } catch {
       setImportError('could not read that file — try exporting the scan again');
     } finally {
       setImporting(false);
     }
-  }, [storeAndGo]);
+  }, []);
+
+  const commitPreview = useCallback(() => {
+    if (!previewScan) return;
+    if (!storeAndGo(previewScan.scan)) {
+      setImportError('could not store the scan — your browser may be blocking storage');
+    }
+  }, [previewScan, storeAndGo]);
+
+  // Build a valid UnconfirmedRoomScanV1 from a plain rectangle + optional openings.
+  const buildManualScan = useCallback((input: {
+    widthMm: number; depthMm: number; heightMm: number;
+    doorWall?: 'N' | 'E' | 'S' | 'W'; doorOffsetMm?: number; doorWidthMm?: number;
+    windowWall?: 'N' | 'E' | 'S' | 'W'; windowOffsetMm?: number; windowWidthMm?: number;
+  }): import('@/lib/roomScan/contract').UnconfirmedRoomScanV1 => {
+    const openings: import('@/lib/roomScan/contract').OpeningV1[] = [];
+    if (input.doorWall && input.doorWidthMm && input.doorWidthMm > 0) {
+      openings.push({ id: 'door-1', wall: input.doorWall, type: 'door',
+        offsetMm: input.doorOffsetMm ?? 0, widthMm: input.doorWidthMm });
+    }
+    if (input.windowWall && input.windowWidthMm && input.windowWidthMm > 0) {
+      openings.push({ id: 'window-1', wall: input.windowWall, type: 'window',
+        offsetMm: input.windowOffsetMm ?? 0, widthMm: input.windowWidthMm });
+    }
+    return {
+      state: 'unconfirmed',
+      schemaVersion: 1,
+      source: 'manual',
+      roomRevision: 1,
+      coordinateFrame: {
+        assignment: 'user-main-wall',
+        sourcePlanAxes: 'x-z',
+        sourceUnits: 'millimetres',
+        sourceToCanonicalMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        snappedQuarterTurnDegrees: 0,
+        originDescription: 'north-west-corner-in-canonical-plan',
+      },
+      room: {
+        width: input.widthMm, depth: input.depthMm, height: input.heightMm,
+        shape: 'Rectangle', cutoutWidth: 0, cutoutDepth: 0,
+        openings, services: [],
+      },
+      confidence: {
+        overall: 0.5,
+        fields: { height: 'measured', openings: openings.length ? 'user-marked' : 'none-captured', services: 'none-captured' },
+      },
+      capturedAt: new Date().toISOString(),
+    };
+  }, []);
 
   const supportCopy: Record<Exclude<Support, 'ready' | 'checking'>, string> = {
     insecure: 'Quick scan needs a secure (https) connection.',
     'no-xr': "This browser can't run camera scanning. On an Android phone, open this page in Chrome.",
     'no-ar': "This device doesn't support browser AR scanning.",
   };
+
 
   // ── Overlay copy per phase ────────────────────────────────────────────────
   const topCaption =
