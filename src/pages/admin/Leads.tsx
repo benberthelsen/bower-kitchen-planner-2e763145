@@ -64,6 +64,7 @@ export default function AdminLeads() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [showSynthetic, setShowSynthetic] = useState(false);
 
   useEffect(() => { loadLeads(); }, []);
 
