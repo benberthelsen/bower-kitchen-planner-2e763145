@@ -73,9 +73,10 @@ export default function ScanRoom() {
   const [showInfo, setShowInfo] = useState(false);
   // Pre-commit preview of an imported RoomPlan scan (Fix B / Stage 2 §6).
   const [previewScan, setPreviewScan] = useState<null | {
-    scan: import('@/lib/roomScan/contract').UnconfirmedRoomScanV1;
+    scan: import('@/lib/roomScan/contract').RoomScanV1;
     summary: { walls: number; doors: number; windows: number; walkways: number; heightMm: number };
   }>(null);
+
   const [dragActive, setDragActive] = useState(false);
   const [showManual, setShowManual] = useState(false);
 
