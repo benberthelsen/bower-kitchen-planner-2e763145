@@ -545,27 +545,45 @@ export function useCatalog(userType: UserType = 'standard') {
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
   });
 
-  // Transform DB products to catalog format with render configs.
-  // IMPORTANT: memoised so the catalog keeps a STABLE identity across renders.
-  // Without this, every render rebuilds the array (and every item object), so
-  // useCatalogItem() returns a brand-new object each render. That made the
-  // ProductConfigurator reset-effect fire on every render and overwrite the
-  // user's in-progress edits — i.e. sliders / materials / soft-close "not working".
+  // Stage 1 — appliance catalog. Injected into the sidebar as its own group
+  // alongside the legacy "Appliance Openings" static templates. Fetched
+  // separately so a slow/empty appliance table can never break the catalog.
+  const { data: applianceProducts } = useQuery({
+    queryKey: ['appliance-products', 'catalog'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('appliance_products')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true, nullsFirst: false })
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as ApplianceProductRecord[];
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
   const isDynamic = (dbProducts?.length ?? 0) > 0;
 
   const catalog = useMemo<ExtendedCatalogItem[]>(() => {
     const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
+    const applianceCatalog: ExtendedCatalogItem[] = (applianceProducts ?? []).map(transformApplianceProduct);
     if (dynamicCatalog.length > 0) {
       // Prefer dynamic products, keeping static planner defs that aren't in the DB.
       return [
         ...dynamicCatalog,
         ...STATIC_LIBRARY_CATALOG.filter((staticItem) => !dynamicCatalog.some((dynamicItem) => dynamicItem.id === staticItem.id)),
+        ...applianceCatalog,
       ];
     }
-    return [...STATIC_LIBRARY_CATALOG, ...FALLBACK_CATALOG].filter((item, index, all) =>
+    return [
+      ...STATIC_LIBRARY_CATALOG,
+      ...FALLBACK_CATALOG,
+      ...applianceCatalog,
+    ].filter((item, index, all) =>
       all.findIndex((candidate) => candidate.id === item.id) === index
     );
-  }, [dbProducts]);
+  }, [dbProducts, applianceProducts]);
 
   // Group by category for sidebar display
   const groupedCatalog = useMemo(() => ({
