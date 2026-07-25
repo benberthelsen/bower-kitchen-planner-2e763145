@@ -51,6 +51,10 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       : 'whiteEnamel';
   const bodyMat = getApplianceMaterial(resolveFinishKey(item.applianceSnapshot?.finish) ?? typeDefault);
   const glassMat = getApplianceMaterial('blackGlass');
+  // Shared trim/handle presets — cached factory instances, never per-frame.
+  const handleMat = getApplianceMaterial('brushedGunmetal');
+  const stainlessMat = getApplianceMaterial('stainless');
+  const darkTrimMat = getApplianceMaterial('matteBlack');
 
   const renderHighlight = () => (
     (isSelected || hovered || isDragged) && (
