@@ -490,6 +490,34 @@ function CabinetDetailView({ cabinet, roomId, price, flushWall, onBack, onEdit, 
               <DetailRow label="Estimated" value={new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(price)} />
             </div>
           )}
+
+          {applianceSnap && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Appliance</div>
+              <DetailRow label="Product" value={applianceSnap.name} />
+              <DetailRow
+                label="Unit price"
+                value={
+                  applianceSnap.unitPrice > 0
+                    ? `${new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(applianceSnap.unitPrice)}${applianceSnap.isPlaceholderPrice ? ' (placeholder)' : ''}`
+                    : 'Not priced — opening only'
+                }
+              />
+              <label className="flex items-center justify-between py-2 gap-3 cursor-pointer">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-trade-navy">Supply with order</div>
+                  <div className="text-[10px] text-muted-foreground">Include this appliance in the quote. Untick if the client supplies it.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-trade-amber flex-shrink-0"
+                  checked={supplyWithOrder}
+                  disabled={applianceSnap.unitPrice <= 0}
+                  onChange={(e) => updateCabinet(roomId, cabinet.instanceId, { supplyWithOrder: e.target.checked })}
+                />
+              </label>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
