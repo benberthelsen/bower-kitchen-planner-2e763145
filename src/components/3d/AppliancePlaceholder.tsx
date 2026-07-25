@@ -206,15 +206,13 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           [-widthM * 0.25, depthM * 0.2],
           [widthM * 0.25, depthM * 0.2],
         ].map(([x, z], i) => (
-          <mesh key={i} position={[x, 0.016, z]} rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh key={i} position={[x, 0.016, z]} rotation={[-Math.PI / 2, 0, 0]} material={darkTrimMat}>
             <ringGeometry args={[0.06, 0.08, 32]} />
-            <meshStandardMaterial color="#3f3f46" metalness={0.3} roughness={0.5} />
           </mesh>
         ))}
         {/* Control area */}
-        <mesh position={[0, 0.016, depthM / 2 - 0.04]}>
+        <mesh position={[0, 0.016, depthM / 2 - 0.04]} material={darkTrimMat}>
           <boxGeometry args={[widthM - 0.1, 0.002, 0.05]} />
-          <meshStandardMaterial color="#27272a" roughness={0.4} />
         </mesh>
         {renderLabel()}
       </group>
