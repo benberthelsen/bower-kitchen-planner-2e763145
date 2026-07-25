@@ -179,7 +179,7 @@ export default function SupplierFeeds() {
 
   const loadFeeds = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('supplier_feeds')
       .select('*')
       .order('created_at', { ascending: false });
@@ -192,12 +192,12 @@ export default function SupplierFeeds() {
     setSaving(true);
     try {
       if (id) {
-        const { error } = await supabase.from('supplier_feeds').update(form).eq('id', id);
+        const { error } = await (supabase as any).from('supplier_feeds').update(form).eq('id', id);
         if (error) throw error;
         toast.success('Feed updated');
         setEditingId(null);
       } else {
-        const { error } = await supabase.from('supplier_feeds').insert([form]);
+        const { error } = await (supabase as any).from('supplier_feeds').insert([form]);
         if (error) throw error;
         toast.success('Feed added');
         setShowAdd(false);
@@ -213,14 +213,14 @@ export default function SupplierFeeds() {
   const deleteFeed = async (id: string) => {
     if (!confirm('Delete this feed? This cannot be undone.')) return;
     setDeletingId(id);
-    const { error } = await supabase.from('supplier_feeds').delete().eq('id', id);
+    const { error } = await (supabase as any).from('supplier_feeds').delete().eq('id', id);
     if (error) toast.error('Delete failed');
     else { toast.success('Feed deleted'); loadFeeds(); }
     setDeletingId(null);
   };
 
   const toggleActive = async (feed: SupplierFeed) => {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('supplier_feeds')
       .update({ is_active: !feed.is_active })
       .eq('id', feed.id);
