@@ -1881,25 +1881,32 @@ export default function HomeownerWizard() {
 
         {/* Nav footer */}
         {state.step < 5 ? (
-          <div className="flex items-center justify-between mt-8 sm:mt-10 pt-5 border-t border-slate-100">
-            <Button
-              variant="ghost"
-              onClick={back}
-              disabled={state.step === 1}
-              className="gap-1 text-slate-500"
-            >
-              <ChevronLeft className="w-4 h-4" /> Back
-            </Button>
-            <div className="flex items-center gap-3">
-              {state.step >= 2 && <ShareButton state={state} />}
+          <div className="mt-8 sm:mt-10 pt-5 border-t border-slate-100">
+            {state.step === 1 && step1Invalid && (
+              <p className="text-xs text-red-600 mb-3 text-center sm:text-right">
+                Fix the highlighted room measurements to continue.
+              </p>
+            )}
+            <div className="flex items-center justify-between">
               <Button
-                onClick={advance}
-                disabled={!canAdvance}
-                className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
+                variant="ghost"
+                onClick={back}
+                disabled={state.step === 1}
+                className="gap-1 text-slate-500"
               >
-                {state.step === 4 ? 'Review & price' : 'Continue'}
-                <ChevronRight className="w-4 h-4" />
+                <ChevronLeft className="w-4 h-4" /> Back
               </Button>
+              <div className="flex items-center gap-3">
+                {state.step >= 2 && <ShareButton state={state} />}
+                <Button
+                  onClick={advance}
+                  disabled={!canAdvance}
+                  className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
+                >
+                  {state.step === 4 ? 'Review & price' : 'Continue'}
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
