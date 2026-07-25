@@ -412,13 +412,40 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
     if (typeof raw.styleWords === 'string' && raw.styleWords.trim()) {
       patch.styleWords = raw.styleWords.slice(0, 500);
     }
+    // Style ids: validated against the catalog — unknown ids drop to defaults
+    // so a stale/renamed id can't crash rendering or silently show nothing.
+    if (raw.style && typeof raw.style === 'object') {
+      const s = raw.style;
+      if (typeof s.finishId === 'string' && FINISH_OPTIONS.some(f => f.id === s.finishId)) {
+        patch.finishId = s.finishId;
+      }
+      if (typeof s.benchtopId === 'string' && BENCHTOP_OPTIONS.some(b => b.id === s.benchtopId)) {
+        patch.benchtopId = s.benchtopId;
+      }
+      if (typeof s.handleId === 'string' && HANDLE_OPTIONS.some(h => h.id === s.handleId)) {
+        patch.handleId = s.handleId;
+      }
+    }
     if (raw.design && typeof raw.design === 'object') {
       const spec = kitchenSpecSchema.safeParse(raw.design.spec);
       if (spec.success) {
+        // priceBand: require finite positive lo/hi with lo <= hi; else drop
+        // the band so the recipient falls back to the local estimator rather
+        // than seeing bogus numbers.
+        let priceBand: { lowAud: number; highAud: number } | undefined;
+        const pb = raw.design.priceBand;
+        if (pb && typeof pb === 'object') {
+          const lo = Number((pb as { lowAud?: unknown }).lowAud);
+          const hi = Number((pb as { highAud?: unknown }).highAud);
+          if (Number.isFinite(lo) && Number.isFinite(hi) && lo > 0 && hi > 0 && lo <= hi) {
+            priceBand = { lowAud: lo, highAud: hi };
+          }
+        }
         patch.design = {
           name: String(raw.design.name ?? 'Shared design').slice(0, 120) || 'Shared design',
           spec: spec.data as unknown as KitchenSpec,
           aiGenerated: raw.design.aiGenerated === true,
+          ...(priceBand ? { priceBand } : {}),
         };
       }
     }
