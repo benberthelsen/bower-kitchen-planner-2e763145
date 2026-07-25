@@ -47,6 +47,12 @@ export default function ViewInRoomAr() {
   const flipRef = useRef(1);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  // Aborts any in-flight GLB upgrade loop. Bumped on session `end`, on
+  // unmount, and whenever a fresh AR session is started; the loop stops
+  // when its captured session id no longer matches. Without this, tapping
+  // "Start AR view" twice spawns two independent loops that each download
+  // every GLB into a detached scene the user will never see.
+  const sessionIdRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -83,6 +89,9 @@ export default function ViewInRoomAr() {
     setError(null);
     tapsRef.current = [];
     setTaps(0);
+    // Bump the session id so any previous session's upgrade loop bails out
+    // on its next abort check. Capture the new id for this session's loop.
+    const mySessionId = ++sessionIdRef.current;
     try {
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.xr.enabled = true;
@@ -138,23 +147,32 @@ export default function ViewInRoomAr() {
       // Best-effort GLB upgrades — never blocks entry to AR.
       if (upgrades.length) {
         void (async () => {
+          const isAborted = () => sessionIdRef.current !== mySessionId;
           try {
             const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+            if (isAborted()) return;
             const loader = new GLTFLoader();
             configureApplianceGltfLoader(loader);
-            // Poll briefly for the appliance catalog to resolve so cold-cache
-            // launches don't silently skip every model URL.
-            const deadline = Date.now() + 5000;
-            while (!applianceProductsRef.current?.length && Date.now() < deadline) {
-              await new Promise((r) => setTimeout(r, 100));
-            }
+
+            // Two passes so snapshot-backed URLs never wait on the catalog.
+            // Snapshot URLs are on the placed item itself, so we can resolve
+            // them synchronously and download immediately. Anything that
+            // still has no URL needs the appliance catalog — only THOSE
+            // slots pay the poll cost.
+            const withSnapshotUrl: Array<{ slot: UpgradeSlot; url: string }> = [];
+            const needsCatalog: UpgradeSlot[] = [];
             for (const slot of upgrades) {
-              const url = resolveApplianceModelUrl(slot.item, applianceProductsRef.current);
-              if (!url) continue;
+              const snap = resolveApplianceModelUrl(slot.item, null);
+              if (snap) withSnapshotUrl.push({ slot, url: snap });
+              else needsCatalog.push(slot);
+            }
+
+            const applyGlb = async (slot: UpgradeSlot, url: string) => {
+              if (isAborted()) return;
               try {
                 const gltf = await loader.loadAsync(url);
+                if (isAborted()) return;
                 const scene3 = gltf.scene;
-                // Rough tri count for this model.
                 let tri = 0;
                 scene3.traverse((n: THREE.Object3D) => {
                   const m = n as THREE.Mesh;
@@ -165,11 +183,10 @@ export default function ViewInRoomAr() {
                 });
                 if (triUsed + tri > TRI_BUDGET) {
                   simplified.push(slot.item.applianceSnapshot?.name ?? slot.item.definitionId);
-                  continue;
+                  return;
                 }
                 triUsed += tri;
 
-                // Normalize scale to placed dimensions.
                 const bbox = new THREE.Box3().setFromObject(scene3);
                 const size = new THREE.Vector3(); bbox.getSize(size);
                 const targetW = slot.item.width / 1000;
@@ -184,15 +201,11 @@ export default function ViewInRoomAr() {
 
                 // Mirror the planner's transform order (see GlbInner in
                 // ApplianceModel.tsx): centring offset on a CHILD group so
-                // it's applied BEFORE the parent's rotation. Otherwise a
-                // rotated appliance with an off-origin GLB lands beside its
-                // cabinet run instead of in it.
+                // it's applied BEFORE the parent's rotation.
                 scene3.position.set(-cx2 * sx, -baseY * sy, -cz2 * sz);
                 scene3.scale.set(sx, sy, sz);
                 const wrapper = new THREE.Group();
                 wrapper.position.copy(slot.placeholder.position);
-                // The placeholder box uses centre-Y; the offset above puts
-                // the GLB's floor at wrapper Y, so drop the wrapper by h/2.
                 wrapper.position.y -= slot.item.height / 2000;
                 wrapper.rotation.set(0, -THREE.MathUtils.degToRad(slot.item.rotation), 0);
                 wrapper.add(scene3);
@@ -202,7 +215,29 @@ export default function ViewInRoomAr() {
               } catch {
                 // Leave placeholder box in place.
               }
+            };
+
+            for (const { slot, url } of withSnapshotUrl) {
+              if (isAborted()) return;
+              await applyGlb(slot, url);
             }
+
+            if (needsCatalog.length) {
+              // Poll ONLY for slots that need the catalog — snapshot-backed
+              // items already downloaded above and never paid for this wait.
+              const deadline = Date.now() + 5000;
+              while (!applianceProductsRef.current?.length && Date.now() < deadline) {
+                if (isAborted()) return;
+                await new Promise((r) => setTimeout(r, 100));
+              }
+              for (const slot of needsCatalog) {
+                if (isAborted()) return;
+                const url = resolveApplianceModelUrl(slot.item, applianceProductsRef.current);
+                if (!url) continue;
+                await applyGlb(slot, url);
+              }
+            }
+
             if (simplified.length) {
               // eslint-disable-next-line no-console
               console.info('[ViewInRoomAr] simplified over-budget items:', simplified);
@@ -212,6 +247,7 @@ export default function ViewInRoomAr() {
           }
         })();
       }
+
 
 
       groupRef.current = group;
@@ -243,6 +279,8 @@ export default function ViewInRoomAr() {
         setRunning(false);
         renderer.setAnimationLoop(null);
         renderer.dispose();
+        // Cancel any GLB downloads still in flight for this session.
+        if (sessionIdRef.current === mySessionId) sessionIdRef.current++;
       });
 
       renderer.setAnimationLoop((_t: number, frame?: XRFrame) => {
@@ -259,7 +297,11 @@ export default function ViewInRoomAr() {
     }
   }, [payload, placeKitchen]);
 
-  useEffect(() => () => { void rendererRef.current?.xr.getSession()?.end().catch(() => {}); }, []);
+  useEffect(() => () => {
+    // Cancel any in-flight GLB upgrade loop on unmount.
+    sessionIdRef.current++;
+    void rendererRef.current?.xr.getSession()?.end().catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-white">

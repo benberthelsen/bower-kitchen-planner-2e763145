@@ -607,7 +607,7 @@ export function useCatalog(userType: UserType = 'standard') {
   // Stage 1 — appliance catalog. Injected into the sidebar as its own group
   // alongside the legacy "Appliance Openings" static templates. Fetched
   // separately so a slow/empty appliance table can never break the catalog.
-  const { data: applianceProducts } = useQuery({
+  const { data: applianceProducts, isLoading: applianceCatalogLoading } = useQuery({
     queryKey: ['appliance-products', 'catalog'],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
@@ -669,6 +669,7 @@ export function useCatalog(userType: UserType = 'standard') {
     groupedBySpecGroup,
     specGroups,
     isLoading,
+    applianceCatalogLoading,
     error,
     isDynamic,
     refetch,
