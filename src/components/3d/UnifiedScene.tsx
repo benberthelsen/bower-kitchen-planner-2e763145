@@ -10,6 +10,7 @@ import { FINISH_OPTIONS } from '@/constants';
 import { useCatalog } from '@/hooks/useCatalog';
 import CabinetMesh from './CabinetMesh';
 import ApplianceMesh from './ApplianceMesh';
+import ApplianceModel from './ApplianceModel';
 import StructureMesh from './StructureMesh';
 import Wall, { WallCorner } from './Wall';
 import SnapIndicators from './SnapIndicators';
@@ -1062,10 +1063,12 @@ export function UnifiedScene({
           };
           
           if (item.itemType === 'Appliance') {
+            const hasModel = !!item.applianceSnapshot?.modelUrl;
+            const Cmp = hasModel ? ApplianceModel : ApplianceMesh;
             return (
-              <ApplianceMesh 
-                key={key} 
-                item={item} 
+              <Cmp
+                key={key}
+                item={item}
                 globalDimensions={globalDimensions}
                 {...commonProps}
               />
