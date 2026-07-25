@@ -2,6 +2,7 @@ import React from 'react';
 import { Html } from '@react-three/drei';
 import { PlacedItem } from '../../types';
 import { CabinetRenderConfig } from '../../types/cabinetConfig';
+import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
 
 interface AppliancePlaceholderProps {
   item: PlacedItem;
@@ -37,6 +38,20 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
   const isCooktop = name.includes('cooktop') || name.includes('hotplate');
   const isMicrowave = name.includes('microwave');
 
+  // Resolve a shared PBR body material from the placement snapshot finish
+  // (Stage 2b). Falls back to a sensible per-type default when the snapshot
+  // has no finish or the string is unrecognised.
+  const typeDefault: ApplianceFinishKey =
+    isCooktop ? 'blackGlass'
+      : isRangehood ? 'stainless'
+      : isFridge ? 'stainless'
+      : isDishwasher ? 'stainless'
+      : isOven ? 'stainless'
+      : isMicrowave ? 'matteBlack'
+      : 'whiteEnamel';
+  const bodyMat = getApplianceMaterial(resolveFinishKey(item.applianceSnapshot?.finish) ?? typeDefault);
+  const glassMat = getApplianceMaterial('blackGlass');
+
   const renderHighlight = () => (
     (isSelected || hovered || isDragged) && (
       <mesh>
@@ -48,6 +63,7 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
 
   // Selected-appliance label now shows in the side panel, not a floating banner.
   const renderLabel = () => null;
+
 
   // Fridge - Tall box with door handle indication
   if (isFridge) {
