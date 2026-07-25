@@ -181,8 +181,8 @@ export type RoomSpecV1 = z.infer<typeof roomSpecV1Schema>;
 
 /** Scanner V1 rooms are rectangles. Runtime-enforced, not just a TS intersection. */
 export const scannerRectangleRoomV1Schema = roomSpecV1Schema.refine(
-  (room) => room.shape === 'Rectangle',
-  { message: 'scanner V1 rooms must be Rectangle' },
+  (room) => room.shape === 'Rectangle' || room.shape === 'LShape',
+  { message: 'scanner V1 rooms must be Rectangle or LShape' },
 );
 
 // ─── Coordinate frame ──────────────────────────────────────────────────────

@@ -3,17 +3,19 @@
  * Pure module — no React, no XR — so the geometry is unit-testable.
  *
  * The first marked edge is the user's main wall and becomes canonical N.
- * Corners are axis-aligned by that yaw, bounded to a rectangle, and the
- * full source(metres)→canonical(mm) affine is recorded invertibly
- * (rotation+scale ⇒ determinant 1e6 > 0). Deviation from a true rectangle
- * is surfaced as a normalization warning and caps confidence at 0.5 —
- * never silently discarded (§3.7 policy).
+ * 4–5 corners fit an axis-aligned rectangle (legacy behaviour, unchanged).
+ * 6 corners attempt a rectilinear L-SHAPE fit: corner u/v values are
+ * clustered and snapped; the missing bounding-box corner identifies the
+ * notch; the coordinate frame is then composed with quarter turns so the
+ * notch lands at canonical SE (the planner's LShape convention), recorded
+ * honestly in snappedQuarterTurnDegrees. A 6-corner capture that is not
+ * rectilinear within tolerance falls back to the bounding rectangle with a
+ * warning — never silently (§3.7 policy).
  *
- * Buildout (scanner two-lane plan): the capture can now also carry
- *   - a measured ceiling height (reticle tap on the ceiling), and
- *   - door/window/walkway spans marked as two floor points each,
- * via buildScanFromCapture. buildScanFromCorners remains as the
- * corners-only wrapper so existing callers/tests are untouched.
+ * The capture can also carry a measured ceiling height and door/window/
+ * walkway spans (buildScanFromCapture), and hidden corners can be derived
+ * by intersecting two wall lines (intersectWallLines) when a benchtop
+ * blocks the physical floor corner.
  */
 
 import { parseRoomScan, type RoomScanV1 } from './contract';
@@ -46,6 +48,10 @@ export const MIN_OPENING_WIDTH_MM = 300;
 export const MAX_OPENING_WALL_DISTANCE_MM = 400;
 export const MIN_CEILING_MM = 2100;
 export const MAX_CEILING_MM = 4500;
+/** L-fit: u/v values within this distance cluster to one wall line. */
+export const L_CLUSTER_TOL_M = 0.18;
+/** L-fit: a notch smaller than this is treated as a rectangle. */
+export const MIN_CUTOUT_MM = 300;
 
 const distance = (a: XrCorner, b: XrCorner): number => Math.hypot(a.x - b.x, a.z - b.z);
 const cross = (a: XrCorner, b: XrCorner, c: XrCorner): number =>
@@ -91,6 +97,23 @@ export function nearestWall(
   return candidates[0];
 }
 
+/** Clamp an along-wall span into [0, wallLength] preserving at least minWidth. */
+export function clampSpan(
+  start: number,
+  width: number,
+  wallLength: number,
+): { offsetMm: number; widthMm: number } | null {
+  let s = Math.max(0, Math.round(start));
+  let e = Math.min(wallLength, Math.round(start + width));
+  if (e - s < MIN_OPENING_WIDTH_MM) {
+    // Try to widen back to the minimum inside the wall.
+    e = Math.min(wallLength, s + MIN_OPENING_WIDTH_MM);
+    s = Math.max(0, e - MIN_OPENING_WIDTH_MM);
+    if (e - s < MIN_OPENING_WIDTH_MM) return null;
+  }
+  return { offsetMm: s, widthMm: e - s };
+}
+
 /** Two taps on wall A and two on wall B (plan coords, metres — wall-surface
  *  hits with Y dropped) → the walls' floor-junction lines intersected = the
  *  corner point, even when the physical floor corner is hidden behind an
@@ -113,22 +136,96 @@ export function intersectWallLines(
   return { x: a1.x + t * dax, z: a1.z + t * daz };
 }
 
-/** Clamp an along-wall span into [0, wallLength] preserving at least minWidth. */
-export function clampSpan(
-  start: number,
-  width: number,
-  wallLength: number,
-): { offsetMm: number; widthMm: number } | null {
-  let s = Math.max(0, Math.round(start));
-  let e = Math.min(wallLength, Math.round(start + width));
-  if (e - s < MIN_OPENING_WIDTH_MM) {
-    // Try to widen back to the minimum inside the wall.
-    e = Math.min(wallLength, s + MIN_OPENING_WIDTH_MM);
-    s = Math.max(0, e - MIN_OPENING_WIDTH_MM);
-    if (e - s < MIN_OPENING_WIDTH_MM) return null;
+// ─── Rectilinear L-shape fit ────────────────────────────────────────────────
+
+/** 1-D clustering: sorted values grouped when within tol of the group mean. */
+function cluster1d(values: number[], tolM: number): number[] {
+  const sorted = [...values].sort((x, y) => x - y);
+  const groups: number[][] = [];
+  for (const value of sorted) {
+    const group = groups[groups.length - 1];
+    if (group && Math.abs(value - group.reduce((s, x) => s + x, 0) / group.length) <= tolM) {
+      group.push(value);
+    } else {
+      groups.push([value]);
+    }
   }
-  return { offsetMm: s, widthMm: e - s };
+  return groups.map(g => g.reduce((s, x) => s + x, 0) / g.length);
 }
+
+interface LFit {
+  widthMm: number;
+  depthMm: number;
+  cutoutWidthMm: number;
+  cutoutDepthMm: number;
+  /** quarter turns applied so the notch sits at canonical SE */
+  quarterTurns: 0 | 1 | 2 | 3;
+  /** shift applied before rotation (metres, in yaw-aligned space) */
+  shiftU: number;
+  shiftV: number;
+  residualMm: number;
+}
+
+/** Try to fit yaw-aligned 6-corner points as a rectilinear L. Returns null
+ *  when the points don't form a clean axis-aligned rect-minus-one-corner. */
+function tryFitLShape(rotated: { u: number; v: number }[]): LFit | null {
+  if (rotated.length !== 6) return null;
+  const us = cluster1d(rotated.map(p => p.u), L_CLUSTER_TOL_M);
+  const vs = cluster1d(rotated.map(p => p.v), L_CLUSTER_TOL_M);
+  if (us.length !== 3 || vs.length !== 3) return null;
+
+  const nearest = (arr: number[], x: number) => arr.reduce((best, c) => (Math.abs(c - x) < Math.abs(best - x) ? c : best), arr[0]);
+  let residual = 0;
+  const snapped = rotated.map(p => {
+    const su = nearest(us, p.u);
+    const sv = nearest(vs, p.v);
+    residual = Math.max(residual, Math.hypot(p.u - su, p.v - sv));
+    return { u: su, v: sv };
+  });
+  const residualMm = residual * 1000;
+  if (residualMm > RECT_REJECT_MM) return null;
+
+  const [u0, u1, u2] = us;
+  const [v0, v1, v2] = vs;
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const has = (u: number, v: number) => snapped.some(p => near(p.u, u) && near(p.v, v));
+
+  // Exactly one bounding-box corner must be missing (the notch), and the
+  // inner reflex vertex (u1, v1) must be present.
+  const bbox: [number, number][] = [[u0, v0], [u2, v0], [u2, v2], [u0, v2]];
+  const missing = bbox.filter(([u, v]) => !has(u, v));
+  if (missing.length !== 1 || !has(u1, v1)) return null;
+
+  // Quarter turns to bring the notch to SE (max-u, max-v). The op
+  // (u,v) → (Vmax−v, u) cycles NE→SE→SW→NW.
+  const [mu, mv] = missing[0];
+  const isMin = (x: number, m: number) => near(x, m);
+  const notch = isMin(mu, u0)
+    ? (isMin(mv, v0) ? 'NW' : 'SW')
+    : (isMin(mv, v0) ? 'NE' : 'SE');
+  const quarterTurns = ({ SE: 0, NE: 1, NW: 2, SW: 3 } as const)[notch];
+
+  // Rotate cluster values to the final frame to read off dims + cutout.
+  let W = u2 - u0;
+  let D = v2 - v0;
+  let uMid = u1 - u0;
+  let vMid = v1 - v0;
+  for (let k = 0; k < quarterTurns; k++) {
+    const [nW, nD] = [D, W];
+    const [nU, nV] = [D - vMid, uMid];
+    W = nW; D = nD; uMid = nU; vMid = nV;
+  }
+  const widthMm = Math.round(W * 1000);
+  const depthMm = Math.round(D * 1000);
+  const cutoutWidthMm = Math.round((W - uMid) * 1000);
+  const cutoutDepthMm = Math.round((D - vMid) * 1000);
+  if (cutoutWidthMm < MIN_CUTOUT_MM || cutoutDepthMm < MIN_CUTOUT_MM) return null;
+  if (cutoutWidthMm >= widthMm || cutoutDepthMm >= depthMm) return null;
+
+  return { widthMm, depthMm, cutoutWidthMm, cutoutDepthMm, quarterTurns, shiftU: u0, shiftV: v0, residualMm };
+}
+
+// ─── Capture → scan ─────────────────────────────────────────────────────────
 
 export function buildScanFromCapture(
   corners: XrCorner[],
@@ -161,12 +258,77 @@ export function buildScanFromCapture(
   const sin = Math.sin(-yaw);
   const rotated = corners.map((c) => ({ u: c.x * cos - c.z * sin, v: c.x * sin + c.z * cos }));
 
-  const minU = Math.min(...rotated.map((p) => p.u));
-  const maxU = Math.max(...rotated.map((p) => p.u));
-  const minV = Math.min(...rotated.map((p) => p.v));
-  const maxV = Math.max(...rotated.map((p) => p.v));
-  const widthMm = Math.round((maxU - minU) * 1000);
-  const depthMm = Math.round((maxV - minV) * 1000);
+  const warnings: string[] = [];
+
+  // Frame pieces shared by both fits. source(m)→canonical(mm):
+  // rotate by -yaw, ×1000, translate fit-origin→(0,0), then 0–3 quarter turns.
+  let a = cos * 1000;
+  let b = -sin * 1000;
+  let d = sin * 1000;
+  let e = cos * 1000;
+  let c: number;
+  let f: number;
+  let widthMm: number;
+  let depthMm: number;
+  let cutoutWidthMm = 0;
+  let cutoutDepthMm = 0;
+  let shape: 'Rectangle' | 'LShape' = 'Rectangle';
+  let quarterTurnDegrees: 0 | 90 | 180 | 270 = 0;
+
+  const lfit = corners.length === 6 ? tryFitLShape(rotated) : null;
+  if (lfit) {
+    shape = 'LShape';
+    widthMm = lfit.widthMm;
+    depthMm = lfit.depthMm;
+    cutoutWidthMm = lfit.cutoutWidthMm;
+    cutoutDepthMm = lfit.cutoutDepthMm;
+    quarterTurnDegrees = (lfit.quarterTurns * 90) as 0 | 90 | 180 | 270;
+    c = -lfit.shiftU * 1000;
+    f = -lfit.shiftV * 1000;
+    // Compose quarter turns: (u,v) → (Vmax−v, u), applied in mm space.
+    let curW = Math.round((Math.max(...rotated.map(p => p.u)) - lfit.shiftU) * 1000);
+    let curD = Math.round((Math.max(...rotated.map(p => p.v)) - lfit.shiftV) * 1000);
+    for (let k = 0; k < lfit.quarterTurns; k++) {
+      const [na, nb, nc] = [-d, -e, curD - f];
+      const [nd, ne, nf] = [a, b, c];
+      a = na; b = nb; c = nc; d = nd; e = ne; f = nf;
+      const [nW, nD] = [curD, curW];
+      curW = nW; curD = nD;
+    }
+    if (lfit.residualMm > RECT_WARN_MM) {
+      warnings.push(`L-shape fitted — corners adjusted up to ${Math.round(lfit.residualMm)}mm to square the walls`);
+    }
+  } else {
+    const minU = Math.min(...rotated.map((p) => p.u));
+    const maxU = Math.max(...rotated.map((p) => p.u));
+    const minV = Math.min(...rotated.map((p) => p.v));
+    const maxV = Math.max(...rotated.map((p) => p.v));
+    widthMm = Math.round((maxU - minU) * 1000);
+    depthMm = Math.round((maxV - minV) * 1000);
+
+    // Worst corner deviation from the fitted rectangle's edges.
+    let worst = 0;
+    for (const p of rotated) {
+      const du = Math.min(Math.abs(p.u - minU), Math.abs(p.u - maxU));
+      const dv = Math.min(Math.abs(p.v - minV), Math.abs(p.v - maxV));
+      worst = Math.max(worst, Math.min(du, dv) * 1000);
+    }
+    if (worst > RECT_REJECT_MM) {
+      return {
+        ok: false,
+        reason: 'this scan is not rectangular enough for automatic fitting — use manual room entry or request a designer review',
+      };
+    }
+    if (worst > RECT_WARN_MM) {
+      warnings.push(`room shape simplified — corners deviate up to ${Math.round(worst)}mm from a rectangle`);
+    }
+    if (corners.length === 6) {
+      warnings.push('six corners captured but the room did not fit a clean L-shape — simplified to a rectangle; adjust it in the plan editor');
+    }
+    c = -minU * 1000;
+    f = -minV * 1000;
+  }
+
   if (widthMm < MIN_ROOM_WIDTH_MM || depthMm < MIN_ROOM_DEPTH_MM) {
     return {
       ok: false,
@@ -174,31 +336,6 @@ export function buildScanFromCapture(
     };
   }
 
-  // Worst corner deviation from the fitted rectangle's edges.
-  const warnings: string[] = [];
-  let worst = 0;
-  for (const p of rotated) {
-    const du = Math.min(Math.abs(p.u - minU), Math.abs(p.u - maxU));
-    const dv = Math.min(Math.abs(p.v - minV), Math.abs(p.v - maxV));
-    worst = Math.max(worst, Math.min(du, dv) * 1000);
-  }
-  if (worst > RECT_REJECT_MM) {
-    return {
-      ok: false,
-      reason: 'this scan is not rectangular enough for automatic fitting — use manual room entry or request a designer review',
-    };
-  }
-  if (worst > RECT_WARN_MM) {
-    warnings.push(`room shape simplified — corners deviate up to ${Math.round(worst)}mm from a rectangle`);
-  }
-
-  // source(m) → canonical(mm): rotate by -yaw, ×1000, translate min→origin.
-  const a = cos * 1000;
-  const b = -sin * 1000;
-  const d = sin * 1000;
-  const e = cos * 1000;
-  const c = -minU * 1000;
-  const f = -minV * 1000;
   const toCanonical = (p: XrCorner) => ({ u: a * p.x + b * p.z + c, v: d * p.x + e * p.z + f });
 
   // Ceiling height: measured if plausible, else default (with a warning when
@@ -215,7 +352,9 @@ export function buildScanFromCapture(
     }
   }
 
-  // Opening spans → wall + offset in the canonical plan.
+  // Opening spans → wall + offset in the canonical plan. On an L-shape, the
+  // E wall physically ends at depth−cutoutDepth and the S wall at
+  // width−cutoutWidth; spans landing on the cut-away part are skipped.
   const openings: {
     id: string; wall: Wall; type: 'door' | 'window' | 'walkway';
     offsetMm: number; widthMm: number;
@@ -231,7 +370,15 @@ export function buildScanFromCapture(
     }
     const alongA = hit.wall === 'N' || hit.wall === 'S' ? pa.u : pa.v;
     const alongB = hit.wall === 'N' || hit.wall === 'S' ? pb.u : pb.v;
-    const wallLen = hit.wall === 'N' || hit.wall === 'S' ? widthMm : depthMm;
+    let wallLen = hit.wall === 'N' || hit.wall === 'S' ? widthMm : depthMm;
+    if (shape === 'LShape') {
+      if (hit.wall === 'E') wallLen = depthMm - cutoutDepthMm;
+      if (hit.wall === 'S') wallLen = widthMm - cutoutWidthMm;
+      if (Math.min(alongA, alongB) >= wallLen) {
+        warnings.push(`a marked ${mark.type} sits on the cut-away part of the room and was skipped — re-mark it in the plan editor`);
+        continue;
+      }
+    }
     const span = clampSpan(Math.min(alongA, alongB), Math.abs(alongB - alongA), wallLen);
     if (!span) {
       warnings.push(`a marked ${mark.type} was too narrow to keep — re-mark both sides of the opening`);
@@ -264,16 +411,16 @@ export function buildScanFromCapture(
       sourceToCanonicalMatrix: [a, b, c, d, e, f, 0, 0, 1] as [
         number, number, number, number, number, number, 0, 0, 1,
       ],
-      snappedQuarterTurnDegrees: 0 as const,
+      snappedQuarterTurnDegrees: quarterTurnDegrees,
       originDescription: 'north-west-corner-in-canonical-plan' as const,
     },
     room: {
       width: widthMm,
       depth: depthMm,
       height: heightMm,
-      shape: 'Rectangle' as const,
-      cutoutWidth: 0,
-      cutoutDepth: 0,
+      shape,
+      cutoutWidth: cutoutWidthMm,
+      cutoutDepth: cutoutDepthMm,
       openings: kept,
       services: [],
     },

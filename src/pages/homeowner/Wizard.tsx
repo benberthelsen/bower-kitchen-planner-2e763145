@@ -1618,6 +1618,12 @@ export default function HomeownerWizard() {
         incomingScan: scan,
         roomWidth: scan.room.width,
         roomDepth: scan.room.depth,
+        // The scan is authoritative for the full geometry: height (measured
+        // or defaulted by the scanner) and shape/cutouts (L-scans land as L).
+        roomHeight: scan.room.height,
+        roomGeometryShape: scan.room.shape,
+        roomCutoutWidth: scan.room.cutoutWidth,
+        roomCutoutDepth: scan.room.cutoutDepth,
         openings: scan.room.openings as Opening[],
         services: scan.room.services as ServicePoint[],
       });

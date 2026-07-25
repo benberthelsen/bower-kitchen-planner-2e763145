@@ -19,6 +19,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Camera, Check, CircleDot, DoorOpen, Info, Redo2, Ruler, ScanLine, Upload,
 } from 'lucide-react';
+import * as THREE from 'three';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -72,6 +73,10 @@ export default function ScanRoom() {
   const openingTypeRef = useRef<OpeningType>('door');
   const heightRef = useRef<number | null>(null);
   const lastHitRef = useRef<Hit | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  // Rebuilds the in-scene "ghost" of everything captured so far; assigned a
+  // real implementation while an AR session is live.
+  const rebuildGhostRef = useRef<() => void>(() => {});
   const hasSurfaceRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +94,10 @@ export default function ScanRoom() {
 
   const endSession = useCallback(async () => {
     try { await sessionRef.current?.end(); } catch { /* already ended */ }
+    rendererRef.current?.setAnimationLoop(null);
+    rendererRef.current?.dispose();
+    rendererRef.current = null;
+    rebuildGhostRef.current = () => {};
     sessionRef.current = null;
     hasSurfaceRef.current = false;
     setHasSurface(false);
@@ -148,9 +157,61 @@ export default function ScanRoom() {
       sessionRef.current = session;
       setScanning(true);
 
-      const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl', { xrCompatible: true }) as WebGLRenderingContext;
-      await session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+      // Ghost overlay: a real three.js scene renders everything captured so
+      // far — corner posts, translucent wall panels, opening strips — so the
+      // customer SEES the mapped room grow instead of tapping blind.
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.xr.enabled = true;
+      rendererRef.current = renderer;
+      const scene = new THREE.Scene();
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1));
+      const camera = new THREE.PerspectiveCamera();
+      const ghost = new THREE.Group();
+      scene.add(ghost);
+      const previewGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      const preview = new THREE.Line(previewGeom, new THREE.LineBasicMaterial({ color: 0x34d399 }));
+      preview.visible = false;
+      scene.add(preview);
+      await renderer.xr.setSession(session as XRSession);
+
+      const EMERALD = 0x34d399, AMBER = 0xf59e0b;
+      const post = (p: { x: number; z: number }, color: number, h: number) => {
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.02, h, 10),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
+        );
+        mesh.position.set(p.x, h / 2, p.z);
+        ghost.add(mesh);
+      };
+      const panel = (a: { x: number; z: number }, b: { x: number; z: number }, color: number, opacity: number, h: number, y0 = 0) => {
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        if (len < 0.05) return;
+        const mesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(len, h),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false }),
+        );
+        mesh.position.set((a.x + b.x) / 2, y0 + h / 2, (a.z + b.z) / 2);
+        mesh.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
+        ghost.add(mesh);
+      };
+      rebuildGhostRef.current = () => {
+        ghost.clear();
+        const wallH = heightRef.current ? Math.min(3, Math.max(1, heightRef.current / 1000)) : 1.2;
+        const cs = cornersRef.current;
+        for (const c of cs) post(c, EMERALD, wallH);
+        for (let i = 0; i + 1 < cs.length; i++) panel(cs[i], cs[i + 1], EMERALD, 0.16, wallH);
+        // Faint closing hint back to the first corner once the room takes shape.
+        if (cs.length >= 3) panel(cs[cs.length - 1], cs[0], EMERALD, 0.06, wallH);
+        for (const t of wallTapsRef.current) post(t, AMBER, 0.9);
+        if (pendingPointRef.current) post(pendingPointRef.current, AMBER, 0.6);
+        for (const o of openingsRef.current) {
+          const h = o.type === 'window' ? 1.2 : o.type === 'door' ? 2.04 : 2.1;
+          const y0 = o.type === 'window' ? 0.9 : 0;
+          panel(o.a, o.b, AMBER, 0.35, h, y0);
+        }
+      };
+      rebuildGhostRef.current();
+
       const refSpace = await session.requestReferenceSpace('local-floor');
       const viewerSpace = await session.requestReferenceSpace('viewer');
       const hitTestSource = await (session as XRSession & {
@@ -208,6 +269,7 @@ export default function ScanRoom() {
             setPendingPoint(point);
           }
         }
+        rebuildGhostRef.current();
         if (navigator.vibrate) navigator.vibrate(40);
       });
       session.addEventListener('end', () => {
@@ -217,8 +279,8 @@ export default function ScanRoom() {
         setScanning(false);
       });
 
-      const onFrame = (_t: number, frame: XRFrame) => {
-        if (!sessionRef.current) return;
+      renderer.setAnimationLoop((_t: number, frame?: XRFrame) => {
+        if (!sessionRef.current || !frame) return;
         const results = frame.getHitTestResults(hitTestSource);
         if (results.length) {
           const pose = results[0].getPose(refSpace);
@@ -240,9 +302,36 @@ export default function ScanRoom() {
             setHasSurface(false);
           }
         }
-        session.requestAnimationFrame(onFrame);
-      };
-      session.requestAnimationFrame(onFrame);
+
+        // Live preview line: from the last relevant point to the reticle.
+        const hit = lastHitRef.current;
+        const p = phaseRef.current;
+        let from: { x: number; z: number } | null = null;
+        let lineY = 0.02;
+        if (hit) {
+          if (p === 'corners') {
+            if (hiddenModeRef.current) {
+              from = wallTapsRef.current[wallTapsRef.current.length - 1] ?? null;
+              lineY = 0.9;
+            } else {
+              from = cornersRef.current[cornersRef.current.length - 1] ?? null;
+            }
+          } else if (p === 'openings') {
+            from = pendingPointRef.current;
+          }
+        }
+        if (from && hit) {
+          const pos = previewGeom.attributes.position as THREE.BufferAttribute;
+          pos.setXYZ(0, from.x, lineY, from.z);
+          pos.setXYZ(1, hit.x, lineY, hit.z);
+          pos.needsUpdate = true;
+          preview.visible = true;
+        } else {
+          preview.visible = false;
+        }
+
+        renderer.render(scene, camera);
+      });
     } catch (err) {
       setScanning(false);
       setError(err instanceof Error ? err.message : 'could not start the camera session');
@@ -345,7 +434,7 @@ export default function ScanRoom() {
           {support === 'ready' && !scanning && (
             <div className="space-y-3">
               <ol className="text-sm text-slate-600 space-y-2 rounded-md border border-slate-200 p-3">
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Walk to each corner of the room and tap to mark it (4 corners).</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Walk to each corner of the room and tap to mark it — 4 corners, or 6 for an L-shaped room.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Corner blocked by an existing kitchen? Tap "Corner hidden?" and mark two points on each wall instead — we'll find the corner for you.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Aim at the ceiling to measure the height — or skip it.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Mark each door and window by tapping both sides — or add them later on the plan.</li>
@@ -510,6 +599,7 @@ export default function ScanRoom() {
                     setCorners(cornersRef.current);
                   }
                   setHiddenHint(null);
+                  rebuildGhostRef.current();
                 }}
                 disabled={corners.length === 0 && !hiddenMode && wallTaps.length === 0}
               >
@@ -525,6 +615,7 @@ export default function ScanRoom() {
                   wallTapsRef.current = [];
                   setWallTaps([]);
                   setHiddenHint(null);
+                  rebuildGhostRef.current();
                 }}
               >
                 {hiddenMode ? 'Cancel hidden' : 'Corner hidden?'}
@@ -562,6 +653,7 @@ export default function ScanRoom() {
                     openingsRef.current = openingsRef.current.slice(0, -1);
                     setOpenings(openingsRef.current);
                   }
+                  rebuildGhostRef.current();
                 }}
                 disabled={openings.length === 0 && !pendingPoint}
               >
