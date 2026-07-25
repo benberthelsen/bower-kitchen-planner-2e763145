@@ -254,9 +254,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
         <boxGeometry args={[widthM, heightM, depthM]} />
       </mesh>
       {/* Generic control panel */}
-      <mesh position={[0, heightM / 2 - 0.04, depthM / 2 + 0.001]}>
+      <mesh position={[0, heightM / 2 - 0.04, depthM / 2 + 0.001]} material={darkTrimMat}>
         <boxGeometry args={[widthM * 0.6, 0.04, 0.005]} />
-        <meshStandardMaterial color="#3f3f46" roughness={0.4} />
       </mesh>
       {renderLabel()}
     </group>
