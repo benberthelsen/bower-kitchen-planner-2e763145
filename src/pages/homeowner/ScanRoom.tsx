@@ -467,7 +467,7 @@ export default function ScanRoom() {
       const walkways = scan.room.openings.filter((o) => o.type === 'walkway').length;
       setPreviewScan({
         scan,
-        summary: { walls: 4, doors, windows, walkways, heightMm: scan.room.height },
+        summary: { walls: result.walls, doors, windows, walkways, heightMm: scan.room.height },
       });
     } catch {
       setImportError('could not read that file — try exporting the scan again');
