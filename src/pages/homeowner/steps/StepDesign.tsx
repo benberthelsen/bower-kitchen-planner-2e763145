@@ -254,11 +254,18 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         >
           <div className="absolute top-2 left-2 z-10 bg-white/85 backdrop-blur rounded-lg px-2.5 py-1">
             <p className="text-xs font-medium text-slate-800">{design?.name}</p>
-            {band && (
-              <p className="text-[11px] text-slate-500">
-                ${band.lowAud.toLocaleString()} – ${band.highAud.toLocaleString()} AUD
-              </p>
-            )}
+            {(() => {
+              // One canonical band per design: prefer the server proposal band
+              // stored on the selection so the option card and this overlay
+              // never disagree. Fallback to the local estimator for the
+              // default (non-AI) layout.
+              const shown = design?.priceBand ?? band;
+              return shown && (
+                <p className="text-[11px] text-slate-500">
+                  ${shown.lowAud.toLocaleString()} – ${shown.highAud.toLocaleString()} AUD
+                </p>
+              );
+            })()}
           </div>
           <Scene3DErrorBoundary>
             <Suspense fallback={
