@@ -1101,8 +1101,12 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
 
   const room3D: RoomConfig = brief.room;
 
-  const low = band.lowAud;
-  const high = band.highAud;
+  // Prefer the stored server-proposal band so the option card, Design overlay
+  // and this Review panel all show the SAME numbers for the SAME design.
+  // The default (non-AI) layout has no stored band and keeps the estimator.
+  const stored = state.design?.priceBand;
+  const low = stored ? stored.lowAud : band.lowAud;
+  const high = stored ? stored.highAud : band.highAud;
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
