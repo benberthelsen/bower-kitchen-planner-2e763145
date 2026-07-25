@@ -72,12 +72,10 @@ export default function ViewInRoomAr() {
     const dx = along.x - origin.x, dz = along.z - origin.z;
     if (Math.hypot(dx, dz) < 0.4) { setError('The two taps are too close — tap further along the wall.'); tapsRef.current = tapsRef.current.slice(0, 1); setTaps(1); return; }
     setError(null);
-    const yaw = Math.atan2(dx, dz); // three.js Y-rotation mapping +Z→+X
     group.position.set(origin.x, 0, origin.z);
     group.rotation.set(0, Math.atan2(dz, dx) * -1, 0);
     group.scale.set(1, 1, flipRef.current);
     group.visible = true;
-    void yaw;
   }, []);
 
   const start = useCallback(async () => {
