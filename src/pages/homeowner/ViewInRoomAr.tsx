@@ -279,6 +279,8 @@ export default function ViewInRoomAr() {
         setRunning(false);
         renderer.setAnimationLoop(null);
         renderer.dispose();
+        // Cancel any GLB downloads still in flight for this session.
+        if (sessionIdRef.current === mySessionId) sessionIdRef.current++;
       });
 
       renderer.setAnimationLoop((_t: number, frame?: XRFrame) => {
@@ -295,7 +297,11 @@ export default function ViewInRoomAr() {
     }
   }, [payload, placeKitchen]);
 
-  useEffect(() => () => { void rendererRef.current?.xr.getSession()?.end().catch(() => {}); }, []);
+  useEffect(() => () => {
+    // Cancel any in-flight GLB upgrade loop on unmount.
+    sessionIdRef.current++;
+    void rendererRef.current?.xr.getSession()?.end().catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-white">
