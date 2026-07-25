@@ -21,8 +21,12 @@ import {
   type RoomScanV1,
 } from '@/lib/roomScan/contract';
 import {
-  Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, Sparkles,
+  Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, Sparkles, RotateCcw,
 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { trackEvent } from '@/lib/analytics';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -698,7 +702,84 @@ function ShapeIcon({ shape, selected }: { shape: LayoutPreference; selected: boo
 
 // ─── Step 1: Room ───────────────────────────────────────────────────────────────
 
-function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void }) {
+/** Draft-then-commit numeric input for the room measurements. Mirrors the
+ *  NumField pattern in RoomFeaturesEditor (TEST-FINDINGS.md F-5): typing does
+ *  NOT clamp mid-stroke, so "3600" survives and "50" is not silently rewritten
+ *  to 1200. The committed value is only applied on blur/Enter, and out-of-range
+ *  values keep the user's text visible with aria-invalid + an inline message. */
+function RoomMmField({
+  id, label, hint, value, min, max, step, invalidMessage, onCommit, onInvalidChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  invalidMessage: string;
+  onCommit: (v: number) => void;
+  onInvalidChange: (bad: boolean) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
+
+  useEffect(() => { onInvalidChange(invalid); }, [invalid, onInvalidChange]);
+  useEffect(() => () => { onInvalidChange(false); }, [onInvalidChange]);
+
+  const errId = `${id}-err`;
+  const hintId = `${id}-hint`;
+
+  const commit = () => {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    const n = Number(trimmed);
+    if (trimmed === '' || !Number.isFinite(n) || n < min || n > max) {
+      setInvalid(true);
+      // Keep the draft visible so the user can correct it in place.
+      return;
+    }
+    setInvalid(false);
+    onCommit(n);
+    setDraft(null);
+  };
+
+  const shown = draft ?? String(value);
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={step}
+        value={shown}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? errId : hintId}
+        onChange={e => { setDraft(e.target.value); if (invalid) setInvalid(false); }}
+        onFocus={() => setDraft(String(value))}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+      {invalid ? (
+        <p id={errId} role="alert" className="text-xs text-red-600">{invalidMessage}</p>
+      ) : (
+        <p id={hintId} className="text-xs text-slate-400">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void; onValidityChange: (hasInvalid: boolean) => void }) {
+  const [invalidMap, setInvalidMap] = useState<{ w: boolean; d: boolean; h: boolean }>({ w: false, d: false, h: false });
+  useEffect(() => {
+    onValidityChange(invalidMap.w || invalidMap.d || invalidMap.h);
+  }, [invalidMap, onValidityChange]);
+  useEffect(() => () => { onValidityChange(false); }, [onValidityChange]);
+
   const shapes: { id: LayoutPreference; label: string; desc: string }[] = [
     { id: 'single-wall', label: 'Single Wall', desc: 'One wall of cabinets' },
     { id: 'l-shape',     label: 'L-Shape',     desc: 'Two adjoining walls' },
@@ -775,58 +856,36 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
 
       <Section n={1} title="Your room" subtitle="Rough sizes are fine to start — scan with your phone or type them in.">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="room-width">
-              Room width <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-width"
-              type="number"
-              inputMode="numeric"
-              min={1200}
-              max={8000}
-              step={100}
-              value={state.roomWidth}
-              onChange={e => onChange({ roomWidth: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">
-              {(state.roomWidth / 1000).toFixed(1)} m · typically 2.4–6 m
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="room-depth">
-              Room depth <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-depth"
-              type="number"
-              inputMode="numeric"
-              min={1200}
-              max={6000}
-              step={100}
-              value={state.roomDepth}
-              onChange={e => onChange({ roomDepth: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">{(state.roomDepth / 1000).toFixed(1)} m</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="room-height">
-              Ceiling height <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-height"
-              type="number"
-              inputMode="numeric"
-              min={2100}
-              max={4000}
-              step={50}
-              value={state.roomHeight}
-              onChange={e => onChange({ roomHeight: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">{(state.roomHeight / 1000).toFixed(2)} m</p>
-          </div>
+          <RoomMmField
+            id="room-width"
+            label="Room width (mm)"
+            hint={`${(state.roomWidth / 1000).toFixed(1)} m · typically 2.4–6 m`}
+            value={state.roomWidth}
+            min={1200} max={8000} step={100}
+            invalidMessage="Enter 1200–8000 mm"
+            onCommit={v => onChange({ roomWidth: v })}
+            onInvalidChange={bad => setInvalidMap(m => m.w === bad ? m : { ...m, w: bad })}
+          />
+          <RoomMmField
+            id="room-depth"
+            label="Room depth (mm)"
+            hint={`${(state.roomDepth / 1000).toFixed(1)} m`}
+            value={state.roomDepth}
+            min={1200} max={6000} step={100}
+            invalidMessage="Enter 1200–6000 mm"
+            onCommit={v => onChange({ roomDepth: v })}
+            onInvalidChange={bad => setInvalidMap(m => m.d === bad ? m : { ...m, d: bad })}
+          />
+          <RoomMmField
+            id="room-height"
+            label="Ceiling height (mm)"
+            hint={`${(state.roomHeight / 1000).toFixed(2)} m`}
+            value={state.roomHeight}
+            min={2100} max={4000} step={50}
+            invalidMessage="Enter 2100–4000 mm"
+            onCommit={v => onChange({ roomHeight: v })}
+            onInvalidChange={bad => setInvalidMap(m => m.h === bad ? m : { ...m, h: bad })}
+          />
         </div>
         <div className="mt-4">
           <ScanRoomEntry />
@@ -852,12 +911,13 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
       </Section>
 
       <Section n={3} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" role="group" aria-label="Kitchen layout shape">
           {shapes.map(({ id, label, desc }) => {
             const compatible = shapeCompatibleWithWalls(id, state.cabinetWalls);
             return (
             <button
               key={id}
+              aria-pressed={state.layoutPreference === id}
               onClick={() => compatible && onChange({ layoutPreference: id })}
               disabled={!compatible}
               className={cn(
@@ -1000,7 +1060,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
       {/* Quick styles */}
       <div className="space-y-3">
         <Label>Quick styles</Label>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="Quick styles">
           {STYLE_PRESETS.map(preset => {
             const active = state.finishId === preset.style.finishId
               && state.benchtopId === preset.style.benchtopId
@@ -1008,6 +1068,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
             return (
               <button
                 key={preset.id}
+                aria-pressed={active}
                 onClick={() => {
                   trackEvent('style_preset_applied', { preset: preset.id });
                   onChange({
@@ -1039,11 +1100,13 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           <Label>Door Colour</Label>
           <span className="text-sm text-slate-500">{selectedFinish.name}</span>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Door colour">
           {FINISH_OPTIONS.map(f => (
             <button
               key={f.id}
               title={f.name}
+              aria-label={f.name}
+              aria-pressed={state.finishId === f.id}
               onClick={() => onChange({ finishId: f.id })}
               className={cn(
                 'w-9 h-9 rounded-full border-2 transition-all shadow-sm',
@@ -1063,11 +1126,13 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           <Label>Benchtop</Label>
           <span className="text-sm text-slate-500">{selectedBenchtop.name}</span>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Benchtop">
           {BENCHTOP_OPTIONS.map(b => (
             <button
               key={b.id}
               title={b.name}
+              aria-label={b.name}
+              aria-pressed={state.benchtopId === b.id}
               onClick={() => onChange({ benchtopId: b.id })}
               className={cn(
                 'w-9 h-9 rounded-md border-2 transition-all shadow-sm',
@@ -1087,10 +1152,11 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           <Label>Handle Style</Label>
           <span className="text-sm text-slate-500">{selectedHandle.name}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Handle style">
           {HANDLE_OPTIONS.map(h => (
             <button
               key={h.id}
+              aria-pressed={state.handleId === h.id}
               onClick={() => onChange({ handleId: h.id })}
               className={cn(
                 'px-3 py-1.5 rounded-lg border-2 text-xs sm:text-sm transition-all',
@@ -1104,6 +1170,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           ))}
         </div>
       </div>
+
     </div>
   );
 }
@@ -1480,8 +1547,8 @@ function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Parti
         </div>
         <h2 className="text-2xl font-bold text-slate-900">Your kitchen designs are ready to build</h2>
         <p className="mt-3 text-slate-500 text-sm sm:text-base">
-          We've got your room and how you cook. Tell us where to send your three AI-designed
-          layouts and price estimate — then watch them appear.
+          We've got your room and how you cook. Tell us where to send your AI-designed
+          layouts (up to 3) and price estimate — then watch them appear.
         </p>
       </div>
 
@@ -1514,7 +1581,7 @@ function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Parti
       </div>
 
       <div className="mt-6 grid grid-cols-3 gap-3 text-center text-xs text-slate-400">
-        <div>3 AI layouts<br />around your room</div>
+        <div>Up to 3 AI layouts<br />around your room</div>
         <div>Walk-around<br />3D preview</div>
         <div>Instant price<br />estimate</div>
       </div>
@@ -1530,7 +1597,7 @@ export default function HomeownerWizard() {
   // Initialise from defaults ← saved session (mobile reload survival) ← URL
   // params. URL params win: they are synced FROM state, so on a plain reload
   // they agree with the saved copy, and an explicit deep link still applies.
-  const [state, setState] = useState<WizardState>(() => ({
+  const initialState = (): WizardState => ({
     step: 1,
     openings: [],
     services: [],
@@ -1545,12 +1612,43 @@ export default function HomeownerWizard() {
     leadGateDone: false,
     geometryEdits: 0,
     ...DEFAULTS,
+  });
+
+  const [state, setState] = useState<WizardState>(() => ({
+    ...initialState(),
     ...loadSavedWizardState(),
     ...paramsToState(searchParams),
   }));
 
+  // Step-1 measurement validity (draft-then-commit inputs). Bubbled up so the
+  // footer Continue button can disable and surface a single inline hint while
+  // any of the room-size fields is out of range.
+  const [step1Invalid, setStep1Invalid] = useState(false);
+  const handleStep1Validity = useCallback((bad: boolean) => setStep1Invalid(bad), []);
+
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const performReset = () => {
+    clearSavedWizardState();
+    setStep1Invalid(false);
+    setState(initialState());
+    setSearchParams(new URLSearchParams(), { replace: true });
+    setResetConfirmOpen(false);
+  };
+
   // Persist every change for the life of the tab (cleared on submit).
   useEffect(() => { saveWizardState(state); }, [state]);
+
+  // On step change: reset scroll and move focus to the step's h2 so screen
+  // readers land at the new content instead of stranded on the old page.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.scrollTo({ top: 0 });
+    const h = document.querySelector('main h2') as HTMLElement | null;
+    if (h) {
+      h.setAttribute('tabindex', '-1');
+      h.focus({ preventScroll: true });
+    }
+  }, [state.step]);
 
   const onChange = useCallback((patch: Partial<WizardState>) => {
     setState(prev => {
@@ -1699,7 +1797,7 @@ export default function HomeownerWizard() {
 
   const canAdvance =
     state.step === 1
-      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 :
+      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid :
     state.step === 2 ? true :
     state.step === 3 ? true :
     state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
@@ -1721,8 +1819,34 @@ export default function HomeownerWizard() {
       {/* Header */}
       <header className="border-b border-slate-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between sticky top-0 bg-white z-20">
         <Link to="/" className="font-bold text-base sm:text-lg text-slate-900">Bower</Link>
-        <span className="text-xs sm:text-sm text-slate-400">Kitchen Planner</span>
+        <div className="flex items-center gap-3">
+          {state.step >= 2 && (
+            <button
+              type="button"
+              onClick={() => setResetConfirmOpen(true)}
+              className="inline-flex items-center gap-1 text-xs sm:text-sm text-slate-400 hover:text-slate-700"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Start new design
+            </button>
+          )}
+          <span className="text-xs sm:text-sm text-slate-400">Kitchen Planner</span>
+        </div>
       </header>
+
+      <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start a new design?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your current design and details will be cleared. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={performReset}>Start new design</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Hero — only shown on step 1, compact on mobile */}
       {state.step === 1 && (
@@ -1738,7 +1862,7 @@ export default function HomeownerWizard() {
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <StepIndicator current={state.step} />
 
-        {state.step === 1 && <Step1Room state={state} onChange={onChange} />}
+        {state.step === 1 && <Step1Room state={state} onChange={onChange} onValidityChange={handleStep1Validity} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
         {state.step === 3 && <Step3Style state={state} onChange={onChange} />}
         {state.step === 4 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
@@ -1757,25 +1881,32 @@ export default function HomeownerWizard() {
 
         {/* Nav footer */}
         {state.step < 5 ? (
-          <div className="flex items-center justify-between mt-8 sm:mt-10 pt-5 border-t border-slate-100">
-            <Button
-              variant="ghost"
-              onClick={back}
-              disabled={state.step === 1}
-              className="gap-1 text-slate-500"
-            >
-              <ChevronLeft className="w-4 h-4" /> Back
-            </Button>
-            <div className="flex items-center gap-3">
-              {state.step >= 2 && <ShareButton state={state} />}
+          <div className="mt-8 sm:mt-10 pt-5 border-t border-slate-100">
+            {state.step === 1 && step1Invalid && (
+              <p className="text-xs text-red-600 mb-3 text-center sm:text-right">
+                Fix the highlighted room measurements to continue.
+              </p>
+            )}
+            <div className="flex items-center justify-between">
               <Button
-                onClick={advance}
-                disabled={!canAdvance}
-                className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
+                variant="ghost"
+                onClick={back}
+                disabled={state.step === 1}
+                className="gap-1 text-slate-500"
               >
-                {state.step === 4 ? 'Review & price' : 'Continue'}
-                <ChevronRight className="w-4 h-4" />
+                <ChevronLeft className="w-4 h-4" /> Back
               </Button>
+              <div className="flex items-center gap-3">
+                {state.step >= 2 && <ShareButton state={state} />}
+                <Button
+                  onClick={advance}
+                  disabled={!canAdvance}
+                  className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
+                >
+                  {state.step === 4 ? 'Review & price' : 'Continue'}
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
