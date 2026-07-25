@@ -182,6 +182,7 @@ export function CabinetListPanel({
       <div className={cn("flex flex-col bg-background border-l h-full", className)}>
         <CabinetDetailView
           cabinet={selectedCabinet}
+          roomId={roomId}
           price={getCabinetPrice?.(selectedCabinet)}
           flushWall={room ? getFlushWall(selectedCabinet, room) : null}
           onBack={() => onSelectCabinet(null)}
