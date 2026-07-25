@@ -71,6 +71,15 @@ export default function ScanRoom() {
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // Pre-commit preview of an imported RoomPlan scan (Fix B / Stage 2 §6).
+  const [previewScan, setPreviewScan] = useState<null | {
+    scan: import('@/lib/roomScan/contract').RoomScanV1;
+    summary: { walls: number; doors: number; windows: number; walkways: number; heightMm: number };
+  }>(null);
+
+  const [dragActive, setDragActive] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+
 
   const sessionRef = useRef<XRSession | null>(null);
   const phaseRef = useRef<Phase>('corners');
@@ -446,26 +455,81 @@ export default function ScanRoom() {
 
   const handleImportFile = useCallback(async (file: File) => {
     setImportError(null);
+    setPreviewScan(null);
     setImporting(true);
     try {
       const text = await file.text();
       const result = importRoomPlanFileText(text);
       if ('reason' in result) { setImportError(result.reason); return; }
-      if (!storeAndGo(result.scan)) {
-        setImportError('could not store the scan — your browser may be blocking storage');
-      }
+      const scan = result.scan;
+      const doors = scan.room.openings.filter((o) => o.type === 'door').length;
+      const windows = scan.room.openings.filter((o) => o.type === 'window').length;
+      const walkways = scan.room.openings.filter((o) => o.type === 'walkway').length;
+      setPreviewScan({
+        scan,
+        summary: { walls: 4, doors, windows, walkways, heightMm: scan.room.height },
+      });
     } catch {
       setImportError('could not read that file — try exporting the scan again');
     } finally {
       setImporting(false);
     }
-  }, [storeAndGo]);
+  }, []);
+
+  const commitPreview = useCallback(() => {
+    if (!previewScan) return;
+    if (!storeAndGo(previewScan.scan)) {
+      setImportError('could not store the scan — your browser may be blocking storage');
+    }
+  }, [previewScan, storeAndGo]);
+
+  // Build a valid UnconfirmedRoomScanV1 from a plain rectangle + optional openings.
+  const buildManualScan = useCallback((input: {
+    widthMm: number; depthMm: number; heightMm: number;
+    doorWall?: 'N' | 'E' | 'S' | 'W'; doorOffsetMm?: number; doorWidthMm?: number;
+    windowWall?: 'N' | 'E' | 'S' | 'W'; windowOffsetMm?: number; windowWidthMm?: number;
+  }): import('@/lib/roomScan/contract').UnconfirmedRoomScanV1 => {
+    const openings: import('@/lib/roomScan/contract').OpeningV1[] = [];
+    if (input.doorWall && input.doorWidthMm && input.doorWidthMm > 0) {
+      openings.push({ id: 'door-1', wall: input.doorWall, type: 'door',
+        offsetMm: input.doorOffsetMm ?? 0, widthMm: input.doorWidthMm });
+    }
+    if (input.windowWall && input.windowWidthMm && input.windowWidthMm > 0) {
+      openings.push({ id: 'window-1', wall: input.windowWall, type: 'window',
+        offsetMm: input.windowOffsetMm ?? 0, widthMm: input.windowWidthMm });
+    }
+    return {
+      state: 'unconfirmed',
+      schemaVersion: 1,
+      source: 'manual',
+      roomRevision: 1,
+      coordinateFrame: {
+        assignment: 'user-main-wall',
+        sourcePlanAxes: 'x-z',
+        sourceUnits: 'millimetres',
+        sourceToCanonicalMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        snappedQuarterTurnDegrees: 0,
+        originDescription: 'north-west-corner-in-canonical-plan',
+      },
+      room: {
+        width: input.widthMm, depth: input.depthMm, height: input.heightMm,
+        shape: 'Rectangle', cutoutWidth: 0, cutoutDepth: 0,
+        openings, services: [],
+      },
+      confidence: {
+        overall: 0.5,
+        fields: { height: 'measured', openings: openings.length ? 'user-marked' : 'none-captured', services: 'none-captured' },
+      },
+      capturedAt: new Date().toISOString(),
+    };
+  }, []);
 
   const supportCopy: Record<Exclude<Support, 'ready' | 'checking'>, string> = {
     insecure: 'Quick scan needs a secure (https) connection.',
     'no-xr': "This browser can't run camera scanning. On an Android phone, open this page in Chrome.",
     'no-ar': "This device doesn't support browser AR scanning.",
   };
+
 
   // ── Overlay copy per phase ────────────────────────────────────────────────
   const topCaption =
@@ -558,7 +622,20 @@ export default function ScanRoom() {
         </section>
 
         {/* ── Option 2: Pro scan (LiDAR import) ── */}
-        <section className="rounded-xl border border-slate-200 p-4 space-y-3">
+        <section
+          className={cn(
+            'rounded-xl border p-4 space-y-3 transition-colors',
+            dragActive ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200',
+          )}
+          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) void handleImportFile(file);
+          }}
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
               <ScanLine className="w-5 h-5 text-slate-700" />
@@ -567,9 +644,12 @@ export default function ScanRoom() {
             <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">iPhone Pro · LiDAR</span>
           </div>
           <p className="text-sm text-slate-500">
-            LiDAR iPhones can scan the room automatically — walls, doors and
-            windows are detected for you. Scan with a RoomPlan-compatible app,
-            export the scan as a <span className="font-medium">JSON file</span>, and import it here.
+            iPhone Pro models (12 Pro and newer Pro / Pro Max) have a LiDAR
+            scanner and can capture your room automatically. Scan with a LiDAR
+            room-scanning app such as <span className="font-medium">Polycam</span> or{' '}
+            <span className="font-medium">RoomScan LiDAR</span>, export the room
+            as a <span className="font-medium">JSON file</span>, then drop it
+            below or tap Import. Walls, doors and windows are read for you.
           </p>
           <input
             ref={fileInputRef}
@@ -588,20 +668,49 @@ export default function ScanRoom() {
             disabled={importing}
             onClick={() => fileInputRef.current?.click()}
           >
-            <Upload className="w-4 h-4 mr-2" /> {importing ? 'Importing…' : 'Import scan file'}
+            <Upload className="w-4 h-4 mr-2" /> {importing ? 'Importing…' : 'Choose or drop scan file'}
           </Button>
           {importError && <p className="text-sm text-red-600 text-center">{importError}</p>}
+
+          {previewScan && (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-3 space-y-2">
+              <p className="text-sm font-medium text-emerald-900">
+                Detected: {previewScan.summary.walls} walls · {previewScan.summary.doors} door
+                {previewScan.summary.doors === 1 ? '' : 's'} · {previewScan.summary.windows} window
+                {previewScan.summary.windows === 1 ? '' : 's'}
+                {previewScan.summary.walkways > 0 ? ` · ${previewScan.summary.walkways} walkway${previewScan.summary.walkways === 1 ? '' : 's'}` : ''}
+              </p>
+              <p className="text-xs text-emerald-800">
+                Room: {(previewScan.scan.room.width / 1000).toFixed(2)} m ×{' '}
+                {(previewScan.scan.room.depth / 1000).toFixed(2)} m ·
+                ceiling {(previewScan.summary.heightMm / 1000).toFixed(2)} m
+              </p>
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={commitPreview}>
+                  <Check className="w-4 h-4 mr-1" /> Use this room
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPreviewScan(null)}>Discard</Button>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-slate-400">
             A one-tap Bower scanning app for iPhone is on the roadmap — this import works today.
           </p>
         </section>
 
         {/* ── Manual entry ── */}
-        <div className="text-center">
-          <Button variant="ghost" onClick={() => navigate('/wizard')} className="text-slate-600">
-            <Ruler className="w-4 h-4 mr-2" /> Or enter your room manually — it only takes a minute
+        <section className="rounded-xl border border-slate-200 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Ruler className="w-5 h-5 text-slate-700" />
+            <h2 className="font-semibold text-slate-900">Enter measurements</h2>
+          </div>
+          <p className="text-sm text-slate-500">
+            No LiDAR? No AR? Type your room in — takes about a minute.
+          </p>
+          <Button className="w-full h-11 bg-slate-900 text-white hover:bg-slate-700" onClick={() => setShowManual(true)}>
+            <Ruler className="w-4 h-4 mr-2" /> Enter room by hand
           </Button>
-        </div>
+        </section>
       </main>
 
       {/* ── Info dialog: the two options explained ── */}
@@ -639,6 +748,19 @@ export default function ScanRoom() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Manual entry dialog ── */}
+      <ManualEntryDialog
+        open={showManual}
+        onOpenChange={setShowManual}
+        onSubmit={(input) => {
+          const scan = buildManualScan(input);
+          setShowManual(false);
+          if (!storeAndGo(scan)) setImportError('could not store the room — your browser may be blocking storage');
+        }}
+      />
+
+
 
       {/* ── DOM overlay shown inside the AR session ── */}
       <div ref={overlayRef} className={scanning ? 'fixed inset-0 z-50 pointer-events-none' : 'hidden'}>
@@ -777,3 +899,146 @@ export default function ScanRoom() {
     </div>
   );
 }
+
+// ─── Manual entry dialog ────────────────────────────────────────────────────
+// Compact step-through form for phones without LiDAR or WebXR. Produces the
+// same UnconfirmedRoomScanV1 the two scan lanes do.
+type ManualInput = {
+  widthMm: number; depthMm: number; heightMm: number;
+  doorWall?: 'N' | 'E' | 'S' | 'W'; doorOffsetMm?: number; doorWidthMm?: number;
+  windowWall?: 'N' | 'E' | 'S' | 'W'; windowOffsetMm?: number; windowWidthMm?: number;
+};
+
+function ManualEntryDialog({
+  open, onOpenChange, onSubmit,
+}: { open: boolean; onOpenChange: (o: boolean) => void; onSubmit: (input: ManualInput) => void }) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [widthM, setWidthM] = useState('3.6');
+  const [depthM, setDepthM] = useState('3.0');
+  const [heightM, setHeightM] = useState('2.4');
+  const [doorWall, setDoorWall] = useState<'N' | 'E' | 'S' | 'W' | ''>('');
+  const [doorOffsetMm, setDoorOffsetMm] = useState('0');
+  const [doorWidthMm, setDoorWidthMm] = useState('820');
+  const [windowWall, setWindowWall] = useState<'N' | 'E' | 'S' | 'W' | ''>('');
+  const [windowOffsetMm, setWindowOffsetMm] = useState('600');
+  const [windowWidthMm, setWindowWidthMm] = useState('1200');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { if (open) { setStep(1); setError(null); } }, [open]);
+
+  const num = (s: string) => { const n = Number(s); return Number.isFinite(n) ? n : NaN; };
+  const submit = () => {
+    const w = Math.round(num(widthM) * 1000);
+    const d = Math.round(num(depthM) * 1000);
+    const h = Math.round(num(heightM) * 1000);
+    if (!(w >= 1000 && w <= 20000) || !(d >= 1000 && d <= 20000) || !(h >= 2000 && h <= 4500)) {
+      setError('Widths must be 1–20 m and ceiling 2.0–4.5 m.'); setStep(2); return;
+    }
+    onSubmit({
+      widthMm: w, depthMm: d, heightMm: h,
+      ...(doorWall ? { doorWall, doorOffsetMm: num(doorOffsetMm) || 0, doorWidthMm: num(doorWidthMm) || 820 } : {}),
+      ...(windowWall ? { windowWall, windowOffsetMm: num(windowOffsetMm) || 0, windowWidthMm: num(windowWidthMm) || 1200 } : {}),
+    });
+  };
+
+  const WallPicker = ({ value, onChange }: { value: 'N' | 'E' | 'S' | 'W' | ''; onChange: (v: 'N' | 'E' | 'S' | 'W' | '') => void }) => (
+    <div className="flex gap-2 flex-wrap">
+      {(['', 'N', 'E', 'S', 'W'] as const).map((w) => (
+        <button key={w || 'none'} type="button" onClick={() => onChange(w)}
+          className={cn('h-9 px-3 rounded-md border text-sm',
+            value === w ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300')}>
+          {w === '' ? 'None' : `Wall ${w}`}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Enter your room · step {step} of 3</DialogTitle>
+          <DialogDescription>
+            {step === 1 ? 'Which shape is your room?'
+              : step === 2 ? 'Room size and ceiling height.'
+              : 'Doors and windows (optional).'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          {step === 1 && (
+            <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+              <p className="text-slate-700">Rectangle rooms are supported here. L-shaped or unusual layouts — use the Pro scan or contact us and we'll capture your room together.</p>
+              <div className="flex gap-2">
+                <Button className="flex-1 bg-slate-900 text-white hover:bg-slate-700" onClick={() => setStep(2)}>Rectangle — continue</Button>
+              </div>
+            </div>
+          )}
+          {step === 2 && (
+            <div className="space-y-3">
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Room width (m, along the main wall)</span>
+                <input inputMode="decimal" value={widthM} onChange={(e) => setWidthM(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-slate-300" />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Room depth (m)</span>
+                <input inputMode="decimal" value={depthM} onChange={(e) => setDepthM(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-slate-300" />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Ceiling height (m)</span>
+                <input inputMode="decimal" value={heightM} onChange={(e) => setHeightM(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-slate-300" />
+              </label>
+              {error && <p className="text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
+                <Button className="flex-1 bg-slate-900 text-white hover:bg-slate-700" onClick={() => { setError(null); setStep(3); }}>Continue</Button>
+              </div>
+            </div>
+          )}
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="font-medium text-slate-800">Door (optional)</p>
+                <WallPicker value={doorWall} onChange={setDoorWall} />
+                {doorWall && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block"><span className="block text-slate-600 mb-1">Offset (mm)</span>
+                      <input inputMode="numeric" value={doorOffsetMm} onChange={(e) => setDoorOffsetMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                    <label className="block"><span className="block text-slate-600 mb-1">Width (mm)</span>
+                      <input inputMode="numeric" value={doorWidthMm} onChange={(e) => setDoorWidthMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium text-slate-800">Window (optional)</p>
+                <WallPicker value={windowWall} onChange={setWindowWall} />
+                {windowWall && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block"><span className="block text-slate-600 mb-1">Offset (mm)</span>
+                      <input inputMode="numeric" value={windowOffsetMm} onChange={(e) => setWindowOffsetMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                    <label className="block"><span className="block text-slate-600 mb-1">Width (mm)</span>
+                      <input inputMode="numeric" value={windowWidthMm} onChange={(e) => setWindowWidthMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                  </div>
+                )}
+              </div>
+              {error && <p className="text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setStep(2)}>Back</Button>
+                <Button className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500" onClick={submit}>
+                  <Check className="w-4 h-4 mr-1" /> Save room
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

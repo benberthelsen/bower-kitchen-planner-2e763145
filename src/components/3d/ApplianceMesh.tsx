@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import * as THREE from 'three';
 import { PlacedItem, GlobalDimensions } from '../../types';
 import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 import { useCatalogItem } from '../../hooks/useCatalog';
-import * as THREE from 'three';
 import { handleItemPointerDown } from './selectionGesture';
+import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
 
 interface ApplianceMeshProps {
   item: PlacedItem;
@@ -15,7 +16,15 @@ interface ApplianceMeshProps {
   onDragStart?: (id: string, x: number, z: number) => void;
 }
 
-const ApplianceMesh: React.FC<ApplianceMeshProps> = ({ 
+/** Chrome hex → chrome, black hex → matteBlack, otherwise brushedGunmetal. */
+function tapFinishKey(hex: string): ApplianceFinishKey {
+  const h = hex.toLowerCase();
+  if (h === '#1a1a1a' || h === '#111827' || h === '#000000') return 'matteBlack';
+  if (h === '#e5e7eb' || h === '#f1f3f5' || h === '#ffffff') return 'chrome';
+  return 'brushedGunmetal';
+}
+
+const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   item,
   globalDimensions: dimensionsProp,
   isSelected: isSelectedProp,
@@ -35,6 +44,28 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
 
+  // A gooseneck tap profile built with a lathe. Cached across renders per finish.
+  const tapGooseneckGeom = useMemo(() => {
+    const pts: THREE.Vector2[] = [];
+    pts.push(new THREE.Vector2(0.020, 0.00));
+    pts.push(new THREE.Vector2(0.022, 0.02));
+    pts.push(new THREE.Vector2(0.014, 0.06));
+    pts.push(new THREE.Vector2(0.012, 0.22));
+    pts.push(new THREE.Vector2(0.014, 0.26));
+    pts.push(new THREE.Vector2(0.020, 0.28));
+    return new THREE.LatheGeometry(pts, 20);
+  }, []);
+  const tapSpoutGeom = useMemo(() => {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.28, 0),
+      new THREE.Vector3(0, 0.34, 0.02),
+      new THREE.Vector3(0, 0.36, 0.08),
+      new THREE.Vector3(0, 0.32, 0.14),
+      new THREE.Vector3(0, 0.24, 0.16),
+    ]);
+    return new THREE.TubeGeometry(curve, 24, 0.012, 12, false);
+  }, []);
+
   if (!def) return null;
 
   const widthM = item.width / 1000;
@@ -48,11 +79,23 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const isSink = def.sku.includes('SINK') || applianceName.includes('sink');
   const isCooktop = def.sku.includes('CT') || applianceName.includes('cooktop');
   const isDishwasher = def.sku.includes('DW') || applianceName.includes('dishwasher');
+  const isOven = applianceName.includes('oven');
   const isFrontLoader = !isDishwasher && (applianceName.includes('wash') || applianceName.includes('dryer'));
-  // Any appliance that isn't a flush fitting (sink/cooktop) or a dishwasher
-  // still needs a visible body — washing machines, ovens, fridges, rangehoods,
-  // microwaves, etc. Previously these rendered nothing but a selection box.
   const isGenericAppliance = !isSink && !isCooktop && !isDishwasher;
+
+  // Resolve finish key from the placed snapshot; each sub-type has a sensible default.
+  const snapFinish = item.applianceSnapshot?.finish ?? null;
+  const finishKey: ApplianceFinishKey =
+    resolveFinishKey(snapFinish) ??
+    (isSink ? 'stainless'
+      : isCooktop ? 'blackGlass'
+      : isOven ? 'stainless'
+      : isDishwasher ? 'stainless'
+      : 'whiteEnamel');
+  const bodyMat = getApplianceMaterial(finishKey);
+  const glassMat = getApplianceMaterial('blackGlass');
+  const handleMat = getApplianceMaterial('brushedGunmetal');
+  const tapMat = getApplianceMaterial(tapFinishKey(selectedTap.hex));
 
   let posY = (item.y / 1000) + (heightM / 2);
   if (isSink || isCooktop) posY = item.y / 1000;
@@ -77,41 +120,58 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
       {(isSelected || hovered || isDragged) && (
         <mesh><boxGeometry args={[widthM + 0.05, heightM + 0.05, depthM + 0.05]} /><meshBasicMaterial color={isDragged ? "#2563eb" : "#3b82f6"} wireframe opacity={0.5} transparent /></mesh>
       )}
-      
+
       {isSink && (
         <group>
-          <mesh position={[0, -heightM / 2 + 0.01, 0]}><boxGeometry args={[widthM * 0.9, 0.02, depthM * 0.8]} /><meshStandardMaterial color="#e5e7eb" metalness={0.9} roughness={0.2} /></mesh>
-          <mesh position={[0, -heightM / 2 + 0.05, 0]}><boxGeometry args={[widthM * 0.8, heightM - 0.05, depthM * 0.7]} /><meshStandardMaterial color="#d1d5db" metalness={0.8} roughness={0.3} /></mesh>
-          <mesh position={[0, 0.15, -depthM / 2 + 0.05]}><cylinderGeometry args={[0.015, 0.015, 0.3, 8]} /><meshStandardMaterial color={selectedTap.hex} metalness={0.9} roughness={0.1} /></mesh>
+          {/* Deck + basin — brushed stainless. */}
+          <mesh position={[0, -heightM / 2 + 0.01, 0]} material={bodyMat}>
+            <boxGeometry args={[widthM * 0.94, 0.02, depthM * 0.82]} />
+          </mesh>
+          <mesh position={[0, -heightM / 2 + 0.05, 0]} material={bodyMat}>
+            <boxGeometry args={[widthM * 0.82, heightM - 0.05, depthM * 0.72]} />
+          </mesh>
+          {/* Gooseneck tap: real profile + curved spout. */}
+          <group position={[0, -heightM / 2 + 0.02, -depthM / 2 + 0.06]}>
+            <mesh geometry={tapGooseneckGeom} material={tapMat} />
+            <mesh geometry={tapSpoutGeom} material={tapMat} />
+          </group>
         </group>
       )}
-      
+
       {isCooktop && (
         <group>
-          <mesh position={[0, 0.01, 0]}><boxGeometry args={[widthM, 0.02, depthM]} /><meshStandardMaterial color="#1a1a1a" /></mesh>
+          {/* Ceramic glass surface. */}
+          <mesh position={[0, 0.012, 0]} material={glassMat}>
+            <boxGeometry args={[widthM, 0.024, depthM]} />
+          </mesh>
           {[[-0.15, -0.1], [0.15, -0.1], [-0.15, 0.1], [0.15, 0.1]].map(([x, z], i) => (
-            <mesh key={i} position={[x, 0.025, z]}><cylinderGeometry args={[0.08, 0.08, 0.01, 32]} /><meshStandardMaterial color="#374151" metalness={0.5} /></mesh>
+            <mesh key={i} position={[x, 0.026, z]}>
+              <cylinderGeometry args={[0.08, 0.08, 0.006, 32]} />
+              <meshStandardMaterial color="#2a2a2e" metalness={0.4} roughness={0.5} />
+            </mesh>
           ))}
         </group>
       )}
-      
+
       {isDishwasher && (
         <group>
-          <mesh><boxGeometry args={[widthM, heightM, depthM]} /><meshStandardMaterial color="#d1d5db" metalness={0.6} roughness={0.4} /></mesh>
-          <mesh position={[0, heightM / 4, depthM / 2 + 0.01]}><boxGeometry args={[widthM - 0.02, 0.02, 0.01]} /><meshStandardMaterial color="#4b5563" /></mesh>
-          <mesh position={[0, -heightM / 4, depthM / 2 + 0.01]}><boxGeometry args={[widthM - 0.02, 0.02, 0.01]} /><meshStandardMaterial color="#4b5563" /></mesh>
-          {/* Top rails (stretchers) that span the opening to carry the benchtop —
-              a dishwasher opening has no full top panel, but needs these rails.
-              Suppressed only if the cabinet explicitly turns the top off. */}
+          <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
+          {/* Recessed inset door glass. */}
+          <mesh position={[0, -0.02, depthM / 2 + 0.006]} material={glassMat}>
+            <boxGeometry args={[widthM - 0.06, heightM - 0.15, 0.012]} />
+          </mesh>
+          {/* Recessed handle bar. */}
+          <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.02]} material={handleMat}>
+            <boxGeometry args={[widthM - 0.12, 0.02, 0.02]} />
+          </mesh>
+          {/* Top rails carrying the benchtop (dishwasher opening has no full top). */}
           {item.topRail !== false && (
             <>
-              <mesh position={[0, heightM / 2 - 0.012, depthM / 2 - 0.05]}>
+              <mesh position={[0, heightM / 2 - 0.012, depthM / 2 - 0.05]} material={bodyMat}>
                 <boxGeometry args={[widthM, 0.018, 0.1]} />
-                <meshStandardMaterial color="#e5e7eb" roughness={0.6} />
               </mesh>
-              <mesh position={[0, heightM / 2 - 0.012, -depthM / 2 + 0.05]}>
+              <mesh position={[0, heightM / 2 - 0.012, -depthM / 2 + 0.05]} material={bodyMat}>
                 <boxGeometry args={[widthM, 0.018, 0.1]} />
-                <meshStandardMaterial color="#e5e7eb" roughness={0.6} />
               </mesh>
             </>
           )}
@@ -120,17 +180,35 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
 
       {isGenericAppliance && (
         <group>
-          {/* Main upright body */}
-          <mesh><boxGeometry args={[widthM, heightM, depthM]} /><meshStandardMaterial color="#e5e7eb" metalness={0.55} roughness={0.35} /></mesh>
-          {/* Recessed front door / panel */}
-          <mesh position={[0, 0, depthM / 2 + 0.006]}><boxGeometry args={[widthM - 0.05, heightM - 0.05, 0.012]} /><meshStandardMaterial color="#cbd5e1" metalness={0.6} roughness={0.3} /></mesh>
-          {/* Vertical handle */}
-          <mesh position={[widthM / 2 - 0.07, 0, depthM / 2 + 0.02]}><boxGeometry args={[0.025, heightM * 0.45, 0.02]} /><meshStandardMaterial color="#6b7280" metalness={0.85} roughness={0.2} /></mesh>
-          {/* Round door for front-loaders (washer / dryer) */}
+          {/* Main body */}
+          <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
+          {isOven ? (
+            <>
+              {/* Inset glass door panel with a black-glass surround. */}
+              <mesh position={[0, -heightM * 0.08, depthM / 2 + 0.006]} material={glassMat}>
+                <boxGeometry args={[widthM - 0.06, heightM * 0.6, 0.012]} />
+              </mesh>
+              {/* Recessed horizontal handle bar. */}
+              <mesh position={[0, heightM * 0.28, depthM / 2 + 0.028]} material={handleMat}>
+                <boxGeometry args={[widthM * 0.62, 0.022, 0.024]} />
+              </mesh>
+            </>
+          ) : (
+            <>
+              {/* Recessed front panel + vertical handle. */}
+              <mesh position={[0, 0, depthM / 2 + 0.006]}>
+                <boxGeometry args={[widthM - 0.05, heightM - 0.05, 0.012]} />
+                <meshStandardMaterial color={new THREE.Color(bodyMat.color).multiplyScalar(0.92)} metalness={bodyMat.metalness} roughness={bodyMat.roughness + 0.05} />
+              </mesh>
+              <mesh position={[widthM / 2 - 0.07, 0, depthM / 2 + 0.02]} material={handleMat}>
+                <boxGeometry args={[0.025, heightM * 0.45, 0.02]} />
+              </mesh>
+            </>
+          )}
+          {/* Round door for front-loaders (washer / dryer). */}
           {isFrontLoader && (
-            <mesh position={[-0.03, 0.02, depthM / 2 + 0.018]} rotation={[Math.PI / 2, 0, 0]}>
+            <mesh position={[-0.03, 0.02, depthM / 2 + 0.018]} rotation={[Math.PI / 2, 0, 0]} material={glassMat}>
               <cylinderGeometry args={[Math.min(widthM, heightM) * 0.3, Math.min(widthM, heightM) * 0.3, 0.012, 28]} />
-              <meshStandardMaterial color="#9ca3af" metalness={0.4} roughness={0.5} />
             </mesh>
           )}
         </group>

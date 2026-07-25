@@ -20,6 +20,9 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { itemRect } from '@/lib/layout';
 import type { PlacedItem } from '@/types';
+import { getApplianceMaterial, resolveFinishKey } from '@/components/3d/materials/applianceMaterials';
+import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
+
 
 export const VIEW_AR_KEY = 'bower.viewArPayload';
 
@@ -86,29 +89,108 @@ export default function ViewInRoomAr() {
       const camera = new THREE.PerspectiveCamera();
 
       // Kitchen group: canonical mm → metres, laid out from the tapped origin.
+      // Real finish materials (cached, shared across items) replace the earlier
+      // wireframe outlines. Appliances with a resolved model URL upgrade in
+      // place once their GLB has downloaded — we NEVER block entering AR.
       const group = new THREE.Group();
       group.visible = false;
+
+      // Shared cached materials — one instance per finish.
+      const cabinetMat = new THREE.MeshStandardMaterial({ color: 0xd8cfc0, roughness: 0.7, metalness: 0.05 });
+      const benchtopMat = new THREE.MeshStandardMaterial({ color: 0xb5b7ba, roughness: 0.3, metalness: 0.15 });
+
+      // Hard triangle budget for AR — degrade least-important items to boxes
+      // when we go over. Approximate box tri count = 12.
+      const TRI_BUDGET = 150_000;
+      let triUsed = 0;
+      const simplified: string[] = [];
+
+      type UpgradeSlot = { placeholder: THREE.Mesh; item: PlacedItem; url: string };
+      const upgrades: UpgradeSlot[] = [];
+
       for (const item of payload.items) {
         const r = itemRect(item);
         const w = (r.maxX - r.minX) / 1000, d = (r.maxZ - r.minZ) / 1000, h = item.height / 1000;
         const isAppliance = item.itemType === 'Appliance';
-        const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(w, h, d),
-          new THREE.MeshLambertMaterial({
-            color: isAppliance ? 0x8a97a6 : 0xd8cfc0,
-            transparent: true,
-            opacity: 0.85,
-          }),
-        );
-        mesh.position.set((r.minX + r.maxX) / 2000, item.y / 1000 + h / 2, (r.minZ + r.maxZ) / 2000);
-        group.add(mesh);
-        const edges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(mesh.geometry),
-          new THREE.LineBasicMaterial({ color: 0x4a4137 }),
-        );
-        edges.position.copy(mesh.position);
-        group.add(edges);
+        const cx = (r.minX + r.maxX) / 2000;
+        const cy = item.y / 1000 + h / 2;
+        const cz = (r.minZ + r.maxZ) / 2000;
+
+        const finishKey = isAppliance ? resolveFinishKey(item.applianceSnapshot?.finish) ?? 'stainless' : null;
+        const mat = isAppliance
+          ? getApplianceMaterial(finishKey ?? 'stainless')
+          : (item.itemType === 'Structure' ? benchtopMat : cabinetMat);
+
+        const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+        box.position.set(cx, cy, cz);
+        group.add(box);
+        triUsed += 12;
+
+        const modelUrl = isAppliance ? item.applianceSnapshot?.modelUrl ?? null : null;
+        if (modelUrl && triUsed < TRI_BUDGET) upgrades.push({ placeholder: box, item, url: modelUrl });
       }
+
+      // Best-effort GLB upgrades — never blocks entry to AR.
+      if (upgrades.length) {
+        void (async () => {
+          try {
+            const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+            const loader = new GLTFLoader();
+            configureApplianceGltfLoader(loader);
+            for (const slot of upgrades) {
+              try {
+                const gltf = await loader.loadAsync(slot.url);
+                const scene3 = gltf.scene;
+                // Rough tri count for this model.
+                let tri = 0;
+                scene3.traverse((n: THREE.Object3D) => {
+                  const m = n as THREE.Mesh;
+                  if (m.isMesh && m.geometry) {
+                    const g = m.geometry as THREE.BufferGeometry;
+                    tri += g.index ? g.index.count / 3 : (g.attributes.position?.count ?? 0) / 3;
+                  }
+                });
+                if (triUsed + tri > TRI_BUDGET) {
+                  simplified.push(slot.item.applianceSnapshot?.name ?? slot.item.definitionId);
+                  continue;
+                }
+                triUsed += tri;
+
+                // Normalize scale to placed dimensions.
+                const bbox = new THREE.Box3().setFromObject(scene3);
+                const size = new THREE.Vector3(); bbox.getSize(size);
+                const targetW = slot.item.width / 1000;
+                const targetH = slot.item.height / 1000;
+                const targetD = slot.item.depth / 1000;
+                const sx = size.x > 1e-4 ? targetW / size.x : 1;
+                const sy = size.y > 1e-4 ? targetH / size.y : 1;
+                const sz = size.z > 1e-4 ? targetD / size.z : 1;
+                scene3.scale.set(sx, sy, sz);
+                const cx2 = (bbox.min.x + bbox.max.x) / 2;
+                const cz2 = (bbox.min.z + bbox.max.z) / 2;
+                scene3.position.set(
+                  slot.placeholder.position.x - cx2 * sx,
+                  slot.placeholder.position.y - (bbox.min.y + bbox.max.y) / 2 * sy,
+                  slot.placeholder.position.z - cz2 * sz,
+                );
+                scene3.rotation.set(0, -THREE.MathUtils.degToRad(slot.item.rotation), 0);
+                group.add(scene3);
+                group.remove(slot.placeholder);
+                slot.placeholder.geometry.dispose();
+              } catch {
+                // Leave placeholder box in place.
+              }
+            }
+            if (simplified.length) {
+              // eslint-disable-next-line no-console
+              console.info('[ViewInRoomAr] simplified over-budget items:', simplified);
+            }
+          } catch {
+            /* loader import failed — placeholders remain */
+          }
+        })();
+      }
+
       groupRef.current = group;
       scene.add(group);
 

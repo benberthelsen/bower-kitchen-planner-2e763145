@@ -1063,10 +1063,10 @@ export function UnifiedScene({
           };
           
           if (item.itemType === 'Appliance') {
-            const hasModel = !!item.applianceSnapshot?.modelUrl;
-            const Cmp = hasModel ? ApplianceModel : ApplianceMesh;
+            // ApplianceModel resolves URL from snapshot OR the live catalog row,
+            // and cleanly falls back to the procedural ApplianceMesh when none.
             return (
-              <Cmp
+              <ApplianceModel
                 key={key}
                 item={item}
                 globalDimensions={globalDimensions}
