@@ -722,29 +722,43 @@ function RoomMmField({
   onInvalidChange: (bad: boolean) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const [invalid, setInvalid] = useState(false);
+  const [touched, setTouched] = useState(false);
 
-  useEffect(() => { onInvalidChange(invalid); }, [invalid, onInvalidChange]);
-  useEffect(() => () => { onInvalidChange(false); }, [onInvalidChange]);
-
-  const errId = `${id}-err`;
   const hintId = `${id}-hint`;
 
+  const shown = draft ?? String(value);
+
+  // Live validity derived from the DRAFT as typed (not the committed value,
+  // which is always in-range by construction). Surface the error only after
+  // the field has been touched so the initial state stays clean.
+  const draftInvalid = (() => {
+    if (draft === null) return false;
+    const trimmed = draft.trim();
+    if (trimmed === '') return true;
+    const n = Number(trimmed);
+    return !Number.isFinite(n) || n < min || n > max;
+  })();
+  const invalid = touched && draftInvalid;
+
+  // Keep parent notified without churning on callback identity changes.
+  const onInvalidChangeRef = useRef(onInvalidChange);
+  onInvalidChangeRef.current = onInvalidChange;
+  useEffect(() => { onInvalidChangeRef.current(invalid); }, [invalid]);
+  useEffect(() => () => { onInvalidChangeRef.current(false); }, []);
+
   const commit = () => {
+    setTouched(true);
     if (draft === null) return;
     const trimmed = draft.trim();
     const n = Number(trimmed);
     if (trimmed === '' || !Number.isFinite(n) || n < min || n > max) {
-      setInvalid(true);
-      // Keep the draft visible so the user can correct it in place.
+      // Keep the user's typed text visible so they can correct it in place.
       return;
     }
-    setInvalid(false);
     onCommit(n);
     setDraft(null);
+    setTouched(false);
   };
-
-  const shown = draft ?? String(value);
 
   return (
     <div className="space-y-2">
@@ -758,20 +772,25 @@ function RoomMmField({
         step={step}
         value={shown}
         aria-invalid={invalid || undefined}
-        aria-describedby={invalid ? errId : hintId}
-        onChange={e => { setDraft(e.target.value); if (invalid) setInvalid(false); }}
-        onFocus={() => setDraft(String(value))}
+        aria-describedby={hintId}
+        onChange={e => setDraft(e.target.value)}
+        // Only seed the draft on focus if there isn't already one in flight —
+        // never silently resync an invalid draft back to the committed value.
+        onFocus={() => { if (draft === null) setDraft(String(value)); }}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       />
-      {invalid ? (
-        <p id={errId} role="alert" className="text-xs text-red-600">{invalidMessage}</p>
-      ) : (
-        <p id={hintId} className="text-xs text-slate-400">{hint}</p>
-      )}
+      <p
+        id={hintId}
+        role={invalid ? 'alert' : undefined}
+        className={cn('text-xs', invalid ? 'text-red-500' : 'text-slate-400')}
+      >
+        {invalid ? invalidMessage : hint}
+      </p>
     </div>
   );
 }
+
 
 function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void; onValidityChange: (hasInvalid: boolean) => void }) {
   const [invalidMap, setInvalidMap] = useState<{ w: boolean; d: boolean; h: boolean }>({ w: false, d: false, h: false });
