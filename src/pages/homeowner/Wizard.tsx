@@ -1597,7 +1597,7 @@ export default function HomeownerWizard() {
   // Initialise from defaults ← saved session (mobile reload survival) ← URL
   // params. URL params win: they are synced FROM state, so on a plain reload
   // they agree with the saved copy, and an explicit deep link still applies.
-  const [state, setState] = useState<WizardState>(() => ({
+  const initialState = (): WizardState => ({
     step: 1,
     openings: [],
     services: [],
@@ -1612,9 +1612,28 @@ export default function HomeownerWizard() {
     leadGateDone: false,
     geometryEdits: 0,
     ...DEFAULTS,
+  });
+
+  const [state, setState] = useState<WizardState>(() => ({
+    ...initialState(),
     ...loadSavedWizardState(),
     ...paramsToState(searchParams),
   }));
+
+  // Step-1 measurement validity (draft-then-commit inputs). Bubbled up so the
+  // footer Continue button can disable and surface a single inline hint while
+  // any of the room-size fields is out of range.
+  const [step1Invalid, setStep1Invalid] = useState(false);
+  const handleStep1Validity = useCallback((bad: boolean) => setStep1Invalid(bad), []);
+
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const performReset = () => {
+    clearSavedWizardState();
+    setStep1Invalid(false);
+    setState(initialState());
+    setSearchParams(new URLSearchParams(), { replace: true });
+    setResetConfirmOpen(false);
+  };
 
   // Persist every change for the life of the tab (cleared on submit).
   useEffect(() => { saveWizardState(state); }, [state]);
