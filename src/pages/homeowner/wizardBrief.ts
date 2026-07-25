@@ -49,6 +49,12 @@ export interface WizardDesign {
   spec: KitchenSpec;
   aiGenerated: boolean;
   proposalId?: string;
+  /** Canonical price band from the server proposal — when present, this is
+   *  the ONE band shown for this design (option card, 3D overlay, review,
+   *  submission). Prevents the option-card and overlay showing different
+   *  numbers for the same selection. Absent for the deterministic default
+   *  layout, which falls back to the local estimator band. */
+  priceBand?: { lowAud: number; highAud: number };
 }
 
 export function buildBrief(f: WizardBriefFields): DesignBrief {
