@@ -168,7 +168,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         return;
       }
       setUndoStack(stack => [...stack.slice(-9), design]);
-      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId });
+      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand });
     }
     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
   };
