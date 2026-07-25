@@ -141,14 +141,12 @@ const ApplianceModel: React.FC<Props> = (props) => {
   const { item, onSelect, onDragStart } = props;
   const def = useCatalogItem(item.definitionId);
   const [hovered, setHovered] = useState(false);
-  // URL resolution: snapshot first (never silently swap the customer's model),
-  // fall back to the current catalog row so items placed before an upload
-  // still render the model uploaded later.
+  // URL resolution: snapshot first (never silently swap the customer's
+  // model), catalog row second so items placed before an upload still render
+  // the model uploaded later. Shared with `ViewInRoomAr` via the same helper
+  // so the two paths can't drift.
   const { products } = useApplianceCatalog();
-  const catalogRow = item.applianceProductId
-    ? products.find((p) => p.id === item.applianceProductId)
-    : undefined;
-  const url = item.applianceSnapshot?.modelUrl ?? catalogRow?.model_url ?? null;
+  const url = resolveApplianceModelUrl(item, products);
 
   const fallback = <ApplianceMesh {...props} />;
   if (!url) return fallback;
