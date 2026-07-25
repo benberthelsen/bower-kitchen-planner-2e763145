@@ -792,6 +792,26 @@ function RoomMmField({
 }
 
 
+function Step1Section({ n, title, subtitle, children }: {
+  n: number; title: string; subtitle: string; children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+      <div className="flex items-start gap-3 mb-4 sm:mb-5">
+        <span className="flex-shrink-0 w-7 h-7 rounded-full bg-slate-900 text-white text-sm font-semibold flex items-center justify-center">
+          {n}
+        </span>
+        <div>
+          <h2 className="text-base sm:text-lg font-semibold text-slate-900 leading-tight">{title}</h2>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+
 function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void; onValidityChange: (hasInvalid: boolean) => void }) {
   const [invalidMap, setInvalidMap] = useState<{ w: boolean; d: boolean; h: boolean }>({ w: false, d: false, h: false });
   useEffect(() => {
