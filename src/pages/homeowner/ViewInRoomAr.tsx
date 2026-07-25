@@ -23,7 +23,9 @@ import type { PlacedItem } from '@/types';
 
 export const VIEW_AR_KEY = 'bower.viewArPayload';
 
-interface Payload { items: PlacedItem[] }
+/** ViewArPayloadV1 (brief v4.3 §4.8). Unversioned legacy payloads ({items})
+ *  are accepted as v1; unknown future versions are rejected with friendly copy. */
+interface Payload { version?: number; items: PlacedItem[] }
 
 export default function ViewInRoomAr() {
   const navigate = useNavigate();
@@ -41,7 +43,14 @@ export default function ViewInRoomAr() {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(VIEW_AR_KEY);
-      if (raw) setPayload(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw) as Payload;
+        if (parsed?.version !== undefined && parsed.version !== 1) {
+          setError('This design was saved by a newer version of the planner — go back, regenerate your design, and try again.');
+        } else if (Array.isArray(parsed?.items)) {
+          setPayload(parsed);
+        }
+      }
     } catch { /* stays null */ }
     const xr = (navigator as unknown as { xr?: { isSessionSupported(m: string): Promise<boolean> } }).xr;
     if (!window.isSecureContext || !xr) { setSupported(false); return; }

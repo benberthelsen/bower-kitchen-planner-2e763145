@@ -36,6 +36,10 @@ export interface WizardBriefFields {
   /** Walls the customer wants cabinetry on (wizard wall picker). Empty/absent
    *  = auto. Fed to the engine as DesignBrief.allowedWalls. */
   cabinetWalls?: Wall[];
+  /** Style-first: chosen at step 3, fed to generation as brief.styleIds. */
+  finishId: string;
+  benchtopId: string;
+  handleId: string;
 }
 
 /** A chosen design in wizard state: the spec is the source of truth; items,
@@ -76,6 +80,7 @@ export function buildBrief(f: WizardBriefFields): DesignBrief {
     },
     island: f.island,
     ...(f.styleWords ? { styleWords: f.styleWords } : {}),
+    styleIds: { finishId: f.finishId, benchtopId: f.benchtopId, handleId: f.handleId },
     ...(f.cabinetWalls && f.cabinetWalls.length > 0 ? { allowedWalls: f.cabinetWalls } : {}),
   };
 }

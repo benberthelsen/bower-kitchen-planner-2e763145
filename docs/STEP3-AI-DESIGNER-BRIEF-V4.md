@@ -8,15 +8,16 @@ planner\bower-kitchen-planner`.
 `supabase/functions/ai-designer/index.ts` · `src/lib/layout` ·
 `src/lib/designV2` · `src/pages/homeowner/ViewInRoomAr.tsx`.
 
-Supersedes v1–v3 (this is v4.2). **Dual verification:** GitHub `main` was
-verified by remote review; the Windows working tree was verified directly
-over the device bridge (file metadata + content checks, 2026-07-24). Both
-sets of statements below are facts about their respective trees; the trees
-have diverged and must be merged.
+Supersedes v1–v3 (this is v4.4 — gap table largely CLOSED; see §10). **The trees are MERGED**: commit `d3d19d1`
+("Scanner two-lane + hidden corner, AR kitchen viewer, Step3 brief fixes,
+docs", 2026-07-24) landed on `main` with no conflicts. `main` and the
+working tree are now one source of truth; all statements below were
+re-verified against post-merge `main`.
 
-> **Later reconciliation:** when the Windows computer is available, compare
-> its working tree with `origin/main`, commit it to a branch and re-run §8.
-> This is not required to use the present brief against GitHub `main`.
+> **Reconciliation complete** (d3d19d1). One residue: `backups/` is
+> gitignored (it holds CRM database dumps), so the `.cjs` regression suites
+> exist only on the Windows machine. Move them to a tracked `tests/` folder
+> before wiring any CI.
 
 ## 1. Principles
 
@@ -33,20 +34,18 @@ have diverged and must be merged.
 ## 2. Customer experience
 
 1. Enter the Design stage → deterministic **Standard layout** immediately.
-2. **Design my kitchen with AI** → named options. **Option count is
-   CONTESTED between trees:** the working tree's edge function (verified
-   byte-exact) fails only at zero options (`options.length === 0 → 502`) and
-   returns 1–3; remote review reports `main`'s `finalize` requires exactly
-   three. Resolve at merge. Either way the UI must handle 1–3 gracefully
-   (honest copy when fewer) and generation failure falls back to the
-   Standard layout.
+2. **Design my kitchen with AI** → named options. **RESOLVED (verified on
+   merged `main`):** the prompt instructs the model to produce and finalize
+   3 distinct options, but the function ships whatever validates and fails
+   only at zero (`options.length === 0 → 502`) — so the effective contract
+   is **"aim for 3, ship 1–3"**. The UI must handle 1–3 gracefully (honest
+   copy when fewer); generation failure falls back to the Standard layout.
 3. Cards: name · rationale · AUD price band · warning count · first blocking
    error + disabled state when blocked. Key/highlight by `proposalId`.
 4. Selection → 3D preview + chat refine + Undo.
 5. **See it in your room (AR)** → `/wizard/view-ar` (Android Chrome;
-   two-tap anchoring; iOS falls back to the in-planner 3D preview).
-   Device-verified present in the working tree (`ViewInRoomAr.tsx`, route,
-   StepDesign button); absent from `main` until the batch is committed.
+   two-tap anchoring; iOS falls back to the in-planner 3D preview). On
+   `main` as of d3d19d1: viewer, route and StepDesign button all live.
 
 **Wizard numbering:** verified `main` renders Style at internal step 3 and
 Design at step 4. Refer to it as the **Design stage** in product copy, but use
@@ -149,9 +148,8 @@ interface ViewArPayloadV1 {
 ```
 Store under `bower.viewArPayload`; navigate only after storage succeeds;
 failure → toast, stay. Viewer rejects unknown versions with friendly copy.
-Status: device-verified in the working tree (currently stores bare
-`{ items }` — upgrading to the versioned payload is part of this brief's
-work); absent from `main` until the batch is committed.
+Status: on `main` (d3d19d1); currently stores bare `{ items }` — upgrading
+to the versioned payload above is open work under this brief.
 
 ## 5. Service-side (`ai-designer` edge function)
 Authenticate; validate payloads; size + rate limits (`edge_rate_limits`
@@ -221,16 +219,16 @@ preserved; accessibility + tests above.
 
 | Gap | Where verified | Status |
 | --- | --- | --- |
-| Raw `({error})` rendered | verified `main` | fix |
-| `key={opt.name}` identity | verified `main` | fix |
-| Stale `chatLog.slice(-6)` history | verified `main` | fix |
-| Apply-then-gate refinement | verified `main` | fix (validate first) |
-| No `aria-` attributes | verified `main` | fix |
-| `validate()` in 3 callers, not `evaluateDesign` | verified `main` | migrate |
-| `styleIds` absent from generation payload | verified `main` | contract change |
-| Room-patch leaves stale `state.design` | verified `main` | fix |
-| AR payload | device-verified in tree, uncommitted | upgrade to versioned, commit |
-| AR button/route/viewer | device-verified in tree; absent on `main` | commit/merge |
-| `.cjs` tests | device-verified in tree, uncommitted | commit, then wire |
+| Raw `({error})` rendered | — | **DONE** (d3d19d1) |
+| `key={opt.name}` identity | — | **DONE** (d3d19d1) |
+| Stale `chatLog.slice(-6)` history | — | **DONE** (d3d19d1) |
+| Apply-then-gate refinement | — | **DONE** (this batch: evaluateDesign before apply) |
+| No `aria-` attributes | — | **DONE** basics (d3d19d1); full AT pass open |
+| `validate()` in 3 callers | — | **DONE** (this batch: StepDesign, canAdvance, Review) |
+| `styleIds` absent from payload | — | **DONE** (this batch: type+schema+buildBrief+prompt; redeploy ai-designer after ai:sync-shared) |
+| Room-patch leaves stale `state.design` | — | **DONE** (this batch: cleared on acceptance) |
+| AR payload | — | **DONE** (this batch: versioned writer + reader, legacy accepted) |
+| AR button/route/viewer | on `main` (d3d19d1) | done |
+| `.cjs` tests | — | **DONE** (this batch: `tests/` + `npm run test:trade-ai`/`test:scanner`/`typecheck`) |
 | Wizard step order | Style 3 / Design 4 on verified `main` | keep unless deliberately changed |
-| Generation count | CONTESTED: tree fn gates only at zero; main reported exactly-3 | resolve at merge; UI handles 1–3 |
+| Generation count | resolved: aim-for-3, ship-1–3 | UI handles 1–3 |

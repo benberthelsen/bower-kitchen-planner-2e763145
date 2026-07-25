@@ -20,11 +20,12 @@ import { UnifiedScene } from '@/components/3d/UnifiedScene';
 import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS } from '@/constants';
 import {
-  compileSpec, defaultSpecFor, validate,
+  compileSpec, defaultSpecFor,
 } from '@/lib/layout';
 import type { DesignBrief, KitchenSpec, ProposedRoomPatch } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
+import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { WizardDesign } from '../wizardBrief';
 
@@ -88,10 +89,12 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
 
   const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
-  const violations = useMemo(
-    () => (compiled ? validate(compiled, brief.room, brief) : []),
-    [compiled, brief],
+  // One rules pipeline (brief v4.3 §4.4): geometric + policy evaluation.
+  const evald = useMemo(
+    () => (compiled && activeSpec ? evaluateDesign(compiled, brief.room, brief, activeSpec) : null),
+    [compiled, brief, activeSpec],
   );
+  const violations = useMemo(() => evald?.violations ?? [], [evald]);
   const blockingErrors = useMemo(
     () => violations.filter(v => v.severity === 'error'),
     [violations],
@@ -156,6 +159,14 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
       return;
     }
     if (!res.unchanged) {
+      // Validate BEFORE applying (brief v4.3 §4.5): never swap in a spec
+      // that fails a concept blocker — reject it and keep the current design.
+      const updatedSpec: KitchenSpec = { ...updated.spec, style: activeSpec.style };
+      const check = evaluateDesign(compileSpec(updatedSpec, brief.room), brief.room, brief, updatedSpec);
+      if (check.conceptBlocker) {
+        setChatLog(log => [...log, { role: 'assistant', content: "That change would break a layout rule (like aisle width or room bounds), so I haven't applied it. Try a smaller adjustment, or undo and take a different approach." }]);
+        return;
+      }
       setUndoStack(stack => [...stack.slice(-9), design]);
       onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId });
     }
@@ -280,7 +291,14 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
           className="w-full h-10 border-slate-300 text-slate-700"
           onClick={() => {
             try {
-              sessionStorage.setItem(VIEW_AR_KEY, JSON.stringify({ items: compiled.items }));
+              sessionStorage.setItem(VIEW_AR_KEY, JSON.stringify({
+                version: 1,
+                items: compiled.items,
+                room: brief.room,
+                globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
+                finishId: style.finishId,
+                benchtopId: style.benchtopId,
+              }));
               navigate('/wizard/view-ar');
             } catch { /* storage blocked - stay put */ }
           }}

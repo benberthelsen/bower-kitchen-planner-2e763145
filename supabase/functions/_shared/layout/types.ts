@@ -50,6 +50,10 @@ export interface DesignBrief {
   appliances: ApplianceChoices;
   island: 'want' | 'no' | 'if-it-fits';
   styleWords?: string;
+  /** Wizard-selected style ids (style-first product decision): the AI should
+   *  choose layouts knowing the finish family. The client display overlay
+   *  remains authoritative for rendering. */
+  styleIds?: { finishId: string; benchtopId: string; handleId: string };
   budgetBand?: BudgetBand;
   /** Walls the customer wants cabinetry on (wizard wall selection).
    *  Omitted/empty = engine decides. Strategies needing a disallowed wall are

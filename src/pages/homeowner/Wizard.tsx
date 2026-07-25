@@ -41,7 +41,7 @@ import {
 import type { Opening, RoomConfig, RoomShape, ServicePoint } from '@/types';
 import { z } from 'zod';
 import {
-  briefFromWizard, compileSpec, defaultSpecFor, priceDesign, validate,
+  briefFromWizard, compileSpec, defaultSpecFor, priceDesign,
   kitchenSpecSchema, openingSchema, servicePointSchema,
 } from '@/lib/layout';
 import type { Wall } from '@/lib/layout';
@@ -49,6 +49,7 @@ import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
 import StepCook from './steps/StepCook';
 import StepDesign from './steps/StepDesign';
 import { buildBrief, type WizardDesign } from './wizardBrief';
+import { evaluateDesign } from '@/lib/designV2';
 import { STYLE_PRESETS } from '@/data/stylePresets';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { KitchenSpec, Priority, ProposedRoomPatch } from '@/lib/layout';
@@ -691,8 +692,12 @@ function Step1Room({ state, onChange }: { state: WizardState; onChange: (p: Part
       openings: pending.openings ?? state.openings,
       services: pending.services ?? state.services,
       pendingRoomPatch: undefined,
+      // The old design (and its proposalId/session) is stale against the new
+      // geometry (brief v4.3 §4.6): clear it so the Design stage recreates a
+      // fresh Standard layout on entry.
+      design: null,
     });
-    toast.success('Suggested room details applied. Check them, then continue to confirm.');
+    toast.success('Suggested room details applied. Your design will be recreated for the new room.');
   };
 
   const Section = ({ n, title, subtitle, children }: {
@@ -1082,8 +1087,10 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   };
   const compiled = compileSpec(activeSpec, brief.room);
   const items = compiled.items;
-  const designViolations = validate(compiled, brief.room, brief);
+  const evald = evaluateDesign(compiled, brief.room, brief, activeSpec);
+  const designViolations = evald.violations;
   const blockingErrors = designViolations.filter(v => v.severity === 'error');
+  const conceptBlocked = evald.conceptBlocker || blockingErrors.length > 0;
   const buildNotes: string[] = Array.from(new Set<string>([
     ...compiled.notes,
     ...designViolations
@@ -1101,7 +1108,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
 
   const handleSubmit = async () => {
-    if (blockingErrors.length > 0) {
+    if (conceptBlocked) {
       toast.error('This layout has a blocking problem. Return to Design and choose or generate another option.');
       return;
     }
@@ -1377,7 +1384,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         </div>
         <Button
           className="w-full bg-slate-900 hover:bg-slate-800 text-white h-11"
-          disabled={submitting || blockingErrors.length > 0}
+          disabled={submitting || conceptBlocked}
           onClick={handleSubmit}
         >
           {submitting
@@ -1637,8 +1644,9 @@ export default function HomeownerWizard() {
       ...state.design.spec,
       style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
     };
-    return validate(compileSpec(spec, brief.room), brief.room, brief)
-      .some(violation => violation.severity === 'error');
+    // One rules pipeline (brief v4.3 §4.4): the concept gate comes from
+    // evaluateDesign, not hand-rolled severity filtering.
+    return evaluateDesign(compileSpec(spec, brief.room), brief.room, brief, spec).conceptBlocker;
   })();
 
   const canAdvance =
@@ -1688,6 +1696,7 @@ export default function HomeownerWizard() {
         {state.step === 4 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
         {state.step === 4 && state.leadGateDone && (
           <StepDesign
+            key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}`}
             brief={buildBrief(state)}
             shape={state.layoutPreference}
             style={{ finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId }}

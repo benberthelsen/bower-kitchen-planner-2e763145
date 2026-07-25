@@ -90,6 +90,11 @@ export const designBriefSchema = z.object({
   }),
   island: z.enum(['want', 'no', 'if-it-fits']),
   styleWords: z.string().max(500).optional(),
+  styleIds: z.object({
+    finishId: z.string().min(1).max(64),
+    benchtopId: z.string().min(1).max(64),
+    handleId: z.string().min(1).max(64),
+  }).optional(),
   budgetBand: z.enum(['value', 'mid', 'premium']).optional(),
   // Wizard wall picker — without this line zod strips the field and the
   // edge function would silently ignore the customer's wall choices.

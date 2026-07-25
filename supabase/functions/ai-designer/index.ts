@@ -369,7 +369,7 @@ Rules: side runs meeting another run start with a 'corner' segment (W wall runs 
 Sink near existing plumbing (drain service point), dishwasher beside sink, cooktop with bench both sides, fridge-gap at a run end near a door.
 Use ONLY the finish/benchtop/handle ids from the catalog summary. ALWAYS test with propose_layout and fix every error-severity violation. A successful test returns a proposalId; finalize using only those IDs. Address warnings when reasonable; explain unavoidable ones in the rationale.
 The rationale is shown to the homeowner: plain English, warm, no jargon.
-CLIENT SELECTIONS: if the brief includes styleWords, they describe the look and the exact finishes the client already chose on the website (flat-lay / inspiration board). Treat them as a STRONG preference — pick the catalog finishId / benchtopId / handleId that best matches each stated selection, and keep the overall style consistent with the inspiration words. Only deviate if a selection genuinely cannot be honoured, and say why in the rationale.
+CLIENT SELECTIONS: if the brief includes styleIds, those ARE the wizard's chosen finishId/benchtopId/handleId — use them as the option style and pick layouts appropriate to that finish family. If the brief includes styleWords, they describe the look and the exact finishes the client already chose on the website (flat-lay / inspiration board). Treat them as a STRONG preference — pick the catalog finishId / benchtopId / handleId that best matches each stated selection, and keep the overall style consistent with the inspiration words. Only deviate if a selection genuinely cannot be honoured, and say why in the rationale.
 Catalog: ${JSON.stringify(catalogSummary())}
 Room+brief: ${JSON.stringify(brief)}
 Kitchen shape: ${shape}`;

@@ -28,7 +28,10 @@
     "roomscan:test": "esbuild src/lib/roomScan/contract.ts --bundle --format=esm --outfile=.tmp-snap-test/roomscan.mjs --platform=node && esbuild src/lib/roomScan/webxrFit.ts --bundle --format=esm --outfile=.tmp-snap-test/webxrFit.mjs --platform=node && node scripts/roomscan-smoke.mjs && node scripts/fingerprint-smoke.mjs && node scripts/webxr-fit-smoke.mjs",
     "roomscan:compat": "tsc --noEmit -p tsconfig.roomscan.json",
     "roomscan:sync": "node scripts/sync-room-scan-contract.mjs",
-    "roomscan:check": "node scripts/check-room-scan-contract.mjs"
+    "roomscan:check": "node scripts/check-room-scan-contract.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "test:trade-ai": "node tests/trade-ai.test.cjs",
+    "test:scanner": "node tests/scanner-two-lane.test.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
