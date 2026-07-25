@@ -10,8 +10,9 @@ deploy batch. Everything below either exists on this machine, in the
 batch in §8 runs. The beta site currently runs the last code you pushed.
 
 **Review addendum, 21 July 2026:** the five release blockers in §6 were found
-after the original build review. The current batch is **NO-GO** until those
-repairs and their acceptance checks pass.
+after the original build review. All five are now repaired on disk and the
+automated gate passes. The batch remains **NO-GO for deployment** until the
+manual phone/incognito/3D checks in §8 pass and the changes are committed.
 
 ---
 
@@ -153,7 +154,31 @@ authoritative check before committing.**
 These are confirmed defects in the current on-disk batch, not future
 enhancements. Repair them before commit, deployment or a customer beta.
 
+**Implementation update (21 July):** all five repairs below are implemented on
+disk. Additional hardening completed in the same pass: selected walls are now
+an authoritative validation rule; mirrored candidates cannot escape onto an
+excluded wall; `fromEnd` joinery sides are normalized before fillers/end panels
+are attached; scanner capture now has a visible floor reticle and rejects bad
+corner sequences; AI joinery intent survives promotion into the trade planner.
+
+Automated evidence:
+
+- App typecheck: clean (`tsc --noEmit -p tsconfig.app.json`).
+- Layout tests: 22 passed; candidate tests: 9 passed.
+- AI sweep: 45,360 combinations; 17,793 expected-clean rooms; 0 placement
+  bugs, 0 missing essentials and 0 price-band problems.
+- Scanner: 47 contract + 12 fingerprint + 16 WebXR fitting checks passed.
+- Rule pack and designer V2 contracts: all passed.
+- AI-to-trade round trip: all passed, including preserved price band.
+- Pricing smoke suite: all passed.
+- Email security: 12 injection/link assertions passed.
+- Production build: passed. Known main-chunk warning remains (~2.99 MB).
+
 ### 6.1 P0 — undefined pricing converter
+
+**Status: REPAIRED + AUTOMATED CHECKS PASSED.** The converter is locally
+imported and separately re-exported. The real app typecheck, pricing suite and
+production build pass.
 
 **Location:** `src/hooks/useTradeRoomPricing.ts`, around line 103.
 
@@ -182,6 +207,11 @@ evaluated, even though the Vite production build completes.
   `toPlacedItems` identifier.
 
 ### 6.2 P0 — rich-share key collides with room depth
+
+**Status: REPAIRED; MANUAL INCOGNITO CHECK PENDING.** Rich data now uses `sd`,
+numeric query values require finite in-range numbers, compressed/decompressed
+payloads are size-limited and schema-checked, and the address-bar fallback now
+contains the same rich link as the clipboard.
 
 **Location:** `src/pages/homeowner/Wizard.tsx`, around line 530.
 
@@ -214,6 +244,11 @@ break validation, geometry, pricing or regeneration.
 
 ### 6.3 P1 — regeneration changes AI session ownership
 
+**Status: REPAIRED; LIVE REFINE CYCLE PENDING.** Fresh generation clears the
+old selection/chat/undo lineage. Refine controls require both a proposal ID and
+an active matching browser session; restored designs cannot submit stale
+credentials.
+
 **Location:** `src/pages/homeowner/steps/StepDesign.tsx`, around line 115, and
 the session state inside `useAiDesigner`.
 
@@ -243,6 +278,12 @@ work to the wrong generation lineage.
   server-side refinement safely.
 
 ### 6.4 P1 — public caller controls the admin email link
+
+**Status: REPAIRED + OFFLINE SECURITY TEST PASSED; EDGE DEPLOY PENDING.** The
+request `Origin` and payload `admin_url` are ignored. Links are derived from a
+host-restricted HTTPS `PLANNER_ADMIN_URL`, all template values are escaped and
+length-limited, request bodies are capped, and enquiry submission uses the
+shared Postgres limiter with the in-memory limiter as fallback.
 
 **Location:** `supabase/functions/submit-planner-enquiry/index.ts`, around line
 147, plus the HTML template in `supabase/functions/send-email`.
@@ -274,6 +315,11 @@ risk.
   or emails.
 
 ### 6.5 P1 — L-shaped room cutout is ignored
+
+**Status: BETA GATE REPAIRED; FULL POLYGON SUPPORT REMAINS OPEN.** The wizard
+disables automatic AI design for L-shaped rooms and the edge function rejects a
+direct bypass with `unsupported_l_shape`. WebXR also rejects strongly
+non-rectangular captures instead of inflating them to a bounding rectangle.
 
 **Location:** `src/lib/layout/validate.ts`, around lines 25–30, and the room
 geometry/compiler path.
@@ -312,15 +358,17 @@ also make the invalid result look plausible.
   room geometry.
 - No accepted item or clearance envelope intersects the missing floor area.
 
-### 6.6 Required repair order
+### 6.6 Remaining release evidence
 
-1. Fix the undefined pricing import and share-link collision.
-2. Fix regeneration/session ownership.
-3. Secure enquiry email fields and the canonical admin URL.
-4. Gate L-shaped automatic generation.
-5. Add focused regression tests for every item above.
-6. Run the full typecheck, layout tests, candidate tests, sweep, build and
-   manual click-through before returning this batch to GO status.
+The code and automated checks are complete. Before changing this batch to GO:
+
+1. Run the full wizard click-through in §8, including regenerate/refine/undo.
+2. Open a rich design link in an incognito session and compare room/design data.
+3. Complete the 3D blind-corner and exposed-end visual check.
+4. Run the room scanner on a supported Android/ARCore phone over production
+   HTTPS and confirm the reticle, four-corner capture and wizard handoff.
+5. After commit, regenerate the website contract copy/lock, then deploy the
+   three modified edge functions.
 
 ## 7. Known open items (deliberate, tracked)
 
@@ -329,36 +377,42 @@ also make the invalid result look plausible.
 2. Corner blind-side visual check (§4a) — one look in 3D.
 3. Dead code: `Step2Layout` ("How much storage?") + `estimatePrice` +
    `layoutStyle` state — never rendered; delete in a cleanup pass.
-4. ai-designer prompt doesn't mention allowed walls (pool enforces them; a
-   prompt line would improve rationales).
+4. Full polygon-based L-shaped generation and rendering (the safe beta gate is
+   implemented; automatic L-room design remains disabled).
 5. Island back panels + benchtop run/corner geometry (engine model gap).
 6. `staff` role second-class — fix before adding any non-Ben staff.
 7. CRM C1–C3: self-host CRM app on Pages (`crm.bowercabinets.com` — repo
    needs a `public/_redirects` file), then move DB to a Ben-owned project
    (`bower-crm`), then wire wizard/website leads into the CRM.
 8. Bundle size (~3 MB main chunk) — code-split later; not a beta blocker.
+9. Website room-scan contract + `contract.lock.json` are intentionally pending:
+   the sync script requires the canonical planner contract to be committed
+   before it records the commit SHA.
 
-## 8. The ship batch (blocked until §6 passes)
+## 8. The ship batch (automated gate passed; manual/deploy pending)
 
-1. **Release-blocker gate:** complete every repair and acceptance check in §6.
-   Do not commit or deploy this batch while any §6 check is failing.
+1. ~~**Automated release-blocker gate**~~ — **DONE 21 July**. See evidence in
+   §6. Manual evidence in §6.6 is still required before deployment.
 2. ~~**Supabase SQL Editor**: apply the two migrations~~ — **DONE + verified
    20 July** (see §5). Skip; go to step 3.
-3. **Review the diff**: `git diff` — 13 changed files (8 engine, 4 wizard/
-   schema, plus the three new docs and the smoke test in `backups\`).
-4. **Typecheck + sweep**: `npx tsc --noEmit -p tsconfig.app.json` then
-   `npm run ai:sweep`
-   (sweep now enforces the new rules; expect 0).
+3. **Review the complete diff and staged set**: use explicit file staging; do
+   not use `git add -A` while unrelated/untracked work is present.
+4. ~~**Typecheck + automated suites**~~ — **DONE 21 July**. Re-run immediately
+   before commit: `.\node_modules\.bin\tsc.exe --noEmit -p tsconfig.app.json`,
+   `npm run test:layout`, `npm run test:candidates`, `npm run roomscan:test`,
+   `npm run test:trade-adapter`, `npm run test:email-security`,
+   `npm run ai:sweep`, then `npm run build`.
 5. **Click-through** (`npm run dev`): Room — pick walls, watch U-shape grey
    out when a side wall is excluded → Cooking → Style → lead gate → Design —
    generate, check in 3D: side runs face the room, corner doors open clear,
    island has finished ends, fillers at doorways; regenerate; chat-refine;
    undo → Review → share the link, open it in an incognito window, confirm
    the same kitchen appears → submit a test enquiry → Admin → Leads.
-6. **Sync the AI's engine copy**: `node scripts/sync-ai-shared.mjs` then
-   `git status` to confirm the `_shared` regeneration.
-7. **Commit both** (source + generated), push (Pages auto-deploys the front
-   end), then:
+6. ~~**Sync the AI's engine copy**~~ — **DONE on disk 21 July**. Re-run after
+   any later engine edit and inspect the `_shared` regeneration.
+7. **Commit source + generated mirrors**, then run
+   `npm run roomscan:sync -- --website` so the website lock records that commit.
+   Commit the website contract/lock, push the frontend repositories, then:
    `supabase functions deploy ai-designer --use-api --no-verify-jwt`
    `supabase functions deploy submit-planner-enquiry --use-api --no-verify-jwt`
    `supabase functions deploy send-email --use-api --no-verify-jwt`

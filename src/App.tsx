@@ -42,6 +42,7 @@ const RoomPlanner = React.lazy(() => import("./pages/trade/RoomPlanner"));
 const ProductConfigurator = React.lazy(() => import("./pages/trade/ProductConfigurator"));
 const HomeownerWizard = React.lazy(() => import("./pages/homeowner/Wizard"));
 const ScanRoom = React.lazy(() => import("./pages/homeowner/ScanRoom"));
+const ViewInRoomAr = React.lazy(() => import("./pages/homeowner/ViewInRoomAr"));
 
 const LazyFallback = () => (
   <div className="flex items-center justify-center min-h-screen bg-gray-900">
@@ -72,6 +73,7 @@ const App = () => (
               <Route path="/auth" element={<Auth />} />
               <Route path="/wizard" element={<Suspense fallback={<LazyFallback />}><HomeownerWizard /></Suspense>} />
               <Route path="/wizard/scan" element={<Suspense fallback={<LazyFallback />}><ScanRoom /></Suspense>} />
+              <Route path="/wizard/view-ar" element={<Suspense fallback={<LazyFallback />}><ViewInRoomAr /></Suspense>} />
               <Route path="/quote/:jobId" element={<QuoteStatus />} />
 
               <Route path="/trade-planner" element={<Navigate to="/trade/dashboard" replace />} />

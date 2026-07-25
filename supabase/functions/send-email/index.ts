@@ -54,7 +54,7 @@ const BOWER_HOST = 'bowercabinets.com';
  *  email and free text reach these templates unfiltered (via the wizard and,
  *  for new_lead, a regex over the notes field), so raw interpolation was an
  *  HTML/email-injection vector. */
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -63,7 +63,7 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function plainText(value: unknown, fallback: string, max = 300): string {
+export function plainText(value: unknown, fallback: string, max = 300): string {
   const text = String(value ?? fallback).replace(/[\r\n]+/g, ' ').trim();
   return (text || fallback).slice(0, max);
 }
@@ -71,7 +71,7 @@ function plainText(value: unknown, fallback: string, max = 300): string {
 /** Accept only an HTTPS URL on the allowed host; anything else (including a
  *  forged Origin or a javascript: URL) falls back to a safe default. The
  *  result is still escaped by the caller before it enters an HTML attribute. */
-function safeUrl(raw: string, fallback: string, hostSuffix = BOWER_HOST): string {
+export function safeUrl(raw: string, fallback: string, hostSuffix = BOWER_HOST): string {
   try {
     const u = new URL(raw);
     if (u.protocol !== 'https:') return fallback;
@@ -114,7 +114,7 @@ async function sendViaResend(opts: {
 // Email templates
 // ---------------------------------------------------------------------------
 
-function tplNewLead(payload: Record<string, unknown>): { subject: string; html: string } {
+export function tplNewLead(payload: Record<string, unknown>): { subject: string; html: string } {
   const nameText = plainText(payload.contact_name, 'Unknown');
   const name = escapeHtml(nameText);
   const email = escapeHtml(plainText(payload.contact_email, '—'));

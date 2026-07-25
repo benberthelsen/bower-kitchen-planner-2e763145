@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const ROOT = process.cwd();
 
-const OUT = path.join(ROOT, '.tmp-rules-test');
+const OUT = path.join(ROOT, '.tmp-snap-test', 'rules');
 mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 

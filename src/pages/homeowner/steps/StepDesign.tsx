@@ -9,6 +9,7 @@
  */
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CornerUpLeft, Loader2, Send, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,8 @@ interface Props {
 
 interface ChatEntry { role: 'user' | 'assistant'; content: string }
 
+const VIEW_AR_KEY = 'bower.viewArPayload';
+
 const LOADING_LINES = [
   'Measuring your walls…',
   'Placing the sink near your plumbing…',
@@ -47,7 +50,8 @@ const LOADING_LINES = [
 ];
 
 export default function StepDesign({ brief, shape, style, design, onDesignChange, onRoomPatchProposed }: Props) {
-  const { generate, refine, loading, error, hasActiveSession } = useAiDesigner();
+  const navigate = useNavigate();
+  const { generate, refine, loading, error } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -103,17 +107,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
   const selectedFinish = FINISH_OPTIONS.find(f => f.id === style.finishId) ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === style.benchtopId) ?? BENCHTOP_OPTIONS[0];
 
-  // L-shaped rooms are gated out of automatic AI generation (release blocker
-  // 6.5): the engine treats every room as its bounding rectangle and would
-  // place cabinets into the missing corner. Blocked until polygon geometry
-  // lands; the manual/full planner still works.
-  const isLShape = brief.room.shape === 'LShape';
-
   const handleGenerate = async () => {
-    if (isLShape) {
-      toast.error('Automatic AI design is not available for L-shaped rooms yet — it would ignore the missing corner. Use the standard layout, or the full planner, for now.');
-      return;
-    }
     trackEvent('ai_generate_requested', { shape });
     const res = await generate(brief, shape);
     if (!res || res.options.length === 0) {
@@ -123,14 +117,6 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
     }
     trackEvent('ai_generate_succeeded', { count: res.options.length });
     setOptions(res.options);
-    // Fresh generation starts a NEW AI session. Any previously selected option
-    // still holds a proposalId from the OLD session; refining it against the
-    // new session fails (invalid_parent_proposal) or edits the wrong lineage.
-    // Clear the selection, chat and undo history so the user must pick one of
-    // these new options before refining. (Release blocker 6.3.)
-    setChatLog([]);
-    setUndoStack([]);
-    onDesignChange({ name: 'Standard layout', spec: defaultSpecFor(brief, shape, style), aiGenerated: false });
   };
 
   const selectOption = (opt: AiDesignOption) => {
@@ -152,14 +138,13 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
       toast.error('Generate a fresh AI option before asking for design changes.');
       return;
     }
-    if (!hasActiveSession) {
-      toast.error('Generate fresh options before revising this restored design.');
-      return;
-    }
     setChatInput('');
-    setChatLog(log => [...log, { role: 'user', content: msg }]);
+    // Build the next log ONCE: state and the request share the same value, so
+    // the bounded history is never stale relative to what the user sees.
+    const nextChatLog: ChatEntry[] = [...chatLog, { role: 'user', content: msg }];
+    setChatLog(nextChatLog);
     trackEvent('ai_refine_used');
-    const res = await refine(brief, shape, activeSpec, design.proposalId, msg, chatLog.slice(-6));
+    const res = await refine(brief, shape, activeSpec, design.proposalId, msg, nextChatLog.slice(-7, -1));
     if (!res || res.options.length === 0) {
       setChatLog(log => [...log, { role: 'assistant', content: "Sorry — I couldn't apply that just now. Try rewording, or adjust it after you get your quote." }]);
       return;
@@ -190,50 +175,31 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Design your kitchen</h2>
         <p className="text-sm text-slate-500">
-          Let our AI designer plan it around your room, your habits and your chosen style — or keep the standard layout. You can revise any option below.
+          Let our AI designer plan it around your room and habits — or keep the standard layout and tweak the style next.
         </p>
       </div>
 
-      {isLShape && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-1" role="status">
-          <p className="text-xs font-semibold text-amber-800">L-shaped room — automatic design isn’t available yet</p>
-          <p className="text-xs text-amber-700">
-            Our AI placement doesn’t model the missing corner of an L-shaped room yet, so the
-            preview below is indicative only. Continue with it for a rough estimate, or ask us to
-            plan this room by hand — we’ll confirm the layout and price at your consultation.
-          </p>
-        </div>
-      )}
-
       {/* AI generate / options */}
       {!options && (
-        <div className="space-y-1.5">
-          <Button
-            onClick={handleGenerate}
-            disabled={loading || isLShape}
-            className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
-          >
-            {loading
-              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
-              : <><Sparkles className="w-4 h-4 mr-2" /> Design my kitchen with AI</>}
-          </Button>
-          {isLShape && (
-            <p className="text-[11px] text-slate-400 text-center">
-              Available for rectangular rooms — L-shaped support is coming soon.
-            </p>
-          )}
-        </div>
+        <Button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
+        >
+          {loading
+            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
+            : <><Sparkles className="w-4 h-4 mr-2" /> Design my kitchen with AI</>}
+        </Button>
       )}
 
       {options && (
-        <>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {options.map(opt => {
-            const active = design?.name === opt.name && design.aiGenerated;
+            const active = design?.aiGenerated === true && design.proposalId === opt.proposalId;
             const optionErrors = opt.violations.filter(v => v.severity === 'error');
             return (
               <button
-                key={opt.name}
+                key={opt.proposalId}
                 onClick={() => selectOption(opt)}
                 disabled={optionErrors.length > 0}
                 className={cn(
@@ -261,26 +227,11 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
             );
           })}
         </div>
-        <div className="flex justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleGenerate}
-            disabled={loading}
-            className="gap-1.5 text-slate-500"
-          >
-            {loading
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {LOADING_LINES[loadingLine]}</>
-              : <><Sparkles className="w-3.5 h-3.5" /> Generate three fresh options</>}
-          </Button>
-        </div>
-        </>
       )}
 
       {error && !loading && (
         <div className="text-center space-y-0.5">
           <p className="text-xs text-slate-400">AI designer unavailable — showing the standard layout instead.</p>
-          <p className="text-[11px] text-slate-300">({error})</p>
         </div>
       )}
 
@@ -323,6 +274,21 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         </div>
       )}
 
+      {compiled && (
+        <Button
+          variant="outline"
+          className="w-full h-10 border-slate-300 text-slate-700"
+          onClick={() => {
+            try {
+              sessionStorage.setItem(VIEW_AR_KEY, JSON.stringify({ items: compiled.items }));
+              navigate('/wizard/view-ar');
+            } catch { /* storage blocked - stay put */ }
+          }}
+        >
+          See it in your room (AR)
+        </Button>
+      )}
+
       {warnings.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-0.5">
           {warnings.map((w, i) => (
@@ -341,10 +307,10 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
       )}
 
       {/* chat refine */}
-      {design?.aiGenerated && design.proposalId && hasActiveSession && (
+      {design?.aiGenerated && (
         <div className="space-y-2">
           {chatLog.length > 0 && (
-            <div className="max-h-40 overflow-y-auto space-y-1.5 px-0.5">
+            <div className="max-h-40 overflow-y-auto space-y-1.5 px-0.5" aria-live="polite">
               {chatLog.map((m, i) => (
                 <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
                   <p className={cn(
@@ -364,13 +330,13 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
               value={chatInput}
               disabled={loading}
               onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleRefine(); }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleRefine(); }}
               className="text-sm"
             />
-            <Button size="icon" variant="outline" onClick={handleUndo} disabled={undoStack.length === 0 || loading} title="Undo last change">
+            <Button size="icon" variant="outline" onClick={handleUndo} disabled={undoStack.length === 0 || loading} title="Undo last change" aria-label="Undo last design change">
               <CornerUpLeft className="w-4 h-4" />
             </Button>
-            <Button size="icon" onClick={handleRefine} disabled={loading || !chatInput.trim()} className="bg-slate-900 hover:bg-slate-800 text-white">
+            <Button size="icon" onClick={handleRefine} disabled={loading || !chatInput.trim()} aria-label="Send design request" className="bg-slate-900 hover:bg-slate-800 text-white">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </div>
