@@ -428,9 +428,12 @@ interface CabinetDetailViewProps {
 }
 
 function CabinetDetailView({ cabinet, price, flushWall, onBack, onEdit, onRotate, onDuplicate, onRemove }: CabinetDetailViewProps) {
+  const { updateCabinet } = useTradeRoom();
   const d = cabinet.dimensions;
   const m = cabinet.materials;
   const h = cabinet.hardware;
+  const applianceSnap = cabinet.applianceSnapshot;
+  const supplyWithOrder = cabinet.supplyWithOrder ?? ((applianceSnap?.unitPrice ?? 0) > 0);
   return (
     <>
       <div className="p-3 border-b flex items-start gap-2">
