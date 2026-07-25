@@ -69,7 +69,7 @@ export default function StepCook({ value, onChange }: Props) {
 
       <div className="space-y-3">
         <Label>Who's cooking?</Label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Who's cooking?">
           <Chip active={value.cooks === 'rare'} onClick={() => onChange({ cooks: value.cooks === 'rare' ? undefined : 'rare' })}>Now and then</Chip>
           <Chip active={value.cooks === 'daily'} onClick={() => onChange({ cooks: value.cooks === 'daily' ? undefined : 'daily' })}>Every day</Chip>
           <Chip active={value.cooks === 'entertainer'} onClick={() => onChange({ cooks: value.cooks === 'entertainer' ? undefined : 'entertainer' })}>Love entertaining</Chip>
@@ -78,7 +78,7 @@ export default function StepCook({ value, onChange }: Props) {
 
       <div className="space-y-3">
         <Label>Household size</Label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Household size">
           {[1, 2, 3, 4, 5, 6].map(n => (
             <Chip key={n} active={value.householdSize === n} onClick={() => onChange({ householdSize: value.householdSize === n ? undefined : n })}>
               {n === 6 ? '6+' : n}
@@ -89,7 +89,7 @@ export default function StepCook({ value, onChange }: Props) {
 
       <div className="space-y-3">
         <Label>What matters most? <span className="text-slate-400 font-normal">(pick any)</span></Label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="What matters most?">
           {PRIORITY_OPTIONS.map(p => (
             <Chip key={p.id} active={value.priorities.includes(p.id)} onClick={() => togglePriority(p.id)}>{p.label}</Chip>
           ))}
@@ -101,28 +101,28 @@ export default function StepCook({ value, onChange }: Props) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-2">
             <p className="text-xs text-slate-500">Oven</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2" role="group" aria-label="Oven">
               <Chip active={value.oven === '600'} onClick={() => onChange({ oven: value.oven === '600' ? undefined : '600' })}>600mm</Chip>
               <Chip active={value.oven === '900'} onClick={() => onChange({ oven: value.oven === '900' ? undefined : '900' })}>900mm</Chip>
             </div>
           </div>
           <div className="space-y-2">
             <p className="text-xs text-slate-500">Cooktop</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2" role="group" aria-label="Cooktop">
               <Chip active={value.cooktop === 'gas'} onClick={() => onChange({ cooktop: value.cooktop === 'gas' ? undefined : 'gas' })}>Gas</Chip>
               <Chip active={value.cooktop === 'induction'} onClick={() => onChange({ cooktop: value.cooktop === 'induction' ? undefined : 'induction' })}>Induction</Chip>
             </div>
           </div>
           <div className="space-y-2">
             <p className="text-xs text-slate-500">Dishwasher</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2" role="group" aria-label="Dishwasher">
               <Chip active={value.dishwasher} onClick={() => onChange({ dishwasher: true })}>Yes</Chip>
               <Chip active={!value.dishwasher} onClick={() => onChange({ dishwasher: false })}>No</Chip>
             </div>
           </div>
           <div className="space-y-2">
             <p className="text-xs text-slate-500">Fridge space</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2" role="group" aria-label="Fridge space">
               <Chip active={value.fridgeWidthMm === 860} onClick={() => onChange({ fridgeWidthMm: 860 })}>Standard</Chip>
               <Chip active={value.fridgeWidthMm === 940} onClick={() => onChange({ fridgeWidthMm: 940 })}>Large</Chip>
               <Chip active={value.fridgeWidthMm === 1200} onClick={() => onChange({ fridgeWidthMm: 1200 })}>French door</Chip>
@@ -133,7 +133,7 @@ export default function StepCook({ value, onChange }: Props) {
 
       <div className="space-y-3">
         <Label>Island bench?</Label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Island bench?">
           <Chip active={value.island === 'want'} onClick={() => onChange({ island: 'want' })}>Yes please</Chip>
           <Chip active={value.island === 'if-it-fits'} onClick={() => onChange({ island: 'if-it-fits' })}>If it fits</Chip>
           <Chip active={value.island === 'no'} onClick={() => onChange({ island: 'no' })}>No island</Chip>
