@@ -1,6 +1,6 @@
 // BOM Generator Service - orchestrates all pricing calculations
 
-import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions } from './types';
+import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
 import { getCabinetPartMapping, getPartQuantities } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
