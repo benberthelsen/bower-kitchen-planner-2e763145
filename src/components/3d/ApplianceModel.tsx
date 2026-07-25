@@ -119,11 +119,12 @@ function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
     };
   }, [scene, targetW, targetH, targetD]);
 
-  // When this instance unmounts, drop the cached GLB for its URL so long
-  // sessions don't accumulate GPU memory for models no longer in the scene.
-  // `useGLTF.clear` also frees the underlying geometries/materials.
-  useEffect(() => () => {
-    try { (useGLTF as unknown as { clear: (u: string | string[]) => void }).clear(url); } catch { /* best-effort */ }
+  // Refcounted dispose: multiple placed items can share one cached GLB, so
+  // only clear when the last mounted instance for this URL unmounts. See the
+  // `modelRefCounts` note at the top of the file.
+  useEffect(() => {
+    retainModel(url);
+    return () => { releaseModel(url); };
   }, [url]);
 
   if (!scene) throw new Error('GLB has no scene');
