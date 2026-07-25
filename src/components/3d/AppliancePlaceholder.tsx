@@ -139,23 +139,20 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM - 0.06, heightM * 0.6, 0.012]} />
         </mesh>
         {/* Control panel */}
-        <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.001]}>
+        <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.001]} material={darkTrimMat}>
           <boxGeometry args={[widthM - 0.04, 0.08, 0.005]} />
-          <meshStandardMaterial color="#3f3f46" metalness={0.5} roughness={0.4} />
         </mesh>
         {/* Control knobs */}
         {[-0.1, -0.05, 0.05, 0.1].map((xPos, i) => (
           <group key={i} position={[xPos, heightM / 2 - 0.06, depthM / 2 + 0.01]} rotation={[Math.PI / 2, 0, 0]}>
-            <mesh>
+            <mesh material={stainlessMat}>
               <cylinderGeometry args={[0.012, 0.012, 0.015, 16]} />
-              <meshStandardMaterial color="#71717a" metalness={0.6} roughness={0.3} />
             </mesh>
           </group>
         ))}
         {/* Handle */}
-        <mesh position={[0, 0.02, depthM / 2 + 0.02]}>
+        <mesh position={[0, 0.02, depthM / 2 + 0.02]} material={handleMat}>
           <boxGeometry args={[widthM * 0.5, 0.02, 0.02]} />
-          <meshStandardMaterial color="#52525b" metalness={0.7} roughness={0.3} />
         </mesh>
         {renderLabel()}
       </group>
