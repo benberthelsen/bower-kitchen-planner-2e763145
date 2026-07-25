@@ -35,6 +35,10 @@ export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: 
     fillerRight: cabinet.construction?.rightFillerWidth,
     blindSide: cabinet.construction?.blindSide,
     drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
+    // Stage 1: catalog appliance passthrough
+    applianceProductId: cabinet.applianceProductId,
+    applianceSnapshot: cabinet.applianceSnapshot,
+    supplyWithOrder: cabinet.supplyWithOrder,
   }));
 }
 
