@@ -81,7 +81,10 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   if (!def) {
     if (!catalogLoading) return null;
     const wM = item.width / 1000, hM = item.height / 1000, dM = item.depth / 1000;
-    let placeholderY = (item.y / 1000) + (hM / 2);
+    // Match the real render path's Y logic so the placeholder doesn't jump
+    // down by half its height when the definition finally resolves.
+    const isSinkLike = (item.itemType === 'Appliance') && ((item.applianceSnapshot?.name ?? '').toLowerCase().match(/sink|cooktop/));
+    const placeholderY = isSinkLike ? (item.y / 1000) : (item.y / 1000) + (hM / 2);
     return (
       <group position={[item.x / 1000, placeholderY, item.z / 1000]} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} userData={{ itemId: item.instanceId }}>
         <mesh>
