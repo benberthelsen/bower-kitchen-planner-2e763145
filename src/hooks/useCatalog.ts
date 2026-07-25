@@ -61,6 +61,9 @@ export interface ExtendedCatalogItem extends CatalogItemDefinition {
   specGroup?: string | null;
   displayOrder?: number | null;
   microvellumLinkId?: string | null;
+  /** Stage 1 — when set, this catalog entry is a purchasable appliance from
+   *  the appliance_products table. Downstream placement captures a snapshot. */
+  applianceProduct?: ApplianceProductRecord;
 }
 
 function mapCategoryToItemType(category: string | null, specGroup: string | null): ItemType {
