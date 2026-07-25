@@ -22,6 +22,26 @@ import type { PlacedItem, GlobalDimensions } from '../../types';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
+import { resolveApplianceModelUrl } from './applianceModelUrl';
+
+// ─── Refcounted GLB disposal ───────────────────────────────────────────────
+// Two instances of the same product share drei's GLTF cache entry. Clearing
+// on the first unmount evicts GPU resources the second instance is still
+// using (visible as a vanished/corrupted model). Only clear when the last
+// mounted instance for a URL goes away.
+const modelRefCounts = new Map<string, number>();
+function retainModel(url: string) {
+  modelRefCounts.set(url, (modelRefCounts.get(url) ?? 0) + 1);
+}
+function releaseModel(url: string) {
+  const next = (modelRefCounts.get(url) ?? 1) - 1;
+  if (next <= 0) {
+    modelRefCounts.delete(url);
+    try { (useGLTF as unknown as { clear: (u: string | string[]) => void }).clear(url); } catch { /* best-effort */ }
+  } else {
+    modelRefCounts.set(url, next);
+  }
+}
 
 interface Props {
   item: PlacedItem;
