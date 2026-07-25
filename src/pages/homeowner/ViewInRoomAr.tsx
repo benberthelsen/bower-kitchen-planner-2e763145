@@ -47,6 +47,11 @@ export default function ViewInRoomAr() {
   const flipRef = useRef(1);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  // Aborts any in-flight GLB upgrade loop. Set on session `end`, on unmount,
+  // and whenever a fresh AR session is started. Without this, tapping
+  // "Start AR view" twice spawns two independent loops that each download
+  // every GLB into a detached scene the user will never see.
+  const abortedRef = useRef(false);
 
   useEffect(() => {
     try {
