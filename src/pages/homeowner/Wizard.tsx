@@ -876,7 +876,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
         </div>
       )}
 
-      <Section n={1} title="Your room" subtitle="Rough sizes are fine to start — scan with your phone or type them in.">
+      <Step1Section n={1} title="Your room" subtitle="Rough sizes are fine to start — scan with your phone or type them in.">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <RoomMmField
             id="room-width"
@@ -912,9 +912,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
         <div className="mt-4">
           <ScanRoomEntry />
         </div>
-      </Section>
+      </Step1Section>
 
-      <Section n={2} title="Which walls should hold cabinets?" subtitle="Leave it on auto, or rule walls in and out — windows, open sides, walkways.">
+      <Step1Section n={2} title="Which walls should hold cabinets?" subtitle="Leave it on auto, or rule walls in and out — windows, open sides, walkways.">
         <WallPicker
           value={state.cabinetWalls}
           onChange={walls => {
@@ -930,9 +930,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
             onChange(patch);
           }}
         />
-      </Section>
+      </Step1Section>
 
-      <Section n={3} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
+      <Step1Section n={3} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" role="group" aria-label="Kitchen layout shape">
           {shapes.map(({ id, label, desc }) => {
             const compatible = shapeCompatibleWithWalls(id, state.cabinetWalls);
@@ -966,9 +966,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
             );
           })}
         </div>
-      </Section>
+      </Step1Section>
 
-      <Section n={4} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
+      <Step1Section n={4} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
         <RoomFeaturesEditor
           widthMm={state.roomWidth}
           depthMm={state.roomDepth}
@@ -978,7 +978,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
           showHeading={false}
           onChange={p => onChange(p)}
         />
-      </Section>
+      </Step1Section>
     </div>
   );
 }
