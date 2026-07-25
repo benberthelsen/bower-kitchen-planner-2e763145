@@ -1785,7 +1785,7 @@ export default function HomeownerWizard() {
 
   const canAdvance =
     state.step === 1
-      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 :
+      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid :
     state.step === 2 ? true :
     state.step === 3 ? true :
     state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
