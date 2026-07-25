@@ -92,6 +92,19 @@ export default function ScanRoom() {
 
   const setPhaseBoth = (p: Phase) => { phaseRef.current = p; setPhase(p); };
 
+  // WebXR quirk: a tap on a DOM-overlay button ALSO fires the AR session's
+  // 'select' event, placing a stray point — which made every overlay button
+  // (notably "Corner hidden?") unreliable. beforexrselect is dispatched only
+  // for taps that actually land on hit-testable overlay elements, so
+  // preventDefault-ing it suppresses exactly those phantom selects.
+  useEffect(() => {
+    const root = overlayRef.current;
+    if (!root) return;
+    const suppress = (event: Event) => event.preventDefault();
+    root.addEventListener('beforexrselect', suppress as EventListener);
+    return () => root.removeEventListener('beforexrselect', suppress as EventListener);
+  }, []);
+
   const endSession = useCallback(async () => {
     try { await sessionRef.current?.end(); } catch { /* already ended */ }
     rendererRef.current?.setAnimationLoop(null);
@@ -172,6 +185,16 @@ export default function ScanRoom() {
       const preview = new THREE.Line(previewGeom, new THREE.LineBasicMaterial({ color: 0x34d399 }));
       preview.visible = false;
       scene.add(preview);
+      // Ghost pillar under the reticle: place it against benchtops, door
+      // frames or wall junctions to line a point up before tapping. Only the
+      // floor position (x,z) is captured, so tapping on TOP of a benchtop at
+      // a hidden corner works too.
+      const previewPost = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, 1.2, 10),
+        new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.45 }),
+      );
+      previewPost.visible = false;
+      scene.add(previewPost);
       await renderer.xr.setSession(session as XRSession);
 
       const EMERALD = 0x34d399, AMBER = 0xf59e0b;
@@ -330,6 +353,16 @@ export default function ScanRoom() {
           preview.visible = false;
         }
 
+        if (hit && (p === 'corners' || p === 'openings')) {
+          previewPost.position.set(hit.x, 0.6, hit.z);
+          (previewPost.material as THREE.MeshBasicMaterial).color.setHex(
+            hiddenModeRef.current || p === 'openings' ? 0xf59e0b : 0x34d399,
+          );
+          previewPost.visible = true;
+        } else {
+          previewPost.visible = false;
+        }
+
         renderer.render(scene, camera);
       });
     } catch (err) {
@@ -435,7 +468,7 @@ export default function ScanRoom() {
             <div className="space-y-3">
               <ol className="text-sm text-slate-600 space-y-2 rounded-md border border-slate-200 p-3">
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Walk to each corner of the room and tap to mark it — 4 corners, or 6 for an L-shaped room.</li>
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Corner blocked by an existing kitchen? Tap "Corner hidden?" and mark two points on each wall instead — we'll find the corner for you.</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Corner blocked by an existing kitchen? Line the ghost pillar up and tap on TOP of the benchtop at the corner (only the floor position is used) — or tap "Corner hidden?" and mark two points on each wall and we'll find it for you.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Aim at the ceiling to measure the height — or skip it.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Mark each door and window by tapping both sides — or add them later on the plan.</li>
               </ol>
@@ -565,7 +598,7 @@ export default function ScanRoom() {
 
         {/* Opening-type selector (openings phase only) */}
         {phase === 'openings' && (
-          <div className="absolute bottom-24 inset-x-0 flex items-center justify-center gap-2 pointer-events-auto">
+          <div className="absolute bottom-32 inset-x-0 flex flex-wrap items-center justify-center gap-2 px-3 pointer-events-auto">
             {(Object.keys(OPENING_LABELS) as OpeningType[]).map((t) => (
               <button
                 key={t}
@@ -581,7 +614,7 @@ export default function ScanRoom() {
           </div>
         )}
 
-        <div className="absolute bottom-6 inset-x-0 flex items-center justify-center gap-3 pointer-events-auto">
+        <div className="absolute bottom-4 inset-x-0 flex flex-wrap items-center justify-center gap-2 px-3 pointer-events-auto">
           {phase === 'corners' && (
             <>
               <Button
@@ -621,7 +654,7 @@ export default function ScanRoom() {
                 {hiddenMode ? 'Cancel hidden' : 'Corner hidden?'}
               </Button>
               <Button
-                className="bg-emerald-600 text-white hover:bg-emerald-500 h-12 px-6"
+                className="bg-emerald-600 text-white hover:bg-emerald-500 h-11 px-4"
                 onClick={() => setPhaseBoth('height')}
                 disabled={corners.length < 4 || hiddenMode}
               >
@@ -660,7 +693,7 @@ export default function ScanRoom() {
                 <Redo2 className="w-4 h-4 mr-1" /> Undo
               </Button>
               <Button
-                className="bg-emerald-600 text-white hover:bg-emerald-500 h-12 px-6"
+                className="bg-emerald-600 text-white hover:bg-emerald-500 h-11 px-4"
                 onClick={finish}
               >
                 <DoorOpen className="w-4 h-4 mr-1" /> Finish{heightMm ? ` · ${(heightMm / 1000).toFixed(2)}m` : ''}
