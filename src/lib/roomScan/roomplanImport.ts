@@ -66,7 +66,7 @@ export function importRoomPlanJson(
   json: unknown,
   capturedAt = new Date().toISOString(),
 ):
-  | { ok: true; scan: RoomScanV1; warnings: string[] }
+  | { ok: true; scan: RoomScanV1; warnings: string[]; walls: number }
   | { ok: false; reason: string } {
   const model = unwrap(json);
   if (!model) {
@@ -233,7 +233,7 @@ export function importRoomPlanJson(
 
   const parsed = parseRoomScan(candidate);
   if ('reason' in parsed) return { ok: false, reason: parsed.reason };
-  return { ok: true, scan: parsed.scan, warnings };
+  return { ok: true, scan: parsed.scan, warnings, walls: walls.length };
 }
 
 /** Convenience: parse a file's text content. */
@@ -241,7 +241,7 @@ export function importRoomPlanFileText(
   text: string,
   capturedAt?: string,
 ):
-  | { ok: true; scan: RoomScanV1; warnings: string[] }
+  | { ok: true; scan: RoomScanV1; warnings: string[]; walls: number }
   | { ok: false; reason: string } {
   let json: unknown;
   try {

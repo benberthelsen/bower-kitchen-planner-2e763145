@@ -51,6 +51,10 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       : 'whiteEnamel';
   const bodyMat = getApplianceMaterial(resolveFinishKey(item.applianceSnapshot?.finish) ?? typeDefault);
   const glassMat = getApplianceMaterial('blackGlass');
+  // Shared trim/handle presets — cached factory instances, never per-frame.
+  const handleMat = getApplianceMaterial('brushedGunmetal');
+  const stainlessMat = getApplianceMaterial('stainless');
+  const darkTrimMat = getApplianceMaterial('matteBlack');
 
   const renderHighlight = () => (
     (isSelected || hovered || isDragged) && (
@@ -75,19 +79,16 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM, heightM, depthM]} />
         </mesh>
         {/* Door line */}
-        <mesh position={[0, 0, depthM / 2 + 0.001]}>
+        <mesh position={[0, 0, depthM / 2 + 0.001]} material={stainlessMat}>
           <planeGeometry args={[0.002, heightM - 0.05]} />
-          <meshBasicMaterial color="#71717a" />
         </mesh>
         {/* Handle */}
-        <mesh position={[-widthM / 2 + 0.05, 0, depthM / 2 + 0.015]}>
+        <mesh position={[-widthM / 2 + 0.05, 0, depthM / 2 + 0.015]} material={handleMat}>
           <boxGeometry args={[0.02, 0.3, 0.02]} />
-          <meshStandardMaterial color="#52525b" metalness={0.8} roughness={0.2} />
         </mesh>
         {/* Ice dispenser area */}
-        <mesh position={[0, heightM * 0.2, depthM / 2 + 0.005]}>
+        <mesh position={[0, heightM * 0.2, depthM / 2 + 0.005]} material={darkTrimMat}>
           <boxGeometry args={[widthM * 0.3, 0.15, 0.01]} />
-          <meshStandardMaterial color="#27272a" roughness={0.5} />
         </mesh>
         {renderLabel()}
       </group>
@@ -104,23 +105,20 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM, heightM, depthM]} />
         </mesh>
         {/* Control panel strip */}
-        <mesh position={[0, heightM / 2 - 0.03, depthM / 2 + 0.001]}>
+        <mesh position={[0, heightM / 2 - 0.03, depthM / 2 + 0.001]} material={darkTrimMat}>
           <boxGeometry args={[widthM - 0.04, 0.04, 0.005]} />
-          <meshStandardMaterial color="#18181b" roughness={0.3} />
         </mesh>
         {/* Control buttons */}
         {[-0.08, -0.04, 0, 0.04, 0.08].map((xPos, i) => (
           <group key={i} position={[xPos, heightM / 2 - 0.03, depthM / 2 + 0.005]} rotation={[Math.PI / 2, 0, 0]}>
-            <mesh>
+            <mesh material={handleMat}>
               <cylinderGeometry args={[0.008, 0.008, 0.003, 16]} />
-              <meshStandardMaterial color="#3f3f46" metalness={0.5} roughness={0.3} />
             </mesh>
           </group>
         ))}
         {/* Handle */}
-        <mesh position={[0, heightM / 2 - 0.07, depthM / 2 + 0.015]}>
+        <mesh position={[0, heightM / 2 - 0.07, depthM / 2 + 0.015]} material={handleMat}>
           <boxGeometry args={[widthM * 0.6, 0.015, 0.02]} />
-          <meshStandardMaterial color="#52525b" metalness={0.7} roughness={0.3} />
         </mesh>
         {renderLabel()}
       </group>
@@ -141,23 +139,20 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM - 0.06, heightM * 0.6, 0.012]} />
         </mesh>
         {/* Control panel */}
-        <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.001]}>
+        <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.001]} material={darkTrimMat}>
           <boxGeometry args={[widthM - 0.04, 0.08, 0.005]} />
-          <meshStandardMaterial color="#3f3f46" metalness={0.5} roughness={0.4} />
         </mesh>
         {/* Control knobs */}
         {[-0.1, -0.05, 0.05, 0.1].map((xPos, i) => (
           <group key={i} position={[xPos, heightM / 2 - 0.06, depthM / 2 + 0.01]} rotation={[Math.PI / 2, 0, 0]}>
-            <mesh>
+            <mesh material={stainlessMat}>
               <cylinderGeometry args={[0.012, 0.012, 0.015, 16]} />
-              <meshStandardMaterial color="#71717a" metalness={0.6} roughness={0.3} />
             </mesh>
           </group>
         ))}
         {/* Handle */}
-        <mesh position={[0, 0.02, depthM / 2 + 0.02]}>
+        <mesh position={[0, 0.02, depthM / 2 + 0.02]} material={handleMat}>
           <boxGeometry args={[widthM * 0.5, 0.02, 0.02]} />
-          <meshStandardMaterial color="#52525b" metalness={0.7} roughness={0.3} />
         </mesh>
         {renderLabel()}
       </group>
@@ -174,14 +169,12 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM, heightM * 0.4, depthM * 0.8]} />
         </mesh>
         {/* Chimney/flue */}
-        <mesh position={[0, heightM * 0.35, -depthM * 0.2]}>
+        <mesh position={[0, heightM * 0.35, -depthM * 0.2]} material={stainlessMat}>
           <boxGeometry args={[widthM * 0.4, heightM * 0.5, depthM * 0.3]} />
-          <meshStandardMaterial color="#d4d4d8" metalness={0.5} roughness={0.3} />
         </mesh>
         {/* Filter grille */}
-        <mesh position={[0, -heightM * 0.15, depthM * 0.15]}>
+        <mesh position={[0, -heightM * 0.15, depthM * 0.15]} material={stainlessMat}>
           <boxGeometry args={[widthM - 0.04, 0.01, depthM * 0.5]} />
-          <meshStandardMaterial color="#a1a1aa" metalness={0.7} roughness={0.2} />
         </mesh>
         {/* Light indicators */}
         <mesh position={[-widthM * 0.25, -heightM * 0.12, depthM * 0.3]}>
@@ -213,15 +206,13 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           [-widthM * 0.25, depthM * 0.2],
           [widthM * 0.25, depthM * 0.2],
         ].map(([x, z], i) => (
-          <mesh key={i} position={[x, 0.016, z]} rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh key={i} position={[x, 0.016, z]} rotation={[-Math.PI / 2, 0, 0]} material={darkTrimMat}>
             <ringGeometry args={[0.06, 0.08, 32]} />
-            <meshStandardMaterial color="#3f3f46" metalness={0.3} roughness={0.5} />
           </mesh>
         ))}
         {/* Control area */}
-        <mesh position={[0, 0.016, depthM / 2 - 0.04]}>
+        <mesh position={[0, 0.016, depthM / 2 - 0.04]} material={darkTrimMat}>
           <boxGeometry args={[widthM - 0.1, 0.002, 0.05]} />
-          <meshStandardMaterial color="#27272a" roughness={0.4} />
         </mesh>
         {renderLabel()}
       </group>
@@ -242,9 +233,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM * 0.5, heightM * 0.7, 0.012]} />
         </mesh>
         {/* Control panel */}
-        <mesh position={[widthM * 0.3, 0, depthM / 2 + 0.001]}>
+        <mesh position={[widthM * 0.3, 0, depthM / 2 + 0.001]} material={darkTrimMat}>
           <boxGeometry args={[widthM * 0.25, heightM * 0.8, 0.005]} />
-          <meshStandardMaterial color="#3f3f46" roughness={0.4} />
         </mesh>
         {/* Display */}
         <mesh position={[widthM * 0.3, heightM * 0.2, depthM / 2 + 0.005]}>
@@ -264,9 +254,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
         <boxGeometry args={[widthM, heightM, depthM]} />
       </mesh>
       {/* Generic control panel */}
-      <mesh position={[0, heightM / 2 - 0.04, depthM / 2 + 0.001]}>
+      <mesh position={[0, heightM / 2 - 0.04, depthM / 2 + 0.001]} material={darkTrimMat}>
         <boxGeometry args={[widthM * 0.6, 0.04, 0.005]} />
-        <meshStandardMaterial color="#3f3f46" roughness={0.4} />
       </mesh>
       {renderLabel()}
     </group>

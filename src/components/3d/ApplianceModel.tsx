@@ -22,6 +22,26 @@ import type { PlacedItem, GlobalDimensions } from '../../types';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
+import { resolveApplianceModelUrl } from './applianceModelUrl';
+
+// ─── Refcounted GLB disposal ───────────────────────────────────────────────
+// Two instances of the same product share drei's GLTF cache entry. Clearing
+// on the first unmount evicts GPU resources the second instance is still
+// using (visible as a vanished/corrupted model). Only clear when the last
+// mounted instance for a URL goes away.
+const modelRefCounts = new Map<string, number>();
+function retainModel(url: string) {
+  modelRefCounts.set(url, (modelRefCounts.get(url) ?? 0) + 1);
+}
+function releaseModel(url: string) {
+  const next = (modelRefCounts.get(url) ?? 1) - 1;
+  if (next <= 0) {
+    modelRefCounts.delete(url);
+    try { (useGLTF as unknown as { clear: (u: string | string[]) => void }).clear(url); } catch { /* best-effort */ }
+  } else {
+    modelRefCounts.set(url, next);
+  }
+}
 
 interface Props {
   item: PlacedItem;
@@ -99,11 +119,12 @@ function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
     };
   }, [scene, targetW, targetH, targetD]);
 
-  // When this instance unmounts, drop the cached GLB for its URL so long
-  // sessions don't accumulate GPU memory for models no longer in the scene.
-  // `useGLTF.clear` also frees the underlying geometries/materials.
-  useEffect(() => () => {
-    try { (useGLTF as unknown as { clear: (u: string | string[]) => void }).clear(url); } catch { /* best-effort */ }
+  // Refcounted dispose: multiple placed items can share one cached GLB, so
+  // only clear when the last mounted instance for this URL unmounts. See the
+  // `modelRefCounts` note at the top of the file.
+  useEffect(() => {
+    retainModel(url);
+    return () => { releaseModel(url); };
   }, [url]);
 
   if (!scene) throw new Error('GLB has no scene');
@@ -120,14 +141,12 @@ const ApplianceModel: React.FC<Props> = (props) => {
   const { item, onSelect, onDragStart } = props;
   const def = useCatalogItem(item.definitionId);
   const [hovered, setHovered] = useState(false);
-  // URL resolution: snapshot first (never silently swap the customer's model),
-  // fall back to the current catalog row so items placed before an upload
-  // still render the model uploaded later.
+  // URL resolution: snapshot first (never silently swap the customer's
+  // model), catalog row second so items placed before an upload still render
+  // the model uploaded later. Shared with `ViewInRoomAr` via the same helper
+  // so the two paths can't drift.
   const { products } = useApplianceCatalog();
-  const catalogRow = item.applianceProductId
-    ? products.find((p) => p.id === item.applianceProductId)
-    : undefined;
-  const url = item.applianceSnapshot?.modelUrl ?? catalogRow?.model_url ?? null;
+  const url = resolveApplianceModelUrl(item, products);
 
   const fallback = <ApplianceMesh {...props} />;
   if (!url) return fallback;

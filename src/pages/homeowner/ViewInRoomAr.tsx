@@ -22,6 +22,8 @@ import { itemRect } from '@/lib/layout';
 import type { PlacedItem } from '@/types';
 import { getApplianceMaterial, resolveFinishKey } from '@/components/3d/materials/applianceMaterials';
 import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
+import { resolveApplianceModelUrl } from '@/components/3d/applianceModelUrl';
+import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 
 
 export const VIEW_AR_KEY = 'bower.viewArPayload';
@@ -32,6 +34,9 @@ interface Payload { version?: number; items: PlacedItem[] }
 
 export default function ViewInRoomAr() {
   const navigate = useNavigate();
+  const { products: applianceProducts } = useApplianceCatalog();
+  const applianceProductsRef = useRef(applianceProducts);
+  useEffect(() => { applianceProductsRef.current = applianceProducts; }, [applianceProducts]);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [running, setRunning] = useState(false);
   const [taps, setTaps] = useState(0);
@@ -67,12 +72,10 @@ export default function ViewInRoomAr() {
     const dx = along.x - origin.x, dz = along.z - origin.z;
     if (Math.hypot(dx, dz) < 0.4) { setError('The two taps are too close — tap further along the wall.'); tapsRef.current = tapsRef.current.slice(0, 1); setTaps(1); return; }
     setError(null);
-    const yaw = Math.atan2(dx, dz); // three.js Y-rotation mapping +Z→+X
     group.position.set(origin.x, 0, origin.z);
     group.rotation.set(0, Math.atan2(dz, dx) * -1, 0);
     group.scale.set(1, 1, flipRef.current);
     group.visible = true;
-    void yaw;
   }, []);
 
   const start = useCallback(async () => {
@@ -126,7 +129,7 @@ export default function ViewInRoomAr() {
         group.add(box);
         triUsed += 12;
 
-        const modelUrl = isAppliance ? item.applianceSnapshot?.modelUrl ?? null : null;
+        const modelUrl = isAppliance ? resolveApplianceModelUrl(item, applianceProductsRef.current) : null;
         if (modelUrl && triUsed < TRI_BUDGET) upgrades.push({ placeholder: box, item, url: modelUrl });
       }
 
