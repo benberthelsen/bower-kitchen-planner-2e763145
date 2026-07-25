@@ -7,14 +7,12 @@
  * caught and silently falls back to the procedural `ApplianceMesh`. That is
  * the Stage 2 non-negotiable: real 3D is additive, never breaks the scene.
  *
- * Scale/anchor rules:
- *  - After load, we measure the model's bounding box and scale each axis
- *    independently to the placed item's width/height/depth (in mm → m).
- *  - We recentre so the model sits at the same anchor the procedural mesh
- *    uses: floor/benchtop items sit with their base at y=item.y; flush-fit
- *    items (sinks, cooktops) keep their existing anchor rule.
+ * URL resolution (Stage 2b bug fix): a placed item is allowed to predate
+ * a later GLB upload. We prefer the placement snapshot when set, otherwise
+ * look the product up in the live catalog by `applianceProductId`. Either
+ * way a missing URL cleanly renders the procedural mesh.
  */
-import React, { Suspense, useMemo, useRef, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useGLTF } from '@react-three/drei';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
@@ -22,6 +20,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import ApplianceMesh from './ApplianceMesh';
 import type { PlacedItem, GlobalDimensions } from '../../types';
 import { useCatalogItem } from '../../hooks/useCatalog';
+import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 
 interface Props {
@@ -44,8 +43,8 @@ function getDracoLoader() {
   return dracoLoader;
 }
 
-// drei's useGLTF accepts an extendLoader callback.
-const configureLoader = (loader: unknown) => {
+// Shared by the AR path too — see ViewInRoomAr.tsx.
+export const configureApplianceGltfLoader = (loader: unknown) => {
   const l = loader as { setDRACOLoader?: (d: DRACOLoader) => void; setMeshoptDecoder?: (d: unknown) => void };
   const d = getDracoLoader();
   if (d && l.setDRACOLoader) l.setDRACOLoader(d);
@@ -75,7 +74,7 @@ class ModelBoundary extends React.Component<
 
 // ─── Loader inner: reads GLB, normalizes scale, positions on anchor ────────
 function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
-  const gltf = useGLTF(url, undefined, undefined, configureLoader);
+  const gltf = useGLTF(url, undefined, undefined, configureApplianceGltfLoader);
   const scene = useMemo(() => (gltf.scene ? gltf.scene.clone(true) : null), [gltf.scene]);
   const groupRef = useRef<THREE.Group>(null);
 
@@ -91,8 +90,6 @@ function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
     const sx = size.x > 1e-4 && targetW > 0 ? targetW / size.x : 1;
     const sy = size.y > 1e-4 && targetH > 0 ? targetH / size.y : 1;
     const sz = size.z > 1e-4 && targetD > 0 ? targetD / size.z : 1;
-    // Recentre XZ; place the model so its base sits on y = 0 within the group,
-    // matching ApplianceMesh's convention (parent group is positioned at item.y).
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;
     const baseY = box.min.y;
@@ -102,15 +99,12 @@ function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
     };
   }, [scene, targetW, targetH, targetD]);
 
+  // When this instance unmounts, drop the cached GLB for its URL so long
+  // sessions don't accumulate GPU memory for models no longer in the scene.
+  // `useGLTF.clear` also frees the underlying geometries/materials.
   useEffect(() => () => {
-    // Best-effort disposal — drei caches the underlying resources.
-    scene?.traverse((n: THREE.Object3D) => {
-      const m = n as THREE.Mesh;
-      if (m.isMesh && m.geometry && !((m.geometry as any).__shared)) {
-        // Cloned geometry from useGLTF cache; disposing hurts other instances.
-      }
-    });
-  }, [scene]);
+    try { (useGLTF as unknown as { clear: (u: string | string[]) => void }).clear(url); } catch { /* best-effort */ }
+  }, [url]);
 
   if (!scene) throw new Error('GLB has no scene');
 
@@ -126,13 +120,20 @@ const ApplianceModel: React.FC<Props> = (props) => {
   const { item, onSelect, onDragStart } = props;
   const def = useCatalogItem(item.definitionId);
   const [hovered, setHovered] = useState(false);
-  // Prefer the placement snapshot (frozen at add time); catalog changes never
-  // silently swap a customer's model.
-  const url = item.applianceSnapshot?.modelUrl ?? null;
+  // URL resolution: snapshot first (never silently swap the customer's model),
+  // fall back to the current catalog row so items placed before an upload
+  // still render the model uploaded later.
+  const { products } = useApplianceCatalog();
+  const catalogRow = item.applianceProductId
+    ? products.find((p) => p.id === item.applianceProductId)
+    : undefined;
+  const url = item.applianceSnapshot?.modelUrl ?? catalogRow?.model_url ?? null;
 
   const fallback = <ApplianceMesh {...props} />;
   if (!url) return fallback;
-  if (!def) return null;
+  // While the catalog definition is loading, don't render nothing (visible
+  // pop-in). Show the procedural mesh; the GLB layers in when both are ready.
+  if (!def) return fallback;
 
   const widthM = item.width / 1000;
   const heightM = item.height / 1000;
