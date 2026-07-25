@@ -14,6 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
+      appliance_products: {
+        Row: {
+          brand: string | null
+          category: string
+          created_at: string
+          cutout_depth_mm: number | null
+          cutout_height_mm: number | null
+          cutout_width_mm: number | null
+          depth_mm: number | null
+          description: string | null
+          features: Json
+          finish: string | null
+          height_mm: number | null
+          id: string
+          image_url: string | null
+          installed_price: number | null
+          is_active: boolean
+          item_code: string | null
+          model_ios_url: string | null
+          model_url: string | null
+          name: string
+          power_requirements: string | null
+          price_is_placeholder: boolean
+          rrp: number | null
+          sell_price: number | null
+          sort_order: number
+          subcategory: string | null
+          updated_at: string
+          width_mm: number | null
+        }
+        Insert: {
+          brand?: string | null
+          category: string
+          created_at?: string
+          cutout_depth_mm?: number | null
+          cutout_height_mm?: number | null
+          cutout_width_mm?: number | null
+          depth_mm?: number | null
+          description?: string | null
+          features?: Json
+          finish?: string | null
+          height_mm?: number | null
+          id?: string
+          image_url?: string | null
+          installed_price?: number | null
+          is_active?: boolean
+          item_code?: string | null
+          model_ios_url?: string | null
+          model_url?: string | null
+          name: string
+          power_requirements?: string | null
+          price_is_placeholder?: boolean
+          rrp?: number | null
+          sell_price?: number | null
+          sort_order?: number
+          subcategory?: string | null
+          updated_at?: string
+          width_mm?: number | null
+        }
+        Update: {
+          brand?: string | null
+          category?: string
+          created_at?: string
+          cutout_depth_mm?: number | null
+          cutout_height_mm?: number | null
+          cutout_width_mm?: number | null
+          depth_mm?: number | null
+          description?: string | null
+          features?: Json
+          finish?: string | null
+          height_mm?: number | null
+          id?: string
+          image_url?: string | null
+          installed_price?: number | null
+          is_active?: boolean
+          item_code?: string | null
+          model_ios_url?: string | null
+          model_url?: string | null
+          name?: string
+          power_requirements?: string | null
+          price_is_placeholder?: boolean
+          rrp?: number | null
+          sell_price?: number | null
+          sort_order?: number
+          subcategory?: string | null
+          updated_at?: string
+          width_mm?: number | null
+        }
+        Relationships: []
+      }
       client_markup_settings: {
         Row: {
           client_id: string | null
