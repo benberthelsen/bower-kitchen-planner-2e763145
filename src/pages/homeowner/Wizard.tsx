@@ -1638,6 +1638,18 @@ export default function HomeownerWizard() {
   // Persist every change for the life of the tab (cleared on submit).
   useEffect(() => { saveWizardState(state); }, [state]);
 
+  // On step change: reset scroll and move focus to the step's h2 so screen
+  // readers land at the new content instead of stranded on the old page.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.scrollTo({ top: 0 });
+    const h = document.querySelector('main h2') as HTMLElement | null;
+    if (h) {
+      h.setAttribute('tabindex', '-1');
+      h.focus({ preventScroll: true });
+    }
+  }, [state.step]);
+
   const onChange = useCallback((patch: Partial<WizardState>) => {
     setState(prev => {
       // Any user change to dimensions/openings/services bumps the revision
