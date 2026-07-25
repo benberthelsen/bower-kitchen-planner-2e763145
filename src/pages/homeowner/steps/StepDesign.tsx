@@ -130,7 +130,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
     }
     trackEvent('ai_option_selected', { name: opt.name });
     setUndoStack(design ? [...undoStack.slice(-9), design] : undoStack);
-    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId });
+    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand });
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
