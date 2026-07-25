@@ -20,7 +20,9 @@ const source = readFileSync(sourcePath, 'utf8')
   .replace(/^import \{ serve \} from .*;$/m, 'const serve = () => {};')
   .replace(/^import \{ createClient \} from .*;$/m, 'const createClient = () => ({});')
   .replace(/^import \{ gate, jsonResponse, readJsonBody \} from .*;$/m,
-    'const gate = () => null; const jsonResponse = () => new Response(); const readJsonBody = async () => ({});');
+    'const gate = () => null; const jsonResponse = () => new Response(); const readJsonBody = async () => ({});')
+  .replace(/^import \{ validateSyntheticTestContext, type SyntheticTestContext \} from .*;$/m,
+    'const validateSyntheticTestContext = () => null;');
 
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: {
