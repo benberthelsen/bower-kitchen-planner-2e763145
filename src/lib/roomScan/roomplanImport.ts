@@ -241,7 +241,7 @@ export function importRoomPlanFileText(
   text: string,
   capturedAt?: string,
 ):
-  | { ok: true; scan: RoomScanV1; warnings: string[] }
+  | { ok: true; scan: RoomScanV1; warnings: string[]; walls: number }
   | { ok: false; reason: string } {
   let json: unknown;
   try {
