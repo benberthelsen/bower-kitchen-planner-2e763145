@@ -1819,8 +1819,34 @@ export default function HomeownerWizard() {
       {/* Header */}
       <header className="border-b border-slate-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between sticky top-0 bg-white z-20">
         <Link to="/" className="font-bold text-base sm:text-lg text-slate-900">Bower</Link>
-        <span className="text-xs sm:text-sm text-slate-400">Kitchen Planner</span>
+        <div className="flex items-center gap-3">
+          {state.step >= 2 && (
+            <button
+              type="button"
+              onClick={() => setResetConfirmOpen(true)}
+              className="inline-flex items-center gap-1 text-xs sm:text-sm text-slate-400 hover:text-slate-700"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Start new design
+            </button>
+          )}
+          <span className="text-xs sm:text-sm text-slate-400">Kitchen Planner</span>
+        </div>
       </header>
+
+      <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start a new design?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your current design and details will be cleared. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={performReset}>Start new design</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Hero — only shown on step 1, compact on mobile */}
       {state.step === 1 && (
