@@ -3,6 +3,12 @@ import { useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { CatalogItemDefinition, ItemType, CabinetType } from '@/types';
 import { CabinetRenderConfig, parseProductToRenderConfig } from '@/types/cabinetConfig';
+import type { ApplianceProductRecord } from '@/lib/pricing/types';
+
+/** Prefix used on ExtendedCatalogItem.id for appliance catalog products. */
+export const APPLIANCE_CATALOG_ID_PREFIX = 'appliance:';
+/** Spec group heading the appliance catalog appears under in the sidebar. */
+export const APPLIANCE_CATALOG_SPEC_GROUP = 'Appliances (Bower supplied)';
 
 export type UserType = 'standard' | 'trade' | 'admin';
 
