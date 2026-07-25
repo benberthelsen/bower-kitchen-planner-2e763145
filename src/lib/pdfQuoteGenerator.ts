@@ -224,6 +224,49 @@ export function generateQuotePDF(data: QuoteData): void {
     });
     yPos = (doc as any).lastAutoTable.finalY + 15;
   }
+
+  // Appliances (Stage 1) — appears only when at least one catalog appliance
+  // is included in the order. Placeholder rows carry an asterisk + footnote.
+  if (quoteBOM.applianceItems && quoteBOM.applianceItems.length > 0) {
+    if (yPos > doc.internal.pageSize.getHeight() - 60) {
+      doc.addPage();
+      yPos = 20;
+    }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Appliances', 14, yPos);
+    yPos += 5;
+
+    const applianceRows = quoteBOM.applianceItems.map(a => [
+      a.itemCode || '-',
+      `${a.name}${a.isPlaceholderPrice ? ' *' : ''}`,
+      a.category,
+      a.quantity.toString(),
+      money(a.unitPrice),
+      money(a.lineTotal),
+    ]);
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Code', 'Appliance', 'Category', 'Qty', 'Unit', 'Total']],
+      body: applianceRows,
+      theme: 'striped',
+      headStyles: { fillColor: [217, 119, 6], fontSize: 9, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9 },
+      margin: { left: 14, right: 14 },
+    });
+    yPos = (doc as any).lastAutoTable.finalY + 4;
+    if (quoteBOM.grandTotal.hasPlaceholderAppliancePrices) {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(180, 83, 9);
+      doc.text('* Appliance prices marked with an asterisk are placeholders and will be confirmed before order.', 14, yPos);
+      doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal');
+      yPos += 8;
+    } else {
+      yPos += 4;
+    }
+  }
   
   // Pricing Summary Box
   if (yPos > doc.internal.pageSize.getHeight() - 80) {
