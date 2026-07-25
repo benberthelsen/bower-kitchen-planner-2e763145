@@ -34,6 +34,9 @@ interface Payload { version?: number; items: PlacedItem[] }
 
 export default function ViewInRoomAr() {
   const navigate = useNavigate();
+  const { products: applianceProducts } = useApplianceCatalog();
+  const applianceProductsRef = useRef(applianceProducts);
+  useEffect(() => { applianceProductsRef.current = applianceProducts; }, [applianceProducts]);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [running, setRunning] = useState(false);
   const [taps, setTaps] = useState(0);
