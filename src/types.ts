@@ -66,11 +66,26 @@ export interface PlacedItem {
   drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (overrides standard distribution)
   tapId?: string;
   applianceId?: string;
-  
+
   // Corner cabinet configuration (Phase 3)
   cornerFillerWidth?: number;   // Gap between blind panel and wall (mm)
   cornerStileWidth?: number;    // Face frame stile width (mm)
   blindPullDistance?: number;   // How far blind extends past face (mm)
+
+  // -- Appliance catalog (Stage 1) ------------------------------------------
+  /** appliance_products.id when this placed item came from the catalog */
+  applianceProductId?: string;
+  /** Frozen snapshot at placement time — quote stays stable if catalog changes */
+  applianceSnapshot?: {
+    itemCode?: string | null;
+    name: string;
+    category: string;
+    unitPrice: number;
+    isPlaceholderPrice: boolean;
+  };
+  /** Default true when the product has a price. If false, appliance is
+   *  opening-only (client supplies) and NOT priced into the quote. */
+  supplyWithOrder?: boolean;
 }
 
 export type RoomShape = 'Rectangle' | 'LShape';

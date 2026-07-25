@@ -84,6 +84,20 @@ export interface ConfiguredCabinet {
   isPlaced: boolean;
   createdAt: Date;
   updatedAt: Date;
+
+  // -- Appliance catalog (Stage 1) ------------------------------------------
+  /** appliance_products.id when this item came from the appliance catalog */
+  applianceProductId?: string;
+  /** Frozen snapshot so old jobs reprice consistently if the catalog changes */
+  applianceSnapshot?: {
+    itemCode?: string | null;
+    name: string;
+    category: string;
+    unitPrice: number;
+    isPlaceholderPrice: boolean;
+  };
+  /** Include this appliance in the quote (default true when priced) */
+  supplyWithOrder?: boolean;
 }
 
 export interface RoomMaterialDefaults {

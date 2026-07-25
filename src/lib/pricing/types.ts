@@ -133,6 +133,9 @@ export interface CommercialOptions {
   installFlat?: number;     // flat install $
   clientMarkupPct?: number; // per-client markup, e.g. 0.10
   gstPct?: number;          // default 0.10
+  /** Stage 1 appliance catalog: extra margin applied ONLY to appliance line
+   *  items (default 0 = pass-through). */
+  applianceMarginPct?: number;
   /**
    * Per-category client markups (fractions, e.g. 0.30 = 30%) from
    * client_markup_settings. When supplied, these drive the markup applied to
@@ -150,6 +153,47 @@ export interface CommercialOptions {
   };
 }
 
+/** Stage 1 — one purchased appliance line on a quote. */
+export interface ApplianceLineItem {
+  productId: string;
+  itemCode?: string | null;
+  name: string;
+  category: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  isPlaceholderPrice: boolean;
+}
+
+/** Appliance product record from Supabase `appliance_products`. */
+export interface ApplianceProductRecord {
+  id: string;
+  item_code?: string | null;
+  name: string;
+  brand?: string | null;
+  category: string;
+  subcategory?: string | null;
+  description?: string | null;
+  rrp?: number | null;
+  sell_price?: number | null;
+  installed_price?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  depth_mm?: number | null;
+  cutout_width_mm?: number | null;
+  cutout_height_mm?: number | null;
+  cutout_depth_mm?: number | null;
+  finish?: string | null;
+  power_requirements?: string | null;
+  features?: unknown;
+  image_url?: string | null;
+  model_url?: string | null;
+  model_ios_url?: string | null;
+  is_active: boolean;
+  price_is_placeholder: boolean;
+  sort_order?: number | null;
+}
+
 export interface QuoteBOM {
   cabinets: CabinetBOM[];
   consolidatedSheets: SheetAllocation[];
@@ -157,6 +201,8 @@ export interface QuoteBOM {
   consolidatedHardware: HardwareItem[];
   /** One entry per wall (rotation group). Empty when no benchtop material is configured. */
   benchtops: BenchtopAllocation[];
+  /** Stage 1 — appliance line items included in the quote. Empty by default. */
+  applianceItems: ApplianceLineItem[];
   /**
    * Deduped pricing-trust warnings across the quote (WS2 guard): materials that
    * didn't resolve (fallback used / $0 board) or resolved with no captured
@@ -177,7 +223,11 @@ export interface QuoteBOM {
     benchtopInstall: number;
     /** benchtopSupply + benchtopInstall */
     benchtop: number;
-    /** Total cost ex commercial, ex GST (cabinets + benchtops) */
+    /** Sum of appliance line items (Stage 1). 0 when none. */
+    appliances: number;
+    /** True when any included appliance has price_is_placeholder = true. */
+    hasPlaceholderAppliancePrices: boolean;
+    /** Total cost ex commercial, ex GST (cabinets + benchtops + appliances) */
     cost: number;
     margin: number;
     designFee: number;
@@ -388,6 +438,8 @@ export interface PricingData {
   labor: LaborRateRecord[];
   doorDrawer: DoorDrawerPricingRecord[];
   benchtop: BenchtopMaterialRecord[];
+  /** Stage 1 — appliance catalog (may be empty). */
+  appliances?: ApplianceProductRecord[];
 }
 
 // Cabinet configuration for BOM generation

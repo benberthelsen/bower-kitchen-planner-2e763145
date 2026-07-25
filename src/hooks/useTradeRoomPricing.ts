@@ -49,7 +49,7 @@ async function fetchBundleMaterials(): Promise<unknown[] | null> {
 
 export async function fetchPricingData(): Promise<PricingData> {
   const bundleMaterials = await fetchBundleMaterials();
-  const [parts, materials, edges, hardware, labor, doorDrawer, benchtop] = await Promise.all([
+  const [parts, materials, edges, hardware, labor, doorDrawer, benchtop, appliances] = await Promise.all([
     supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('material_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('edge_pricing').select('*').eq('visibility_status', 'Available'),
@@ -57,6 +57,7 @@ export async function fetchPricingData(): Promise<PricingData> {
     supabase.from('labor_rates').select('*'),
     supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
     (supabase as any).from('benchtop_pricing').select('*'),
+    (supabase as any).from('appliance_products').select('*').eq('is_active', true),
   ]);
 
   // The public bundle is the source of material IDENTITY (names, images,
@@ -100,6 +101,7 @@ export async function fetchPricingData(): Promise<PricingData> {
     labor: (labor.data ?? []) as PricingData['labor'],
     doorDrawer: (doorDrawer.data ?? []) as PricingData['doorDrawer'],
     benchtop: (benchtop.data ?? []) as PricingData['benchtop'],
+    appliances: ((appliances as any)?.data ?? []) as PricingData['appliances'],
   };
 }
 
