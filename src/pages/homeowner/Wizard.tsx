@@ -1824,7 +1824,7 @@ export default function HomeownerWizard() {
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <StepIndicator current={state.step} />
 
-        {state.step === 1 && <Step1Room state={state} onChange={onChange} />}
+        {state.step === 1 && <Step1Room state={state} onChange={onChange} onValidityChange={handleStep1Validity} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
         {state.step === 3 && <Step3Style state={state} onChange={onChange} />}
         {state.step === 4 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
