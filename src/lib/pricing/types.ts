@@ -201,6 +201,8 @@ export interface QuoteBOM {
   consolidatedHardware: HardwareItem[];
   /** One entry per wall (rotation group). Empty when no benchtop material is configured. */
   benchtops: BenchtopAllocation[];
+  /** Stage 1 — appliance line items included in the quote. Empty by default. */
+  applianceItems: ApplianceLineItem[];
   /**
    * Deduped pricing-trust warnings across the quote (WS2 guard): materials that
    * didn't resolve (fallback used / $0 board) or resolved with no captured
@@ -221,7 +223,11 @@ export interface QuoteBOM {
     benchtopInstall: number;
     /** benchtopSupply + benchtopInstall */
     benchtop: number;
-    /** Total cost ex commercial, ex GST (cabinets + benchtops) */
+    /** Sum of appliance line items (Stage 1). 0 when none. */
+    appliances: number;
+    /** True when any included appliance has price_is_placeholder = true. */
+    hasPlaceholderAppliancePrices: boolean;
+    /** Total cost ex commercial, ex GST (cabinets + benchtops + appliances) */
     cost: number;
     margin: number;
     designFee: number;
