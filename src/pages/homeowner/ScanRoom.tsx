@@ -622,7 +622,20 @@ export default function ScanRoom() {
         </section>
 
         {/* ── Option 2: Pro scan (LiDAR import) ── */}
-        <section className="rounded-xl border border-slate-200 p-4 space-y-3">
+        <section
+          className={cn(
+            'rounded-xl border p-4 space-y-3 transition-colors',
+            dragActive ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200',
+          )}
+          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) void handleImportFile(file);
+          }}
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
               <ScanLine className="w-5 h-5 text-slate-700" />
@@ -631,9 +644,12 @@ export default function ScanRoom() {
             <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">iPhone Pro · LiDAR</span>
           </div>
           <p className="text-sm text-slate-500">
-            LiDAR iPhones can scan the room automatically — walls, doors and
-            windows are detected for you. Scan with a RoomPlan-compatible app,
-            export the scan as a <span className="font-medium">JSON file</span>, and import it here.
+            iPhone Pro models (12 Pro and newer Pro / Pro Max) have a LiDAR
+            scanner and can capture your room automatically. Scan with a LiDAR
+            room-scanning app such as <span className="font-medium">Polycam</span> or{' '}
+            <span className="font-medium">RoomScan LiDAR</span>, export the room
+            as a <span className="font-medium">JSON file</span>, then drop it
+            below or tap Import. Walls, doors and windows are read for you.
           </p>
           <input
             ref={fileInputRef}
@@ -652,20 +668,49 @@ export default function ScanRoom() {
             disabled={importing}
             onClick={() => fileInputRef.current?.click()}
           >
-            <Upload className="w-4 h-4 mr-2" /> {importing ? 'Importing…' : 'Import scan file'}
+            <Upload className="w-4 h-4 mr-2" /> {importing ? 'Importing…' : 'Choose or drop scan file'}
           </Button>
           {importError && <p className="text-sm text-red-600 text-center">{importError}</p>}
+
+          {previewScan && (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-3 space-y-2">
+              <p className="text-sm font-medium text-emerald-900">
+                Detected: {previewScan.summary.walls} walls · {previewScan.summary.doors} door
+                {previewScan.summary.doors === 1 ? '' : 's'} · {previewScan.summary.windows} window
+                {previewScan.summary.windows === 1 ? '' : 's'}
+                {previewScan.summary.walkways > 0 ? ` · ${previewScan.summary.walkways} walkway${previewScan.summary.walkways === 1 ? '' : 's'}` : ''}
+              </p>
+              <p className="text-xs text-emerald-800">
+                Room: {(previewScan.scan.room.width / 1000).toFixed(2)} m ×{' '}
+                {(previewScan.scan.room.depth / 1000).toFixed(2)} m ·
+                ceiling {(previewScan.summary.heightMm / 1000).toFixed(2)} m
+              </p>
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={commitPreview}>
+                  <Check className="w-4 h-4 mr-1" /> Use this room
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPreviewScan(null)}>Discard</Button>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-slate-400">
             A one-tap Bower scanning app for iPhone is on the roadmap — this import works today.
           </p>
         </section>
 
         {/* ── Manual entry ── */}
-        <div className="text-center">
-          <Button variant="ghost" onClick={() => navigate('/wizard')} className="text-slate-600">
-            <Ruler className="w-4 h-4 mr-2" /> Or enter your room manually — it only takes a minute
+        <section className="rounded-xl border border-slate-200 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Ruler className="w-5 h-5 text-slate-700" />
+            <h2 className="font-semibold text-slate-900">Enter measurements</h2>
+          </div>
+          <p className="text-sm text-slate-500">
+            No LiDAR? No AR? Type your room in — takes about a minute.
+          </p>
+          <Button className="w-full h-11 bg-slate-900 text-white hover:bg-slate-700" onClick={() => setShowManual(true)}>
+            <Ruler className="w-4 h-4 mr-2" /> Enter room by hand
           </Button>
-        </div>
+        </section>
       </main>
 
       {/* ── Info dialog: the two options explained ── */}
