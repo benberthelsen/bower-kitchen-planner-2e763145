@@ -47,6 +47,7 @@ const navItems = [
 const pricingItems = [
   { path: '/admin/pricing/parts', label: 'Parts', icon: Layers },
   { path: '/admin/pricing/hardware', label: 'Hardware', icon: Wrench },
+  { path: '/admin/pricing/appliances', label: 'Appliances', icon: Box },
   { path: '/admin/pricing/materials', label: 'Materials', icon: Box },
   { path: '/admin/pricing/edges', label: 'Edges', icon: RectangleHorizontal },
   { path: '/admin/pricing/stone', label: 'Benchtops', icon: Gem },
