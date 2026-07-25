@@ -669,6 +669,7 @@ export function useCatalog(userType: UserType = 'standard') {
     groupedBySpecGroup,
     specGroups,
     isLoading,
+    applianceCatalogLoading,
     error,
     isDynamic,
     refetch,
