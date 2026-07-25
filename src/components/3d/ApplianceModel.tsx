@@ -148,12 +148,15 @@ const ApplianceModel: React.FC<Props> = (props) => {
   const { products } = useApplianceCatalog();
   const url = resolveApplianceModelUrl(item, products);
 
+  // The fallback ApplianceMesh renders its OWN positioned + rotated group,
+  // so it MUST NOT be nested inside another positioned/rotated group here
+  // (would double the transform). Rendered at the top level for both the
+  // Suspense fallback and the ModelBoundary error fallback.
   const fallback = <ApplianceMesh {...props} />;
   if (!url) return fallback;
   // If we have a resolved GLB URL and the item's own dimensions, render it
   // even when the catalog definition is still loading — the model doesn't
-  // need `def` to be scaled and placed. Only fall through to nothing when
-  // there's neither a model nor a definition (handled inside ApplianceMesh).
+  // need `def` to be scaled and placed.
   void def;
 
   const widthM = item.width / 1000;
@@ -175,26 +178,26 @@ const ApplianceModel: React.FC<Props> = (props) => {
   };
 
   return (
-    <group
-      position={position}
-      rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]}
-      userData={{ itemId: item.instanceId }}
-      onPointerDown={handlePointerDown}
-      onPointerOver={() => setHovered(true)}
-      onPointerOut={() => setHovered(false)}
-    >
-      {(props.isSelected || hovered || props.isDragged) && (
-        <mesh position={[0, heightM / 2, 0]}>
-          <boxGeometry args={[widthM + 0.05, heightM + 0.05, depthM + 0.05]} />
-          <meshBasicMaterial color={props.isDragged ? '#2563eb' : '#3b82f6'} wireframe opacity={0.5} transparent />
-        </mesh>
-      )}
-      <ModelBoundary fallback={fallback}>
-        <Suspense fallback={fallback}>
+    <ModelBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <group
+          position={position}
+          rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]}
+          userData={{ itemId: item.instanceId }}
+          onPointerDown={handlePointerDown}
+          onPointerOver={() => setHovered(true)}
+          onPointerOut={() => setHovered(false)}
+        >
+          {(props.isSelected || hovered || props.isDragged) && (
+            <mesh position={[0, heightM / 2, 0]}>
+              <boxGeometry args={[widthM + 0.05, heightM + 0.05, depthM + 0.05]} />
+              <meshBasicMaterial color={props.isDragged ? '#2563eb' : '#3b82f6'} wireframe opacity={0.5} transparent />
+            </mesh>
+          )}
           <GlbInner url={url} item={item} />
-        </Suspense>
-      </ModelBoundary>
-    </group>
+        </group>
+      </Suspense>
+    </ModelBoundary>
   );
 };
 
