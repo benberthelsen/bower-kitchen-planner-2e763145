@@ -17,7 +17,7 @@
 import React, { Suspense, useMemo, useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { useGLTF } from '@react-three/drei';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import ApplianceMesh from './ApplianceMesh';
 import type { PlacedItem, GlobalDimensions } from '../../types';
