@@ -749,6 +749,19 @@ export default function ScanRoom() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Manual entry dialog ── */}
+      <ManualEntryDialog
+        open={showManual}
+        onOpenChange={setShowManual}
+        onSubmit={(input) => {
+          const scan = buildManualScan(input);
+          setShowManual(false);
+          if (!storeAndGo(scan)) setImportError('could not store the room — your browser may be blocking storage');
+        }}
+      />
+
+
+
       {/* ── DOM overlay shown inside the AR session ── */}
       <div ref={overlayRef} className={scanning ? 'fixed inset-0 z-50 pointer-events-none' : 'hidden'}>
         <div className="absolute top-0 inset-x-0 p-4 text-center pointer-events-none">
