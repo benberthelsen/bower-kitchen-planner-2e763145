@@ -899,3 +899,146 @@ export default function ScanRoom() {
     </div>
   );
 }
+
+// ─── Manual entry dialog ────────────────────────────────────────────────────
+// Compact step-through form for phones without LiDAR or WebXR. Produces the
+// same UnconfirmedRoomScanV1 the two scan lanes do.
+type ManualInput = {
+  widthMm: number; depthMm: number; heightMm: number;
+  doorWall?: 'N' | 'E' | 'S' | 'W'; doorOffsetMm?: number; doorWidthMm?: number;
+  windowWall?: 'N' | 'E' | 'S' | 'W'; windowOffsetMm?: number; windowWidthMm?: number;
+};
+
+function ManualEntryDialog({
+  open, onOpenChange, onSubmit,
+}: { open: boolean; onOpenChange: (o: boolean) => void; onSubmit: (input: ManualInput) => void }) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [widthM, setWidthM] = useState('3.6');
+  const [depthM, setDepthM] = useState('3.0');
+  const [heightM, setHeightM] = useState('2.4');
+  const [doorWall, setDoorWall] = useState<'N' | 'E' | 'S' | 'W' | ''>('');
+  const [doorOffsetMm, setDoorOffsetMm] = useState('0');
+  const [doorWidthMm, setDoorWidthMm] = useState('820');
+  const [windowWall, setWindowWall] = useState<'N' | 'E' | 'S' | 'W' | ''>('');
+  const [windowOffsetMm, setWindowOffsetMm] = useState('600');
+  const [windowWidthMm, setWindowWidthMm] = useState('1200');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { if (open) { setStep(1); setError(null); } }, [open]);
+
+  const num = (s: string) => { const n = Number(s); return Number.isFinite(n) ? n : NaN; };
+  const submit = () => {
+    const w = Math.round(num(widthM) * 1000);
+    const d = Math.round(num(depthM) * 1000);
+    const h = Math.round(num(heightM) * 1000);
+    if (!(w >= 1000 && w <= 20000) || !(d >= 1000 && d <= 20000) || !(h >= 2000 && h <= 4500)) {
+      setError('Widths must be 1–20 m and ceiling 2.0–4.5 m.'); setStep(2); return;
+    }
+    onSubmit({
+      widthMm: w, depthMm: d, heightMm: h,
+      ...(doorWall ? { doorWall, doorOffsetMm: num(doorOffsetMm) || 0, doorWidthMm: num(doorWidthMm) || 820 } : {}),
+      ...(windowWall ? { windowWall, windowOffsetMm: num(windowOffsetMm) || 0, windowWidthMm: num(windowWidthMm) || 1200 } : {}),
+    });
+  };
+
+  const WallPicker = ({ value, onChange }: { value: 'N' | 'E' | 'S' | 'W' | ''; onChange: (v: 'N' | 'E' | 'S' | 'W' | '') => void }) => (
+    <div className="flex gap-2 flex-wrap">
+      {(['', 'N', 'E', 'S', 'W'] as const).map((w) => (
+        <button key={w || 'none'} type="button" onClick={() => onChange(w)}
+          className={cn('h-9 px-3 rounded-md border text-sm',
+            value === w ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300')}>
+          {w === '' ? 'None' : `Wall ${w}`}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Enter your room · step {step} of 3</DialogTitle>
+          <DialogDescription>
+            {step === 1 ? 'Which shape is your room?'
+              : step === 2 ? 'Room size and ceiling height.'
+              : 'Doors and windows (optional).'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          {step === 1 && (
+            <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+              <p className="text-slate-700">Rectangle rooms are supported here. L-shaped or unusual layouts — use the Pro scan or contact us and we'll capture your room together.</p>
+              <div className="flex gap-2">
+                <Button className="flex-1 bg-slate-900 text-white hover:bg-slate-700" onClick={() => setStep(2)}>Rectangle — continue</Button>
+              </div>
+            </div>
+          )}
+          {step === 2 && (
+            <div className="space-y-3">
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Room width (m, along the main wall)</span>
+                <input inputMode="decimal" value={widthM} onChange={(e) => setWidthM(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-slate-300" />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Room depth (m)</span>
+                <input inputMode="decimal" value={depthM} onChange={(e) => setDepthM(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-slate-300" />
+              </label>
+              <label className="block">
+                <span className="block text-slate-600 mb-1">Ceiling height (m)</span>
+                <input inputMode="decimal" value={heightM} onChange={(e) => setHeightM(e.target.value)}
+                  className="w-full h-10 px-3 rounded-md border border-slate-300" />
+              </label>
+              {error && <p className="text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
+                <Button className="flex-1 bg-slate-900 text-white hover:bg-slate-700" onClick={() => { setError(null); setStep(3); }}>Continue</Button>
+              </div>
+            </div>
+          )}
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="font-medium text-slate-800">Door (optional)</p>
+                <WallPicker value={doorWall} onChange={setDoorWall} />
+                {doorWall && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block"><span className="block text-slate-600 mb-1">Offset (mm)</span>
+                      <input inputMode="numeric" value={doorOffsetMm} onChange={(e) => setDoorOffsetMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                    <label className="block"><span className="block text-slate-600 mb-1">Width (mm)</span>
+                      <input inputMode="numeric" value={doorWidthMm} onChange={(e) => setDoorWidthMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium text-slate-800">Window (optional)</p>
+                <WallPicker value={windowWall} onChange={setWindowWall} />
+                {windowWall && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block"><span className="block text-slate-600 mb-1">Offset (mm)</span>
+                      <input inputMode="numeric" value={windowOffsetMm} onChange={(e) => setWindowOffsetMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                    <label className="block"><span className="block text-slate-600 mb-1">Width (mm)</span>
+                      <input inputMode="numeric" value={windowWidthMm} onChange={(e) => setWindowWidthMm(e.target.value)}
+                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
+                  </div>
+                )}
+              </div>
+              {error && <p className="text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setStep(2)}>Back</Button>
+                <Button className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500" onClick={submit}>
+                  <Check className="w-4 h-4 mr-1" /> Save room
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
