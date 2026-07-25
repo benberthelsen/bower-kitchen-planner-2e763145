@@ -129,7 +129,7 @@ export default function ViewInRoomAr() {
         group.add(box);
         triUsed += 12;
 
-        const modelUrl = isAppliance ? item.applianceSnapshot?.modelUrl ?? null : null;
+        const modelUrl = isAppliance ? resolveApplianceModelUrl(item, applianceProductsRef.current) : null;
         if (modelUrl && triUsed < TRI_BUDGET) upgrades.push({ placeholder: box, item, url: modelUrl });
       }
 
