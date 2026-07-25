@@ -142,7 +142,7 @@ export default function BenchtopPricing() {
 
   const addRecord = async () => {
     if (!newRecord.brand) { toast.error('Brand is required'); return; }
-    const { error } = await supabase.from('benchtop_pricing').insert(newRecord);
+    const { error } = await (supabase as any).from('benchtop_pricing').insert(newRecord);
     if (error) { toast.error('Failed to add record'); return; }
     toast.success('Record added');
     setShowAdd(false);

@@ -38,7 +38,7 @@ async function fetchPricingData(): Promise<PricingData> {
     supabase.from('hardware_pricing').select('*').eq('visibility_status', 'Available'),
     supabase.from('labor_rates').select('*'),
     supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('benchtop_pricing').select('*'),
+    (supabase as any).from('benchtop_pricing').select('*'),
   ]);
   return {
     parts: (parts.data ?? []) as PricingData['parts'],

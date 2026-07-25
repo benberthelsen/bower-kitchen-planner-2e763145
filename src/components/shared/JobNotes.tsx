@@ -92,7 +92,7 @@ export function JobNotes({ jobId, isAdmin }: JobNotesProps) {
         .eq('id', user?.id)
         .single();
 
-      const { error } = await supabase.from('job_notes').insert({
+      const { error } = await (supabase as any).from('job_notes').insert({
         job_id: jobId,
         author_id: user?.id,
         author_name: profile?.full_name ?? user?.email ?? 'Unknown',
@@ -218,7 +218,7 @@ export function JobNotes({ jobId, isAdmin }: JobNotesProps) {
 /** Utility: insert a system note (status change, etc.) without UI. Never throws. */
 export async function addSystemNote(jobId: string, content: string): Promise<void> {
   try {
-    await supabase.from('job_notes').insert({
+    await (supabase as any).from('job_notes').insert({
       job_id: jobId,
       author_role: 'system',
       author_name: 'System',
