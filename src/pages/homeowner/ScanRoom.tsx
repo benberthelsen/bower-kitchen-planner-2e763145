@@ -27,6 +27,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   buildScanFromCapture, intersectWallLines, type XrCorner, type XrOpeningMark,
+  dominantLine, snapToPlanes, type WallLine,
 } from '@/lib/roomScan/webxrFit';
 import { importRoomPlanFileText } from '@/lib/roomScan/roomplanImport';
 
@@ -37,6 +38,14 @@ type Phase = 'corners' | 'height' | 'openings';
 type OpeningType = XrOpeningMark['type'];
 
 interface Hit { x: number; y: number; z: number }
+
+/** Minimal WebXR plane-detection surface (not yet in the TS DOM lib). */
+interface XRPlaneLike {
+  planeSpace: XRSpace;
+  polygon: { x: number; y: number; z: number }[];
+  orientation: 'horizontal' | 'vertical';
+  lastChangedTime: number;
+}
 
 const OPENING_LABELS: Record<OpeningType, string> = {
   door: 'Door', window: 'Window', walkway: 'Walkway',
@@ -164,7 +173,7 @@ export default function ScanRoom() {
     try {
       const session = await xr.requestSession('immersive-ar', {
         requiredFeatures: ['hit-test', 'local-floor'],
-        optionalFeatures: ['dom-overlay'],
+        optionalFeatures: ['dom-overlay', 'plane-detection'],
         domOverlay: overlayRef.current ? { root: overlayRef.current } : undefined,
       } as XRSessionInit);
       sessionRef.current = session;
@@ -195,6 +204,32 @@ export default function ScanRoom() {
       );
       previewPost.visible = false;
       scene.add(previewPost);
+      // Detected wall planes (ARCore plane-detection), rendered sky-blue so
+      // the customer SEES what the scanner has recognised. ACCUMULATED for
+      // the whole session — walls stay in the world model when they leave the
+      // camera's field of view and are exactly there when you pan back.
+      const planesGroup = new THREE.Group();
+      scene.add(planesGroup);
+      const planeState = {
+        map: new Map<object, { line: WallLine; t: number }>(),
+        lines: [] as WallLine[],
+        dirty: false,
+        ceilingY: null as number | null,
+      };
+      const rebuildPlanes = () => {
+        planesGroup.clear();
+        planeState.lines = [...planeState.map.values()].map(v => v.line);
+        for (const line of planeState.lines) {
+          const len = Math.hypot(line.b.x - line.a.x, line.b.z - line.a.z);
+          const mesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(len, 1.0),
+            new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
+          );
+          mesh.position.set((line.a.x + line.b.x) / 2, 0.5, (line.a.z + line.b.z) / 2);
+          mesh.rotation.y = -Math.atan2(line.b.z - line.a.z, line.b.x - line.a.x);
+          planesGroup.add(mesh);
+        }
+      };
       await renderer.xr.setSession(session as XRSession);
 
       const EMERALD = 0x34d399, AMBER = 0xf59e0b;
@@ -251,7 +286,8 @@ export default function ScanRoom() {
           if (hiddenModeRef.current) {
             // Collect 2 taps on the first wall, 2 on the second (on the wall
             // surface, above the benchtop — Y is dropped), then intersect.
-            wallTapsRef.current = [...wallTapsRef.current, { x: hit.x, z: hit.z }];
+            const tapSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines);
+            wallTapsRef.current = [...wallTapsRef.current, tapSnap.point];
             setWallTaps(wallTapsRef.current);
             if (wallTapsRef.current.length === 4) {
               const [a1, a2, b1, b2] = wallTapsRef.current;
@@ -269,8 +305,13 @@ export default function ScanRoom() {
               }
             }
           } else {
-            cornersRef.current = [...cornersRef.current, { x: hit.x, z: hit.z }];
+            const cornerSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines);
+            cornersRef.current = [...cornersRef.current, cornerSnap.point];
             setCorners(cornersRef.current);
+            if (cornerSnap.kind !== 'none') {
+              setHiddenHint(cornerSnap.kind === 'corner' ? 'Snapped to detected wall corner ✓' : 'Snapped to detected wall ✓');
+              setTimeout(() => setHiddenHint(null), 2000);
+            }
           }
         } else if (p === 'height') {
           // local-floor: y≈0 at floor level, so the ceiling hit's y IS the height.
@@ -326,6 +367,31 @@ export default function ScanRoom() {
           }
         }
 
+        // Plane detection: harvest vertical planes into wall lines (keyed by
+        // plane object; refreshed when ARCore refines them, never discarded).
+        const detected = (frame as XRFrame & { detectedPlanes?: Set<XRPlaneLike> }).detectedPlanes;
+        if (detected) {
+          detected.forEach((plane) => {
+            const prev = planeState.map.get(plane);
+            if (prev && prev.t === plane.lastChangedTime) return;
+            const pose = frame.getPose(plane.planeSpace, refSpace);
+            if (!pose) return;
+            const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+            const world = plane.polygon.map((pt) => new THREE.Vector3(pt.x, pt.y, pt.z).applyMatrix4(m));
+            if (plane.orientation === 'vertical') {
+              const line = dominantLine(world.map(w => ({ x: w.x, z: w.z })));
+              if (line) {
+                planeState.map.set(plane, { line, t: plane.lastChangedTime });
+                planeState.dirty = true;
+              }
+            } else if (plane.orientation === 'horizontal') {
+              const y = world.reduce((sum, w) => sum + w.y, 0) / Math.max(1, world.length);
+              if (y > 1.8 && (planeState.ceilingY === null || y < planeState.ceilingY)) planeState.ceilingY = y;
+            }
+          });
+          if (planeState.dirty) { planeState.dirty = false; rebuildPlanes(); }
+        }
+
         // Live preview line: from the last relevant point to the reticle.
         const hit = lastHitRef.current;
         const p = phaseRef.current;
@@ -354,10 +420,15 @@ export default function ScanRoom() {
         }
 
         if (hit && (p === 'corners' || p === 'openings')) {
-          previewPost.position.set(hit.x, 0.6, hit.z);
-          (previewPost.material as THREE.MeshBasicMaterial).color.setHex(
-            hiddenModeRef.current || p === 'openings' ? 0xf59e0b : 0x34d399,
+          // Snap the pillar onto detected wall geometry so it locks on target
+          // instead of hovering nearby — the tap uses the same snapped point.
+          const snap = p === 'corners' ? snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines) : { point: { x: hit.x, z: hit.z }, kind: 'none' as const };
+          previewPost.position.set(snap.point.x, 0.6, snap.point.z);
+          const mat = previewPost.material as THREE.MeshBasicMaterial;
+          mat.color.setHex(
+            hiddenModeRef.current || p === 'openings' ? 0xf59e0b : snap.kind === 'none' ? 0x34d399 : 0x10b981,
           );
+          mat.opacity = snap.kind === 'none' ? 0.45 : 0.9;
           previewPost.visible = true;
         } else {
           previewPost.visible = false;

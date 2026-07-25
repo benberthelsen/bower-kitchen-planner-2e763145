@@ -1,0 +1,125 @@
+[
+  {
+    "testRunId": "BOWER-UX-CANARY-20260725",
+    "personaId": "SYN-P001",
+    "status": "completed",
+    "startedAt": "2026-07-25T01:55:28.669Z",
+    "completedAt": "2026-07-25T01:55:48.954Z",
+    "aiSessionId": "2105e948-5eb2-4fdc-bb73-163fdb06e4f9",
+    "proposalIds": [
+      "594ae002-1126-4403-becb-b65512565d9f",
+      "3d70facd-d426-4a48-9c37-e3a6ca834b2d",
+      "daf98acc-af63-4b96-95d3-b1f9d384daee"
+    ],
+    "selectedProposalId": "594ae002-1126-4403-becb-b65512565d9f",
+    "jobId": "fb813790-1a9c-4fac-b737-3ebfe8110c9d",
+    "priceBand": {
+      "lowAud": 7500,
+      "highAud": 9500
+    },
+    "options": [
+      {
+        "proposalId": "594ae002-1126-4403-becb-b65512565d9f",
+        "name": "Everyday Coastal",
+        "priceBand": {
+          "lowAud": 7500,
+          "highAud": 9500
+        },
+        "violations": [
+          {
+            "code": "triangle-size",
+            "severity": "warn",
+            "message": "Work triangle 3.6m (ideal 3.6–8m)"
+          },
+          {
+            "code": "triangle-leg",
+            "severity": "warn",
+            "message": "Two work zones are very close together"
+          },
+          {
+            "code": "prep-space",
+            "severity": "warn",
+            "message": "Less than 900mm of continuous prep bench"
+          }
+        ],
+        "rationale": "A clean, practical coastal layout with the sink kept close to the existing plumbing, a tall pantry for groceries, and a fridge space at the end of the run. Drawers give a clear landing and prep zone between washing and cooking, while the crisp white cabinetry, white benchtop and stainless bar handles are bright and easy to wipe down.",
+        "itemCount": 7
+      },
+      {
+        "proposalId": "3d70facd-d426-4a48-9c37-e3a6ca834b2d",
+        "name": "Appliance-Led Prep",
+        "priceBand": {
+          "lowAud": 7000,
+          "highAud": 9000
+        },
+        "violations": [
+          {
+            "code": "triangle-size",
+            "severity": "warn",
+            "message": "Work triangle 3.4m (ideal 3.6–8m)"
+          },
+          {
+            "code": "triangle-leg",
+            "severity": "warn",
+            "message": "Two work zones are very close together"
+          },
+          {
+            "code": "prep-space",
+            "severity": "warn",
+            "message": "Less than 900mm of continuous prep bench"
+          }
+        ],
+        "rationale": "This appliance-led option makes the built-in oven and microwave easy to access in a dedicated tall tower, while keeping the sink aligned with the existing plumbing. A wide drawer bank provides the largest practical prep and storage zone available in this compact single-wall room. The fridge sits at the run end, away from the entry door, for straightforward daily use.",
+        "itemCount": 7
+      },
+      {
+        "proposalId": "daf98acc-af63-4b96-95d3-b1f9d384daee",
+        "name": "Compact Storage Balance",
+        "priceBand": {
+          "lowAud": 7500,
+          "highAud": 9000
+        },
+        "violations": [
+          {
+            "code": "triangle-size",
+            "severity": "warn",
+            "message": "Work triangle 3.0m (ideal 3.6–8m)"
+          },
+          {
+            "code": "triangle-leg",
+            "severity": "warn",
+            "message": "Two work zones are very close together"
+          },
+          {
+            "code": "prep-space",
+            "severity": "warn",
+            "message": "Less than 900mm of continuous prep bench"
+          }
+        ],
+        "rationale": "A balanced everyday layout that keeps the fridge at the end of the single wall, places the sink close to the existing plumbing, and gives the centre of the kitchen to a broad drawer-based prep zone. The cooktop follows at the far end for a simple left-to-right workflow. Wall cabinets and the extra-door base cabinet add flexible storage without making this compact room feel heavy.",
+        "itemCount": 7
+      }
+    ],
+    "metrics": {
+      "completion": true,
+      "elapsed_seconds": 20,
+      "ai_generation_seconds": 16,
+      "action_count": 32,
+      "errors": 0,
+      "backtracks": 2,
+      "clarity_score_5": 2,
+      "effort_score_5": 3,
+      "confidence_score_5": 5,
+      "trust_score_5": 4,
+      "evidence_class": "synthetic-inference"
+    },
+    "syntheticReactions": [
+      "I can see how the room questions shape the result, but I want clearer guidance when my measurements are only approximate.",
+      "The three-option result is useful because I can compare layout priorities instead of starting from a blank 3D canvas.",
+      "On a phone I need the progress, back action and main button to remain visible without crowding the design.",
+      "I need the estimate to explain what is included before I decide whether this is within reach.",
+      "The shown band of $7,500–$9,500 feels indicative; inclusion and GST labels will decide whether I trust it."
+    ],
+    "priorResultCount": 0
+  }
+]

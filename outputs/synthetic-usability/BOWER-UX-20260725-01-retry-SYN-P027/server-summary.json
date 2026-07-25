@@ -1,0 +1,2307 @@
+{
+  "ok": true,
+  "sessions": [
+    {
+      "persona_id": "SYN-P001",
+      "status": "completed",
+      "ai_session_id": "c81dfc8b-8d98-4e23-90e8-0f1c444dd41f",
+      "proposal_ids": [
+        "8cc232cb-1294-4f11-83d0-30d9b954f598",
+        "cc7aab20-41ec-43eb-8f3e-b3da51f0b863",
+        "83dc932c-02ee-4b80-9399-de8d6e353d7c"
+      ],
+      "job_id": "f4f3ad64-1301-401e-b6a1-ff13ac2247c0",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 7500,
+        "highAud": 9500
+      }
+    },
+    {
+      "persona_id": "SYN-P002",
+      "status": "completed",
+      "ai_session_id": "b40dada4-9c8c-4b75-af61-72173015664a",
+      "proposal_ids": [
+        "626c83a5-3a96-4811-958c-7f9328d5205c",
+        "5bacdbaa-9d8c-4a04-ac68-b5eb6b5ece70",
+        "1ebe360a-6b26-42a7-8c25-e2cb15fcb743"
+      ],
+      "job_id": "ee0973c0-6ce1-496c-b329-527ea1b2a4b3",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 18000,
+        "highAud": 23000
+      }
+    },
+    {
+      "persona_id": "SYN-P003",
+      "status": "completed",
+      "ai_session_id": "19667c7a-1126-4bb9-9113-5aa7ca7c6010",
+      "proposal_ids": [
+        "ccc217f6-e0a1-4270-bc43-fa183ca4d11c",
+        "c953ed87-b13d-40f4-b484-8f16bf084d40",
+        "fadfffca-c8b8-43aa-b28d-8252804b9980"
+      ],
+      "job_id": "ffa6d1f7-5f35-4230-832c-e69da9721d61",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 31500,
+        "highAud": 40000
+      }
+    },
+    {
+      "persona_id": "SYN-P004",
+      "status": "completed",
+      "ai_session_id": "05f84136-0f82-4cdf-98e7-57ea3cb747cf",
+      "proposal_ids": [
+        "b96dc1b9-6949-4cc1-8227-030c9d6db056",
+        "845fc5bd-49fd-47ab-a9e7-68442390f25b",
+        "00378cbb-aca5-4cce-b1b5-fc4cd014dec8"
+      ],
+      "job_id": "06d5e910-364c-4569-b421-2713cc9b53d4",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 17500,
+        "highAud": 22000
+      }
+    },
+    {
+      "persona_id": "SYN-P005",
+      "status": "completed",
+      "ai_session_id": "4ebcb770-98bd-44ff-9bc2-5c97a4b7f803",
+      "proposal_ids": [
+        "d27f2002-f8b7-4d97-972f-b26f55b0a49e",
+        "3d35478b-1460-46f9-aba5-dba65b97b1ec",
+        "e746e123-dced-4d63-8eff-4c6a00e4a6bb"
+      ],
+      "job_id": "dee156c1-0b24-4c90-af53-8f17a07be086",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 12500,
+        "highAud": 16000
+      }
+    },
+    {
+      "persona_id": "SYN-P006",
+      "status": "completed",
+      "ai_session_id": "8555571a-7d64-490e-aa9c-c12898b84269",
+      "proposal_ids": [
+        "35e6ac1a-a7de-446e-a20e-bf91c49cba55",
+        "07b38165-f184-4564-9cef-f7fc6c44c4ab",
+        "32fa30c0-aab7-466d-a0b9-b80e299148f3"
+      ],
+      "job_id": "3e7c2a1f-7763-473d-9c94-bcbc55cd3727",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 25500,
+        "highAud": 32000
+      }
+    },
+    {
+      "persona_id": "SYN-P007",
+      "status": "completed",
+      "ai_session_id": "ff0f0c2d-f8ac-4b6d-befc-5f62ddcb6896",
+      "proposal_ids": [
+        "b6ed68e5-5204-4287-a8b3-65fe2be0814b",
+        "7ae99def-1f01-4dc1-b6f4-5d57b11ab57f",
+        "71363592-b568-4242-a574-b948338dcdc3"
+      ],
+      "job_id": "37003b2c-77b4-47fc-b494-3442b589f344",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 47000,
+        "highAud": 59500
+      }
+    },
+    {
+      "persona_id": "SYN-P008",
+      "status": "completed",
+      "ai_session_id": "d7ac0df7-e464-468f-b87b-746956557b3a",
+      "proposal_ids": [
+        "2f45212f-7546-4fec-94a9-16f979a80187",
+        "fbe40c0b-0221-4d28-b524-a89f4591f482",
+        "b2f54f5e-0278-411e-8270-5d286862fd10"
+      ],
+      "job_id": "07593457-4921-445d-a978-ec6788a2ff94",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28000,
+        "highAud": 35500
+      }
+    },
+    {
+      "persona_id": "SYN-P009",
+      "status": "completed",
+      "ai_session_id": "8cce4575-965e-4bff-a596-ad381b76c6c8",
+      "proposal_ids": [
+        "d7da4c39-6c24-4dee-ba41-5432be23ed20",
+        "6f9e17f2-7dee-4b7f-bc99-238d889ed8d0",
+        "4f2d1163-1b88-4413-9a74-c5648fae4f92"
+      ],
+      "job_id": "a8ebfb01-77d3-4663-b5de-768208f1efed",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 14000,
+        "highAud": 18000
+      }
+    },
+    {
+      "persona_id": "SYN-P010",
+      "status": "completed",
+      "ai_session_id": "27b23d12-30ca-4866-8ee9-3c2d0c7af8a7",
+      "proposal_ids": [
+        "25191be2-dc2d-485f-a8ab-f701a5229771",
+        "505493bf-b55e-4569-ad6e-509e0200c865",
+        "11833131-264f-49b7-b35b-f019448ab058"
+      ],
+      "job_id": "04a92144-86e6-4625-a8dc-417184261cea",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 22500,
+        "highAud": 29000
+      }
+    },
+    {
+      "persona_id": "SYN-P011",
+      "status": "completed",
+      "ai_session_id": "c775d8ff-1ce8-4139-afb0-d6b6342f1f7b",
+      "proposal_ids": [
+        "a512bb21-6fda-41c3-b540-5840a5344d4c",
+        "c5576a6b-a2c0-4f5b-98ab-5679bb52a48c",
+        "5e97d2ec-9065-4336-9d95-18984f08ea6d"
+      ],
+      "job_id": "faa9e354-cf35-4107-b12b-c0800c1595a1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 25500,
+        "highAud": 32500
+      }
+    },
+    {
+      "persona_id": "SYN-P012",
+      "status": "completed",
+      "ai_session_id": "9553bcb8-e85d-41ba-b415-3e97dc87ce00",
+      "proposal_ids": [
+        "8b7323f6-adc5-42c7-850e-98f4527883b0",
+        "f709bcbf-c051-4070-975e-c4bf8b064baf",
+        "b54bc0ba-831c-478c-975c-d7238def1df3"
+      ],
+      "job_id": "8c86e7fd-d5d6-432e-aebe-7e82705fe2c4",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 24500,
+        "highAud": 31000
+      }
+    },
+    {
+      "persona_id": "SYN-P013",
+      "status": "completed",
+      "ai_session_id": "2c5a6c5c-67c8-4ade-84ac-b630938a5279",
+      "proposal_ids": [
+        "87deccb0-68d4-4aaf-86ce-cfea6147d0cc",
+        "ba1f9464-07fc-4080-992d-b0807be9ec8d",
+        "02f7aa52-7b9d-477c-b69d-d3c60d75a6d6"
+      ],
+      "job_id": "9a759558-31a6-4ac2-b1cf-55bdeef88289",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 9500,
+        "highAud": 12500
+      }
+    },
+    {
+      "persona_id": "SYN-P014",
+      "status": "completed",
+      "ai_session_id": "3b7ce3da-7b15-488f-b42c-0eff22887ae5",
+      "proposal_ids": [
+        "4c2a5d52-f0e6-40bd-9003-f6d560bdb42d",
+        "fa604ab7-6131-42cb-a261-e5a4b3b07f4d",
+        "6a87b66c-8bf6-48fc-bc1b-9049fc947eff"
+      ],
+      "job_id": "9510d93a-23ae-419a-9b13-f1f2dd503089",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 20500,
+        "highAud": 26000
+      }
+    },
+    {
+      "persona_id": "SYN-P015",
+      "status": "completed",
+      "ai_session_id": "ef8fb2ae-5efa-4935-8a12-40da4771d7b9",
+      "proposal_ids": [
+        "de854606-b2e6-4771-84d9-4746d3770b99",
+        "0c9c8856-82fc-49f0-879f-66e81f14f9ed",
+        "6bb4dc85-ec91-498b-9879-098958a95826"
+      ],
+      "job_id": "072fbce9-2743-4d90-8f8d-87bee3313477",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 46500,
+        "highAud": 59000
+      }
+    },
+    {
+      "persona_id": "SYN-P016",
+      "status": "completed",
+      "ai_session_id": "e5b4fdaf-f50c-4a5c-8b5f-0debf50f6fa5",
+      "proposal_ids": [
+        "4421958d-c493-4f54-bb9d-fbeefef4a268",
+        "0eb6deb7-e035-4cb0-b157-b8ef18bc757f",
+        "b52fb0f6-cee9-4212-aa29-28b931eca3da"
+      ],
+      "job_id": "849833e3-6619-452b-bf32-4ab8e1737dd1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28000,
+        "highAud": 36000
+      }
+    },
+    {
+      "persona_id": "SYN-P017",
+      "status": "completed",
+      "ai_session_id": "7d016f3f-3140-4dfe-8736-8dbb88955805",
+      "proposal_ids": [
+        "a5ba4a0b-80a4-4610-9d6c-a0f60c9ee5e1",
+        "9befabb9-a639-41b7-9850-3785208d767a",
+        "6702bd51-04b6-42df-97ad-861e31444f26"
+      ],
+      "job_id": "efc975d6-391d-4e8b-97e3-82b3c6effca9",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 15000,
+        "highAud": 19000
+      }
+    },
+    {
+      "persona_id": "SYN-P018",
+      "status": "completed",
+      "ai_session_id": "81ea4bb6-83b2-495e-9705-8739d67f57aa",
+      "proposal_ids": [
+        "1cddf5fa-4495-407a-9d01-6d0f954be3e4",
+        "60c7db3d-cecd-4777-a8de-b7ae8dae13fb",
+        "2e27d6be-900a-4055-8429-a4bcb0cd8beb"
+      ],
+      "job_id": "b58e91e0-f625-4c6d-be67-a8252f3e19c7",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 25500,
+        "highAud": 32500
+      }
+    },
+    {
+      "persona_id": "SYN-P019",
+      "status": "completed",
+      "ai_session_id": "2d100330-a8bf-40da-bed4-360014957adf",
+      "proposal_ids": [
+        "55cc45d9-80e8-4e37-b786-500bef1345fc",
+        "67067413-0df2-4366-a8d3-1ed28f22a2b6",
+        "1e4fdd4d-c7ce-4e69-97ff-479cd1df3308"
+      ],
+      "job_id": "cdd34866-63a0-4db1-b353-65acd2c596d1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 29000,
+        "highAud": 37000
+      }
+    },
+    {
+      "persona_id": "SYN-P020",
+      "status": "completed",
+      "ai_session_id": "96c912ae-75d6-4a50-a663-c975bcdc4912",
+      "proposal_ids": [
+        "129624e0-ad2d-41d5-bb47-54d0b62fd72f",
+        "df39b10b-cdfd-4806-9f18-eb1aff5b8cd2",
+        "b4311417-d249-4445-b990-943b1a6236fc"
+      ],
+      "job_id": "6d6541b0-5885-48aa-9fe1-83ac36330877",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 23500,
+        "highAud": 30000
+      }
+    },
+    {
+      "persona_id": "SYN-P021",
+      "status": "completed",
+      "ai_session_id": "cf9e0f48-00d8-4373-a0d5-25fc0e40effe",
+      "proposal_ids": [
+        "6800b352-bf98-462b-83bb-1ac6e524377d",
+        "7984f77a-f71b-434a-b2a0-8e3412695d30",
+        "6db0921a-dcfe-4fb0-9198-2bbc0a259b9e"
+      ],
+      "job_id": "04c3226a-ab56-4396-b414-09e0904b63f1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 8000,
+        "highAud": 10000
+      }
+    },
+    {
+      "persona_id": "SYN-P022",
+      "status": "completed",
+      "ai_session_id": "45b3e7ca-caf7-48dd-b2ce-841db7f4f8ba",
+      "proposal_ids": [
+        "5fa363f3-63b1-4648-bb95-df6ad3a845e8",
+        "82f9bf4d-8200-4dd1-993d-e4dba77e069c",
+        "2f53f5c4-1422-4f4b-a94a-18b2162e5019"
+      ],
+      "job_id": "caf8ae68-6a75-4457-b2ba-724a287235b1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 29000,
+        "highAud": 36500
+      }
+    },
+    {
+      "persona_id": "SYN-P023",
+      "status": "completed",
+      "ai_session_id": "4e380028-3cb5-42a4-b966-b96be502afe2",
+      "proposal_ids": [
+        "131b3c87-6ee0-4b95-b4a6-4b3f3829c504",
+        "a6b26a65-e144-4614-9103-707c14458e2a",
+        "b8b5c7b4-0f7e-4b5d-b9db-4920c98a4e12"
+      ],
+      "job_id": "70d6e750-c40a-4f80-9235-63764f53cd43",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 34500,
+        "highAud": 44000
+      }
+    },
+    {
+      "persona_id": "SYN-P024",
+      "status": "completed",
+      "ai_session_id": "91d5be8c-6c42-4df0-900e-cbcc921f7b5c",
+      "proposal_ids": [
+        "d2a27cd3-14e0-4676-b38e-2f8c1e1482ba",
+        "607a3acc-835d-4a3e-978d-bdc0e545db9e",
+        "62fc6bd6-a550-4c53-8b1f-a2d3ded1992c"
+      ],
+      "job_id": "a4ce0b1b-e9a3-4e9f-a4b1-66bca56d92d6",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 24000,
+        "highAud": 30500
+      }
+    },
+    {
+      "persona_id": "SYN-P025",
+      "status": "completed",
+      "ai_session_id": "69eb0e31-b151-49f7-8b9a-7100a35594f5",
+      "proposal_ids": [
+        "98540f4b-444a-4a4a-a33a-a8b0ea744521",
+        "10b621b2-7d4a-4924-9984-c6e04ce99548",
+        "8b1e49b0-281b-40f0-ba22-b9691bff6204"
+      ],
+      "job_id": "712dc872-17e6-4404-b4c6-2367797f3a68",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 14000,
+        "highAud": 18000
+      }
+    },
+    {
+      "persona_id": "SYN-P026",
+      "status": "completed",
+      "ai_session_id": "f8dd58c6-4e1e-4f37-bd58-3651785747ff",
+      "proposal_ids": [
+        "57a25e6c-02f5-4aee-84d7-cc42c5228e65",
+        "c3b6f75f-3ace-4fa3-b23a-9adcac252b7b",
+        "062e472b-b4d6-4351-99ab-fcfe4172fff0"
+      ],
+      "job_id": "f67f0654-8dcc-4e5a-b38b-9deaf544508b",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 20500,
+        "highAud": 26000
+      }
+    },
+    {
+      "persona_id": "SYN-P027",
+      "status": "completed",
+      "ai_session_id": "9bec07b7-6b3b-4a68-a834-0d23cbac3fde",
+      "proposal_ids": [
+        "7adfddd6-cd85-4979-8244-f40adf7bda9c",
+        "500643b1-5862-4fe4-a6d3-e0e466f206ca",
+        "00ea014b-9ca2-4677-aaee-4fda54c637ac"
+      ],
+      "job_id": "e943216f-4b7c-4c54-85e7-cfa305131d75",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 39000,
+        "highAud": 49500
+      }
+    },
+    {
+      "persona_id": "SYN-P028",
+      "status": "completed",
+      "ai_session_id": "66ff21f2-899a-4777-8945-71fc23e45884",
+      "proposal_ids": [
+        "fb090504-a4d2-49fd-888b-e3c8b093b990",
+        "92bd9c75-4a2f-4f4b-9f02-ab1fbea124c9",
+        "18a6e447-e122-4907-8d4d-6a1ad917f89b"
+      ],
+      "job_id": "2080a34e-3b55-470e-8a70-165da12e489b",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 14000,
+        "highAud": 18000
+      }
+    },
+    {
+      "persona_id": "SYN-P029",
+      "status": "completed",
+      "ai_session_id": "c492ac17-7d5c-42dc-8317-28fa2e300e3e",
+      "proposal_ids": [
+        "3f6088df-b45a-4541-a0b5-0a0abb434f77",
+        "8516d5bb-7760-48cf-9be9-996e9c0b8492",
+        "9a627c5f-dd07-4ff2-aa0d-c7ecdbf24e4c"
+      ],
+      "job_id": "4dfa5c0b-f0d5-453a-85e5-25fdc8505004",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 7000,
+        "highAud": 9000
+      }
+    },
+    {
+      "persona_id": "SYN-P030",
+      "status": "completed",
+      "ai_session_id": "71e0e0d7-53c0-4cec-abc2-88e2da6abc9e",
+      "proposal_ids": [
+        "b31d1cb2-5890-4798-946d-5c052a184f8a",
+        "90471898-3d3a-49cf-a393-e1da51a37e8b",
+        "02c0748e-1277-4f77-b00e-d81e9e30b190"
+      ],
+      "job_id": "d7d03850-8846-477b-8e19-c6fd2456a42e",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 27000,
+        "highAud": 34500
+      }
+    },
+    {
+      "persona_id": "SYN-P031",
+      "status": "completed",
+      "ai_session_id": "d0153048-f2c2-4a67-8ac9-e64f282eafd7",
+      "proposal_ids": [
+        "2b4047f4-3b78-4a39-ba42-a10c6b5a375d",
+        "665bf477-4b5c-410d-8dc6-54d6938a2c39",
+        "02b6ae86-65d1-49ff-83a5-189b51700d11"
+      ],
+      "job_id": "820ae597-d68d-4a64-a2d2-760432841037",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 38500,
+        "highAud": 49000
+      }
+    },
+    {
+      "persona_id": "SYN-P032",
+      "status": "completed",
+      "ai_session_id": "b67f144b-dae7-4b12-bb3f-0f2a5973231d",
+      "proposal_ids": [
+        "b9ca56f4-e869-4b8d-920f-1693547a0c4b",
+        "5039e76f-69f8-497f-bdef-2c284a14889d",
+        "adc09b77-0f45-4337-87a7-cd2909aa7ad0"
+      ],
+      "job_id": "9e2e416e-3d42-473b-9786-2fe8ddfd556e",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 27000,
+        "highAud": 34000
+      }
+    },
+    {
+      "persona_id": "SYN-P033",
+      "status": "completed",
+      "ai_session_id": "b8e96824-85e5-4af3-becd-b16cfc7cbc43",
+      "proposal_ids": [
+        "31260117-ffbe-412a-88c0-83fa2795a7c2",
+        "feb3b765-89b1-4205-887e-9829fbf569a0",
+        "9a5fa3b6-c6b0-46c2-b3c0-9d8a4da90fdd"
+      ],
+      "job_id": "e73fb6ca-e823-4cf0-b524-f0d2f92c078d",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 11500,
+        "highAud": 14500
+      }
+    },
+    {
+      "persona_id": "SYN-P034",
+      "status": "completed",
+      "ai_session_id": "56a285a3-cdbe-4993-a600-7c726d468229",
+      "proposal_ids": [
+        "9290387f-a58d-40b9-a4ca-1c7da29d4e72",
+        "18301d61-092c-4342-beea-a11de349cbb2",
+        "0e02f6a3-87e9-4203-9a86-9f3e2540b037"
+      ],
+      "job_id": "b7afa827-2aa2-4f73-b6f0-2e2110dcceb1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 24500,
+        "highAud": 31000
+      }
+    },
+    {
+      "persona_id": "SYN-P035",
+      "status": "completed",
+      "ai_session_id": "8c2f9be7-6cb2-493f-aa8e-e65e0707f9a2",
+      "proposal_ids": [
+        "d106e03b-14dc-49fc-b3be-1b18f11eaa05",
+        "bb771b7e-0c55-4e82-9a9d-8bc357c78a15",
+        "a79f6ac4-d95f-4b38-b54d-4ba0161a9bbe"
+      ],
+      "job_id": "6e37df20-f96f-4015-8867-3bbad97d7cca",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 33000,
+        "highAud": 42000
+      }
+    },
+    {
+      "persona_id": "SYN-P036",
+      "status": "completed",
+      "ai_session_id": "2a917ae1-6e9c-4c9d-9493-05ef4b371447",
+      "proposal_ids": [
+        "7de35079-b677-435a-87a9-f84c923944f8",
+        "fe8d3113-c890-498d-ad5f-154587e111a9",
+        "9ff98ac7-ba3c-43c5-b722-d13adb83f206"
+      ],
+      "job_id": "6db27dec-64b0-4fcb-a5e1-ba17c864d418",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 30000,
+        "highAud": 38000
+      }
+    },
+    {
+      "persona_id": "SYN-P037",
+      "status": "completed",
+      "ai_session_id": "e6afc8c2-9fb7-4640-b0a7-a9508fe44294",
+      "proposal_ids": [
+        "ae3f6232-7a14-4c3b-8c5d-f77ba0986a1c",
+        "d2c3be27-d9e1-45bc-b926-fca657fcd4d3",
+        "14f72a25-15f5-4faf-a5ac-334b2f848b24"
+      ],
+      "job_id": "95a3a4b6-5c12-4625-a778-2786e19aa73d",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 8000,
+        "highAud": 10000
+      }
+    },
+    {
+      "persona_id": "SYN-P038",
+      "status": "completed",
+      "ai_session_id": "5f9e78f8-54ca-4db5-aef9-afbb7e0feece",
+      "proposal_ids": [
+        "da5363eb-c7ae-4c41-b5df-6a471e4b0fe1",
+        "fc51dddf-2a37-4b43-bdbd-b982a64835f1",
+        "5a562e27-535b-40cc-9180-33cd9c52acc1"
+      ],
+      "job_id": "ac2343ab-15c9-45bb-9f00-38ef9ec57916",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 17500,
+        "highAud": 22500
+      }
+    },
+    {
+      "persona_id": "SYN-P039",
+      "status": "completed",
+      "ai_session_id": "4b800325-46b2-401b-94ce-0881359150b7",
+      "proposal_ids": [
+        "6b7442bc-b639-46f0-b028-5fcadede46ce",
+        "173b36bc-3da0-46e2-b83d-ab152f0c03bf",
+        "f3aa26e4-bbbd-480a-ae7d-b38b7d8abcd8"
+      ],
+      "job_id": "82408d42-891e-4083-bf44-332d3b90a121",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 35500,
+        "highAud": 45000
+      }
+    },
+    {
+      "persona_id": "SYN-P040",
+      "status": "completed",
+      "ai_session_id": "bcc529ae-258f-4e2a-8868-eb0c422f555b",
+      "proposal_ids": [
+        "88e0ba91-9d40-4644-b783-6dae167ecb5a",
+        "8c3f516c-482c-4226-940c-c7d826ef8a71",
+        "9c84ec62-9227-466c-9c16-91e733191add"
+      ],
+      "job_id": "67d971ca-1a1b-465f-9af7-a8873086d6a3",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 24500,
+        "highAud": 31500
+      }
+    },
+    {
+      "persona_id": "SYN-P041",
+      "status": "completed",
+      "ai_session_id": "5e0aff35-59c1-4f40-8162-866726e4eb77",
+      "proposal_ids": [
+        "ea849df7-933e-41ef-aca7-23725c6b31e2",
+        "3316f334-ed77-4fbd-8752-05bc656bca1f",
+        "00eef268-f506-4948-9568-89f17df72eda"
+      ],
+      "job_id": "3984cae3-491b-49b4-a12c-f17b1020366f",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 10500,
+        "highAud": 13500
+      }
+    },
+    {
+      "persona_id": "SYN-P042",
+      "status": "completed",
+      "ai_session_id": "60a11ea5-2569-45be-b4c7-231e608eca42",
+      "proposal_ids": [
+        "64343587-babc-4b4d-adbc-82f10e537582",
+        "dbca8f8a-3298-4c98-ae1a-eaad9c258317",
+        "478ef9c3-9491-4a75-bd0e-13fda6f7994b"
+      ],
+      "job_id": "00b7b438-4833-4903-87e6-723ba3d1707c",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28000,
+        "highAud": 35500
+      }
+    },
+    {
+      "persona_id": "SYN-P043",
+      "status": "completed",
+      "ai_session_id": "0d3c8697-5051-48ec-aa8f-b1afcf11ab98",
+      "proposal_ids": [
+        "04a6c295-c064-482c-98ee-d5dcd683ede5",
+        "66b02cda-44bf-4457-9c8b-456ac8fe2a5d",
+        "5db943e3-7508-4c86-a051-a9d726cd8e3c"
+      ],
+      "job_id": "f1a60e70-034e-434e-988f-5e43fd241656",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 32500,
+        "highAud": 41500
+      }
+    },
+    {
+      "persona_id": "SYN-P044",
+      "status": "completed",
+      "ai_session_id": "17692330-8c2c-4c10-bf17-c4fa73d7ea5b",
+      "proposal_ids": [
+        "6ff6bd66-b566-42dc-b69c-5d0f6da7fd47",
+        "1dabaa47-ad4e-465f-81a3-9a238be7380e",
+        "ac8a006b-7ef4-4538-96f7-c26e768bd645"
+      ],
+      "job_id": "7e24234d-5c32-403b-98fb-0730f34d7271",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28500,
+        "highAud": 36000
+      }
+    },
+    {
+      "persona_id": "SYN-P045",
+      "status": "completed",
+      "ai_session_id": "c32174ea-f7a5-49ad-b38e-549b84bd4dc7",
+      "proposal_ids": [
+        "014702e0-0e38-44ca-804e-6d0cc88e8319",
+        "00eb1b21-f390-4c86-b0ff-9227a060f858",
+        "97080bd3-1e91-429c-a15b-5ac639bb57a5"
+      ],
+      "job_id": "17fdf6fa-3d9c-4cb2-8939-8ee8d0f57309",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 16500,
+        "highAud": 21000
+      }
+    },
+    {
+      "persona_id": "SYN-P046",
+      "status": "completed",
+      "ai_session_id": "114594f4-8e18-4cbd-aa9e-fcabc6dfdac0",
+      "proposal_ids": [
+        "b861c33a-f87a-4428-8808-b4e412c7a8ad",
+        "bbeb33fc-4ce6-4ac5-94bf-090b5c611abf",
+        "6fbb798a-d211-4330-812e-66e08307aaa5"
+      ],
+      "job_id": "8909cb5e-281e-4958-a9a5-3d0160080704",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 20500,
+        "highAud": 26000
+      }
+    },
+    {
+      "persona_id": "SYN-P047",
+      "status": "completed",
+      "ai_session_id": "81d130cf-fb89-45df-9a66-b8d6d03b6bb0",
+      "proposal_ids": [
+        "c47f3ff1-e6ca-427f-91c7-7afc1645259a",
+        "2e754e22-12b9-4d16-bf99-b462fabfc232",
+        "ac763895-0f49-4f4a-aa0c-855cc906efd4"
+      ],
+      "job_id": "e7b3f188-86bc-4b5f-a8c7-487771b60d83",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 37000,
+        "highAud": 47500
+      }
+    },
+    {
+      "persona_id": "SYN-P048",
+      "status": "completed",
+      "ai_session_id": "d7abae05-b214-40ae-9539-9bc254dfd217",
+      "proposal_ids": [
+        "ff3a779c-099c-4795-ada0-6049f029cbb8",
+        "38ed168a-384a-45fb-bd8f-3702888bca55",
+        "9f3e6301-aecb-4520-899f-a7297cf4cdce"
+      ],
+      "job_id": "794a2979-4af3-47bd-a0bf-0387484f56a2",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 19000,
+        "highAud": 24500
+      }
+    },
+    {
+      "persona_id": "SYN-P049",
+      "status": "completed",
+      "ai_session_id": "b882d5f5-6038-42f3-8d03-f593cbc549bb",
+      "proposal_ids": [
+        "b65eb893-98a4-43a6-9313-a41ade3771fd",
+        "d71bb169-e13f-4154-b6dd-1b6e1d833a55",
+        "403a1907-5f9e-4411-8fa7-9e1a21a26f01"
+      ],
+      "job_id": "bbf116aa-3e3b-408f-b596-5b13265e3631",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 10000,
+        "highAud": 12500
+      }
+    },
+    {
+      "persona_id": "SYN-P050",
+      "status": "completed",
+      "ai_session_id": "2eeb35b2-3fb6-4f7e-bfba-1ba4a4acbab5",
+      "proposal_ids": [
+        "beb0d2ea-8795-4606-b7e9-2dc5b79fa7a0",
+        "6240c7e5-3cff-44ed-9dc8-320d1545dbac",
+        "b2869489-5ea6-4114-945a-ef989b25a54d"
+      ],
+      "job_id": "9eb1fb23-4d3f-4fd5-acb5-3d2c28986c71",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 20000,
+        "highAud": 25500
+      }
+    },
+    {
+      "persona_id": "SYN-P051",
+      "status": "completed",
+      "ai_session_id": "c1aa4dfc-b7a0-4e2b-8aa9-c9e4526d79d6",
+      "proposal_ids": [
+        "bc276b69-a069-4c3e-bbf6-681d48e23705",
+        "20aa736a-1ece-4661-92e7-982ce243036f",
+        "7885ee03-85fe-4af4-b844-460df502bb90"
+      ],
+      "job_id": "65a0a2fd-f0fc-4095-9aad-8c6ec59b6b3a",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28500,
+        "highAud": 36500
+      }
+    },
+    {
+      "persona_id": "SYN-P052",
+      "status": "completed",
+      "ai_session_id": "c67d44dd-a296-4773-b682-4ae59a59115c",
+      "proposal_ids": [
+        "97becb3c-d198-4128-9fa9-571a9360070d",
+        "241ed38e-6aa0-47fd-926f-e5ae0b40c4b6",
+        "4bfce2e3-42ef-4266-8143-5d1c7ab1e6d6"
+      ],
+      "job_id": "1e31f4cb-3fb0-44ff-973a-ed257f6788da",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 29000,
+        "highAud": 37000
+      }
+    },
+    {
+      "persona_id": "SYN-P053",
+      "status": "completed",
+      "ai_session_id": "eb33d83b-3c2d-4e51-a44b-6bd37299d8f7",
+      "proposal_ids": [
+        "1c5914b8-6742-4d70-94c5-c2db212c920f",
+        "d678f608-bcbd-4818-b061-49eb547a7db9",
+        "4f0f9373-1ab7-418e-9364-18b8989c3f42"
+      ],
+      "job_id": "b84de926-153e-4d31-a4b7-e0ccee7f7624",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 12000,
+        "highAud": 15500
+      }
+    },
+    {
+      "persona_id": "SYN-P054",
+      "status": "completed",
+      "ai_session_id": "6528ff45-99c9-47ab-ae25-0d65edc8e5e2",
+      "proposal_ids": [
+        "e7bf3640-9aa5-4b65-8fe6-b0ebb9ba47ee",
+        "26f15abb-166d-4989-a2f0-1e12a554a5f0",
+        "5551401a-93c3-495d-9d87-4b3d2f0aae1b"
+      ],
+      "job_id": "d29973af-9f61-4bd2-848f-d6d61951f7de",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28000,
+        "highAud": 35500
+      }
+    },
+    {
+      "persona_id": "SYN-P055",
+      "status": "completed",
+      "ai_session_id": "951732f4-34f4-455d-ab6e-deff795dd6c8",
+      "proposal_ids": [
+        "87c19429-ff76-4b8b-a6a1-89c3584543d6",
+        "de8582fa-9c8d-4812-a81f-2ce9f73e9ead",
+        "4d4e8681-468c-48aa-80ef-e5f8137438b3"
+      ],
+      "job_id": "3e2c2668-d9f3-4390-98a5-8f098b7af4e2",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 41000,
+        "highAud": 52000
+      }
+    },
+    {
+      "persona_id": "SYN-P056",
+      "status": "completed",
+      "ai_session_id": "9261a351-a1cd-4cd0-b525-a85af34f483c",
+      "proposal_ids": [
+        "40d100e6-9575-4f14-b6a9-2772faae62ac",
+        "7a0d193b-3661-4958-940b-e96ce4be8a74",
+        "69ea8d49-ec92-4d6e-9169-707edf52e5b2"
+      ],
+      "job_id": "aec2fc1a-d5f9-41ed-a38d-eeea29fbb2f0",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 18000,
+        "highAud": 23000
+      }
+    },
+    {
+      "persona_id": "SYN-P057",
+      "status": "completed",
+      "ai_session_id": "1f1a6bd1-e9a8-4884-b3ae-25ec6fd76022",
+      "proposal_ids": [
+        "f930d900-81ec-43bc-b8d4-c914ec7d25c7",
+        "87a19de6-0aeb-4431-9db3-6158acbd3bff",
+        "a3c8d383-82d7-4ff7-948d-9c5631234b39"
+      ],
+      "job_id": "d1fd86f5-52ee-48aa-907a-a1f1c5dcbdc8",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 10500,
+        "highAud": 13500
+      }
+    },
+    {
+      "persona_id": "SYN-P058",
+      "status": "completed",
+      "ai_session_id": "7db8e817-ecfc-45d5-b586-9d8f39fd20b6",
+      "proposal_ids": [
+        "e0ae49c7-978a-4e44-bcde-f7a898652635",
+        "2e0d80cf-9afe-447b-afd6-b7679ff5e452",
+        "3012b57d-c11f-4c7d-8796-124770463fd6"
+      ],
+      "job_id": "805edc80-a6a2-4d10-bfcc-7bdcaf92975b",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 20000,
+        "highAud": 25500
+      }
+    },
+    {
+      "persona_id": "SYN-P059",
+      "status": "completed",
+      "ai_session_id": "2d169c8f-b0ca-4434-9691-feec6577bfa5",
+      "proposal_ids": [
+        "66a661cf-aa67-4217-9ca4-29e25c86db4f",
+        "c52c1643-bdd3-40ef-a6d2-f94fff65e80a",
+        "8668b5b6-8131-4fb0-87d9-35b741778e73"
+      ],
+      "job_id": "020ee853-b088-40b0-b0b6-61539d09790e",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28500,
+        "highAud": 36000
+      }
+    },
+    {
+      "persona_id": "SYN-P060",
+      "status": "completed",
+      "ai_session_id": "0f34306d-0200-41e4-be98-fe35dc7499fb",
+      "proposal_ids": [
+        "32e712f8-51bc-4b24-932e-15ac6eea9708",
+        "b79d1e7f-a9c8-4c3e-ba98-7450ace394eb",
+        "aff3284f-e606-4356-9a16-c1de2335b66a"
+      ],
+      "job_id": "55f5e874-1560-4fa0-9b92-50d6ae297428",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28500,
+        "highAud": 36000
+      }
+    },
+    {
+      "persona_id": "SYN-P061",
+      "status": "completed",
+      "ai_session_id": "9e09ad32-f46b-4bc0-9fce-e78762ed42ab",
+      "proposal_ids": [
+        "3e46e183-6d2b-43af-b829-cc5730c1d851",
+        "bdcab056-db0b-4076-a8af-6f68c71bf627",
+        "84a6803e-8066-4f4f-9a8c-cdcf3242b9b2"
+      ],
+      "job_id": "11a6d531-0527-4d97-aeb0-599d177bef39",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 12000,
+        "highAud": 15500
+      }
+    },
+    {
+      "persona_id": "SYN-P062",
+      "status": "completed",
+      "ai_session_id": "79ba6a60-819c-441e-804b-bfd1668ce613",
+      "proposal_ids": [
+        "719d88d3-cd11-4726-a23b-ab59f2f8589e",
+        "19a9edfa-e563-44dd-84e8-5502eba49022",
+        "670757fa-8143-41c1-ba63-a846a467d07d"
+      ],
+      "job_id": "f49c2914-456a-49c4-abb7-49db16eab412",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 27000,
+        "highAud": 34500
+      }
+    },
+    {
+      "persona_id": "SYN-P063",
+      "status": "completed",
+      "ai_session_id": "139d840c-6357-4899-bb84-4eb37c44ef6d",
+      "proposal_ids": [
+        "6978a526-7694-4cf3-9fb5-68794efbf046",
+        "3bb7972b-7265-49c5-ae2b-28c37db549bf",
+        "3d22d37b-9548-41d2-b36c-744ef1757776"
+      ],
+      "job_id": "c23c06b3-8ecf-4013-9dbd-e7903ab27592",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 41500,
+        "highAud": 53000
+      }
+    },
+    {
+      "persona_id": "SYN-P064",
+      "status": "completed",
+      "ai_session_id": "d1fe6cfb-0868-42a8-bd79-abd3e5d54a8c",
+      "proposal_ids": [
+        "203a5fde-68fc-4bad-8fd7-79d60ebe065a",
+        "b89b5f17-f808-47c9-940c-591143f8b641",
+        "47368baa-0714-45a5-aa9e-f00818e5342b"
+      ],
+      "job_id": "76a654b8-a385-423b-9726-567186f0cbb1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 16500,
+        "highAud": 21000
+      }
+    },
+    {
+      "persona_id": "SYN-P065",
+      "status": "completed",
+      "ai_session_id": "cc3ffa5d-e707-4ebd-88d6-794807ccba8d",
+      "proposal_ids": [
+        "0a66a46f-0470-40f2-b5a2-e4bafd9b4d35",
+        "0b7ad702-0c19-4212-9d86-2627a0dd2cf1",
+        "4f440ff3-2fbc-4a38-80dc-5e4ee935abac"
+      ],
+      "job_id": "22ac3f12-e062-47d3-81bb-0fb09cfe4430",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 8500,
+        "highAud": 10500
+      }
+    },
+    {
+      "persona_id": "SYN-P066",
+      "status": "completed",
+      "ai_session_id": "a904e784-d001-4787-94e5-7581b5caa86e",
+      "proposal_ids": [
+        "b66b8546-e2f5-4fab-9ea4-1741c75e7e65",
+        "b793f0f3-5649-4172-ad07-dee6fe8d6fd2",
+        "0117a681-ddd2-40ba-946b-5954fe92027e"
+      ],
+      "job_id": "e94e8ab9-e202-4215-b768-ad1bcc9537a7",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 21500,
+        "highAud": 27500
+      }
+    },
+    {
+      "persona_id": "SYN-P067",
+      "status": "completed",
+      "ai_session_id": "b97e9d00-68fa-4df2-82d3-2c09e4bfbde4",
+      "proposal_ids": [
+        "b89b9b10-02db-4f21-b3dd-245d9f385bdf",
+        "958275f3-8667-4a3c-8049-02eeb9a96292",
+        "e326334d-6098-4df1-91a8-1923f435d34e"
+      ],
+      "job_id": "f4e7a01f-d4fc-4602-822e-d9949e230bd2",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 36500,
+        "highAud": 46500
+      }
+    },
+    {
+      "persona_id": "SYN-P068",
+      "status": "completed",
+      "ai_session_id": "f05a5c71-1728-4ab6-a67a-c86870eaef1b",
+      "proposal_ids": [
+        "01f2a5fc-5b6e-4e3e-9392-f2bd102c1880",
+        "5512d84c-dca5-4d64-b1d7-b869b0da292a",
+        "b561eb68-ff29-48e5-8e78-5afd2e4cdd09"
+      ],
+      "job_id": "4043f772-9214-4fb6-9e2d-93780866bd8b",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 24000,
+        "highAud": 30500
+      }
+    },
+    {
+      "persona_id": "SYN-P069",
+      "status": "completed",
+      "ai_session_id": "e63c8e98-fb43-4536-9ad7-e4af444d7c00",
+      "proposal_ids": [
+        "c2cc68bb-02d8-4018-b3f1-fbf28d51ffde",
+        "da30070d-66cb-4ab5-9e4c-b5c225d9755c",
+        "b3deedbc-fb22-4b1e-93d1-195d1f2330bb"
+      ],
+      "job_id": "d46f965f-4ab6-49d6-a09e-7c4d9c4ff4cc",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 11500,
+        "highAud": 14500
+      }
+    },
+    {
+      "persona_id": "SYN-P070",
+      "status": "completed",
+      "ai_session_id": "9cc9cb36-2b8a-4136-acd2-2cf8d065b268",
+      "proposal_ids": [
+        "6a1dfc23-bd90-4a64-b4d6-5a05d3b4d821",
+        "b2865394-522a-41d8-bb6b-597a8a725dc8",
+        "a757776e-632b-44a9-9586-d6d6c7f8bf64"
+      ],
+      "job_id": "6cf0a10a-4abb-4e0c-b625-538b1c8760e2",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 33500,
+        "highAud": 42500
+      }
+    },
+    {
+      "persona_id": "SYN-P071",
+      "status": "completed",
+      "ai_session_id": "d80416ca-0acc-434d-8672-c2e240f43c33",
+      "proposal_ids": [
+        "9f83a401-9f85-46c0-be16-b3108de1e66c",
+        "09157bba-c5a0-4d1a-86b5-f4c025211eca",
+        "646a2622-c3c3-4c01-b942-29c690aabce5"
+      ],
+      "job_id": "d8294d77-3cb8-4fe9-b925-83b3ea708ab9",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 36000,
+        "highAud": 46000
+      }
+    },
+    {
+      "persona_id": "SYN-P072",
+      "status": "completed",
+      "ai_session_id": "df666393-d1bf-4b35-8867-5a6809c0bb1c",
+      "proposal_ids": [
+        "bb34e4c0-55ea-4326-bc5a-60c5aa637424",
+        "d99a0040-4335-424c-8d65-e55eb6b6c9ee",
+        "12ed17c8-4270-4eeb-ad50-de2ea89b38f8"
+      ],
+      "job_id": "ababfcfc-9c0f-4083-9092-2c8db748e922",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 42000,
+        "highAud": 53000
+      }
+    },
+    {
+      "persona_id": "SYN-P073",
+      "status": "completed",
+      "ai_session_id": "0e997d0f-1ea2-484b-8050-221ff0a0c4ac",
+      "proposal_ids": [
+        "43295f65-015d-4633-879f-4d8ee25fda36",
+        "439b4c61-110d-452e-a1f0-309db709b438",
+        "d9b73ea4-21fd-41e7-be33-8731a8684c15"
+      ],
+      "job_id": "84d0479d-2235-46ff-bc07-bb98248fa125",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 6500,
+        "highAud": 8000
+      }
+    },
+    {
+      "persona_id": "SYN-P074",
+      "status": "completed",
+      "ai_session_id": "6e3bb041-65ad-4d63-a481-30525c13909f",
+      "proposal_ids": [
+        "5273e89e-bcf6-4f4b-bb66-35090034f25c",
+        "f51a411d-7bee-4721-b111-02bd1be23636",
+        "d7fff015-aad5-40b7-8230-7f01ae8ae4bd"
+      ],
+      "job_id": "926f0217-ed07-4a25-bdad-0c681ff77b61",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 16500,
+        "highAud": 20500
+      }
+    },
+    {
+      "persona_id": "SYN-P075",
+      "status": "completed",
+      "ai_session_id": "12838863-4109-4b98-b2f9-c96b6277deb4",
+      "proposal_ids": [
+        "4a316a99-7876-416a-abd6-fd76927a831a",
+        "ced38871-680e-4ff5-b2b8-a31e09440655",
+        "70f57f0a-c2ed-4779-a2fe-c04bfdb6bb54"
+      ],
+      "job_id": "7db4009a-ab26-4fc7-ae31-2cd0bdc69973",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 30000,
+        "highAud": 38500
+      }
+    },
+    {
+      "persona_id": "SYN-P076",
+      "status": "completed",
+      "ai_session_id": "372b0b60-68a6-4411-878b-fb7f9aa5186a",
+      "proposal_ids": [
+        "2948b2a9-f360-4219-8a9d-f70eca31041a",
+        "5a2bdcf3-9a72-4b31-8eae-fdef586fe863",
+        "57f93c5c-bd5b-471c-805d-154a9a509823"
+      ],
+      "job_id": "e8864160-d593-442b-9f8b-7353bb468f18",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 17500,
+        "highAud": 22000
+      }
+    },
+    {
+      "persona_id": "SYN-P077",
+      "status": "completed",
+      "ai_session_id": "b8e03cfb-116d-4bde-af27-43c80a4f9afe",
+      "proposal_ids": [
+        "302ebfc6-c07b-4c5f-abec-a8d6fcd0efbe",
+        "064a8c89-2d26-48f7-820b-2444dac2d9d0",
+        "d9ab0228-5e77-42a7-9a58-4b8ec63001cb"
+      ],
+      "job_id": "0930e6f7-5ca3-4d62-9a1e-2dc6776ec5f1",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 12500,
+        "highAud": 16000
+      }
+    },
+    {
+      "persona_id": "SYN-P078",
+      "status": "completed",
+      "ai_session_id": "44ce3ba6-29ec-4c4e-83de-19a3b5328973",
+      "proposal_ids": [
+        "13d4f06e-cd13-4f46-b8c4-1d6d59ca5364",
+        "22e30848-8020-4a05-977a-23c0a3aa88dc",
+        "91f50e6b-2b71-43e7-995f-03f0b7615ff9"
+      ],
+      "job_id": "5505cc12-23b8-443a-8593-c23efb7e540a",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 27000,
+        "highAud": 34500
+      }
+    },
+    {
+      "persona_id": "SYN-P079",
+      "status": "completed",
+      "ai_session_id": "628c7e1e-1382-409c-b8dd-c01d976a8472",
+      "proposal_ids": [
+        "b687ec95-5f4d-4025-9417-648b81982d82",
+        "3daf261c-cac1-4210-9697-98ad7fdc6fe6",
+        "1b5c7633-5621-4c15-8f43-ab0382fd0382"
+      ],
+      "job_id": "fcde5ff9-ed0a-4188-85e6-e029d69d52f0",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 38500,
+        "highAud": 48500
+      }
+    },
+    {
+      "persona_id": "SYN-P080",
+      "status": "completed",
+      "ai_session_id": "82fccf38-b893-4e99-8e88-151ced573928",
+      "proposal_ids": [
+        "b8998279-bc1e-443c-b060-2e6f594a1716",
+        "c3994dfd-7ab8-4da7-a2d1-5f45fb47a58d",
+        "e17b678f-8fed-4eec-bbe3-6c1da847e838"
+      ],
+      "job_id": "a820d11a-ce5c-4c71-ba9e-ecd8bcfc0df0",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 34500,
+        "highAud": 44000
+      }
+    },
+    {
+      "persona_id": "SYN-P081",
+      "status": "completed",
+      "ai_session_id": "fc2d9aba-a74b-4351-9b2d-e6f7931c2e4c",
+      "proposal_ids": [
+        "a3d3ea8c-6e89-4c01-85b1-1c34fc6f96d6",
+        "d357f20c-93c5-491b-b0ef-4215ad8b3224",
+        "857cf904-6e36-4399-b2a9-7db7d9a83754"
+      ],
+      "job_id": "196391e2-cee9-4013-bcca-a5c4206a48b9",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 14000,
+        "highAud": 17500
+      }
+    },
+    {
+      "persona_id": "SYN-P082",
+      "status": "completed",
+      "ai_session_id": "d72c6a69-4347-4a2b-9920-9f34b24e1f70",
+      "proposal_ids": [
+        "fafe87d5-6292-4220-b952-49fe6fcaf92f",
+        "fbf6c3a1-2b8c-4bb0-b83a-b621afe5dc11",
+        "37bbc666-1a01-4552-8161-b34cdd48c3d2"
+      ],
+      "job_id": "21a761cb-51be-4dbf-bb19-cd75290d7458",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 22500,
+        "highAud": 28500
+      }
+    },
+    {
+      "persona_id": "SYN-P083",
+      "status": "completed",
+      "ai_session_id": "483e0d9d-2adb-4939-bcfa-565864d6993c",
+      "proposal_ids": [
+        "2683c51d-22e6-4ec9-9bfc-5b877913488a",
+        "1129c005-3f77-42d2-8014-c0d8f7082334",
+        "2e86cc5b-6388-4073-9bdf-cb9ece7ca9a5"
+      ],
+      "job_id": "c35bcd56-9d35-4452-bf51-c38e703b5853",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 26000,
+        "highAud": 33500
+      }
+    },
+    {
+      "persona_id": "SYN-P084",
+      "status": "completed",
+      "ai_session_id": "eb5c0409-0c9f-40a3-af16-5f6144b1b35a",
+      "proposal_ids": [
+        "6c078276-5ede-4347-bfcf-5630c4c75cf8",
+        "749c4235-4793-4c57-85e9-b4649eb96edb",
+        "7e2966d2-9705-4431-8084-003ec98061fe"
+      ],
+      "job_id": "3b33f6c8-9a43-4cb1-92d2-4852318637f2",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 20000,
+        "highAud": 25000
+      }
+    },
+    {
+      "persona_id": "SYN-P085",
+      "status": "completed",
+      "ai_session_id": "5ff476c2-4281-43ee-9169-aeb670c8076d",
+      "proposal_ids": [
+        "9dc6ffec-e55e-4f3c-9af2-3f5eb088609e",
+        "184f536f-a488-4f1c-8cfd-2c12d3708f79",
+        "d28b9624-558e-4fcb-832c-0b645c216870"
+      ],
+      "job_id": "a75a1484-ccb3-44af-88b3-231dfd81ea11",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 11500,
+        "highAud": 14500
+      }
+    },
+    {
+      "persona_id": "SYN-P086",
+      "status": "completed",
+      "ai_session_id": "6cd3f39e-2e22-4034-9463-98b601f388ce",
+      "proposal_ids": [
+        "fd423a44-b089-40fa-b07e-72676e4bfcf1",
+        "06dddd52-cb47-449c-90a8-713e264f0fcf",
+        "584730dc-943f-41bd-990a-9e6c95f9463f"
+      ],
+      "job_id": "f076f60c-f507-4207-b9bc-1498724307e7",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 21500,
+        "highAud": 27500
+      }
+    },
+    {
+      "persona_id": "SYN-P087",
+      "status": "completed",
+      "ai_session_id": "1645ca7a-bb3d-4d50-b9db-364647ef321d",
+      "proposal_ids": [
+        "4cece8ec-5d8b-420e-9424-b0505705e7e6",
+        "a687521d-6930-455e-8529-485db0074d08",
+        "40bc2d82-e270-47f8-bd41-dc9a0ed24036"
+      ],
+      "job_id": "13a5cb6d-1bc1-4c0f-b269-b1668d67037b",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 45000,
+        "highAud": 57000
+      }
+    },
+    {
+      "persona_id": "SYN-P088",
+      "status": "completed",
+      "ai_session_id": "bbea44ad-31bd-4276-81be-2c8e52e2af8d",
+      "proposal_ids": [
+        "3ba2e913-cff9-4c2a-b7ab-6d8774a45ccc",
+        "d6571f51-3b55-416f-8503-39b3385d3da7",
+        "a64c96f0-52a2-40b4-bac6-178322e2d79e"
+      ],
+      "job_id": "b5b7d7a4-193d-4a6e-892b-9db924b7bd4f",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28000,
+        "highAud": 35500
+      }
+    },
+    {
+      "persona_id": "SYN-P089",
+      "status": "completed",
+      "ai_session_id": "abb5ff0d-7d0a-4d57-8415-ecb204018141",
+      "proposal_ids": [
+        "10af9e32-c092-49cb-bcca-c290c95ac997",
+        "b4bd1f85-7848-48ef-9dd7-844bc0861a48",
+        "15f67903-29f3-43c5-a87f-91ff57816075"
+      ],
+      "job_id": "67229bb1-97ef-4710-bddc-3cfdcb8f2ece",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 14000,
+        "highAud": 17500
+      }
+    },
+    {
+      "persona_id": "SYN-P090",
+      "status": "completed",
+      "ai_session_id": "39ad2689-7105-46d2-90cc-85bbcccbb98e",
+      "proposal_ids": [
+        "63260df0-5a67-4a4e-8541-70c127f3c7f4",
+        "cad9cf59-3356-4985-94bb-d18e60695486",
+        "aad40f3c-8f5a-4b6a-bf7f-ff601c7e71ac"
+      ],
+      "job_id": "179d2bde-bfef-4577-a129-faacb79845cd",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 29000,
+        "highAud": 36500
+      }
+    },
+    {
+      "persona_id": "SYN-P091",
+      "status": "completed",
+      "ai_session_id": "7a9c6e4b-98a5-44a1-8788-0955e93c2ac7",
+      "proposal_ids": [
+        "d8695917-fc32-4942-b96b-8968e1d506ac",
+        "fe5f7f72-b9c9-4a3f-aab4-219ca426e346",
+        "10343990-885e-4109-8b2a-b1e038c60a0c"
+      ],
+      "job_id": "2209bded-0de2-4b6b-b833-4f12e96fc30c",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 28500,
+        "highAud": 36000
+      }
+    },
+    {
+      "persona_id": "SYN-P092",
+      "status": "completed",
+      "ai_session_id": "3fe02e02-e98b-406e-a5a9-4a210440796f",
+      "proposal_ids": [
+        "0b632d41-50f0-43c9-8789-8e5e2610a181",
+        "42c2558f-b87c-4979-8360-7003315ded8a",
+        "0e811edd-4c98-4404-a31b-d66ccc3c3eb9"
+      ],
+      "job_id": "346d54e9-ee36-4788-aae6-664579118408",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 22000,
+        "highAud": 28000
+      }
+    },
+    {
+      "persona_id": "SYN-P093",
+      "status": "completed",
+      "ai_session_id": "c480ebd4-4967-4eaa-84e1-a75a9d5cb470",
+      "proposal_ids": [
+        "ec7f58bf-35f2-4424-8390-02c4acbb9e0e",
+        "bf1056dd-791c-4593-96cc-2c1052319101",
+        "4b31132a-655d-453c-9bd4-2b9e72cbaa5d"
+      ],
+      "job_id": "1c5669a9-e45b-43f1-ad4d-c12c58bc31b8",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 8500,
+        "highAud": 11000
+      }
+    },
+    {
+      "persona_id": "SYN-P094",
+      "status": "completed",
+      "ai_session_id": "99f982cb-cb25-4c91-a442-64eb73c3c00f",
+      "proposal_ids": [
+        "7b1950dd-ffdb-454d-a30d-f567a36daed9",
+        "1108f0c3-a124-4c9b-8d71-da2ece598d07",
+        "f8b4afa7-ba46-4ba3-86f8-c156844da6af"
+      ],
+      "job_id": "93faa4cc-9896-4ff6-9fb6-6df26953dd19",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 22500,
+        "highAud": 28500
+      }
+    },
+    {
+      "persona_id": "SYN-P095",
+      "status": "completed",
+      "ai_session_id": "3a512ed0-a044-4b39-8d9a-df8caa709076",
+      "proposal_ids": [
+        "73dfe173-440d-47c6-aa63-76972b2ce16f",
+        "0a5def40-dd0d-44c0-8738-2a445b7204be",
+        "a8462c23-e1f9-4d80-b1af-392207e3194c"
+      ],
+      "job_id": "0a254169-39ff-4a22-9aa1-d3ed3fe02487",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 41000,
+        "highAud": 52000
+      }
+    },
+    {
+      "persona_id": "SYN-P096",
+      "status": "completed",
+      "ai_session_id": "5baa1c51-66c9-4602-b661-669e9cb9941b",
+      "proposal_ids": [
+        "83b703c4-65fe-4f00-ac9b-cff9e6612f9b",
+        "9e02cd80-fb44-4399-9f82-c661eae23a42",
+        "229b5fad-cc17-429e-ae43-1d9057ec714a"
+      ],
+      "job_id": "8fed01fb-e7b4-40f6-9555-c48c76a0869d",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 26000,
+        "highAud": 33000
+      }
+    },
+    {
+      "persona_id": "SYN-P097",
+      "status": "completed",
+      "ai_session_id": "6ed5e5f6-b19c-49ac-917b-896b14cd98a5",
+      "proposal_ids": [
+        "708b0499-82fb-4cb8-987c-7fb79a9ab21f",
+        "4b3f263b-8297-40e9-b32d-ea9768f7ae9e",
+        "afb44dd7-4afe-485c-bbaa-318a8d73620a"
+      ],
+      "job_id": "0d938789-5374-44ab-9454-b2934d41504a",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 15000,
+        "highAud": 19500
+      }
+    },
+    {
+      "persona_id": "SYN-P098",
+      "status": "completed",
+      "ai_session_id": "a43a3a4e-28f7-4a4b-9f8f-95c41a0f5c57",
+      "proposal_ids": [
+        "987402ed-dbe0-4544-a3c4-6866d9ac6998",
+        "23696ee2-364f-4db2-bc25-6dbde7417305",
+        "2cd7f9f9-a28f-4c30-afd8-132d47b695fe"
+      ],
+      "job_id": "793db95c-a0ed-4498-b125-12b5e4d8a6a3",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 22000,
+        "highAud": 28000
+      }
+    },
+    {
+      "persona_id": "SYN-P099",
+      "status": "completed",
+      "ai_session_id": "866544aa-b437-4ad7-983b-a8b59b7fa71c",
+      "proposal_ids": [
+        "e06f2e04-77e7-4c17-b310-6e7b48fc2c87",
+        "afcb02e6-0a81-4780-a90e-26355e27efc5",
+        "80696392-d3de-4e6c-8cc8-42858165af13"
+      ],
+      "job_id": "f13f78f2-aeb2-4fbb-ac54-f12481db15ee",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 33000,
+        "highAud": 42000
+      }
+    },
+    {
+      "persona_id": "SYN-P100",
+      "status": "completed",
+      "ai_session_id": "770a5293-9fd2-4a79-8683-1e644c64e118",
+      "proposal_ids": [
+        "ddf3053f-378e-4769-aea8-941387609c81",
+        "5fc785ea-ae48-4074-8f99-c84f4230422c",
+        "11e3aa0b-c29d-4d2a-bd1f-fd04dba0e979"
+      ],
+      "job_id": "7278bd99-d136-4574-9603-b3fd5442d55d",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 16000,
+        "highAud": 20500
+      }
+    }
+  ],
+  "emails": [
+    {
+      "id": "485868d6-5dbe-4bbc-8119-8efd288b929b",
+      "persona_id": "SYN-P001",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:56:34.383148+00:00"
+    },
+    {
+      "id": "32d80b77-d06e-4adb-8e16-595b4bd0a4dc",
+      "persona_id": "SYN-P002",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:56:39.290021+00:00"
+    },
+    {
+      "id": "df717eac-af69-4a5c-bcc5-a1886a62b400",
+      "persona_id": "SYN-P003",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:56:52.818898+00:00"
+    },
+    {
+      "id": "c660c29f-fddf-44a0-ba19-18296216d7cd",
+      "persona_id": "SYN-P004",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:56:55.180902+00:00"
+    },
+    {
+      "id": "97227029-92b4-42bc-ba93-a67469b61961",
+      "persona_id": "SYN-P005",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:57:08.570768+00:00"
+    },
+    {
+      "id": "588d2cb3-f1ba-4a05-91d5-87b9518f8959",
+      "persona_id": "SYN-P006",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:57:11.165715+00:00"
+    },
+    {
+      "id": "c871121e-56d3-4ecb-a177-a8468644c314",
+      "persona_id": "SYN-P007",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:57:30.62894+00:00"
+    },
+    {
+      "id": "66198786-e124-4f87-b74f-54ea6a4c16b3",
+      "persona_id": "SYN-P008",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:57:23.057735+00:00"
+    },
+    {
+      "id": "3bc30843-ec83-4806-a5d6-1ae130dda628",
+      "persona_id": "SYN-P009",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:57:43.018202+00:00"
+    },
+    {
+      "id": "66b2cb8e-a171-40e9-9283-1acee4d844d9",
+      "persona_id": "SYN-P010",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:57:45.512548+00:00"
+    },
+    {
+      "id": "f1d7d731-942a-41e4-92aa-6f67778ee330",
+      "persona_id": "SYN-P011",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:13.251565+00:00"
+    },
+    {
+      "id": "bec11a05-ed20-4f42-9ed0-c1421a82c5f3",
+      "persona_id": "SYN-P012",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:09.87088+00:00"
+    },
+    {
+      "id": "d7a8f71e-3ce5-4fb0-bce7-e882790a4260",
+      "persona_id": "SYN-P013",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:28.474664+00:00"
+    },
+    {
+      "id": "396a90df-712f-4a96-9c7e-6f5ec48ec4b8",
+      "persona_id": "SYN-P014",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:28.546575+00:00"
+    },
+    {
+      "id": "577d6feb-a03b-4ae7-ae3e-66af663c8562",
+      "persona_id": "SYN-P015",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:45.551009+00:00"
+    },
+    {
+      "id": "83e5181f-53dc-440c-8917-03054bf1876c",
+      "persona_id": "SYN-P016",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:41.926305+00:00"
+    },
+    {
+      "id": "f1b7e26f-a507-448c-a05f-1e2ff9b70a72",
+      "persona_id": "SYN-P017",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:00.594008+00:00"
+    },
+    {
+      "id": "85892279-731c-44de-b136-a3c9ae0712ea",
+      "persona_id": "SYN-P018",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:58:59.656578+00:00"
+    },
+    {
+      "id": "e538a9aa-91c8-47a7-897f-df84031817ee",
+      "persona_id": "SYN-P019",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:14.807474+00:00"
+    },
+    {
+      "id": "647144fa-6e5b-401a-8746-ee4bebc8a0f0",
+      "persona_id": "SYN-P020",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:16.580725+00:00"
+    },
+    {
+      "id": "6d8c8717-11cb-4d60-aa02-81b64be2f470",
+      "persona_id": "SYN-P021",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:39.277846+00:00"
+    },
+    {
+      "id": "b95e39ca-9e15-48d0-b7e9-7fa5b0d69404",
+      "persona_id": "SYN-P022",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:40.285559+00:00"
+    },
+    {
+      "id": "02ed3a2e-cc1b-44f7-abd0-0d15c51c4270",
+      "persona_id": "SYN-P023",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:52.904907+00:00"
+    },
+    {
+      "id": "ad64044e-285e-46eb-adbb-4a5aad592e4c",
+      "persona_id": "SYN-P024",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:59:54.248907+00:00"
+    },
+    {
+      "id": "a7f18cfa-0e41-4f26-9e0e-9c53d4fc6441",
+      "persona_id": "SYN-P025",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:00:06.108408+00:00"
+    },
+    {
+      "id": "aefe0edb-2a91-47ec-b0a8-827ace9f7684",
+      "persona_id": "SYN-P026",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:00:08.561903+00:00"
+    },
+    {
+      "id": "73af6e96-8dc1-454e-a7c9-6fc170944451",
+      "persona_id": "SYN-P027",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:12:03.298744+00:00"
+    },
+    {
+      "id": "7df628ef-4da5-4759-8d0f-d330c9838847",
+      "persona_id": "SYN-P028",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:00:25.360183+00:00"
+    },
+    {
+      "id": "433905b3-36d4-4b2d-94cc-018512497b2c",
+      "persona_id": "SYN-P029",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:00:41.201025+00:00"
+    },
+    {
+      "id": "1f0595c6-aa8c-49d5-a28b-6d6359b36cd7",
+      "persona_id": "SYN-P030",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:00:43.279343+00:00"
+    },
+    {
+      "id": "0c0b210d-093a-4824-8b77-1505f1da303f",
+      "persona_id": "SYN-P031",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:10.851351+00:00"
+    },
+    {
+      "id": "c11b2275-ea91-4aa0-ab96-ae22eb8ae91d",
+      "persona_id": "SYN-P032",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:11.107517+00:00"
+    },
+    {
+      "id": "bd692a12-78b0-499e-8ab9-fb358f4814bd",
+      "persona_id": "SYN-P033",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:20.87666+00:00"
+    },
+    {
+      "id": "727cacae-01e0-4b30-98ca-fa948716d301",
+      "persona_id": "SYN-P034",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:25.338287+00:00"
+    },
+    {
+      "id": "a0d0a088-ca6d-44ee-b668-3ea886ecfd8c",
+      "persona_id": "SYN-P035",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:40.17842+00:00"
+    },
+    {
+      "id": "6ff9cad4-fba4-4f74-ad80-65bcddd6005e",
+      "persona_id": "SYN-P036",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:37.133863+00:00"
+    },
+    {
+      "id": "5cb5e80e-95c9-4253-ab49-0abe4114ccfa",
+      "persona_id": "SYN-P037",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:50.798113+00:00"
+    },
+    {
+      "id": "4ba938a5-c1b3-4118-aff4-3e4997a59cac",
+      "persona_id": "SYN-P038",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:01:53.125334+00:00"
+    },
+    {
+      "id": "0ce2b666-2659-4733-8a9b-7092d18b59e3",
+      "persona_id": "SYN-P039",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:07.971451+00:00"
+    },
+    {
+      "id": "2084b904-0b42-45e2-8122-12087d9baf10",
+      "persona_id": "SYN-P040",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:08.754466+00:00"
+    },
+    {
+      "id": "1bdff608-352e-4949-9f32-bbef54b59419",
+      "persona_id": "SYN-P041",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:31.54978+00:00"
+    },
+    {
+      "id": "32120550-da8f-4242-918e-aa8ae2f46f4c",
+      "persona_id": "SYN-P042",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:31.486461+00:00"
+    },
+    {
+      "id": "2c185160-4a5b-41ce-b3a5-8c460c586c71",
+      "persona_id": "SYN-P043",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:47.805773+00:00"
+    },
+    {
+      "id": "1e8d0f34-7495-4d9f-bd44-40e971c59678",
+      "persona_id": "SYN-P044",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:46.314092+00:00"
+    },
+    {
+      "id": "5f9b9386-326a-4730-80d0-63a6e9387042",
+      "persona_id": "SYN-P045",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:02:57.471497+00:00"
+    },
+    {
+      "id": "44b063e1-8af9-468b-a008-66cd49ad78bd",
+      "persona_id": "SYN-P046",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:03:04.314764+00:00"
+    },
+    {
+      "id": "df4d7b8d-d9cb-4ffb-b158-570cdc26c9db",
+      "persona_id": "SYN-P047",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:03:18.798108+00:00"
+    },
+    {
+      "id": "e4ad18db-ad12-4b54-9df2-fb6b39b19f3a",
+      "persona_id": "SYN-P048",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:03:17.808652+00:00"
+    },
+    {
+      "id": "a0815cc0-91c9-4244-8f45-d1c0a9e1dd38",
+      "persona_id": "SYN-P049",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:03:33.656032+00:00"
+    },
+    {
+      "id": "1b7ebe6e-422f-4136-af7a-a7679eb56433",
+      "persona_id": "SYN-P050",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:03:31.674501+00:00"
+    },
+    {
+      "id": "38ef8524-ef56-40e8-b227-b668153f49d7",
+      "persona_id": "SYN-P051",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:03.972676+00:00"
+    },
+    {
+      "id": "6d2571d1-8aa5-4858-b91b-f7e965e016fb",
+      "persona_id": "SYN-P052",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:00.5738+00:00"
+    },
+    {
+      "id": "2e0dacf9-badb-4aff-8cc4-6cf8ab257146",
+      "persona_id": "SYN-P053",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:16.217958+00:00"
+    },
+    {
+      "id": "c6592971-30f0-435d-bb30-ad204426f03b",
+      "persona_id": "SYN-P054",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:18.482945+00:00"
+    },
+    {
+      "id": "3073e965-2e96-49f2-a711-bce55d4bfd5d",
+      "persona_id": "SYN-P055",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:34.58071+00:00"
+    },
+    {
+      "id": "357d7695-d470-4b82-87b1-2644de247dca",
+      "persona_id": "SYN-P056",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:38.336042+00:00"
+    },
+    {
+      "id": "9a808d57-5cac-4ab9-94e5-f9f1726e5eb4",
+      "persona_id": "SYN-P057",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:52.62537+00:00"
+    },
+    {
+      "id": "518333ae-273b-4c6c-ac41-c422963ed7ad",
+      "persona_id": "SYN-P058",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:04:51.543779+00:00"
+    },
+    {
+      "id": "0a5042ec-f3ef-4424-b34c-ed5c35e6b522",
+      "persona_id": "SYN-P059",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:07.013974+00:00"
+    },
+    {
+      "id": "ebfd3011-dd70-4dc5-a92b-91eef8e01199",
+      "persona_id": "SYN-P060",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:03.852561+00:00"
+    },
+    {
+      "id": "721e445a-6dee-424c-9b66-75389b645bb2",
+      "persona_id": "SYN-P061",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:26.481224+00:00"
+    },
+    {
+      "id": "7f3d86fb-e91d-4e7e-a938-13e279d64a5c",
+      "persona_id": "SYN-P062",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:31.156161+00:00"
+    },
+    {
+      "id": "6866532f-c407-424c-ac19-11c9a264fba5",
+      "persona_id": "SYN-P063",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:45.324599+00:00"
+    },
+    {
+      "id": "c054966d-329e-49b1-9903-245c8807fca7",
+      "persona_id": "SYN-P064",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:46.2243+00:00"
+    },
+    {
+      "id": "b7837c22-76b9-429a-baf1-bb7188ac3a0b",
+      "persona_id": "SYN-P065",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:05:55.761829+00:00"
+    },
+    {
+      "id": "392e4af8-be0f-4008-a67d-c7a731f4b58f",
+      "persona_id": "SYN-P066",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:01.050205+00:00"
+    },
+    {
+      "id": "4870dc81-b57f-4836-b6f1-3b043ef2d60f",
+      "persona_id": "SYN-P067",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:15.16646+00:00"
+    },
+    {
+      "id": "7398d490-0a06-45ee-80f1-25092d7d4aad",
+      "persona_id": "SYN-P068",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:14.593129+00:00"
+    },
+    {
+      "id": "275c20a6-dce0-4b07-bbea-adfe57f1e589",
+      "persona_id": "SYN-P069",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:30.732777+00:00"
+    },
+    {
+      "id": "60aa356d-b26e-4b00-8f6a-e591539f1310",
+      "persona_id": "SYN-P070",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:29.854884+00:00"
+    },
+    {
+      "id": "c0f3f059-7df5-4717-a25c-a9d863b87b48",
+      "persona_id": "SYN-P071",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:55.151657+00:00"
+    },
+    {
+      "id": "b88b8547-ce07-45b6-b35f-14c298fc070f",
+      "persona_id": "SYN-P072",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:06:54.277494+00:00"
+    },
+    {
+      "id": "d040ef1f-a5ff-4fb8-9201-0a214a84166d",
+      "persona_id": "SYN-P073",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:08.951436+00:00"
+    },
+    {
+      "id": "94f82720-b3cf-4297-ab31-946092cc1453",
+      "persona_id": "SYN-P074",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:10.453705+00:00"
+    },
+    {
+      "id": "fe000e40-6da0-4800-9ba2-3e96c46eb3fc",
+      "persona_id": "SYN-P075",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:24.678463+00:00"
+    },
+    {
+      "id": "9b37840d-7782-4b65-a5d4-e386e9b25ff4",
+      "persona_id": "SYN-P076",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:25.598365+00:00"
+    },
+    {
+      "id": "14c2b7ba-d0af-4dfb-83cc-748c2788d254",
+      "persona_id": "SYN-P077",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:42.202309+00:00"
+    },
+    {
+      "id": "363cfeea-c0cb-48c9-a105-e003cc72bc72",
+      "persona_id": "SYN-P078",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:38.641904+00:00"
+    },
+    {
+      "id": "1d22e91e-1d6c-490b-991d-f659d62ba92f",
+      "persona_id": "SYN-P079",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:00.018039+00:00"
+    },
+    {
+      "id": "78a65584-94fb-4e6e-9633-0fd2e18c1b17",
+      "persona_id": "SYN-P080",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:07:52.862444+00:00"
+    },
+    {
+      "id": "e405318f-aa88-4cf7-b62d-8dfdfee93a79",
+      "persona_id": "SYN-P081",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:23.546751+00:00"
+    },
+    {
+      "id": "ec276f98-dda6-4054-9a1b-21d8dc485158",
+      "persona_id": "SYN-P082",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:22.408995+00:00"
+    },
+    {
+      "id": "48304d76-1b0c-4320-814d-b09e16fc3f50",
+      "persona_id": "SYN-P083",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:35.196374+00:00"
+    },
+    {
+      "id": "cb36ae09-fa46-467a-9964-021e8809eceb",
+      "persona_id": "SYN-P084",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:35.401014+00:00"
+    },
+    {
+      "id": "a5bf844c-ec05-4095-a27d-8c6cb6bd6d85",
+      "persona_id": "SYN-P085",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:47.576446+00:00"
+    },
+    {
+      "id": "608afee2-33e4-49b5-9bbe-83ee38f18591",
+      "persona_id": "SYN-P086",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:08:51.115297+00:00"
+    },
+    {
+      "id": "cf1d8413-4dfa-4489-ad3c-56d49fd8586a",
+      "persona_id": "SYN-P087",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:09.538558+00:00"
+    },
+    {
+      "id": "72b6bff1-3d0b-496b-af45-eb3a6ebae458",
+      "persona_id": "SYN-P088",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:05.247732+00:00"
+    },
+    {
+      "id": "30ab964c-7e8b-4470-86d2-f1dbabde30e2",
+      "persona_id": "SYN-P089",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:22.408554+00:00"
+    },
+    {
+      "id": "660de663-7043-4277-bd79-f3b6951719c7",
+      "persona_id": "SYN-P090",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:21.298005+00:00"
+    },
+    {
+      "id": "017ccac4-62a5-4d92-a475-9f36a4a12950",
+      "persona_id": "SYN-P091",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:46.189737+00:00"
+    },
+    {
+      "id": "e32824c0-244c-4988-8b39-1fb9ba02c806",
+      "persona_id": "SYN-P092",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:48.134188+00:00"
+    },
+    {
+      "id": "6d62df8a-d0a1-43b9-9f19-1596eef5be37",
+      "persona_id": "SYN-P093",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:09:59.889433+00:00"
+    },
+    {
+      "id": "a02e0d39-3943-4505-be24-a33c846529a0",
+      "persona_id": "SYN-P094",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:04.057245+00:00"
+    },
+    {
+      "id": "40a2e201-04bc-4761-ac39-f39df2b9c976",
+      "persona_id": "SYN-P095",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:20.059442+00:00"
+    },
+    {
+      "id": "20094572-d114-43ce-900d-ed9d7a05d5ac",
+      "persona_id": "SYN-P096",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:18.850172+00:00"
+    },
+    {
+      "id": "dd63a601-e37b-4134-887c-76a32a6fb4f3",
+      "persona_id": "SYN-P097",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:33.229421+00:00"
+    },
+    {
+      "id": "59edf397-8cd0-4188-928e-8dbddf2303c1",
+      "persona_id": "SYN-P098",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:30.869729+00:00"
+    },
+    {
+      "id": "bf148da6-4c32-43bf-bc57-eb57d8ed77c7",
+      "persona_id": "SYN-P099",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:48.895814+00:00"
+    },
+    {
+      "id": "4210ce95-e495-4b85-b77c-9197cfdba3a4",
+      "persona_id": "SYN-P100",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T02:10:48.823168+00:00"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "sessions": [
+    {
+      "persona_id": "SYN-P001",
+      "status": "completed",
+      "ai_session_id": "2105e948-5eb2-4fdc-bb73-163fdb06e4f9",
+      "proposal_ids": [
+        "594ae002-1126-4403-becb-b65512565d9f",
+        "3d70facd-d426-4a48-9c37-e3a6ca834b2d",
+        "daf98acc-af63-4b96-95d3-b1f9d384daee"
+      ],
+      "job_id": "fb813790-1a9c-4fac-b737-3ebfe8110c9d",
+      "email_sink_id": null,
+      "price_band": {
+        "lowAud": 7500,
+        "highAud": 9500
+      }
+    }
+  ],
+  "emails": [
+    {
+      "id": "c15bb3ce-50a8-480b-81ab-b568dc4d2543",
+      "persona_id": "SYN-P001",
+      "transport": "database-sink",
+      "transport_status": "captured",
+      "created_at": "2026-07-25T01:55:49.020195+00:00"
+    }
+  ]
+}

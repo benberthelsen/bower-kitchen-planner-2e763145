@@ -136,6 +136,63 @@ export function intersectWallLines(
   return { x: a1.x + t * dax, z: a1.z + t * daz };
 }
 
+// ─── Plane-detection assist ─────────────────────────────────────────────────
+// WebXR plane detection (ARCore) hands us detected wall planes. These pure
+// helpers turn a plane's polygon (projected to the floor) into a wall LINE,
+// and snap tapped points onto the nearest wall line or wall∩wall corner —
+// fixing the "tap lands near, not on, the wall" drift of raw hit-testing.
+
+export interface WallLine { a: XrCorner; b: XrCorner }
+
+/** Longest chord of a plane polygon projected to the plan — the wall line.
+ *  Returns null for fragments shorter than 0.4 m (noise planes). */
+export function dominantLine(pts: XrCorner[]): WallLine | null {
+  let best: WallLine | null = null;
+  let bestD = 0.4;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const d = Math.hypot(pts[i].x - pts[j].x, pts[i].z - pts[j].z);
+      if (d > bestD) { bestD = d; best = { a: pts[i], b: pts[j] }; }
+    }
+  }
+  return best;
+}
+
+function projectOntoLine(p: XrCorner, line: WallLine): { point: XrCorner; distM: number } {
+  const dx = line.b.x - line.a.x, dz = line.b.z - line.a.z;
+  const len2 = dx * dx + dz * dz;
+  let t = len2 > 0 ? ((p.x - line.a.x) * dx + (p.z - line.a.z) * dz) / len2 : 0;
+  // Allow a little slack past the detected extent — planes grow as ARCore
+  // refines them, and real walls extend beyond what is detected so far.
+  const len = Math.sqrt(len2);
+  const slack = len > 0 ? 0.5 / len : 0;
+  t = Math.max(-slack, Math.min(1 + slack, t));
+  const point = { x: line.a.x + t * dx, z: line.a.z + t * dz };
+  return { point, distM: Math.hypot(p.x - point.x, p.z - point.z) };
+}
+
+export interface PlaneSnap { point: XrCorner; kind: 'corner' | 'wall' | 'none' }
+
+/** Snap a tapped point onto detected wall geometry: the intersection of the
+ *  two nearest (sufficiently angled) walls when both are close — a corner —
+ *  else the nearest wall line, else the raw point. */
+export function snapToPlanes(p: XrCorner, lines: WallLine[], tolM = 0.3): PlaneSnap {
+  const near = lines
+    .map(line => ({ line, ...projectOntoLine(p, line) }))
+    .filter(h => h.distM <= tolM)
+    .sort((x, y) => x.distM - y.distM);
+  if (near.length >= 2) {
+    for (let j = 1; j < near.length; j++) {
+      const corner = intersectWallLines(near[0].line.a, near[0].line.b, near[j].line.a, near[j].line.b);
+      if (corner && Math.hypot(corner.x - p.x, corner.z - p.z) <= tolM * 1.5) {
+        return { point: corner, kind: 'corner' };
+      }
+    }
+  }
+  if (near.length >= 1) return { point: near[0].point, kind: 'wall' };
+  return { point: p, kind: 'none' };
+}
+
 // ─── Rectilinear L-shape fit ────────────────────────────────────────────────
 
 /** 1-D clustering: sorted values grouped when within tol of the group mean. */
