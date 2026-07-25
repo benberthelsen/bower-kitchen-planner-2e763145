@@ -1195,7 +1195,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         // Server-side proposal lineage: staff promotion (promote-ai-design)
         // verifies the submitted spec against this stored proposal row.
         aiProposalId: state.design?.proposalId ?? null,
-        priceBand: { low, high, source: band.isBomBacked ? 'bom' : 'estimator' },
+        priceBand: { low, high, source: stored ? 'proposal' : (band.isBomBacked ? 'bom' : 'estimator') },
         roomScan: scanParse.data,
         buildNotes,
       };
