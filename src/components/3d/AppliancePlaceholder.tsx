@@ -169,14 +169,12 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM, heightM * 0.4, depthM * 0.8]} />
         </mesh>
         {/* Chimney/flue */}
-        <mesh position={[0, heightM * 0.35, -depthM * 0.2]}>
+        <mesh position={[0, heightM * 0.35, -depthM * 0.2]} material={stainlessMat}>
           <boxGeometry args={[widthM * 0.4, heightM * 0.5, depthM * 0.3]} />
-          <meshStandardMaterial color="#d4d4d8" metalness={0.5} roughness={0.3} />
         </mesh>
         {/* Filter grille */}
-        <mesh position={[0, -heightM * 0.15, depthM * 0.15]}>
+        <mesh position={[0, -heightM * 0.15, depthM * 0.15]} material={stainlessMat}>
           <boxGeometry args={[widthM - 0.04, 0.01, depthM * 0.5]} />
-          <meshStandardMaterial color="#a1a1aa" metalness={0.7} roughness={0.2} />
         </mesh>
         {/* Light indicators */}
         <mesh position={[-widthM * 0.25, -heightM * 0.12, depthM * 0.3]}>
