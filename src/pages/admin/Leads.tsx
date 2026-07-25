@@ -64,6 +64,7 @@ export default function AdminLeads() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [showSynthetic, setShowSynthetic] = useState(false);
 
   useEffect(() => { loadLeads(); }, []);
 
@@ -145,8 +146,9 @@ export default function AdminLeads() {
   };
 
   const filtered = leads.filter(l =>
-    l.name.toLowerCase().includes(search.toLowerCase()) ||
-    (l.notes ?? '').toLowerCase().includes(search.toLowerCase()),
+    (showSynthetic || !l.is_synthetic_test) &&
+    (l.name.toLowerCase().includes(search.toLowerCase()) ||
+      (l.notes ?? '').toLowerCase().includes(search.toLowerCase())),
   );
 
   const dd = (lead: Lead) => lead.design_data as Record<string, unknown> | null;
