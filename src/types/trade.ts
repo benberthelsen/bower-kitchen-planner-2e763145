@@ -95,6 +95,9 @@ export interface ConfiguredCabinet {
     category: string;
     unitPrice: number;
     isPlaceholderPrice: boolean;
+    modelUrl?: string | null;
+    modelIosUrl?: string | null;
+    finish?: string | null;
   };
   /** Include this appliance in the quote (default true when priced) */
   supplyWithOrder?: boolean;

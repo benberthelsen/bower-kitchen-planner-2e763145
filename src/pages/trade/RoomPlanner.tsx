@@ -473,6 +473,9 @@ export default function RoomPlanner() {
             category: applianceProduct.category,
             unitPrice: applianceUnitPrice,
             isPlaceholderPrice: applianceProduct.price_is_placeholder ?? true,
+            modelUrl: applianceProduct.model_url ?? null,
+            modelIosUrl: applianceProduct.model_ios_url ?? null,
+            finish: applianceProduct.finish ?? null,
           },
           supplyWithOrder: applianceUnitPrice > 0,
         }

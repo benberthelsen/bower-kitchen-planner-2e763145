@@ -215,6 +215,13 @@ export function UnifiedCatalog({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [draggedProduct, setDraggedProduct] = useState<string | null>(null);
+  // Per-product Apple Quick Look shows only on iOS (rel="ar" is a no-op elsewhere).
+  const isIOSDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    return /Mac/.test(ua) && (navigator as any).maxTouchPoints > 1;
+  }, []);
 
   const isTrade = userType === 'trade' || userType === 'admin';
 
@@ -300,6 +307,9 @@ export function UnifiedCatalog({
   const renderProductRow = (product: ExtendedCatalogItem) => {
     const isSelected = placementItemId === product.id;
     const isFav = favorites.has(product.id);
+    const ap = product.applianceProduct;
+    const iosUrl = ap?.model_ios_url ?? null;
+    const showQuickLook = !!ap && isIOSDevice;
     return (
       <div
         key={product.id}
@@ -325,6 +335,27 @@ export function UnifiedCatalog({
             {product.defaultWidth} × {product.defaultDepth}mm
           </p>
           <CabinetTypeIndicators item={product} />
+          {showQuickLook && (
+            iosUrl ? (
+              <a
+                rel="ar"
+                href={iosUrl}
+                onClick={(e) => e.stopPropagation()}
+                className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                title="View this appliance in AR (Apple Quick Look)"
+              >
+                <img alt="" src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/%3E" className="w-2.5 h-2.5" />
+                View in AR
+              </a>
+            ) : (
+              <span
+                className="mt-1 inline-block text-[10px] text-muted-foreground/70"
+                title="3D file not available for this product yet"
+              >
+                AR file not available
+              </span>
+            )
+          )}
         </div>
         <div className="flex flex-col items-center gap-1 flex-shrink-0">
           {/* Star: add/remove from the user's own Quick Picks list */}

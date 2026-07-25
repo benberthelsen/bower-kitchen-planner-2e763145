@@ -296,7 +296,28 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         <Button
           variant="outline"
           className="w-full h-10 border-slate-300 text-slate-700"
-          onClick={() => {
+          onClick={async () => {
+            // iOS → generate a USDZ and open Apple Quick Look inline.
+            // Android/other → existing WebXR flow at /wizard/view-ar.
+            const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+            const iOS = /iPad|iPhone|iPod/.test(ua) || (/Mac/.test(ua) && (navigator as any).maxTouchPoints > 1);
+            if (iOS) {
+              const t = toast.loading('Preparing your kitchen for AR…');
+              try {
+                const { exportSceneUsdz, openQuickLook } = await import('@/lib/ar/exportSceneUsdz');
+                const blob = await exportSceneUsdz(compiled.items, {
+                  onProgress: (m) => toast.loading(m, { id: t }),
+                });
+                const url = URL.createObjectURL(blob);
+                toast.dismiss(t);
+                openQuickLook(url);
+                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+              } catch (e) {
+                toast.dismiss(t);
+                toast.error("Couldn't build the AR file — try again in a moment.");
+              }
+              return;
+            }
             try {
               sessionStorage.setItem(VIEW_AR_KEY, JSON.stringify({
                 version: 1,
