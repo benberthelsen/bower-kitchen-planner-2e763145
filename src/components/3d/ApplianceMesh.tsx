@@ -39,7 +39,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const handleSelect = onSelect;
   const handleDragStart = onDragStart;
 
-  const def = useCatalogItem(item.definitionId);
+  const { item: def, loading: catalogLoading } = useCatalogItem(item.definitionId);
   const [hovered, setHovered] = useState(false);
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
@@ -66,7 +66,23 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
     return new THREE.TubeGeometry(curve, 24, 0.012, 12, false);
   }, []);
 
-  if (!def) return null;
+  // While the catalog definition is still loading, render a neutral placeholder
+  // box sized from the item's own dimensions so the appliance doesn't pop in
+  // when the definition finally resolves. Only return null when loading is
+  // truly complete AND the definition doesn't exist.
+  if (!def) {
+    if (!catalogLoading) return null;
+    const wM = item.width / 1000, hM = item.height / 1000, dM = item.depth / 1000;
+    let placeholderY = (item.y / 1000) + (hM / 2);
+    return (
+      <group position={[item.x / 1000, placeholderY, item.z / 1000]} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} userData={{ itemId: item.instanceId }}>
+        <mesh>
+          <boxGeometry args={[wM, hM, dM]} />
+          <meshStandardMaterial color="#c9cdd2" roughness={0.7} metalness={0.05} />
+        </mesh>
+      </group>
+    );
+  }
 
   const widthM = item.width / 1000;
   const heightM = item.height / 1000;
