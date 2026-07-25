@@ -675,7 +675,7 @@ export default function ScanRoom() {
           {previewScan && (
             <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-3 space-y-2">
               <p className="text-sm font-medium text-emerald-900">
-                Detected: {previewScan.summary.walls} walls · {previewScan.summary.doors} door
+                Detected: {previewScan.summary.walls} wall surface{previewScan.summary.walls === 1 ? '' : 's'} · {previewScan.summary.doors} door
                 {previewScan.summary.doors === 1 ? '' : 's'} · {previewScan.summary.windows} window
                 {previewScan.summary.windows === 1 ? '' : 's'}
                 {previewScan.summary.walkways > 0 ? ` · ${previewScan.summary.walkways} walkway${previewScan.summary.walkways === 1 ? '' : 's'}` : ''}
@@ -684,6 +684,7 @@ export default function ScanRoom() {
                 Room: {(previewScan.scan.room.width / 1000).toFixed(2)} m ×{' '}
                 {(previewScan.scan.room.depth / 1000).toFixed(2)} m ·
                 ceiling {(previewScan.summary.heightMm / 1000).toFixed(2)} m
+                {previewScan.summary.walls > 4 ? ' · imported as a rectangular room' : ''}
               </p>
               <div className="flex gap-2 pt-1">
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={commitPreview}>

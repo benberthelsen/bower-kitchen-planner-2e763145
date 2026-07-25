@@ -150,9 +150,11 @@ const ApplianceModel: React.FC<Props> = (props) => {
 
   const fallback = <ApplianceMesh {...props} />;
   if (!url) return fallback;
-  // While the catalog definition is loading, don't render nothing (visible
-  // pop-in). Show the procedural mesh; the GLB layers in when both are ready.
-  if (!def) return fallback;
+  // If we have a resolved GLB URL and the item's own dimensions, render it
+  // even when the catalog definition is still loading — the model doesn't
+  // need `def` to be scaled and placed. Only fall through to nothing when
+  // there's neither a model nor a definition (handled inside ApplianceMesh).
+  void def;
 
   const widthM = item.width / 1000;
   const heightM = item.height / 1000;

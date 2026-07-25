@@ -108,7 +108,7 @@ export default function ViewInRoomAr() {
       let triUsed = 0;
       const simplified: string[] = [];
 
-      type UpgradeSlot = { placeholder: THREE.Mesh; item: PlacedItem; url: string };
+      type UpgradeSlot = { placeholder: THREE.Mesh; item: PlacedItem };
       const upgrades: UpgradeSlot[] = [];
 
       for (const item of payload.items) {
@@ -129,8 +129,10 @@ export default function ViewInRoomAr() {
         group.add(box);
         triUsed += 12;
 
-        const modelUrl = isAppliance ? resolveApplianceModelUrl(item, applianceProductsRef.current) : null;
-        if (modelUrl && triUsed < TRI_BUDGET) upgrades.push({ placeholder: box, item, url: modelUrl });
+        // Queue every appliance for a possible GLB upgrade — URL resolution
+        // is deferred to the loader loop so items placed before their GLB
+        // was uploaded (or before the catalog resolves) can still upgrade.
+        if (isAppliance && triUsed < TRI_BUDGET) upgrades.push({ placeholder: box, item });
       }
 
       // Best-effort GLB upgrades — never blocks entry to AR.
@@ -140,9 +142,17 @@ export default function ViewInRoomAr() {
             const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
             const loader = new GLTFLoader();
             configureApplianceGltfLoader(loader);
+            // Poll briefly for the appliance catalog to resolve so cold-cache
+            // launches don't silently skip every model URL.
+            const deadline = Date.now() + 5000;
+            while (!applianceProductsRef.current?.length && Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 100));
+            }
             for (const slot of upgrades) {
+              const url = resolveApplianceModelUrl(slot.item, applianceProductsRef.current);
+              if (!url) continue;
               try {
-                const gltf = await loader.loadAsync(slot.url);
+                const gltf = await loader.loadAsync(url);
                 const scene3 = gltf.scene;
                 // Rough tri count for this model.
                 let tri = 0;
@@ -168,16 +178,25 @@ export default function ViewInRoomAr() {
                 const sx = size.x > 1e-4 ? targetW / size.x : 1;
                 const sy = size.y > 1e-4 ? targetH / size.y : 1;
                 const sz = size.z > 1e-4 ? targetD / size.z : 1;
-                scene3.scale.set(sx, sy, sz);
                 const cx2 = (bbox.min.x + bbox.max.x) / 2;
                 const cz2 = (bbox.min.z + bbox.max.z) / 2;
-                scene3.position.set(
-                  slot.placeholder.position.x - cx2 * sx,
-                  slot.placeholder.position.y - (bbox.min.y + bbox.max.y) / 2 * sy,
-                  slot.placeholder.position.z - cz2 * sz,
-                );
-                scene3.rotation.set(0, -THREE.MathUtils.degToRad(slot.item.rotation), 0);
-                group.add(scene3);
+                const baseY = bbox.min.y;
+
+                // Mirror the planner's transform order (see GlbInner in
+                // ApplianceModel.tsx): centring offset on a CHILD group so
+                // it's applied BEFORE the parent's rotation. Otherwise a
+                // rotated appliance with an off-origin GLB lands beside its
+                // cabinet run instead of in it.
+                scene3.position.set(-cx2 * sx, -baseY * sy, -cz2 * sz);
+                scene3.scale.set(sx, sy, sz);
+                const wrapper = new THREE.Group();
+                wrapper.position.copy(slot.placeholder.position);
+                // The placeholder box uses centre-Y; the offset above puts
+                // the GLB's floor at wrapper Y, so drop the wrapper by h/2.
+                wrapper.position.y -= slot.item.height / 2000;
+                wrapper.rotation.set(0, -THREE.MathUtils.degToRad(slot.item.rotation), 0);
+                wrapper.add(scene3);
+                group.add(wrapper);
                 group.remove(slot.placeholder);
                 slot.placeholder.geometry.dispose();
               } catch {
@@ -193,6 +212,7 @@ export default function ViewInRoomAr() {
           }
         })();
       }
+
 
       groupRef.current = group;
       scene.add(group);
