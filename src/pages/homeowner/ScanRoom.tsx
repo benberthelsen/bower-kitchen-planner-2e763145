@@ -627,7 +627,7 @@ export default function ScanRoom() {
                 Uses Apple's room-scanning technology. Walk the room once and it
                 detects the walls, doors and windows automatically — no tapping.
                 Scan with a RoomPlan-compatible app, export the JSON file and
-                import it here. The most accurate option.
+                import it here. Typically the most detailed capture.
               </p>
             </div>
             <p className="text-slate-500 text-xs">
