@@ -347,6 +347,13 @@ export function generateQuoteBOM(
   const benchtopInstall = benchtops.reduce((s, b) => s + b.installCost, 0);
   const benchtopTotal = benchtopSupply + benchtopInstall;
 
+  // -- Appliances (Stage 1, additive) ----------------------------------------
+  // Purely additive: when no items are opted in, applianceItems is [] and the
+  // total is 0 -- byte-identical with pre-Stage-1 outputs.
+  const applianceItems = buildApplianceLineItems(items, pricingData, commercial);
+  const appliancesTotal = applianceItems.reduce((s, a) => s + a.lineTotal, 0);
+  const hasPlaceholderAppliancePrices = applianceItems.some(a => a.isPlaceholderPrice);
+
   // Category cost totals (cost = ex commercial, ex GST).
   const matTotal = consolidatedSheets.reduce((s, sh) => s + sh.totalMaterialCost, 0);
   const edgeTotal = consolidatedEdgeTape.reduce((s, e) => s + e.totalCost, 0);
@@ -358,7 +365,7 @@ export function generateQuoteBOM(
 
   // Cost -> commercial layers -> sell price. Defaults are pass-through.
   const cabinetCost = cabinets.reduce((s, c) => s + c.totalCost, 0);
-  const cost = cabinetCost + benchtopTotal;
+  const cost = cabinetCost + benchtopTotal + appliancesTotal;
   const marginPct = commercial.marginPct ?? 0;
   const designFeePct = commercial.designFeePct ?? 0;
   const deliveryFlat = commercial.deliveryFlat ?? 0;
@@ -389,6 +396,7 @@ export function generateQuoteBOM(
     ...consolidatedSheets
       .filter(s => s.unresolved)
       .map(s => `Material "${s.materialId}" has no priced match — board line priced at $0`),
+    ...(hasPlaceholderAppliancePrices ? ['Appliance prices to be confirmed'] : []),
   ]));
 
   return {
@@ -398,6 +406,7 @@ export function generateQuoteBOM(
     consolidatedEdgeTape,
     consolidatedHardware,
     benchtops,
+    applianceItems,
     grandTotal: {
       materials: matTotal,
       edging: edgeTotal,
@@ -409,6 +418,8 @@ export function generateQuoteBOM(
       benchtopSupply,
       benchtopInstall,
       benchtop: benchtopTotal,
+      appliances: appliancesTotal,
+      hasPlaceholderAppliancePrices,
       cost,
       margin,
       designFee,
@@ -427,5 +438,51 @@ export function generateQuoteBOM(
       cost: cabinets.reduce((s, c) => s + c.buildHours.cost, 0)
     }
   };
+}
+
+/**
+ * Stage 1 — collect appliance line items from items placed via the catalog.
+ * Groups identical productIds into a single quantity>1 row. Ignores items
+ * that opt out (`supplyWithOrder === false`) or that have no price.
+ */
+function buildApplianceLineItems(
+  items: PlacedItem[],
+  pricingData: PricingData,
+  commercial: CommercialOptions,
+): ApplianceLineItem[] {
+  const applianceMargin = 1 + (commercial.applianceMarginPct ?? 0);
+  const byProduct = new Map<string, ApplianceLineItem>();
+  for (const item of items) {
+    if (!item.applianceProductId) continue;
+    if (item.supplyWithOrder === false) continue;
+    const snapshot = item.applianceSnapshot;
+    const dbRow = pricingData.appliances?.find(a => a.id === item.applianceProductId);
+    // Snapshot wins for stability. Fall back to live catalog row.
+    const name = snapshot?.name ?? dbRow?.name;
+    if (!name) continue;
+    const unitPriceRaw = snapshot?.unitPrice
+      ?? dbRow?.installed_price ?? dbRow?.sell_price ?? dbRow?.rrp ?? 0;
+    if (unitPriceRaw <= 0) continue;
+    const unitPrice = unitPriceRaw * applianceMargin;
+    const isPlaceholder = snapshot?.isPlaceholderPrice ?? dbRow?.price_is_placeholder ?? true;
+    const key = item.applianceProductId;
+    const existing = byProduct.get(key);
+    if (existing) {
+      existing.quantity += 1;
+      existing.lineTotal = existing.quantity * existing.unitPrice;
+    } else {
+      byProduct.set(key, {
+        productId: item.applianceProductId,
+        itemCode: snapshot?.itemCode ?? dbRow?.item_code ?? null,
+        name,
+        category: snapshot?.category ?? dbRow?.category ?? 'other',
+        quantity: 1,
+        unitPrice,
+        lineTotal: unitPrice,
+        isPlaceholderPrice: isPlaceholder,
+      });
+    }
+  }
+  return Array.from(byProduct.values());
 }
   
