@@ -56,7 +56,7 @@ export default function MaterialPricing() {
       toast.error("Failed to load material pricing");
       console.error(error);
     } else {
-      setMaterials(data || []);
+      setMaterials((data || []) as any);
     }
     setLoading(false);
   };
