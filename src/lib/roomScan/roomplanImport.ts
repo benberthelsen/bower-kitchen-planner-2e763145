@@ -233,7 +233,7 @@ export function importRoomPlanJson(
 
   const parsed = parseRoomScan(candidate);
   if ('reason' in parsed) return { ok: false, reason: parsed.reason };
-  return { ok: true, scan: parsed.scan, warnings };
+  return { ok: true, scan: parsed.scan, warnings, walls: walls.length };
 }
 
 /** Convenience: parse a file's text content. */
