@@ -256,9 +256,14 @@ interface SharePayloadV1 {
     island: WizardState['island'];
   };
   styleWords?: string;
+  /** Finish/benchtop/handle so a shared design renders and re-prices with the
+   *  sender's style, not the recipient's defaults. */
+  style?: { finishId: string; benchtopId: string; handleId: string };
   /** proposalId is deliberately NOT shared — the recipient regenerates before
-   *  chat-refining; the spec itself is the portable source of truth. */
-  design?: { name: string; spec: KitchenSpec; aiGenerated: boolean } | null;
+   *  chat-refining; the spec itself is the portable source of truth. The
+   *  priceBand IS shared so the recipient sees the sender's canonical band
+   *  for this design (rather than a locally recomputed number). */
+  design?: { name: string; spec: KitchenSpec; aiGenerated: boolean; priceBand?: { lowAud: number; highAud: number } } | null;
 }
 
 const MAX_SHARE_ENCODED_CHARS = 6000;
