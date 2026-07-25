@@ -82,6 +82,12 @@ export interface PlacedItem {
     category: string;
     unitPrice: number;
     isPlaceholderPrice: boolean;
+    /** Stage 2 — GLB URL for real 3D rendering (planner / Android AR). */
+    modelUrl?: string | null;
+    /** Stage 2 — USDZ URL for Apple Quick Look per-product AR. */
+    modelIosUrl?: string | null;
+    /** Stage 2 — surface finish hint for procedural fallback (e.g. 'stainless'). */
+    finish?: string | null;
   };
   /** Default true when the product has a price. If false, appliance is
    *  opening-only (client supplies) and NOT priced into the quote. */
