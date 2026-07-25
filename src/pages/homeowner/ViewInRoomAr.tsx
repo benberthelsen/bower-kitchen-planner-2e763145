@@ -89,10 +89,9 @@ export default function ViewInRoomAr() {
     setError(null);
     tapsRef.current = [];
     setTaps(0);
-    // A previous session's loop (if any) is now abandoned — signal it and
-    // reset the flag for the new session's loop below.
-    abortedRef.current = true;
-    abortedRef.current = false;
+    // Bump the session id so any previous session's upgrade loop bails out
+    // on its next abort check. Capture the new id for this session's loop.
+    const mySessionId = ++sessionIdRef.current;
     try {
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.xr.enabled = true;
