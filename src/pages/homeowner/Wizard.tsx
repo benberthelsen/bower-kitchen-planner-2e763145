@@ -917,6 +917,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
             return (
             <button
               key={id}
+              aria-pressed={state.layoutPreference === id}
               onClick={() => compatible && onChange({ layoutPreference: id })}
               disabled={!compatible}
               className={cn(
