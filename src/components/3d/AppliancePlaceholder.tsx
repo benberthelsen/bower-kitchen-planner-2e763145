@@ -79,19 +79,16 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
           <boxGeometry args={[widthM, heightM, depthM]} />
         </mesh>
         {/* Door line */}
-        <mesh position={[0, 0, depthM / 2 + 0.001]}>
+        <mesh position={[0, 0, depthM / 2 + 0.001]} material={stainlessMat}>
           <planeGeometry args={[0.002, heightM - 0.05]} />
-          <meshBasicMaterial color="#71717a" />
         </mesh>
         {/* Handle */}
-        <mesh position={[-widthM / 2 + 0.05, 0, depthM / 2 + 0.015]}>
+        <mesh position={[-widthM / 2 + 0.05, 0, depthM / 2 + 0.015]} material={handleMat}>
           <boxGeometry args={[0.02, 0.3, 0.02]} />
-          <meshStandardMaterial color="#52525b" metalness={0.8} roughness={0.2} />
         </mesh>
         {/* Ice dispenser area */}
-        <mesh position={[0, heightM * 0.2, depthM / 2 + 0.005]}>
+        <mesh position={[0, heightM * 0.2, depthM / 2 + 0.005]} material={darkTrimMat}>
           <boxGeometry args={[widthM * 0.3, 0.15, 0.01]} />
-          <meshStandardMaterial color="#27272a" roughness={0.5} />
         </mesh>
         {renderLabel()}
       </group>
