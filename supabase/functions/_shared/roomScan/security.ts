@@ -45,7 +45,7 @@ export function corsHeaders(req: Request): Record<string, string> {
   const headers: Record<string, string> = { ...SECURITY_HEADERS, Vary: 'Origin' };
   if (origin && allowedOrigins().includes(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;
-    headers['Access-Control-Allow-Headers'] = 'authorization, x-client-info, apikey, content-type';
+    headers['Access-Control-Allow-Headers'] = 'authorization, x-client-info, apikey, content-type, x-bower-synthetic-secret';
     headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
   }
   return headers;

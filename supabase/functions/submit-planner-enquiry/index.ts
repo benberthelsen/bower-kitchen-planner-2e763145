@@ -25,6 +25,10 @@ import {
   readJsonBody,
   sha256Hex,
 } from '../_shared/roomScan/security.ts';
+import {
+  parseSyntheticTestContext,
+  type SyntheticTestContext,
+} from '../_shared/syntheticTest.ts';
 
 type JobInput = {
   name: string;
@@ -58,9 +62,19 @@ serve(async (req) => {
   if (gated) return gated;
 
   const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const body = await readJsonBody(req);
+  if (body instanceof Response) return body;
+  let syntheticTest: SyntheticTestContext | null;
+  try {
+    syntheticTest = parseSyntheticTestContext(req, body);
+  } catch {
+    logOutcome('submit-planner-enquiry', rid, 'invalid_synthetic_test', started);
+    return errorResponse(req, 403, 'invalid_synthetic_test');
+  }
+
   const rateKey = `submit-planner-enquiry:${await ipKey(req)}`;
-  let throttled = rateLimited(rateKey, 20);
-  if (!throttled) {
+  let throttled = syntheticTest ? false : rateLimited(rateKey, 20);
+  if (!syntheticTest && !throttled) {
     const { data: allowed, error: rateError } = await service.rpc('bump_edge_rate_limit_v1', {
       p_key: rateKey,
       p_limit: 20,
@@ -79,8 +93,6 @@ serve(async (req) => {
     return errorResponse(req, 429, 'rate_limited');
   }
 
-  const body = await readJsonBody(req);
-  if (body instanceof Response) return body;
   const { submissionKey, handoffId, token, job } = (body ?? {}) as Record<string, unknown>;
 
   if (!isUuid(submissionKey)) return errorResponse(req, 400, 'invalid_submission');
@@ -106,12 +118,21 @@ serve(async (req) => {
   const fingerprint = await fingerprintV1({ job: validJob, handoffId: (handoffId as string) ?? null });
   const tokenHash = typeof token === 'string' ? await sha256Hex(token) : null;
 
-  const { data, error } = await service.rpc('submit_planner_enquiry_v1', {
+  const rpcName = syntheticTest
+    ? 'submit_planner_enquiry_v2'
+    : 'submit_planner_enquiry_v1';
+  const { data, error } = await service.rpc(rpcName, {
     p_submission_key: submissionKey,
     p_fingerprint: fingerprint,
     p_job: validJob,
     p_handoff_id: (handoffId as string) ?? null,
     p_token_hash: tokenHash,
+    ...(syntheticTest
+      ? {
+        p_test_run_id: syntheticTest.testRunId,
+        p_persona_id: syntheticTest.personaId,
+      }
+      : {}),
   });
 
   if (error) {
@@ -157,6 +178,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           type: 'new_lead',
+          ...(syntheticTest ? { syntheticTest } : {}),
           payload: {
             contact_name: grab('Contact') || validJob.name,
             contact_email: grab('Email'),
@@ -175,5 +197,8 @@ serve(async (req) => {
   }
 
   logOutcome('submit-planner-enquiry', rid, 'ok', started);
-  return jsonResponse(req, 200, data);
+  return jsonResponse(req, 200, {
+    ...(data as Record<string, unknown>),
+    ...(syntheticTest ? { syntheticTest: { ...syntheticTest, isSyntheticTest: true } } : {}),
+  });
 });

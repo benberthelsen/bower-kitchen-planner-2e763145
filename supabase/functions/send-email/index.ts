@@ -22,6 +22,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, jsonResponse, readJsonBody } from '../_shared/roomScan/security.ts';
+import { validateSyntheticTestContext, type SyntheticTestContext } from '../_shared/syntheticTest.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -34,6 +35,7 @@ type EmailType = 'new_lead' | 'quote_confirmed' | 'job_status_change';
 interface EmailRequest {
   type: EmailType;
   payload: Record<string, unknown>;
+  syntheticTest?: SyntheticTestContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +109,90 @@ async function sendViaResend(opts: {
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Resend API error ${res.status}: ${body}`);
+  }
+}
+
+async function sendViaMailtrap(opts: {
+  to: string[];
+  subject: string;
+  html: string;
+}): Promise<{ messageId?: string }> {
+  const token = env('MAILTRAP_API_TOKEN');
+  const inboxId = env('MAILTRAP_INBOX_ID');
+  const res = await fetch(`https://sandbox.api.mailtrap.io/api/send/${encodeURIComponent(inboxId)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Api-Token': token,
+    },
+    body: JSON.stringify({
+      from: { email: 'synthetic@bower.test', name: 'Bower Synthetic Test' },
+      to: opts.to.map(email => ({ email })),
+      subject: opts.subject,
+      html: opts.html,
+      category: 'synthetic-usability-test',
+    }),
+  });
+  const responseBody = await res.text();
+  if (!res.ok) throw new Error(`Mailtrap sandbox error ${res.status}: ${responseBody.slice(0, 500)}`);
+  try {
+    const parsed = JSON.parse(responseBody) as { message_ids?: string[] };
+    return { messageId: parsed.message_ids?.[0] };
+  } catch {
+    return {};
+  }
+}
+
+async function captureSyntheticEmail(
+  service: ReturnType<typeof createClient>,
+  syntheticTest: SyntheticTestContext,
+  type: EmailType,
+  payload: Record<string, unknown>,
+  subject: string,
+  html: string,
+): Promise<{ sinkId: string; transport: 'database-sink' | 'mailtrap'; status: string }> {
+  const recipient = `${syntheticTest.personaId.toLowerCase()}@synthetic.bower.test`;
+  const mailtrapConfigured = Boolean(Deno.env.get('MAILTRAP_API_TOKEN') && Deno.env.get('MAILTRAP_INBOX_ID'));
+  const { data: sink, error: insertError } = await service
+    .from('synthetic_email_sink')
+    .insert({
+      test_run_id: syntheticTest.testRunId,
+      persona_id: syntheticTest.personaId,
+      message_type: type,
+      envelope_to: [recipient],
+      subject,
+      html,
+      source_payload: payload,
+      transport: mailtrapConfigured ? 'mailtrap' : 'database-sink',
+      transport_status: 'captured',
+    })
+    .select('id')
+    .single();
+  if (insertError || !sink?.id) throw new Error('synthetic_email_sink_failed');
+
+  if (!mailtrapConfigured) {
+    return { sinkId: sink.id, transport: 'database-sink', status: 'captured' };
+  }
+
+  try {
+    const delivered = await sendViaMailtrap({ to: [recipient], subject, html });
+    await service
+      .from('synthetic_email_sink')
+      .update({
+        transport_status: 'delivered-to-sandbox',
+        transport_message_id: delivered.messageId ?? null,
+      })
+      .eq('id', sink.id);
+    return { sinkId: sink.id, transport: 'mailtrap', status: 'delivered-to-sandbox' };
+  } catch (error) {
+    await service
+      .from('synthetic_email_sink')
+      .update({
+        transport_status: 'sandbox-error',
+        transport_error: String(error).slice(0, 1000),
+      })
+      .eq('id', sink.id);
+    throw error;
   }
 }
 
@@ -277,9 +363,15 @@ serve(async (req: Request) => {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       return jsonResponse(req, 400, { error: 'invalid_email_request' });
     }
-    const { type, payload } = body as Partial<EmailRequest>;
+    const { type, payload, syntheticTest: rawSyntheticTest } = body as Partial<EmailRequest>;
     if (!type || typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
       return jsonResponse(req, 400, { error: 'invalid_email_request' });
+    }
+    const syntheticTest = rawSyntheticTest === undefined
+      ? null
+      : validateSyntheticTestContext(rawSyntheticTest);
+    if (rawSyntheticTest !== undefined && (!isService || !syntheticTest)) {
+      return jsonResponse(req, 403, { error: 'invalid_synthetic_test' });
     }
 
     let to: string | string[];
@@ -290,7 +382,9 @@ serve(async (req: Request) => {
       case 'new_lead': {
         // Fixed recipient — never from the payload.
         if (!isService) return jsonResponse(req, 403, { error: 'not_authorized' });
-        to = env('ADMIN_EMAIL');
+        to = syntheticTest
+          ? `${syntheticTest.personaId.toLowerCase()}@synthetic.bower.test`
+          : env('ADMIN_EMAIL');
         ({ subject, html } = tplNewLead(payload));
         break;
       }
@@ -310,6 +404,12 @@ serve(async (req: Request) => {
       }
       default:
         throw new Error(`Unknown email type: ${type}`);
+    }
+
+    if (syntheticTest) {
+      const service = createClient(supabaseUrl, serviceRoleKey);
+      const captured = await captureSyntheticEmail(service, syntheticTest, type, payload, subject, html);
+      return jsonResponse(req, 200, { ok: true, synthetic: true, ...captured });
     }
 
     await sendViaResend({ to, subject, html });

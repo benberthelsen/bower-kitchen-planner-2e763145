@@ -47,6 +47,10 @@ import {
 // Material catalogs live in the merged core module (src/types.ts + constants.ts),
 // which index.ts does not re-export — import them directly to avoid a boot crash.
 import { FINISH_OPTIONS, BENCHTOP_OPTIONS, HANDLE_OPTIONS } from '../_shared/layout/core.ts';
+import {
+  parseSyntheticTestContext,
+  type SyntheticTestContext,
+} from '../_shared/syntheticTest.ts';
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = Deno.env.get('OPENAI_MODEL') ?? 'gpt-5.6-terra';
@@ -137,6 +141,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function preparePersistenceContext(
   service: ServiceClient,
   request: AiDesignerRequestInput,
+  syntheticTest: SyntheticTestContext | null,
 ): Promise<PersistenceContext> {
   const briefFingerprint = await fingerprintV1(request.brief);
   const roomFingerprint = await fingerprintV1(request.brief.room);
@@ -145,13 +150,22 @@ async function preparePersistenceContext(
     const publicToken = generateToken();
     const tokenHash = await sha256Hex(publicToken);
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-    const { data, error } = await service.rpc('create_ai_designer_session_v1', {
+    const rpcName = syntheticTest
+      ? 'create_ai_designer_session_v2'
+      : 'create_ai_designer_session_v1';
+    const { data, error } = await service.rpc(rpcName, {
       p_token_hash: tokenHash,
       p_brief: request.brief,
       p_brief_fingerprint: briefFingerprint,
       p_room_fingerprint: roomFingerprint,
       p_expires_at: expiresAt,
       p_source: 'homeowner',
+      ...(syntheticTest
+        ? {
+          p_test_run_id: syntheticTest.testRunId,
+          p_persona_id: syntheticTest.personaId,
+        }
+        : {}),
     });
     if (error || !isRecord(data)
       || typeof data.sessionId !== 'string'
@@ -411,9 +425,19 @@ serve(async (req) => {
     // Durable shared rate limit (fixed hourly window in Postgres) with the
     // per-instance limiter retained as a fast path / fallback. The key is the
     // day-salted pseudonymous IP hash — raw IPs never leave the function.
+    const body = await readJsonBody(req);
+    if (body instanceof Response) return body;
+    let syntheticTest: SyntheticTestContext | null;
+    try {
+      syntheticTest = parseSyntheticTestContext(req, body);
+    } catch {
+      logOutcome('ai-designer', requestId, 'invalid_synthetic_test', started);
+      return errorResponse(req, 403, 'invalid_synthetic_test');
+    }
+
     const rateKey = `ai-designer:${await ipKey(req)}`;
-    let throttled = rateLimited(rateKey, 20);
-    if (!throttled) {
+    let throttled = syntheticTest ? false : rateLimited(rateKey, 20);
+    if (!syntheticTest && !throttled) {
       const { data: allowed, error: rateError } = await service
         .rpc('bump_edge_rate_limit_v1', { p_key: rateKey, p_limit: 20, p_window_seconds: 3600 });
       if (rateError) {
@@ -428,9 +452,13 @@ serve(async (req) => {
       return errorResponse(req, 429, 'rate_limited');
     }
 
-    const body = await readJsonBody(req);
-    if (body instanceof Response) return body;
-    const requestParsed = aiDesignerRequestSchema.safeParse(body);
+    const requestBody = typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? { ...(body as Record<string, unknown>) }
+      : body;
+    if (typeof requestBody === 'object' && requestBody !== null && !Array.isArray(requestBody)) {
+      delete (requestBody as Record<string, unknown>).syntheticTest;
+    }
+    const requestParsed = aiDesignerRequestSchema.safeParse(requestBody);
     if (!requestParsed.success) {
       logOutcome('ai-designer', requestId, 'invalid_request', started);
       return errorResponse(req, 400, 'invalid_designer_request');
@@ -441,7 +469,7 @@ serve(async (req) => {
       logOutcome('ai-designer', requestId, 'unsupported_l_shape', started);
       return errorResponse(req, 422, 'unsupported_l_shape');
     }
-    const persistence = await preparePersistenceContext(service, request);
+    const persistence = await preparePersistenceContext(service, request, syntheticTest);
 
     // Conversation state. The confirmed room remains immutable for the entire
     // request. Room edits are returned as proposals for user reconfirmation.
@@ -656,6 +684,7 @@ serve(async (req) => {
         promptVersion: PROMPT_VERSION,
         engineVersion: ENGINE_VERSION,
       },
+      ...(syntheticTest ? { syntheticTest: { ...syntheticTest, isSyntheticTest: true } } : {}),
     });
   } catch (err) {
     const code = err instanceof Error ? err.message : 'designer_failed';
@@ -666,6 +695,7 @@ serve(async (req) => {
       stale_brief_revision: 409,
       designer_persistence_unavailable: 503,
       designer_persistence_failed: 503,
+      invalid_synthetic_test: 403,
     };
     logOutcome('ai-designer', requestId, known[code] ? code : 'failed', started);
     if (!known[code]) console.error('[ai-designer]', err);

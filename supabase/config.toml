@@ -9,6 +9,11 @@ verify_jwt = false
 [functions.ai-designer]
 verify_jwt = false
 
+# Synthetic usability control is protected by a separate server-only secret.
+# It never accepts a public URL flag and has no browser-readable data policies.
+[functions.synthetic-test-control]
+verify_jwt = false
+
 # process-dxf-geometry now enforces an authenticated admin in-code for every
 # action (review #2), so require a JWT at the edge too. scheduled-supplier-import
 # stays open because pg_cron/pg_net invoke it with the service role, not a user JWT.
