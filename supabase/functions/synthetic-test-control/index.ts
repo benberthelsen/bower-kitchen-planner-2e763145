@@ -168,5 +168,29 @@ serve(async (req) => {
     return jsonResponse(req, 200, { ok: true, sessions, emails });
   }
 
+  if (action === 'get-design') {
+    const { data: session, error: sessionError } = await service
+      .from('synthetic_usability_sessions')
+      .select('selected_proposal_id')
+      .eq('test_run_id', syntheticTest.testRunId)
+      .eq('persona_id', syntheticTest.personaId)
+      .single();
+    if (sessionError || !session?.selected_proposal_id) {
+      return jsonResponse(req, 404, { error: 'design_not_found' });
+    }
+
+    const { data: proposal, error: proposalError } = await service
+      .from('ai_design_proposals')
+      .select('id,name,spec,compiled_items,price_band,violations,rationale,pricing_version,created_at')
+      .eq('id', session.selected_proposal_id)
+      .eq('test_run_id', syntheticTest.testRunId)
+      .eq('persona_id', syntheticTest.personaId)
+      .single();
+    if (proposalError || !proposal) {
+      return jsonResponse(req, 404, { error: 'design_not_found' });
+    }
+    return jsonResponse(req, 200, { ok: true, proposal });
+  }
+
   return jsonResponse(req, 400, { error: 'invalid_action' });
 });

@@ -11,6 +11,9 @@ const args = new Map(process.argv.slice(2).map((arg) => {
 const dryRun = args.has('--dry-run');
 const requireMailtrap = !args.has('--allow-database-sink-only');
 const maxPersonas = Math.min(100, Math.max(1, Number(args.get('--max-personas') ?? 100)));
+const personaIdFilter = args.get('--persona-id')
+  ? String(args.get('--persona-id')).toUpperCase()
+  : null;
 const testRunId = String(args.get('--test-run-id') ?? 'BOWER-UX-20260725-01').toUpperCase();
 const outputDir = path.resolve(String(args.get('--output-dir') ?? path.join('outputs', 'synthetic-usability', testRunId)));
 
@@ -370,7 +373,13 @@ async function runPersona(persona, config, priorResults) {
 }
 
 async function main() {
-  const personas = buildPersonas().slice(0, maxPersonas);
+  const allPersonas = buildPersonas();
+  const personas = personaIdFilter
+    ? allPersonas.filter(persona => persona.personaId === personaIdFilter)
+    : allPersonas.slice(0, maxPersonas);
+  if (personas.length === 0) {
+    throw new Error(`No persona matched --persona-id=${personaIdFilter}`);
+  }
   const results = [];
   await writeProgress(personas, results);
   if (dryRun) {
@@ -479,4 +488,3 @@ main().catch(error => {
   console.error(JSON.stringify({ event: 'run-stopped', error: String(error?.message ?? error), testRunId }));
   process.exitCode = 1;
 });
-
