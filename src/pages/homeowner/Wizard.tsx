@@ -1000,7 +1000,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
       {/* Quick styles */}
       <div className="space-y-3">
         <Label>Quick styles</Label>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="Quick styles">
           {STYLE_PRESETS.map(preset => {
             const active = state.finishId === preset.style.finishId
               && state.benchtopId === preset.style.benchtopId
@@ -1008,6 +1008,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
             return (
               <button
                 key={preset.id}
+                aria-pressed={active}
                 onClick={() => {
                   trackEvent('style_preset_applied', { preset: preset.id });
                   onChange({
@@ -1039,11 +1040,13 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           <Label>Door Colour</Label>
           <span className="text-sm text-slate-500">{selectedFinish.name}</span>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Door colour">
           {FINISH_OPTIONS.map(f => (
             <button
               key={f.id}
               title={f.name}
+              aria-label={f.name}
+              aria-pressed={state.finishId === f.id}
               onClick={() => onChange({ finishId: f.id })}
               className={cn(
                 'w-9 h-9 rounded-full border-2 transition-all shadow-sm',
@@ -1063,11 +1066,13 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           <Label>Benchtop</Label>
           <span className="text-sm text-slate-500">{selectedBenchtop.name}</span>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Benchtop">
           {BENCHTOP_OPTIONS.map(b => (
             <button
               key={b.id}
               title={b.name}
+              aria-label={b.name}
+              aria-pressed={state.benchtopId === b.id}
               onClick={() => onChange({ benchtopId: b.id })}
               className={cn(
                 'w-9 h-9 rounded-md border-2 transition-all shadow-sm',
@@ -1087,10 +1092,11 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           <Label>Handle Style</Label>
           <span className="text-sm text-slate-500">{selectedHandle.name}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Handle style">
           {HANDLE_OPTIONS.map(h => (
             <button
               key={h.id}
+              aria-pressed={state.handleId === h.id}
               onClick={() => onChange({ handleId: h.id })}
               className={cn(
                 'px-3 py-1.5 rounded-lg border-2 text-xs sm:text-sm transition-all',
@@ -1104,6 +1110,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           ))}
         </div>
       </div>
+
     </div>
   );
 }
