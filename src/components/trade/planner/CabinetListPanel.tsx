@@ -419,6 +419,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 interface CabinetDetailViewProps {
   cabinet: ConfiguredCabinet;
+  roomId: string;
   price?: number;
   flushWall: 'back' | 'left' | 'right' | 'front' | null;
   onBack: () => void;
@@ -428,7 +429,7 @@ interface CabinetDetailViewProps {
   onRemove: () => void;
 }
 
-function CabinetDetailView({ cabinet, price, flushWall, onBack, onEdit, onRotate, onDuplicate, onRemove }: CabinetDetailViewProps) {
+function CabinetDetailView({ cabinet, roomId, price, flushWall, onBack, onEdit, onRotate, onDuplicate, onRemove }: CabinetDetailViewProps) {
   const { updateCabinet } = useTradeRoom();
   const d = cabinet.dimensions;
   const m = cabinet.materials;
