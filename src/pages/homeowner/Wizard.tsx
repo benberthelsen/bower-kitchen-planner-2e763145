@@ -856,58 +856,36 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
 
       <Section n={1} title="Your room" subtitle="Rough sizes are fine to start — scan with your phone or type them in.">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="room-width">
-              Room width <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-width"
-              type="number"
-              inputMode="numeric"
-              min={1200}
-              max={8000}
-              step={100}
-              value={state.roomWidth}
-              onChange={e => onChange({ roomWidth: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">
-              {(state.roomWidth / 1000).toFixed(1)} m · typically 2.4–6 m
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="room-depth">
-              Room depth <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-depth"
-              type="number"
-              inputMode="numeric"
-              min={1200}
-              max={6000}
-              step={100}
-              value={state.roomDepth}
-              onChange={e => onChange({ roomDepth: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">{(state.roomDepth / 1000).toFixed(1)} m</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="room-height">
-              Ceiling height <span className="text-slate-400 font-normal">(mm)</span>
-            </Label>
-            <Input
-              id="room-height"
-              type="number"
-              inputMode="numeric"
-              min={2100}
-              max={4000}
-              step={50}
-              value={state.roomHeight}
-              onChange={e => onChange({ roomHeight: Number(e.target.value) })}
-            />
-            <p className="text-xs text-slate-400">{(state.roomHeight / 1000).toFixed(2)} m</p>
-          </div>
+          <RoomMmField
+            id="room-width"
+            label="Room width (mm)"
+            hint={`${(state.roomWidth / 1000).toFixed(1)} m · typically 2.4–6 m`}
+            value={state.roomWidth}
+            min={1200} max={8000} step={100}
+            invalidMessage="Enter 1200–8000 mm"
+            onCommit={v => onChange({ roomWidth: v })}
+            onInvalidChange={bad => setInvalidMap(m => m.w === bad ? m : { ...m, w: bad })}
+          />
+          <RoomMmField
+            id="room-depth"
+            label="Room depth (mm)"
+            hint={`${(state.roomDepth / 1000).toFixed(1)} m`}
+            value={state.roomDepth}
+            min={1200} max={6000} step={100}
+            invalidMessage="Enter 1200–6000 mm"
+            onCommit={v => onChange({ roomDepth: v })}
+            onInvalidChange={bad => setInvalidMap(m => m.d === bad ? m : { ...m, d: bad })}
+          />
+          <RoomMmField
+            id="room-height"
+            label="Ceiling height (mm)"
+            hint={`${(state.roomHeight / 1000).toFixed(2)} m`}
+            value={state.roomHeight}
+            min={2100} max={4000} step={50}
+            invalidMessage="Enter 2100–4000 mm"
+            onCommit={v => onChange({ roomHeight: v })}
+            onInvalidChange={bad => setInvalidMap(m => m.h === bad ? m : { ...m, h: bad })}
+          />
         </div>
         <div className="mt-4">
           <ScanRoomEntry />
