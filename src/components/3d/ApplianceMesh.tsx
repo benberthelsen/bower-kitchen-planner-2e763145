@@ -41,7 +41,13 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const handleDragStart = onDragStart;
 
   const def = useCatalogItem(item.definitionId);
-  const { isLoading: catalogLoading } = useCatalog('admin');
+  const { isLoading: microvellumLoading } = useCatalog('admin');
+  const { isLoading: appliancesLoading } = useApplianceCatalog();
+  // For `appliance:<uuid>` definitions we care about the appliance_products
+  // query; the microvellum query never resolves them. Use the correct signal
+  // per definition source so the placeholder actually covers pop-in.
+  const isApplianceDef = (item.definitionId ?? '').startsWith('appliance:');
+  const catalogLoading = isApplianceDef ? appliancesLoading : microvellumLoading;
   const [hovered, setHovered] = useState(false);
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
