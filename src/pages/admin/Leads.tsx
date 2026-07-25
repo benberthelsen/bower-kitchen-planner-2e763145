@@ -146,8 +146,9 @@ export default function AdminLeads() {
   };
 
   const filtered = leads.filter(l =>
-    l.name.toLowerCase().includes(search.toLowerCase()) ||
-    (l.notes ?? '').toLowerCase().includes(search.toLowerCase()),
+    (showSynthetic || !l.is_synthetic_test) &&
+    (l.name.toLowerCase().includes(search.toLowerCase()) ||
+      (l.notes ?? '').toLowerCase().includes(search.toLowerCase())),
   );
 
   const dd = (lead: Lead) => lead.design_data as Record<string, unknown> | null;
