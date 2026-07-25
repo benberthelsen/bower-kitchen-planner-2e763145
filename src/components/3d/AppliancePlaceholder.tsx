@@ -71,9 +71,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       <group>
         {renderHighlight()}
         {/* Main body - stainless steel look */}
-        <mesh>
+        <mesh material={bodyMat}>
           <boxGeometry args={[widthM, heightM, depthM]} />
-          <meshStandardMaterial color="#d4d4d8" metalness={0.6} roughness={0.3} />
         </mesh>
         {/* Door line */}
         <mesh position={[0, 0, depthM / 2 + 0.001]}>
@@ -101,9 +100,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       <group>
         {renderHighlight()}
         {/* Main body */}
-        <mesh>
+        <mesh material={bodyMat}>
           <boxGeometry args={[widthM, heightM, depthM]} />
-          <meshStandardMaterial color="#e4e4e7" metalness={0.4} roughness={0.4} />
         </mesh>
         {/* Control panel strip */}
         <mesh position={[0, heightM / 2 - 0.03, depthM / 2 + 0.001]}>
@@ -135,14 +133,12 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       <group>
         {renderHighlight()}
         {/* Main body */}
-        <mesh>
+        <mesh material={bodyMat}>
           <boxGeometry args={[widthM, heightM, depthM]} />
-          <meshStandardMaterial color="#27272a" metalness={0.3} roughness={0.5} />
         </mesh>
-        {/* Glass door */}
-        <mesh position={[0, -heightM * 0.1, depthM / 2 + 0.001]}>
-          <boxGeometry args={[widthM - 0.06, heightM * 0.6, 0.01]} />
-          <meshStandardMaterial color="#1a1a1a" metalness={0.1} roughness={0.2} transparent opacity={0.8} />
+        {/* Glass door (inset black glass) */}
+        <mesh position={[0, -heightM * 0.1, depthM / 2 + 0.006]} material={glassMat}>
+          <boxGeometry args={[widthM - 0.06, heightM * 0.6, 0.012]} />
         </mesh>
         {/* Control panel */}
         <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.001]}>
@@ -174,9 +170,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       <group>
         {renderHighlight()}
         {/* Main canopy */}
-        <mesh position={[0, 0, depthM * 0.1]}>
+        <mesh position={[0, 0, depthM * 0.1]} material={bodyMat}>
           <boxGeometry args={[widthM, heightM * 0.4, depthM * 0.8]} />
-          <meshStandardMaterial color="#e4e4e7" metalness={0.5} roughness={0.3} />
         </mesh>
         {/* Chimney/flue */}
         <mesh position={[0, heightM * 0.35, -depthM * 0.2]}>
@@ -208,9 +203,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       <group>
         {renderHighlight()}
         {/* Glass/ceramic surface */}
-        <mesh>
+        <mesh material={glassMat}>
           <boxGeometry args={[widthM, 0.03, depthM]} />
-          <meshStandardMaterial color="#18181b" metalness={0.1} roughness={0.2} />
         </mesh>
         {/* Burner circles */}
         {[
@@ -240,14 +234,12 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
       <group>
         {renderHighlight()}
         {/* Main body */}
-        <mesh>
+        <mesh material={bodyMat}>
           <boxGeometry args={[widthM, heightM, depthM]} />
-          <meshStandardMaterial color="#27272a" metalness={0.3} roughness={0.5} />
         </mesh>
-        {/* Door/window */}
-        <mesh position={[-widthM * 0.15, 0, depthM / 2 + 0.001]}>
-          <boxGeometry args={[widthM * 0.5, heightM * 0.7, 0.01]} />
-          <meshStandardMaterial color="#1a1a1a" metalness={0.1} roughness={0.2} transparent opacity={0.7} />
+        {/* Door/window (inset glass) */}
+        <mesh position={[-widthM * 0.15, 0, depthM / 2 + 0.006]} material={glassMat}>
+          <boxGeometry args={[widthM * 0.5, heightM * 0.7, 0.012]} />
         </mesh>
         {/* Control panel */}
         <mesh position={[widthM * 0.3, 0, depthM / 2 + 0.001]}>
@@ -268,9 +260,8 @@ const AppliancePlaceholder: React.FC<AppliancePlaceholderProps> = ({
   return (
     <group>
       {renderHighlight()}
-      <mesh>
+      <mesh material={bodyMat}>
         <boxGeometry args={[widthM, heightM, depthM]} />
-        <meshStandardMaterial color="#d4d4d8" metalness={0.4} roughness={0.4} />
       </mesh>
       {/* Generic control panel */}
       <mesh position={[0, heightM / 2 - 0.04, depthM / 2 + 0.001]}>
