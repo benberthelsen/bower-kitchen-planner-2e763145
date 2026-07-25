@@ -55,7 +55,7 @@ export default function Analytics() {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      let query = supabase
+      let query = (supabase as any)
         .from('funnel_events')
         .select('*')
         .order('created_at', { ascending: false });

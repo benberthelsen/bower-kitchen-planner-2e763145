@@ -37,7 +37,7 @@ export async function trackEvent(
   metadata: Record<string, unknown> = {},
 ): Promise<void> {
   try {
-    const { error } = await supabase.from('funnel_events').insert({
+    const { error } = await (supabase as any).from('funnel_events').insert({
       session_id: getSessionId(),
       event_type: type,
       metadata: metadata as Json,

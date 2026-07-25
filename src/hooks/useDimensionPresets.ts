@@ -59,7 +59,7 @@ export function useDimensionPresets() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('dimension_presets')
         .select('*')
         .order('sort_order', { ascending: true });
@@ -88,15 +88,15 @@ export function useDimensionPresets() {
       dimensions: preset.dimensions ?? {},
     };
     const query = preset.id && !preset.id.startsWith('standard')
-      ? supabase.from('dimension_presets').update(payload).eq('id', preset.id)
-      : supabase.from('dimension_presets').insert(payload);
+      ? (supabase as any).from('dimension_presets').update(payload).eq('id', preset.id)
+      : (supabase as any).from('dimension_presets').insert(payload);
     const { error } = await query;
     if (error) throw error;
     await refresh();
   }, [refresh]);
 
   const remove = useCallback(async (id: string) => {
-    const { error } = await supabase.from('dimension_presets').delete().eq('id', id);
+    const { error } = await (supabase as any).from('dimension_presets').delete().eq('id', id);
     if (error) throw error;
     await refresh();
   }, [refresh]);

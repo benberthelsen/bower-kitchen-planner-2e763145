@@ -193,7 +193,7 @@ export default function AdminDashboard() {
       }
 
       // Recent system activity (last 20 system notes)
-      const { data: notes } = await supabase
+      const { data: notes } = await (supabase as any)
         .from('job_notes')
         .select('id, job_id, content, created_at, jobs(name, job_number)')
         .eq('author_role', 'system')
