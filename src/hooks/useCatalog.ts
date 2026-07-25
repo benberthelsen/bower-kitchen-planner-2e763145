@@ -3,6 +3,12 @@ import { useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { CatalogItemDefinition, ItemType, CabinetType } from '@/types';
 import { CabinetRenderConfig, parseProductToRenderConfig } from '@/types/cabinetConfig';
+import type { ApplianceProductRecord } from '@/lib/pricing/types';
+
+/** Prefix used on ExtendedCatalogItem.id for appliance catalog products. */
+export const APPLIANCE_CATALOG_ID_PREFIX = 'appliance:';
+/** Spec group heading the appliance catalog appears under in the sidebar. */
+export const APPLIANCE_CATALOG_SPEC_GROUP = 'Appliances (Bower supplied)';
 
 export type UserType = 'standard' | 'trade' | 'admin';
 
@@ -55,6 +61,9 @@ export interface ExtendedCatalogItem extends CatalogItemDefinition {
   specGroup?: string | null;
   displayOrder?: number | null;
   microvellumLinkId?: string | null;
+  /** Stage 1 — when set, this catalog entry is a purchasable appliance from
+   *  the appliance_products table. Downstream placement captures a snapshot. */
+  applianceProduct?: ApplianceProductRecord;
 }
 
 function mapCategoryToItemType(category: string | null, specGroup: string | null): ItemType {
@@ -370,6 +379,65 @@ const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
 
 const STATIC_LIBRARY_CATALOG: ExtendedCatalogItem[] = STATIC_LIBRARY_TEMPLATES.map(transformStaticTemplate);
 
+/**
+ * Stage 1 — turn an `appliance_products` row into a planner catalog entry.
+ * Uses cutout dims when present (that's the opening the cabinet run needs
+ * to leave for the appliance) and falls back to overall dims.
+ */
+function transformApplianceProduct(product: ApplianceProductRecord): ExtendedCatalogItem {
+  const width = product.cutout_width_mm ?? product.width_mm ?? 600;
+  const height = product.cutout_height_mm ?? product.height_mm ?? 870;
+  const depth = product.cutout_depth_mm ?? product.depth_mm ?? 580;
+  const displayPrice = product.installed_price ?? product.sell_price ?? product.rrp ?? 0;
+  const category: CabinetType = height >= 1500 ? 'Tall' : (height <= 500 ? 'Wall' : 'Base');
+  return {
+    id: `${APPLIANCE_CATALOG_ID_PREFIX}${product.id}`,
+    sku: product.item_code || product.id.slice(0, 8).toUpperCase(),
+    name: product.brand ? `${product.brand} ${product.name}` : product.name,
+    itemType: 'Appliance',
+    category,
+    defaultWidth: width,
+    defaultDepth: depth,
+    defaultHeight: height,
+    price: displayPrice,
+    specGroup: APPLIANCE_CATALOG_SPEC_GROUP,
+    displayOrder: product.sort_order ?? null,
+    microvellumLinkId: null,
+    applianceProduct: product,
+    renderConfig: {
+      productId: `${APPLIANCE_CATALOG_ID_PREFIX}${product.id}`,
+      productName: product.name,
+      category,
+      cabinetType: 'Standard',
+      productType: 'appliance' as const,
+      specGroup: APPLIANCE_CATALOG_SPEC_GROUP,
+      doorCount: 0,
+      drawerCount: 0,
+      isCorner: false,
+      isSink: /sink/i.test(product.category) || /sink/i.test(product.name),
+      isBlind: false,
+      isPantry: false,
+      isAppliance: true,
+      isOven: /oven/i.test(product.category) || /oven/i.test(product.name),
+      isFridge: /fridge/i.test(product.category) || /fridge/i.test(product.name),
+      isRangehood: /rangehood|hood/i.test(product.category) || /rangehood|hood/i.test(product.name),
+      isDishwasher: /dishwasher/i.test(product.category) || /dishwasher/i.test(product.name),
+      hasFalseFront: false,
+      hasAdjustableShelves: false,
+      shelfCount: 0,
+      cornerType: null,
+      leftArmDepth: depth,
+      rightArmDepth: depth,
+      blindDepth: 0,
+      fillerWidth: 0,
+      hasReturnFiller: false,
+      defaultWidth: width,
+      defaultHeight: height,
+      defaultDepth: depth,
+    },
+  };
+}
+
 // Minimal fallback catalog for offline/error cases
 const FALLBACK_CATALOG: ExtendedCatalogItem[] = [
   {
@@ -536,27 +604,45 @@ export function useCatalog(userType: UserType = 'standard') {
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
   });
 
-  // Transform DB products to catalog format with render configs.
-  // IMPORTANT: memoised so the catalog keeps a STABLE identity across renders.
-  // Without this, every render rebuilds the array (and every item object), so
-  // useCatalogItem() returns a brand-new object each render. That made the
-  // ProductConfigurator reset-effect fire on every render and overwrite the
-  // user's in-progress edits — i.e. sliders / materials / soft-close "not working".
+  // Stage 1 — appliance catalog. Injected into the sidebar as its own group
+  // alongside the legacy "Appliance Openings" static templates. Fetched
+  // separately so a slow/empty appliance table can never break the catalog.
+  const { data: applianceProducts } = useQuery({
+    queryKey: ['appliance-products', 'catalog'],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('appliance_products')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true, nullsFirst: false })
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as ApplianceProductRecord[];
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
   const isDynamic = (dbProducts?.length ?? 0) > 0;
 
   const catalog = useMemo<ExtendedCatalogItem[]>(() => {
     const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
+    const applianceCatalog: ExtendedCatalogItem[] = (applianceProducts ?? []).map(transformApplianceProduct);
     if (dynamicCatalog.length > 0) {
       // Prefer dynamic products, keeping static planner defs that aren't in the DB.
       return [
         ...dynamicCatalog,
         ...STATIC_LIBRARY_CATALOG.filter((staticItem) => !dynamicCatalog.some((dynamicItem) => dynamicItem.id === staticItem.id)),
+        ...applianceCatalog,
       ];
     }
-    return [...STATIC_LIBRARY_CATALOG, ...FALLBACK_CATALOG].filter((item, index, all) =>
+    return [
+      ...STATIC_LIBRARY_CATALOG,
+      ...FALLBACK_CATALOG,
+      ...applianceCatalog,
+    ].filter((item, index, all) =>
       all.findIndex((candidate) => candidate.id === item.id) === index
     );
-  }, [dbProducts]);
+  }, [dbProducts, applianceProducts]);
 
   // Group by category for sidebar display
   const groupedCatalog = useMemo(() => ({

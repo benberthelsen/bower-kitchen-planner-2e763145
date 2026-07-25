@@ -19,6 +19,7 @@ import AdminReports from "./pages/admin/Reports";
 import ProductVisibility from "./pages/admin/ProductVisibility";
 import PartsPricing from "./pages/admin/pricing/PartsPricing";
 import HardwarePricing from "./pages/admin/pricing/HardwarePricing";
+import ApplianceCatalogAdmin from "./pages/admin/pricing/ApplianceCatalog";
 import MaterialPricing from "./pages/admin/pricing/MaterialPricing";
 import EdgePricing from "./pages/admin/pricing/EdgePricing";
 import BenchtopPricing from "./pages/admin/pricing/BenchtopPricing";
@@ -106,6 +107,7 @@ const App = () => (
                 <Route path="reports" element={<AdminReports />} />
                 <Route path="pricing/parts" element={<PartsPricing />} />
                 <Route path="pricing/hardware" element={<HardwarePricing />} />
+                <Route path="pricing/appliances" element={<ApplianceCatalogAdmin />} />
                 <Route path="pricing/materials" element={<MaterialPricing />} />
                 <Route path="pricing/edges" element={<EdgePricing />} />
                 <Route path="pricing/stone" element={<BenchtopPricing />} />

@@ -458,6 +458,26 @@ export default function RoomPlanner() {
     const snapped = calculateSnapPosition(rawPosition.x, rawPosition.z, snapItem, placedItems, currentRoom.config, 50, DEFAULT_GLOBAL_DIMENSIONS);
     const position = { x: snapped.x, y: rawPosition.y, z: snapped.z, rotation: snapped.rotation };
 
+    // Stage 1 — appliance catalog snapshot: freeze price/name/category at
+    // placement so the quote line stays stable even if the catalog is edited.
+    const applianceProduct = catalogItem.applianceProduct;
+    const applianceUnitPrice = applianceProduct
+      ? (applianceProduct.installed_price ?? applianceProduct.sell_price ?? applianceProduct.rrp ?? 0)
+      : 0;
+    const applianceExtras = applianceProduct
+      ? {
+          applianceProductId: applianceProduct.id,
+          applianceSnapshot: {
+            itemCode: applianceProduct.item_code ?? null,
+            name: applianceProduct.brand ? `${applianceProduct.brand} ${applianceProduct.name}` : applianceProduct.name,
+            category: applianceProduct.category,
+            unitPrice: applianceUnitPrice,
+            isPlaceholderPrice: applianceProduct.price_is_placeholder ?? true,
+          },
+          supplyWithOrder: applianceUnitPrice > 0,
+        }
+      : {};
+
     const newCabinet = addCabinet(currentRoom.id, {
       definitionId: productId,
       productName: catalogItem.name,
@@ -481,6 +501,7 @@ export default function RoomPlanner() {
       isPlaced: true,
       position,
       ...(cornerConstruction ? { construction: cornerConstruction } : {}),
+      ...applianceExtras,
     });
 
     // Local add only; the debounced room autosave persists the whole room.

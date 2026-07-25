@@ -182,6 +182,7 @@ export function CabinetListPanel({
       <div className={cn("flex flex-col bg-background border-l h-full", className)}>
         <CabinetDetailView
           cabinet={selectedCabinet}
+          roomId={roomId}
           price={getCabinetPrice?.(selectedCabinet)}
           flushWall={room ? getFlushWall(selectedCabinet, room) : null}
           onBack={() => onSelectCabinet(null)}
@@ -418,6 +419,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 interface CabinetDetailViewProps {
   cabinet: ConfiguredCabinet;
+  roomId: string;
   price?: number;
   flushWall: 'back' | 'left' | 'right' | 'front' | null;
   onBack: () => void;
@@ -427,10 +429,13 @@ interface CabinetDetailViewProps {
   onRemove: () => void;
 }
 
-function CabinetDetailView({ cabinet, price, flushWall, onBack, onEdit, onRotate, onDuplicate, onRemove }: CabinetDetailViewProps) {
+function CabinetDetailView({ cabinet, roomId, price, flushWall, onBack, onEdit, onRotate, onDuplicate, onRemove }: CabinetDetailViewProps) {
+  const { updateCabinet } = useTradeRoom();
   const d = cabinet.dimensions;
   const m = cabinet.materials;
   const h = cabinet.hardware;
+  const applianceSnap = cabinet.applianceSnapshot;
+  const supplyWithOrder = cabinet.supplyWithOrder ?? ((applianceSnap?.unitPrice ?? 0) > 0);
   return (
     <>
       <div className="p-3 border-b flex items-start gap-2">
@@ -483,6 +488,34 @@ function CabinetDetailView({ cabinet, price, flushWall, onBack, onEdit, onRotate
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Price</div>
               <DetailRow label="Estimated" value={new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(price)} />
+            </div>
+          )}
+
+          {applianceSnap && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Appliance</div>
+              <DetailRow label="Product" value={applianceSnap.name} />
+              <DetailRow
+                label="Unit price"
+                value={
+                  applianceSnap.unitPrice > 0
+                    ? `${new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(applianceSnap.unitPrice)}${applianceSnap.isPlaceholderPrice ? ' (placeholder)' : ''}`
+                    : 'Not priced — opening only'
+                }
+              />
+              <label className="flex items-center justify-between py-2 gap-3 cursor-pointer">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-trade-navy">Supply with order</div>
+                  <div className="text-[10px] text-muted-foreground">Include this appliance in the quote. Untick if the client supplies it.</div>
+                </div>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-trade-amber flex-shrink-0"
+                  checked={supplyWithOrder}
+                  disabled={applianceSnap.unitPrice <= 0}
+                  onChange={(e) => updateCabinet(roomId, cabinet.instanceId, { supplyWithOrder: e.target.checked })}
+                />
+              </label>
             </div>
           )}
         </div>
