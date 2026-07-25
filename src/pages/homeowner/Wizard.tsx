@@ -1581,7 +1581,7 @@ function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Parti
       </div>
 
       <div className="mt-6 grid grid-cols-3 gap-3 text-center text-xs text-slate-400">
-        <div>3 AI layouts<br />around your room</div>
+        <div>Up to 3 AI layouts<br />around your room</div>
         <div>Walk-around<br />3D preview</div>
         <div>Instant price<br />estimate</div>
       </div>
