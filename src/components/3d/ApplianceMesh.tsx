@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { PlacedItem, GlobalDimensions } from '../../types';
 import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
-import { useCatalogItem } from '../../hooks/useCatalog';
+import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
 
