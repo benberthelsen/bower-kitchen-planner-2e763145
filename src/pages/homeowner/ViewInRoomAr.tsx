@@ -88,6 +88,10 @@ export default function ViewInRoomAr() {
     setError(null);
     tapsRef.current = [];
     setTaps(0);
+    // A previous session's loop (if any) is now abandoned — signal it and
+    // reset the flag for the new session's loop below.
+    abortedRef.current = true;
+    abortedRef.current = false;
     try {
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.xr.enabled = true;
