@@ -911,7 +911,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
       </Section>
 
       <Section n={3} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" role="group" aria-label="Kitchen layout shape">
           {shapes.map(({ id, label, desc }) => {
             const compatible = shapeCompatibleWithWalls(id, state.cabinetWalls);
             return (
