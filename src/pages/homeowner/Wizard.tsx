@@ -335,8 +335,14 @@ export async function encodeSharePayload(state: WizardState): Promise<string | n
         island: state.island,
       },
       ...(state.styleWords ? { styleWords: state.styleWords } : {}),
+      style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
       ...(state.design
-        ? { design: { name: state.design.name, spec: state.design.spec, aiGenerated: state.design.aiGenerated } }
+        ? { design: {
+              name: state.design.name,
+              spec: state.design.spec,
+              aiGenerated: state.design.aiGenerated,
+              ...(state.design.priceBand ? { priceBand: state.design.priceBand } : {}),
+            } }
         : {}),
     };
     const bytes = new TextEncoder().encode(JSON.stringify(payload));
