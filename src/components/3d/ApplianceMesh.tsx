@@ -39,7 +39,8 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const handleSelect = onSelect;
   const handleDragStart = onDragStart;
 
-  const { item: def, loading: catalogLoading } = useCatalogItem(item.definitionId);
+  const def = useCatalogItem(item.definitionId);
+  const { isLoading: catalogLoading } = useCatalog('admin');
   const [hovered, setHovered] = useState(false);
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
