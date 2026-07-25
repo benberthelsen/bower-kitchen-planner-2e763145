@@ -1547,8 +1547,8 @@ function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Parti
         </div>
         <h2 className="text-2xl font-bold text-slate-900">Your kitchen designs are ready to build</h2>
         <p className="mt-3 text-slate-500 text-sm sm:text-base">
-          We've got your room and how you cook. Tell us where to send your three AI-designed
-          layouts and price estimate — then watch them appear.
+          We've got your room and how you cook. Tell us where to send your AI-designed
+          layouts (up to 3) and price estimate — then watch them appear.
         </p>
       </div>
 
