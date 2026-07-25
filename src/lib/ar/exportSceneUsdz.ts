@@ -93,7 +93,7 @@ export async function exportSceneUsdz(
 
   options.onProgress?.('Encoding USDZ…');
   const exporter = new USDZExporter();
-  const arr = await exporter.parseAsync(scene);
+  const arr = await (exporter as any).parse(scene);
   return new Blob([arr], { type: 'model/vnd.usdz+zip' });
 }
 
