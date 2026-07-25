@@ -256,9 +256,14 @@ interface SharePayloadV1 {
     island: WizardState['island'];
   };
   styleWords?: string;
+  /** Finish/benchtop/handle so a shared design renders and re-prices with the
+   *  sender's style, not the recipient's defaults. */
+  style?: { finishId: string; benchtopId: string; handleId: string };
   /** proposalId is deliberately NOT shared — the recipient regenerates before
-   *  chat-refining; the spec itself is the portable source of truth. */
-  design?: { name: string; spec: KitchenSpec; aiGenerated: boolean } | null;
+   *  chat-refining; the spec itself is the portable source of truth. The
+   *  priceBand IS shared so the recipient sees the sender's canonical band
+   *  for this design (rather than a locally recomputed number). */
+  design?: { name: string; spec: KitchenSpec; aiGenerated: boolean; priceBand?: { lowAud: number; highAud: number } } | null;
 }
 
 const MAX_SHARE_ENCODED_CHARS = 6000;
@@ -330,8 +335,14 @@ export async function encodeSharePayload(state: WizardState): Promise<string | n
         island: state.island,
       },
       ...(state.styleWords ? { styleWords: state.styleWords } : {}),
+      style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
       ...(state.design
-        ? { design: { name: state.design.name, spec: state.design.spec, aiGenerated: state.design.aiGenerated } }
+        ? { design: {
+              name: state.design.name,
+              spec: state.design.spec,
+              aiGenerated: state.design.aiGenerated,
+              ...(state.design.priceBand ? { priceBand: state.design.priceBand } : {}),
+            } }
         : {}),
     };
     const bytes = new TextEncoder().encode(JSON.stringify(payload));
@@ -401,13 +412,40 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
     if (typeof raw.styleWords === 'string' && raw.styleWords.trim()) {
       patch.styleWords = raw.styleWords.slice(0, 500);
     }
+    // Style ids: validated against the catalog — unknown ids drop to defaults
+    // so a stale/renamed id can't crash rendering or silently show nothing.
+    if (raw.style && typeof raw.style === 'object') {
+      const s = raw.style;
+      if (typeof s.finishId === 'string' && FINISH_OPTIONS.some(f => f.id === s.finishId)) {
+        patch.finishId = s.finishId;
+      }
+      if (typeof s.benchtopId === 'string' && BENCHTOP_OPTIONS.some(b => b.id === s.benchtopId)) {
+        patch.benchtopId = s.benchtopId;
+      }
+      if (typeof s.handleId === 'string' && HANDLE_OPTIONS.some(h => h.id === s.handleId)) {
+        patch.handleId = s.handleId;
+      }
+    }
     if (raw.design && typeof raw.design === 'object') {
       const spec = kitchenSpecSchema.safeParse(raw.design.spec);
       if (spec.success) {
+        // priceBand: require finite positive lo/hi with lo <= hi; else drop
+        // the band so the recipient falls back to the local estimator rather
+        // than seeing bogus numbers.
+        let priceBand: { lowAud: number; highAud: number } | undefined;
+        const pb = raw.design.priceBand;
+        if (pb && typeof pb === 'object') {
+          const lo = Number((pb as { lowAud?: unknown }).lowAud);
+          const hi = Number((pb as { highAud?: unknown }).highAud);
+          if (Number.isFinite(lo) && Number.isFinite(hi) && lo > 0 && hi > 0 && lo <= hi) {
+            priceBand = { lowAud: lo, highAud: hi };
+          }
+        }
         patch.design = {
           name: String(raw.design.name ?? 'Shared design').slice(0, 120) || 'Shared design',
           spec: spec.data as unknown as KitchenSpec,
           aiGenerated: raw.design.aiGenerated === true,
+          ...(priceBand ? { priceBand } : {}),
         };
       }
     }
@@ -1101,8 +1139,12 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
 
   const room3D: RoomConfig = brief.room;
 
-  const low = band.lowAud;
-  const high = band.highAud;
+  // Prefer the stored server-proposal band so the option card, Design overlay
+  // and this Review panel all show the SAME numbers for the SAME design.
+  // The default (non-AI) layout has no stored band and keeps the estimator.
+  const stored = state.design?.priceBand;
+  const low = stored ? stored.lowAud : band.lowAud;
+  const high = stored ? stored.highAud : band.highAud;
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
@@ -1191,7 +1233,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         // Server-side proposal lineage: staff promotion (promote-ai-design)
         // verifies the submitted spec against this stored proposal row.
         aiProposalId: state.design?.proposalId ?? null,
-        priceBand: { low, high, source: band.isBomBacked ? 'bom' : 'estimator' },
+        priceBand: { low, high, source: stored ? 'proposal' : (band.isBomBacked ? 'bom' : 'estimator') },
         roomScan: scanParse.data,
         buildNotes,
       };
@@ -1660,7 +1702,7 @@ export default function HomeownerWizard() {
       ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 :
     state.step === 2 ? true :
     state.step === 3 ? true :
-    state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors : false;
+    state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
 
   const advance = () => {
     if (state.step < 5) {

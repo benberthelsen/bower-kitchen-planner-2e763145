@@ -130,7 +130,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
     }
     trackEvent('ai_option_selected', { name: opt.name });
     setUndoStack(design ? [...undoStack.slice(-9), design] : undoStack);
-    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId });
+    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand });
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
@@ -168,7 +168,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         return;
       }
       setUndoStack(stack => [...stack.slice(-9), design]);
-      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId });
+      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand });
     }
     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
   };
@@ -254,11 +254,18 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
         >
           <div className="absolute top-2 left-2 z-10 bg-white/85 backdrop-blur rounded-lg px-2.5 py-1">
             <p className="text-xs font-medium text-slate-800">{design?.name}</p>
-            {band && (
-              <p className="text-[11px] text-slate-500">
-                ${band.lowAud.toLocaleString()} – ${band.highAud.toLocaleString()} AUD
-              </p>
-            )}
+            {(() => {
+              // One canonical band per design: prefer the server proposal band
+              // stored on the selection so the option card and this overlay
+              // never disagree. Fallback to the local estimator for the
+              // default (non-AI) layout.
+              const shown = design?.priceBand ?? band;
+              return shown && (
+                <p className="text-[11px] text-slate-500">
+                  ${shown.lowAud.toLocaleString()} – ${shown.highAud.toLocaleString()} AUD
+                </p>
+              );
+            })()}
           </div>
           <Scene3DErrorBoundary>
             <Suspense fallback={
