@@ -395,7 +395,7 @@ export default function SupplierImport() {
       }
 
       // Fetch existing rows from DB
-      const { data: dbRows, error } = await supabase
+      const { data: dbRows, error } = await (supabase as any)
         .from(tableKey)
         .select('*');
 
@@ -440,7 +440,7 @@ export default function SupplierImport() {
       const BATCH = 50;
       for (let i = 0; i < diff.newRows.length; i += BATCH) {
         const batch = diff.newRows.slice(i, i + BATCH).map(r => coerceRow(r, config));
-        const { error } = await supabase.from(tableKey).insert(batch as never[]);
+        const { error } = await (supabase as any).from(tableKey).insert(batch as never[]);
         if (error) { errors.push(`Insert batch ${i}: ${error.message}`); }
         else inserted += batch.length;
       }
@@ -456,7 +456,7 @@ export default function SupplierImport() {
             patch[col] = v === '' ? null : v;
           }
         }
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from(tableKey)
           .update(patch)
           .eq('id', existing.id as string);
