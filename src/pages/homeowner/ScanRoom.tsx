@@ -617,8 +617,8 @@ export default function ScanRoom() {
               <p className="text-slate-600">
                 Runs in your browser using the camera. You tap to mark the room's
                 corners, then optionally the ceiling and each door and window.
-                Takes 2–3 minutes. Accuracy is good for quoting; you'll confirm
-                the measurements on a plan before anything is designed.
+                Takes 2–3 minutes. Measurements are a strong starting point — you'll confirm
+                them on a plan, and a professional check measure happens before manufacture.
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3 space-y-1">
