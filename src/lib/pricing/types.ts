@@ -438,6 +438,8 @@ export interface PricingData {
   labor: LaborRateRecord[];
   doorDrawer: DoorDrawerPricingRecord[];
   benchtop: BenchtopMaterialRecord[];
+  /** Stage 1 — appliance catalog (may be empty). */
+  appliances?: ApplianceProductRecord[];
 }
 
 // Cabinet configuration for BOM generation
