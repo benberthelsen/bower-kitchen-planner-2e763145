@@ -66,7 +66,7 @@ export function importRoomPlanJson(
   json: unknown,
   capturedAt = new Date().toISOString(),
 ):
-  | { ok: true; scan: RoomScanV1; warnings: string[] }
+  | { ok: true; scan: RoomScanV1; warnings: string[]; walls: number }
   | { ok: false; reason: string } {
   const model = unwrap(json);
   if (!model) {
