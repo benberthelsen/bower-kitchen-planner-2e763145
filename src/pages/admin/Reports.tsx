@@ -165,7 +165,7 @@ export default function AdminReports() {
   }
 
   async function loadFunnel() {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('funnel_events')
       .select('event_type, session_id');
 

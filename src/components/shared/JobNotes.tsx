@@ -68,7 +68,7 @@ export function JobNotes({ jobId, isAdmin }: JobNotesProps) {
   const loadNotes = async () => {
     if (!jobId || jobId === 'new') { setLoading(false); return; }
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('job_notes')
       .select('*')
       .eq('job_id', jobId)

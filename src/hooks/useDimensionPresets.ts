@@ -59,7 +59,7 @@ export function useDimensionPresets() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('dimension_presets')
         .select('*')
         .order('sort_order', { ascending: true });

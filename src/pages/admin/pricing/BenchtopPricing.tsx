@@ -76,7 +76,7 @@ export default function BenchtopPricing() {
   useEffect(() => { loadRecords(); }, []);
 
   const loadRecords = async () => {
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('benchtop_pricing')
       .select('*')
       .order('brand');
@@ -130,7 +130,7 @@ export default function BenchtopPricing() {
 
   const saveEdit = async () => {
     if (!editingId) return;
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('benchtop_pricing')
       .update(editValues)
       .eq('id', editingId);
