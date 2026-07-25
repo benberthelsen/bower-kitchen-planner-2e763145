@@ -26,11 +26,13 @@ interface Props {
   onChange: (patch: Partial<CookFields>) => void;
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Chip({ active, onClick, children, ariaLabel }: { active: boolean; onClick: () => void; children: React.ReactNode; ariaLabel?: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
+      aria-label={ariaLabel}
       className={cn(
         'px-3 py-1.5 rounded-full border text-xs sm:text-sm transition-colors flex items-center gap-1.5',
         active ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-600 hover:border-slate-400',
