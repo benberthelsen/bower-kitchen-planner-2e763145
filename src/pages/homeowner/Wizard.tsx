@@ -858,23 +858,6 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
     toast.success('Suggested room details applied. Your design will be recreated for the new room.');
   };
 
-  const Section = ({ n, title, subtitle, children }: {
-    n: number; title: string; subtitle: string; children: React.ReactNode;
-  }) => (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
-      <div className="flex items-start gap-3 mb-4 sm:mb-5">
-        <span className="flex-shrink-0 w-7 h-7 rounded-full bg-slate-900 text-white text-sm font-semibold flex items-center justify-center">
-          {n}
-        </span>
-        <div>
-          <h2 className="text-base sm:text-lg font-semibold text-slate-900 leading-tight">{title}</h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>
-        </div>
-      </div>
-      {children}
-    </section>
-  );
-
   return (
     <div className="space-y-4 sm:space-y-5">
       {pending && (
