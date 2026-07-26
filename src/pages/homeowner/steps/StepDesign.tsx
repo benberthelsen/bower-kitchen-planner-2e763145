@@ -28,12 +28,15 @@ import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
 import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { WizardDesign } from '../wizardBrief';
+import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import { enrichItemsWithChosenAppliances } from '../applianceSelection';
 
 interface Props {
   brief: DesignBrief;
   shape: LayoutShape;
   style: { finishId: string; benchtopId: string; handleId: string };
   design: WizardDesign | null;
+  chosenAppliances: Record<string, string>;
   onDesignChange: (design: WizardDesign) => void;
   onRoomPatchProposed: (patch: ProposedRoomPatch) => void;
 }
@@ -50,7 +53,7 @@ const LOADING_LINES = [
   'Pricing it up…',
 ];
 
-export default function StepDesign({ brief, shape, style, design, onDesignChange, onRoomPatchProposed }: Props) {
+export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
   const navigate = useNavigate();
   const { generate, refine, loading, error } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
