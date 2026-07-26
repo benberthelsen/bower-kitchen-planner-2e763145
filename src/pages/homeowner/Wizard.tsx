@@ -1470,7 +1470,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         <div>
           <h2 className="text-lg font-semibold text-slate-900 mb-1">Your kitchen preview</h2>
           <p className="text-sm text-slate-500">
-            {items.length} cabinets · {selectedFinish.name} · {selectedBenchtop.name}
+            {items.length} items · {selectedFinish.name} · {selectedBenchtop.name}
           </p>
         </div>
         <ShareButton state={state} />
