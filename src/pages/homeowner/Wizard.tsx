@@ -1348,20 +1348,12 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         return;
       }
 
-      // Stage 1 — appliance line items (client-side only; edge functions ignore
-      // unknown fields today). Empty on standard AI-designed layouts because
-      // those don't place catalog appliances yet; wired up so the enquiry
-      // schema can start reading them without a follow-up client change.
-      const applianceItemsPayload = items
-        .filter(i => i.applianceProductId && i.supplyWithOrder !== false && (i.applianceSnapshot?.unitPrice ?? 0) > 0)
-        .reduce<Array<{ productId: string; itemCode: string | null; name: string; category: string; quantity: number; unitPrice: number; lineTotal: number; isPlaceholderPrice: boolean }>>((acc, i) => {
-          const snap = i.applianceSnapshot!;
-          const existing = acc.find(a => a.productId === i.applianceProductId);
-          if (existing) { existing.quantity += 1; existing.lineTotal = existing.unitPrice * existing.quantity; }
-          else acc.push({ productId: i.applianceProductId!, itemCode: snap.itemCode ?? null, name: snap.name, category: snap.category, quantity: 1, unitPrice: snap.unitPrice, lineTotal: snap.unitPrice, isPlaceholderPrice: snap.isPlaceholderPrice });
-          return acc;
-        }, []);
-      const appliancesTotalPayload = applianceItemsPayload.reduce((s, a) => s + a.lineTotal, 0);
+      // Stage 3 — appliance line items come from the customer's catalog picks
+      // on the Appliances step (not from placed engine items), so sinks/taps/
+      // ovens/cooktops/microwaves that don't correspond to a visible slot
+      // still price. The displayed band above already includes the subtotal.
+      const applianceItemsPayload = applianceLineItems;
+      const appliancesTotalPayload = applianceSubtotal;
 
       const designData = {
         wizardVersion: 2,
@@ -1383,6 +1375,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         // verifies the submitted spec against this stored proposal row.
         aiProposalId: state.design?.proposalId ?? null,
         priceBand: { low, high, source: stored ? 'proposal' : (band.isBomBacked ? 'bom' : 'estimator') },
+        chosenAppliances: state.chosenAppliances,
         applianceItems: applianceItemsPayload,
         appliancesTotal: appliancesTotalPayload,
         roomScan: scanParse.data,
