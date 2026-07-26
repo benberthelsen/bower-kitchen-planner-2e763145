@@ -198,16 +198,33 @@ export default function ViewInRoomAr() {
                 const sz = size.z > 1e-4 ? targetD / size.z : 1;
                 const cx2 = (bbox.min.x + bbox.max.x) / 2;
                 const cz2 = (bbox.min.z + bbox.max.z) / 2;
-                const baseY = bbox.min.y;
+
+                // Sink/cooktop follow the benchtop-inset Y convention
+                // (model CENTRE at item.y). Look up the product row so the
+                // shared helper can use `category` first — same authority as
+                // the planner path.
+                const prod = applianceProductsRef.current?.find(
+                  p => `appliance:${p.id}` === slot.item.definitionId,
+                );
+                const defLike = prod
+                  ? ({ applianceProduct: prod, sku: prod.item_code ?? '', name: prod.name } as unknown as Parameters<typeof isBenchtopInsetAppliance>[1])
+                  : null;
+                const benchtopInset = isBenchtopInsetAppliance(slot.item, defLike);
+                const anchorY = benchtopInset ? (bbox.min.y + bbox.max.y) / 2 : bbox.min.y;
 
                 // Mirror the planner's transform order (see GlbInner in
                 // ApplianceModel.tsx): centring offset on a CHILD group so
                 // it's applied BEFORE the parent's rotation.
-                scene3.position.set(-cx2 * sx, -baseY * sy, -cz2 * sz);
+                scene3.position.set(-cx2 * sx, -anchorY * sy, -cz2 * sz);
                 scene3.scale.set(sx, sy, sz);
                 const wrapper = new THREE.Group();
                 wrapper.position.copy(slot.placeholder.position);
-                wrapper.position.y -= slot.item.height / 2000;
+                // Placeholder box was centred at (item.y + h/2). For the
+                // standard convention, drop by h/2 so base sits at item.y;
+                // for sink/cooktop, drop by h so CENTRE sits at item.y.
+                wrapper.position.y -= benchtopInset
+                  ? slot.item.height / 1000
+                  : slot.item.height / 2000;
                 wrapper.rotation.set(0, -THREE.MathUtils.degToRad(slot.item.rotation), 0);
                 wrapper.add(scene3);
                 group.add(wrapper);
