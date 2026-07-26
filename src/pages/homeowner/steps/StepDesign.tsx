@@ -286,7 +286,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
               </div>
             }>
               <UnifiedScene
-                items={compiled.items}
+                items={enrichedItems}
                 room={room3D}
                 globalDimensions={DEFAULT_GLOBAL_DIMENSIONS}
                 selectedItemId={null}
