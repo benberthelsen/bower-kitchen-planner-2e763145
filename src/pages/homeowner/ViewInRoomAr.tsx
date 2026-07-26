@@ -23,6 +23,7 @@ import type { PlacedItem } from '@/types';
 import { getApplianceMaterial, resolveFinishKey } from '@/components/3d/materials/applianceMaterials';
 import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
 import { resolveApplianceModelUrl } from '@/components/3d/applianceModelUrl';
+import { isBenchtopInsetAppliance } from '@/components/3d/applianceClassification';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 
 
