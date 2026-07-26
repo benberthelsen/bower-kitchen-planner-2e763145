@@ -23,6 +23,7 @@ import { useCatalogItem } from '../../hooks/useCatalog';
 import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { resolveApplianceModelUrl } from './applianceModelUrl';
+import { isBenchtopInsetAppliance } from './applianceClassification';
 
 // ─── Refcounted GLB disposal ───────────────────────────────────────────────
 // Two instances of the same product share drei's GLTF cache entry. Clearing
