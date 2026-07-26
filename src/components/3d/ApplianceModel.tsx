@@ -199,7 +199,7 @@ const ApplianceModel: React.FC<Props> = (props) => {
               <meshBasicMaterial color={props.isDragged ? '#2563eb' : '#3b82f6'} wireframe opacity={0.5} transparent />
             </mesh>
           )}
-          <GlbInner url={url} item={item} />
+          <GlbInner url={url} item={item} benchtopInset={benchtopInset} />
         </group>
       </Suspense>
     </ModelBoundary>
