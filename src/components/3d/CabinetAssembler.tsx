@@ -386,6 +386,23 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const renderBack = () => {
     // Corner cabinets render their own back panel inside CornerCarcass
     if (isCornerCabinet) return null;
+    // Islands and peninsulas show their back to the room. A 3 mm backing board
+    // set 16 mm behind the gables is right for a cabinet against a wall and
+    // wrong for one you walk around — that gap and the pale board are exactly
+    // what "no back panel on the island" looks like. Finish it in the door
+    // material and bring it flush with the carcase instead.
+    if (item.finishedBack) {
+      return (
+        <mesh position={[0, carcassYOffset, -depthM / 2 + gableThickness / 2]}>
+          <boxGeometry args={[widthM, carcassHeight, gableThickness]} />
+          <meshStandardMaterial
+            color={endPanelMat.color}
+            roughness={endPanelMat.roughness}
+            map={endPanelMat.map}
+          />
+        </mesh>
+      );
+    }
     return (
       <BackPanel
         width={interiorWidth}

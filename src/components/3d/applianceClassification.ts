@@ -46,6 +46,31 @@ export function isCooktopAppliance(item: PlacedItem, def: MaybeDef): boolean {
   return /cooktop/.test(name);
 }
 
+/**
+ * Rangehoods. `compileSpec` emits one above every cooktop as a full
+ * wall-cabinet-sized `itemType: 'Appliance'` box, and without this it fell
+ * through to the generic appliance branch — a tall slab with a recessed front
+ * and a vertical handle, i.e. a fridge hanging over the hotplates.
+ */
+export function isRangehoodAppliance(item: PlacedItem, def: MaybeDef): boolean {
+  const cat = categoryOf(def);
+  if (cat) return /rangehood|range hood|extractor/.test(cat);
+  const name = (def?.name ?? item.applianceSnapshot?.name ?? '').toLowerCase();
+  if (/rangehood|range hood|extractor|canopy/.test(name)) return true;
+  return (item.definitionId ?? '').includes('rangehood');
+}
+
+/** Dishwashers — used to decide who draws the benchtop over the opening. */
+export function isDishwasherAppliance(item: PlacedItem, def: MaybeDef): boolean {
+  const cat = categoryOf(def);
+  if (cat) return /dishwasher/.test(cat);
+  const sku = (def?.sku ?? '').toUpperCase();
+  if (sku && /(^|[^A-Z])DW([^A-Z]|$)/.test(sku)) return true;
+  const name = (def?.name ?? item.applianceSnapshot?.name ?? '').toLowerCase();
+  if (/dishwasher/.test(name)) return true;
+  return (item.definitionId ?? '').includes('dishwasher');
+}
+
 /** True when the item follows the benchtop-inset Y convention (centred at
  *  `item.y` rather than base-at-`item.y`). */
 export function isBenchtopInsetAppliance(item: PlacedItem, def: MaybeDef): boolean {

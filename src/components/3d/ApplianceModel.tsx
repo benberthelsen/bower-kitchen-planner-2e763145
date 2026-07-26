@@ -18,7 +18,7 @@ import { useGLTF } from '@react-three/drei';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import ApplianceMesh from './ApplianceMesh';
-import type { PlacedItem, GlobalDimensions } from '../../types';
+import type { PlacedItem, GlobalDimensions, MaterialOption } from '../../types';
 import { useCatalogItem } from '../../hooks/useCatalog';
 import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
@@ -49,6 +49,9 @@ interface Props {
   globalDimensions?: GlobalDimensions;
   isSelected?: boolean;
   isDragged?: boolean;
+  /** Benchtop material, so under-bench openings can carry the stone across.
+   *  Spread straight through to the procedural ApplianceMesh fallback. */
+  benchtop?: MaterialOption;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
 }

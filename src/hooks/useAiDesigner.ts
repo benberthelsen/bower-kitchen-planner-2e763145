@@ -71,11 +71,57 @@ function sessionPayload(s: AuthorizedDesignSession | null) {
   return { id: s.id, token: s.token, designRevision: s.designRevision };
 }
 
+/**
+ * The session lived only in a ref, so it died on page reload — while the chosen
+ * design (and its `proposalId`) survived in wizard state. A customer who
+ * generated options, looked around, and came back therefore had a design the UI
+ * happily offered to edit and a session the server had never heard of. The
+ * request went out with no `session` at all, zod's superRefine rejected it, and
+ * the customer got the same opaque "couldn't apply that" as every other cause.
+ *
+ * sessionStorage is same-origin and dies with the tab, which matches the
+ * server-side TTL closely enough. A restored session that has since expired
+ * comes back as `invalid_ai_session` and is cleared below.
+ */
+const SESSION_STORAGE_KEY = 'bower.aiDesignerSession';
+
+function readStoredSession(): AuthorizedDesignSession | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as Partial<AuthorizedDesignSession>;
+    if (typeof s?.id !== 'string' || typeof s?.token !== 'string') return null;
+    return {
+      id: s.id,
+      token: s.token,
+      briefRevision: Number(s.briefRevision ?? 1),
+      designRevision: Number(s.designRevision ?? 0),
+    };
+  } catch {
+    return null; // private mode, blocked storage, corrupt JSON — all non-fatal
+  }
+}
+
+function writeStoredSession(s: AuthorizedDesignSession | null): void {
+  try {
+    if (s) sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s));
+    else sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch { /* storage blocked — the in-memory ref still works for this page */ }
+}
+
+/** Server errors that mean the stored session is no longer usable. */
+const SESSION_DEAD = ['invalid_ai_session', 'stale_design_revision', 'stale_brief_revision', 'invalid_parent_proposal'];
+
 export function useAiDesigner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasActiveSession, setHasActiveSession] = useState(false);
   const sessionRef = useRef<AuthorizedDesignSession | null>(null);
+  const restoredRef = useRef(false);
+  if (!restoredRef.current) {
+    restoredRef.current = true;
+    sessionRef.current = readStoredSession();
+  }
+  const [hasActiveSession, setHasActiveSession] = useState(() => readStoredSession() !== null);
   // `error` is React state, so it is NOT readable by a caller immediately after
   // `await refine(...)` returns — the render hasn't happened yet. Callers that
   // need to branch on *why* a call failed read this ref instead, which is
@@ -107,6 +153,7 @@ export function useAiDesigner() {
         const token = result.session.token ?? sessionRef.current?.token;
         if (token) {
           sessionRef.current = { ...result.session, token };
+          writeStoredSession(sessionRef.current);
           setHasActiveSession(true);
         }
       }
@@ -116,6 +163,13 @@ export function useAiDesigner() {
       console.error('[ai-designer] request failed:', msg);
       lastErrorRef.current = msg;
       setError(msg);
+      // A session the server has rejected will keep failing. Drop it so the UI
+      // can stop offering edits that cannot work and ask for a fresh generate.
+      if (SESSION_DEAD.some(code => msg.includes(code))) {
+        sessionRef.current = null;
+        writeStoredSession(null);
+        setHasActiveSession(false);
+      }
       return null;
     } finally {
       setLoading(false);

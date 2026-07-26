@@ -1,11 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { PlacedItem, GlobalDimensions } from '../../types';
+import { PlacedItem, GlobalDimensions, MaterialOption } from '../../types';
 import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
-import { isSinkAppliance, isCooktopAppliance } from './applianceClassification';
+import {
+  isSinkAppliance,
+  isCooktopAppliance,
+  isRangehoodAppliance,
+  isDishwasherAppliance,
+} from './applianceClassification';
 
 interface ApplianceMeshProps {
   item: PlacedItem;
@@ -13,6 +18,10 @@ interface ApplianceMeshProps {
   globalDimensions?: GlobalDimensions;
   isSelected?: boolean;
   isDragged?: boolean;
+  /** The room's benchtop. Under-bench openings (dishwashers) have no top of
+   *  their own, so without this the stone simply stopped at the opening and
+   *  the run had a gap in it. */
+  benchtop?: MaterialOption;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
 }
@@ -27,6 +36,7 @@ function tapFinishKey(hex: string): ApplianceFinishKey {
 
 const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   item,
+  benchtop,
   globalDimensions: dimensionsProp,
   isSelected: isSelectedProp,
   isDragged: isDraggedProp,
@@ -110,10 +120,15 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const applianceName = (def.name || '').toLowerCase();
   const isSink = isSinkAppliance(item, def);
   const isCooktop = isCooktopAppliance(item, def);
-  const isDishwasher = def.sku.includes('DW') || applianceName.includes('dishwasher');
+  const isDishwasher = isDishwasherAppliance(item, def);
+  // compileSpec emits a rangehood above every cooktop at full wall-cabinet
+  // height. Without its own branch it drew as a generic appliance — a tall
+  // box with a recessed front and a handle, which reads as a fridge hanging
+  // over the hotplates.
+  const isRangehood = isRangehoodAppliance(item, def);
   const isOven = applianceName.includes('oven');
   const isFrontLoader = !isDishwasher && (applianceName.includes('wash') || applianceName.includes('dryer'));
-  const isGenericAppliance = !isSink && !isCooktop && !isDishwasher;
+  const isGenericAppliance = !isSink && !isCooktop && !isDishwasher && !isRangehood;
 
   // Resolve finish key from the placed snapshot; each sub-type has a sensible default.
   const snapFinish = item.applianceSnapshot?.finish ?? null;
@@ -123,11 +138,26 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
       : isCooktop ? 'blackGlass'
       : isOven ? 'stainless'
       : isDishwasher ? 'stainless'
+      : isRangehood ? 'stainless'
       : 'whiteEnamel');
   const bodyMat = getApplianceMaterial(finishKey);
   const glassMat = getApplianceMaterial('blackGlass');
   const handleMat = getApplianceMaterial('brushedGunmetal');
   const tapMat = getApplianceMaterial(tapFinishKey(selectedTap.hex));
+
+  // Benchtop over an under-bench opening. Drawn here because the opening is an
+  // Appliance, and CabinetAssembler only tops `category === 'Base'` cabinets.
+  const btThickM = (globalDimensions.benchtopThickness ?? 33) / 1000;
+  const benchtopSlab = benchtop ? (
+    <mesh position={[0, heightM / 2 + btThickM / 2, 0]}>
+      <boxGeometry args={[widthM, btThickM, depthM]} />
+      <meshStandardMaterial
+        color={benchtop.hex}
+        roughness={benchtop.roughness ?? 0.3}
+        metalness={benchtop.metalness ?? 0}
+      />
+    </mesh>
+  ) : null;
 
   let posY = (item.y / 1000) + (heightM / 2);
   if (isSink || isCooktop) posY = item.y / 1000;
@@ -153,22 +183,78 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         <mesh><boxGeometry args={[widthM + 0.05, heightM + 0.05, depthM + 0.05]} /><meshBasicMaterial color={isDragged ? "#2563eb" : "#3b82f6"} wireframe opacity={0.5} transparent /></mesh>
       )}
 
-      {isSink && (
-        <group>
-          {/* Deck + basin — brushed stainless. */}
-          <mesh position={[0, -heightM / 2 + 0.01, 0]} material={bodyMat}>
-            <boxGeometry args={[widthM * 0.94, 0.02, depthM * 0.82]} />
-          </mesh>
-          <mesh position={[0, -heightM / 2 + 0.05, 0]} material={bodyMat}>
-            <boxGeometry args={[widthM * 0.82, heightM - 0.05, depthM * 0.72]} />
-          </mesh>
-          {/* Gooseneck tap: real profile + curved spout. */}
-          <group position={[0, -heightM / 2 + 0.02, -depthM / 2 + 0.06]}>
-            <mesh geometry={tapGooseneckGeom} material={tapMat} />
-            <mesh geometry={tapSpoutGeom} material={tapMat} />
+      {isSink && (() => {
+        // Sinks are benchtop-inset: `item.y` is the item's CENTRE, so the top
+        // of the bowl sits at local +heightM/2 and everything hangs below it.
+        // The previous version drew a solid box with its deck at the BOTTOM
+        // and the tap rising from underneath the benchtop — it read as a
+        // stainless brick. This is an open bowl you can actually see into.
+        const topY = heightM / 2;
+        const wallT = 0.012;
+        const rimW = 0.022;
+        const bowlDepth = Math.max(0.12, heightM - 0.01);
+        // An 820 mm sink is a double bowl. Drawing it as one long trough is
+        // the sort of thing a cabinetmaker spots immediately.
+        const doubleBowl = widthM > 0.7;
+        const usableW = widthM * 0.88;
+        const bowlW = doubleBowl ? (usableW - rimW) / 2 : usableW;
+        const bowlD = depthM * 0.74;
+        const centres = doubleBowl ? [-(bowlW + rimW) / 2, (bowlW + rimW) / 2] : [0];
+
+        return (
+          <group>
+            {centres.map((cx, i) => (
+              <group key={i} position={[cx, 0, 0]}>
+                {/* Four walls and a floor, open at the top. */}
+                <mesh position={[-(bowlW / 2 - wallT / 2), topY - bowlDepth / 2, 0]} material={bodyMat}>
+                  <boxGeometry args={[wallT, bowlDepth, bowlD]} />
+                </mesh>
+                <mesh position={[bowlW / 2 - wallT / 2, topY - bowlDepth / 2, 0]} material={bodyMat}>
+                  <boxGeometry args={[wallT, bowlDepth, bowlD]} />
+                </mesh>
+                <mesh position={[0, topY - bowlDepth / 2, -(bowlD / 2 - wallT / 2)]} material={bodyMat}>
+                  <boxGeometry args={[bowlW, bowlDepth, wallT]} />
+                </mesh>
+                <mesh position={[0, topY - bowlDepth / 2, bowlD / 2 - wallT / 2]} material={bodyMat}>
+                  <boxGeometry args={[bowlW, bowlDepth, wallT]} />
+                </mesh>
+                <mesh position={[0, topY - bowlDepth + wallT / 2, 0]} material={bodyMat}>
+                  <boxGeometry args={[bowlW, wallT, bowlD]} />
+                </mesh>
+                {/* Waste outlet. */}
+                <mesh position={[0, topY - bowlDepth + wallT, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                  <cylinderGeometry args={[0.042, 0.042, 0.004, 20]} />
+                  <meshStandardMaterial color="#2f3336" metalness={0.6} roughness={0.4} />
+                </mesh>
+              </group>
+            ))}
+            {/* Flange around the cutout, sitting flush on the stone. */}
+            <mesh position={[0, topY - 0.005, -(bowlD / 2 + rimW / 2)]} material={bodyMat}>
+              <boxGeometry args={[usableW + rimW * 2, 0.01, rimW]} />
+            </mesh>
+            <mesh position={[0, topY - 0.005, bowlD / 2 + rimW / 2]} material={bodyMat}>
+              <boxGeometry args={[usableW + rimW * 2, 0.01, rimW]} />
+            </mesh>
+            <mesh position={[-(usableW / 2 + rimW / 2), topY - 0.005, 0]} material={bodyMat}>
+              <boxGeometry args={[rimW, 0.01, bowlD]} />
+            </mesh>
+            <mesh position={[usableW / 2 + rimW / 2, topY - 0.005, 0]} material={bodyMat}>
+              <boxGeometry args={[rimW, 0.01, bowlD]} />
+            </mesh>
+            {doubleBowl && (
+              <mesh position={[0, topY - 0.005, 0]} material={bodyMat}>
+                <boxGeometry args={[rimW, 0.01, bowlD]} />
+              </mesh>
+            )}
+            {/* Gooseneck tap, rising from the benchtop behind the bowl.
+                Local +z faces into the room, so -z is the wall side. */}
+            <group position={[0, topY, -(bowlD / 2 + rimW + 0.03)]}>
+              <mesh geometry={tapGooseneckGeom} material={tapMat} />
+              <mesh geometry={tapSpoutGeom} material={tapMat} />
+            </group>
           </group>
-        </group>
-      )}
+        );
+      })()}
 
       {isCooktop && (
         <group>
@@ -176,12 +262,21 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
           <mesh position={[0, 0.012, 0]} material={glassMat}>
             <boxGeometry args={[widthM, 0.024, depthM]} />
           </mesh>
-          {[[-0.15, -0.1], [0.15, -0.1], [-0.15, 0.1], [0.15, 0.1]].map(([x, z], i) => (
-            <mesh key={i} position={[x, 0.026, z]}>
-              <cylinderGeometry args={[0.08, 0.08, 0.006, 32]} />
-              <meshStandardMaterial color="#2a2a2e" metalness={0.4} roughness={0.5} />
-            </mesh>
-          ))}
+          {/* Burner rings scaled to the actual cooktop. These used to be
+              hard-coded at ±150/±100 mm with a fixed 160 mm ring, so a 900 mm
+              cooktop drew four burners bunched in the middle with a bare strip
+              either side. */}
+          {(() => {
+            const ringR = Math.min(0.085, widthM * 0.14);
+            const xs = [-widthM * 0.25, widthM * 0.25];
+            const zs = [-depthM * 0.21, depthM * 0.21];
+            return xs.flatMap((x, xi) => zs.map((z, zi) => (
+              <mesh key={`${xi}-${zi}`} position={[x, 0.026, z]}>
+                <cylinderGeometry args={[ringR, ringR, 0.006, 32]} />
+                <meshStandardMaterial color="#2a2a2e" metalness={0.4} roughness={0.5} />
+              </mesh>
+            )));
+          })()}
         </group>
       )}
 
@@ -207,8 +302,45 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
               </mesh>
             </>
           )}
+          {/* The stone itself. `CabinetAssembler` only draws a benchtop for
+              `category === 'Base'` cabinets, and a dishwasher is an Appliance,
+              so the run simply stopped either side of the opening and left a
+              gap over the machine. The rails above were already commented as
+              "carrying the benchtop" — nothing was ever laid on them. */}
+          {benchtopSlab}
         </group>
       )}
+
+      {isRangehood && (() => {
+        // A canopy: wide hood at the bottom, narrower chimney rising behind it.
+        // Previously this fell through to the generic branch and drew a
+        // full-height box with a door panel and a handle — a fridge, hanging
+        // over the hotplates.
+        const hoodH = Math.min(0.16, heightM * 0.28);
+        const canopyD = depthM * 1.55;         // canopies are deeper than a wall cabinet
+        const chimneyW = Math.min(0.3, widthM * 0.36);
+        const chimneyH = heightM - hoodH;
+        return (
+          <group>
+            {/* Hood body, slightly tapered by stacking two slabs. */}
+            <mesh position={[0, -heightM / 2 + hoodH / 2, canopyD / 2 - depthM / 2]} material={bodyMat}>
+              <boxGeometry args={[widthM, hoodH * 0.55, canopyD]} />
+            </mesh>
+            <mesh position={[0, -heightM / 2 + hoodH * 0.82, canopyD * 0.4 - depthM / 2]} material={bodyMat}>
+              <boxGeometry args={[widthM * 0.82, hoodH * 0.5, canopyD * 0.72]} />
+            </mesh>
+            {/* Grease filter panel on the underside. */}
+            <mesh position={[0, -heightM / 2 + 0.012, canopyD / 2 - depthM / 2]}>
+              <boxGeometry args={[widthM - 0.06, 0.01, canopyD - 0.06]} />
+              <meshStandardMaterial color="#8d949b" metalness={0.75} roughness={0.35} />
+            </mesh>
+            {/* Chimney to the ceiling. */}
+            <mesh position={[0, -heightM / 2 + hoodH + chimneyH / 2, 0]} material={bodyMat}>
+              <boxGeometry args={[chimneyW, chimneyH, depthM * 0.62]} />
+            </mesh>
+          </group>
+        );
+      })()}
 
       {isGenericAppliance && (
         <group>

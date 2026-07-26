@@ -29,7 +29,7 @@ import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
-import { enrichItemsWithChosenAppliances } from '../applianceSelection';
+import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
 
 interface Props {
   brief: DesignBrief;
@@ -55,7 +55,7 @@ const LOADING_LINES = [
 
 export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
   const navigate = useNavigate();
-  const { generate, refine, loading, error, lastError } = useAiDesigner();
+  const { generate, refine, loading, error, lastError, hasActiveSession } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -94,10 +94,15 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
   // products so the 3D preview here, the AR export below, the Review page
   // and the enquiry payload all show the customer's actual product choices.
   const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
-  const enrichedItems = useMemo(
-    () => (compiled ? enrichItemsWithChosenAppliances(compiled.items, chosenAppliances, applianceProducts) : []),
-    [compiled, chosenAppliances, applianceProducts],
-  );
+  const enrichedItems = useMemo(() => {
+    if (!compiled) return [];
+    const base = enrichItemsWithChosenAppliances(compiled.items, chosenAppliances, applianceProducts);
+    // Sinks, cooktops and ovens live inside cabinets, so the engine never
+    // emits them as appliance items and the customer's choice was invisible.
+    // Overlays are appended AFTER compileSpec so they stay out of pricing and
+    // out of the rules engine — see applianceSelection.ts for why.
+    return [...base, ...synthesiseApplianceOverlays(compiled, chosenAppliances, applianceProducts)];
+  }, [compiled, chosenAppliances, applianceProducts]);
 
   const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
@@ -165,13 +170,28 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     if (code.includes('unsupported_l_shape')) {
       return "I can't edit L-shaped rooms yet — this one needs a human. Keep going and Ben will lay it out with you.";
     }
+    if (code.includes('invalid_designer_request')) {
+      return 'I\'ve lost the thread on this design. Tap "Design my kitchen" for a fresh set of options and I can edit those.';
+    }
     return "Sorry — I couldn't apply that just now. Try rewording it, or keep going and we'll sort it out with your quote.";
   };
 
+  /**
+   * True when the designer can actually accept an edit. `proposalId` alone is
+   * not enough: it survives a page reload in wizard state, but the authorized
+   * session it belongs to does not necessarily, and a refine without a session
+   * is rejected by the server before it reaches the model.
+   */
+  const canRefine = !!design?.aiGenerated && !!design.proposalId && hasActiveSession;
+
   const runRefine = async (msg: string) => {
     if (!msg || !design || !activeSpec) return;
-    if (!design.proposalId) {
-      toast.error('Generate a fresh AI option before asking for design changes.');
+    if (!design.proposalId || !hasActiveSession) {
+      // Don't fire a request that cannot succeed — say something useful.
+      setChatLog(log => [...log, { role: 'user', content: msg }, {
+        role: 'assistant',
+        content: 'I\'ve lost the thread on this design — that happens if the page has been reloaded. Tap "Design my kitchen" for a fresh set of options and I can edit those.',
+      }]);
       return;
     }
     // Build the next log ONCE: state and the request share the same value, so
@@ -394,7 +414,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
           {warnings.map((w, i) => (
             <div key={i} className="flex items-start justify-between gap-2">
               <p className="text-xs text-amber-700 flex-1">• {w}</p>
-              {design?.aiGenerated && design.proposalId && (
+              {canRefine && (
                 <button
                   type="button"
                   onClick={() => handleFixWarning(w)}
@@ -408,7 +428,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
             </div>
           ))}
           <p className="text-[11px] text-amber-600 pt-0.5">
-            {design?.aiGenerated && design.proposalId
+            {canRefine
               ? 'These are trade-offs, not mistakes — you can leave them and Ben will talk them through with you.'
               : 'Tap “Design my kitchen” above and the designer can work on these for you.'}
           </p>
@@ -425,7 +445,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
       )}
 
       {/* chat refine */}
-      {design?.aiGenerated && (
+      {(design?.aiGenerated || chatLog.length > 0) && (
         <div className="space-y-2">
           {chatLog.length > 0 && (
             <div className="max-h-40 overflow-y-auto space-y-1.5 px-0.5" aria-live="polite">

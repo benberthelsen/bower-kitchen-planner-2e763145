@@ -696,6 +696,15 @@ export function UnifiedScene({
   items,
   room,
   globalDimensions,
+  // Scene-level materials. These were declared in UnifiedSceneProps but never
+  // destructured, so every caller that passed them — the wizard preview and
+  // the homeowner Design step both do — was a silent no-op, and TypeScript
+  // had nothing to complain about: declaring a prop and ignoring it is legal.
+  // The customer's benchtop and kick choices never reached the cabinets.
+  // Per-item values still win wherever the engine stamps them.
+  selectedFinish: sceneFinish,
+  selectedBenchtop: sceneBenchtop,
+  selectedKick: sceneKick,
   selectedItemId,
   draggedItemId,
   placementItemId,
@@ -1070,6 +1079,7 @@ export function UnifiedScene({
                 key={key}
                 item={item}
                 globalDimensions={globalDimensions}
+                benchtop={sceneBenchtop}
                 {...commonProps}
               />
             );
@@ -1084,20 +1094,23 @@ export function UnifiedScene({
             );
           }
           // Default: Cabinet
-          // Resolve finish/handle from item properties if available
-          const itemFinish = item.finishColor 
-            ? FINISH_OPTIONS.find(f => f.id === item.finishColor) 
-            : undefined;
+          // Resolve finish/handle from item properties if available, falling
+          // back to the scene-level selection the caller passed in.
+          const itemFinish = (item.finishColor
+            ? FINISH_OPTIONS.find(f => f.id === item.finishColor)
+            : undefined) ?? sceneFinish;
           const itemHandle = item.handleType
             ? { handleId: item.handleType, handleColor: item.handleColor }
             : undefined;
-          
+
           return (
             <CabinetMesh
               key={key}
               item={item}
               globalDimensions={globalDimensions}
               selectedFinish={itemFinish}
+              selectedBenchtop={sceneBenchtop}
+              selectedKick={sceneKick}
               hardwareOptions={itemHandle}
               doorsOpen={doorsOpen}
               onEdit={onItemEdit}

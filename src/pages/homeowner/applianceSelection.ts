@@ -17,7 +17,9 @@
  * This is purely additive — a wizard state with no chosen appliances yields
  * an empty enrichment (items unchanged) and an empty line-item list.
  */
-import type { PlacedItem } from '@/types';
+import type { GlobalDimensions, PlacedItem } from '@/types';
+import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
+import type { CompiledDesign } from '@/lib/layout';
 import type {
   ApplianceLineItem,
   ApplianceProductRecord,
@@ -150,6 +152,131 @@ export function enrichItemsWithChosenAppliances(
       supplyWithOrder: it.supplyWithOrder ?? true,
     };
   });
+}
+
+/* ── Overlay synthesis ─────────────────────────────────────────────────────
+ *
+ * `enrichItemsWithChosenAppliances` above can only stamp a product onto a slot
+ * the engine already places as its own item — dishwashers, fridges,
+ * rangehoods. Sinks, cooktops and ovens are *inside* cabinets: the engine
+ * emits a `base_2_door` for the cooktop and a sink cabinet for the sink, both
+ * as `itemType: 'Cabinet'`, and only `itemType === 'Appliance'` routes to the
+ * appliance renderers. So a customer who chose a sink and a cooktop saw
+ * neither of them — the whole point of the Appliances step.
+ *
+ * These overlays are separate items laid on top of the compiled design:
+ *
+ *  - They are synthesised AFTER `compileSpec`, and both pricing paths read
+ *    `compiled.items`, so they never add a phantom cabinet charge. If anyone
+ *    ever moves this inside `compileSpec`, give `appliance:` ids a 0 weight in
+ *    `DEFN_WEIGHTS` or every overlay silently bills another $480.
+ *  - Their `instanceId` uses an `appl-` prefix, not `ai-`. `rules.ts` detects
+ *    islands via `instanceId.startsWith('ai-')` plus rotation and a z-band; an
+ *    overlay picking up that prefix would be mistaken for island cabinetry.
+ *  - Their `y` is non-zero, and the rules engine only inspects `y === 0` items
+ *    for overlap and aisle widths. That is what lets a sink sit inside a
+ *    cabinet's footprint without tripping a hard rule and blocking the design.
+ */
+
+/** Roles the engine exposes that we can hang a chosen product on. */
+const OVERLAY_SLOTS = [
+  { category: 'sink' as const, role: 'sink' as const },
+  { category: 'cooktop' as const, role: 'cooktop' as const },
+  { category: 'oven' as const, role: 'oven-tower' as const },
+];
+
+/** Map a tap product's finish to one of the built-in TAP_OPTIONS ids. */
+export function tapOptionIdForFinish(finish: string | null | undefined): string | undefined {
+  const f = (finish ?? '').toLowerCase();
+  if (!f) return undefined;
+  if (f.includes('chrome') || f.includes('polished')) return 'tap-chrome';
+  if (f.includes('black')) return 'tap-goose-bk';
+  if (f.includes('gunmetal') || f.includes('brushed') || f.includes('stainless')) return 'tap-goose-ss';
+  return undefined;
+}
+
+/**
+ * Build the appliance items that sit on or in the benchtop for the customer's
+ * chosen products. Returns `[]` when nothing applies — no chosen products, no
+ * catalog, or the engine placed no matching slot.
+ *
+ * Append the result to `compiled.items` for rendering, AR export and the
+ * enquiry payload. Do not feed it back into the rules engine or pricing.
+ */
+export function synthesiseApplianceOverlays(
+  compiled: Pick<CompiledDesign, 'rolePositions'> | null | undefined,
+  chosen: Record<string, string>,
+  products: ApplianceProductRecord[] | undefined,
+  dims: GlobalDimensions = DEFAULT_GLOBAL_DIMENSIONS,
+): PlacedItem[] {
+  if (!compiled?.rolePositions || !chosen || !products?.length) return [];
+  const byId = new Map(products.map(p => [p.id, p]));
+  const out: PlacedItem[] = [];
+
+  // The tap has no item of its own — the gooseneck is drawn inside
+  // ApplianceMesh's sink branch — so the chosen tap rides on the sink item.
+  const tapProduct = chosen.tap ? byId.get(chosen.tap) : undefined;
+  const tapId = tapOptionIdForFinish(tapProduct?.finish);
+
+  for (const slot of OVERLAY_SLOTS) {
+    const productId = chosen[slot.category];
+    if (!productId) continue;
+    const product = byId.get(productId);
+    if (!product) continue;
+    const host = compiled.rolePositions[slot.role];
+    if (!host) continue;
+
+    const cab = host.item;
+    // There is no benchtop-height constant in this codebase; it is always
+    // derived. With the wizard's defaults this is 730 + 33 = 763 mm.
+    const benchtopTopMm = cab.y + cab.height + dims.benchtopThickness;
+
+    // Fall back to the host cabinet's footprint when the product row has no
+    // dimensions (some sink and tap rows are dimensionless).
+    const width = product.width_mm ?? Math.min(cab.width, 600);
+    const depth = product.depth_mm ?? Math.min(cab.depth, 500);
+    const height = product.height_mm ?? 200;
+
+    let y: number;
+    if (slot.category === 'sink') {
+      // Undermount: `y` is the item's CENTRE for benchtop-inset appliances
+      // (see applianceClassification.ts), so put the top of the bowl flush
+      // with the benchtop and let the rest hang below it.
+      y = benchtopTopMm - height / 2;
+    } else if (slot.category === 'cooktop') {
+      // Sits on the benchtop, glass just proud of the stone.
+      y = benchtopTopMm + height / 2;
+    } else {
+      // Ovens use the standard base-at-`y` convention inside their tower.
+      y = Math.max(0, cab.y + 300);
+    }
+
+    out.push({
+      instanceId: `appl-${slot.category}`,
+      // Must resolve in useCatalog or the procedural renderer draws nothing.
+      // `appliance:<uuid>` is the catalog key for an appliance_products row.
+      definitionId: `appliance:${product.id}`,
+      itemType: 'Appliance',
+      x: cab.x,
+      y,
+      z: cab.z,
+      rotation: cab.rotation,
+      width,
+      height,
+      depth,
+      applianceProductId: product.id,
+      applianceSnapshot: snapshotFromProduct(product),
+      supplyWithOrder: true,
+      ...(slot.category === 'sink' && tapId ? { tapId } : {}),
+    } as PlacedItem);
+  }
+
+  return out;
+}
+
+/** True for items produced by `synthesiseApplianceOverlays`. */
+export function isSynthesisedAppliance(item: PlacedItem): boolean {
+  return item.instanceId.startsWith('appl-');
 }
 
 /**

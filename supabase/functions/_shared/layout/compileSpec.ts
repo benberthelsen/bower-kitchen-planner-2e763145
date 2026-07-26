@@ -51,6 +51,11 @@ export function compileSpec(
       cabinetNumber: item.itemType === 'Cabinet' ? `C${String(cabNo++).padStart(2, '0')}` : undefined,
       finishColor: spec.style.finishId,
       handleType: spec.style.handleId,
+      // The tap has no item of its own — ApplianceMesh draws the gooseneck
+      // inside the sink branch and reads the finish from the sink item's
+      // `tapId`. This was never copied off StyleSpec, so every customer's tap
+      // rendered chrome no matter which one they picked.
+      ...(spec.style.tapId ? { tapId: spec.style.tapId } : {}),
     };
     items.push(placed);
     return placed;
@@ -219,6 +224,9 @@ export function compileSpec(
         itemType: 'Cabinet',
         x: startX + i * 600 + 300, y: 0, z: islandZ, rotation: 180,
         width: 600, height: dims.baseHeight, depth: Math.min(depthMm, 650),
+        // An island's back faces the room, so it gets a finished panel rather
+        // than the carcase backing board.
+        finishedBack: true,
         ...(i === count - 1 ? { endPanelLeft: true } : {}),
         ...(i === 0 ? { endPanelRight: true } : {}),
       });

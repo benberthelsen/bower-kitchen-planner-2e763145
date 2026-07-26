@@ -59,6 +59,7 @@ import {
   APPLIANCE_CATEGORY_LABELS,
   buildApplianceLineItems,
   enrichItemsWithChosenAppliances,
+  synthesiseApplianceOverlays,
   appliancesTotal as sumAppliances,
   anyPlaceholderPrices,
 } from './applianceSelection';
@@ -1247,8 +1248,15 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   // slot still contribute to the estimate). Empty when the customer skipped.
   const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
   const items = React.useMemo(
-    () => enrichItemsWithChosenAppliances(compiled.items, state.chosenAppliances, applianceProducts),
-    [compiled.items, state.chosenAppliances, applianceProducts],
+    () => [
+      ...enrichItemsWithChosenAppliances(compiled.items, state.chosenAppliances, applianceProducts),
+      // Sinks, cooktops and ovens sit in cabinets, so the engine never emits
+      // them as appliance items. Overlays are appended after compileSpec and
+      // stay out of both pricing paths — see applianceSelection.ts.
+      ...synthesiseApplianceOverlays(compiled, state.chosenAppliances, applianceProducts),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [compiled, state.chosenAppliances, applianceProducts],
   );
   const applianceLineItems = React.useMemo(
     () => buildApplianceLineItems(state.chosenAppliances, applianceProducts),

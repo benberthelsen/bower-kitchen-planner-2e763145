@@ -38,6 +38,11 @@ export interface PlacedItem {
   handingOverride?: HandingOverride;
   endPanelLeft?: boolean;
   endPanelRight?: boolean;
+  /** Island and peninsula cabinets have their back on show. Without this the
+   *  3mm carcase backing board faces the room, set back behind the gables —
+   *  which is what "no back panel on the island" looks like. Renders a
+   *  finished panel in the door material, flush with the carcase. */
+  finishedBack?: boolean;
   /** Dishwasher/appliance openings: render benchtop-support top rails.
    *  Defaults to on (undefined) — set false to leave the opening topless. */
   topRail?: boolean;
