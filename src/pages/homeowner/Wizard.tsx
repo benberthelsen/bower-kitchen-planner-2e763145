@@ -1534,6 +1534,39 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         </div>
       )}
 
+      {/* Appliances — line items chosen on the Appliances step. */}
+      {applianceLineItems.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Appliances</h3>
+            <span className="text-xs text-slate-500">
+              Subtotal <strong className="text-slate-900">${Math.round(applianceSubtotal).toLocaleString()}</strong>
+            </span>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {applianceLineItems.map(l => (
+              <li key={l.productId} className="py-2 flex items-center justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="text-slate-900 truncate">{l.name}</p>
+                  <p className="text-[11px] text-slate-400 capitalize">
+                    {APPLIANCE_CATEGORY_LABELS[l.category as keyof typeof APPLIANCE_CATEGORY_LABELS]?.singular ?? l.category}
+                    {l.isPlaceholderPrice ? ' · indicative price' : ''}
+                  </p>
+                </div>
+                <span className="text-slate-700 whitespace-nowrap">
+                  {l.lineTotal > 0 ? `$${Math.round(l.lineTotal).toLocaleString()}` : '—'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {applianceHasPlaceholder && (
+            <p className="text-[11px] text-amber-600 pt-1">
+              Some appliance prices are indicative and will be confirmed in your final quote.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Estimate banner */}
       <div className="bg-slate-900 text-white rounded-xl p-4 sm:p-5 flex items-center justify-between gap-4">
         <div>
@@ -1542,6 +1575,11 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
             ${low.toLocaleString()} – ${high.toLocaleString()}
             <span className="text-xs sm:text-sm font-normal text-slate-400 ml-1.5">AUD inc. GST</span>
           </p>
+          {applianceSubtotal > 0 && (
+            <p className="text-[11px] text-slate-400 mt-1">
+              Cabinets ${cabinetsLow.toLocaleString()}–${cabinetsHigh.toLocaleString()} + appliances ${Math.round(applianceSubtotal).toLocaleString()}
+            </p>
+          )}
         </div>
         <p className="text-right text-xs text-slate-400 max-w-[130px] hidden sm:block">
           Indicative only. Final price confirmed after site measure.
