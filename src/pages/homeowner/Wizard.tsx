@@ -51,7 +51,17 @@ import {
 import type { Wall } from '@/lib/layout';
 import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
 import StepCook from './steps/StepCook';
+import StepAppliances from './steps/StepAppliances';
 import StepDesign from './steps/StepDesign';
+import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import {
+  APPLIANCE_CATEGORY_ORDER,
+  APPLIANCE_CATEGORY_LABELS,
+  buildApplianceLineItems,
+  enrichItemsWithChosenAppliances,
+  appliancesTotal as sumAppliances,
+  anyPlaceholderPrices,
+} from './applianceSelection';
 import { buildBrief, type WizardDesign } from './wizardBrief';
 import { evaluateDesign } from '@/lib/designV2';
 import { STYLE_PRESETS } from '@/data/stylePresets';
@@ -64,7 +74,11 @@ type LayoutPreference = 'single-wall' | 'l-shape' | 'u-shape' | 'galley';
 type LayoutStyle  = 'minimal' | 'standard' | 'full-storage';
 
 interface WizardState {
-  step: 1 | 2 | 3 | 4 | 5;
+  step: 1 | 2 | 3 | 4 | 5 | 6;
+  /** Homeowner appliance catalog (Stage 3). Map of category → product id.
+   *  A value of '__none__' means the customer will supply their own for that
+   *  category. Absent keys mean "not yet chosen". Empty on legacy states. */
+  chosenAppliances: Record<string, string>;
   layoutPreference: LayoutPreference;
   roomWidth:   number;   // mm
   roomDepth:   number;   // mm
@@ -172,7 +186,7 @@ function stateToParams(s: WizardState): URLSearchParams {
 
 // v3: step order changed (Style before Design) + cabinetWalls added — old
 // saved states use the previous step numbering and are discarded.
-export const WIZARD_STATE_KEY = 'bower.wizard.state.v3';
+export const WIZARD_STATE_KEY = 'bower.wizard.state.v4';
 const WIZARD_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function loadSavedWizardState(): Partial<WizardState> {
@@ -180,7 +194,7 @@ function loadSavedWizardState(): Partial<WizardState> {
     const raw = sessionStorage.getItem(WIZARD_STATE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as { v?: number; savedAt?: number; state?: WizardState };
-    if (parsed?.v !== 3 || typeof parsed.savedAt !== 'number'
+    if (parsed?.v !== 4 || typeof parsed.savedAt !== 'number'
       || Date.now() - parsed.savedAt > WIZARD_STATE_MAX_AGE_MS
       || typeof parsed.state !== 'object' || parsed.state === null
       || typeof parsed.state.step !== 'number') {
@@ -195,7 +209,7 @@ function loadSavedWizardState(): Partial<WizardState> {
 
 export function saveWizardState(state: WizardState): void {
   try {
-    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 3, savedAt: Date.now(), state }));
+    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 4, savedAt: Date.now(), state }));
   } catch { /* storage full or unavailable — persistence is best-effort */ }
 }
 
@@ -260,6 +274,8 @@ interface SharePayloadV1 {
     island: WizardState['island'];
   };
   styleWords?: string;
+  /** Homeowner appliance catalog picks (Stage 3). */
+  chosenAppliances?: Record<string, string>;
   /** Finish/benchtop/handle so a shared design renders and re-prices with the
    *  sender's style, not the recipient's defaults. */
   style?: { finishId: string; benchtopId: string; handleId: string };
@@ -339,6 +355,9 @@ export async function encodeSharePayload(state: WizardState): Promise<string | n
         island: state.island,
       },
       ...(state.styleWords ? { styleWords: state.styleWords } : {}),
+      ...(Object.keys(state.chosenAppliances ?? {}).length
+        ? { chosenAppliances: state.chosenAppliances }
+        : {}),
       style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
       ...(state.design
         ? { design: {
@@ -415,6 +434,15 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
     }
     if (typeof raw.styleWords === 'string' && raw.styleWords.trim()) {
       patch.styleWords = raw.styleWords.slice(0, 500);
+    }
+    // chosenAppliances: keep only known category keys + string values.
+    if (raw.chosenAppliances && typeof raw.chosenAppliances === 'object') {
+      const cleaned: Record<string, string> = {};
+      for (const cat of APPLIANCE_CATEGORY_ORDER) {
+        const v = (raw.chosenAppliances as Record<string, unknown>)[cat];
+        if (typeof v === 'string' && v.length > 0 && v.length < 128) cleaned[cat] = v;
+      }
+      if (Object.keys(cleaned).length) patch.chosenAppliances = cleaned;
     }
     // Style ids: validated against the catalog — unknown ids drop to defaults
     // so a stale/renamed id can't crash rendering or silently show nothing.
@@ -505,7 +533,7 @@ function estimatePrice(
  *  are logged rather than shown. */
 // ─── Step indicator ─────────────────────────────────────────────────────────────
 
-const STEPS = ['Room', 'Cooking', 'Style', 'Design', 'Review'];
+const STEPS = ['Room', 'Cooking', 'Appliances', 'Style', 'Design', 'Review'];
 
 // ─── Wall selection ─────────────────────────────────────────────────────────────
 // Which walls each layout strategy needs: every inner group must have at least
@@ -1213,7 +1241,22 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
     style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
   };
   const compiled = compileSpec(activeSpec, brief.room);
-  const items = compiled.items;
+  // Stage 3 — homeowner appliance catalog. Chosen products are (a) stamped
+  // onto matching engine-placed slots so the 3D preview renders real GLBs,
+  // and (b) priced independently below (so sinks/taps/ovens with no visible
+  // slot still contribute to the estimate). Empty when the customer skipped.
+  const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
+  const items = React.useMemo(
+    () => enrichItemsWithChosenAppliances(compiled.items, state.chosenAppliances, applianceProducts),
+    [compiled.items, state.chosenAppliances, applianceProducts],
+  );
+  const applianceLineItems = React.useMemo(
+    () => buildApplianceLineItems(state.chosenAppliances, applianceProducts),
+    [state.chosenAppliances, applianceProducts],
+  );
+  const applianceSubtotal = sumAppliances(applianceLineItems);
+  const applianceHasPlaceholder = anyPlaceholderPrices(applianceLineItems);
+
   const evald = evaluateDesign(compiled, brief.room, brief, activeSpec);
   const designViolations = evald.violations;
   const blockingErrors = designViolations.filter(v => v.severity === 'error');
@@ -1224,7 +1267,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       .filter(v => v.severity === 'warn')
       .map(v => v.message),
   ]));
-  const band = useWizardPricing(items, activeSpec.style);
+  const band = useWizardPricing(compiled.items, activeSpec.style);
 
   const room3D: RoomConfig = brief.room;
 
@@ -1232,8 +1275,10 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   // and this Review panel all show the SAME numbers for the SAME design.
   // The default (non-AI) layout has no stored band and keeps the estimator.
   const stored = state.design?.priceBand;
-  const low = stored ? stored.lowAud : band.lowAud;
-  const high = stored ? stored.highAud : band.highAud;
+  const cabinetsLow  = stored ? stored.lowAud  : band.lowAud;
+  const cabinetsHigh = stored ? stored.highAud : band.highAud;
+  const low  = cabinetsLow  + applianceSubtotal;
+  const high = cabinetsHigh + applianceSubtotal;
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
@@ -1303,20 +1348,12 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         return;
       }
 
-      // Stage 1 — appliance line items (client-side only; edge functions ignore
-      // unknown fields today). Empty on standard AI-designed layouts because
-      // those don't place catalog appliances yet; wired up so the enquiry
-      // schema can start reading them without a follow-up client change.
-      const applianceItemsPayload = items
-        .filter(i => i.applianceProductId && i.supplyWithOrder !== false && (i.applianceSnapshot?.unitPrice ?? 0) > 0)
-        .reduce<Array<{ productId: string; itemCode: string | null; name: string; category: string; quantity: number; unitPrice: number; lineTotal: number; isPlaceholderPrice: boolean }>>((acc, i) => {
-          const snap = i.applianceSnapshot!;
-          const existing = acc.find(a => a.productId === i.applianceProductId);
-          if (existing) { existing.quantity += 1; existing.lineTotal = existing.unitPrice * existing.quantity; }
-          else acc.push({ productId: i.applianceProductId!, itemCode: snap.itemCode ?? null, name: snap.name, category: snap.category, quantity: 1, unitPrice: snap.unitPrice, lineTotal: snap.unitPrice, isPlaceholderPrice: snap.isPlaceholderPrice });
-          return acc;
-        }, []);
-      const appliancesTotalPayload = applianceItemsPayload.reduce((s, a) => s + a.lineTotal, 0);
+      // Stage 3 — appliance line items come from the customer's catalog picks
+      // on the Appliances step (not from placed engine items), so sinks/taps/
+      // ovens/cooktops/microwaves that don't correspond to a visible slot
+      // still price. The displayed band above already includes the subtotal.
+      const applianceItemsPayload = applianceLineItems;
+      const appliancesTotalPayload = applianceSubtotal;
 
       const designData = {
         wizardVersion: 2,
@@ -1338,6 +1375,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         // verifies the submitted spec against this stored proposal row.
         aiProposalId: state.design?.proposalId ?? null,
         priceBand: { low, high, source: stored ? 'proposal' : (band.isBomBacked ? 'bom' : 'estimator') },
+        chosenAppliances: state.chosenAppliances,
         applianceItems: applianceItemsPayload,
         appliancesTotal: appliancesTotalPayload,
         roomScan: scanParse.data,
@@ -1496,6 +1534,39 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         </div>
       )}
 
+      {/* Appliances — line items chosen on the Appliances step. */}
+      {applianceLineItems.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Appliances</h3>
+            <span className="text-xs text-slate-500">
+              Subtotal <strong className="text-slate-900">${Math.round(applianceSubtotal).toLocaleString()}</strong>
+            </span>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {applianceLineItems.map(l => (
+              <li key={l.productId} className="py-2 flex items-center justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="text-slate-900 truncate">{l.name}</p>
+                  <p className="text-[11px] text-slate-400 capitalize">
+                    {APPLIANCE_CATEGORY_LABELS[l.category as keyof typeof APPLIANCE_CATEGORY_LABELS]?.singular ?? l.category}
+                    {l.isPlaceholderPrice ? ' · indicative price' : ''}
+                  </p>
+                </div>
+                <span className="text-slate-700 whitespace-nowrap">
+                  {l.lineTotal > 0 ? `$${Math.round(l.lineTotal).toLocaleString()}` : '—'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {applianceHasPlaceholder && (
+            <p className="text-[11px] text-amber-600 pt-1">
+              Some appliance prices are indicative and will be confirmed in your final quote.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Estimate banner */}
       <div className="bg-slate-900 text-white rounded-xl p-4 sm:p-5 flex items-center justify-between gap-4">
         <div>
@@ -1504,6 +1575,11 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
             ${low.toLocaleString()} – ${high.toLocaleString()}
             <span className="text-xs sm:text-sm font-normal text-slate-400 ml-1.5">AUD inc. GST</span>
           </p>
+          {applianceSubtotal > 0 && (
+            <p className="text-[11px] text-slate-400 mt-1">
+              Cabinets ${cabinetsLow.toLocaleString()}–${cabinetsHigh.toLocaleString()} + appliances ${Math.round(applianceSubtotal).toLocaleString()}
+            </p>
+          )}
         </div>
         <p className="text-right text-xs text-slate-400 max-w-[130px] hidden sm:block">
           Indicative only. Final price confirmed after site measure.
@@ -1650,6 +1726,7 @@ export default function HomeownerWizard() {
     contactName: '', contactEmail: '', contactPhone: '',
     leadGateDone: false,
     geometryEdits: 0,
+    chosenAppliances: {},
     ...DEFAULTS,
   });
 
@@ -1839,10 +1916,11 @@ export default function HomeownerWizard() {
       ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid :
     state.step === 2 ? true :
     state.step === 3 ? true :
-    state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
+    state.step === 4 ? true :
+    state.step === 5 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
 
   const advance = () => {
-    if (state.step < 5) {
+    if (state.step < 6) {
       trackEvent('step_complete', {
         step: state.step,
         shape: state.layoutPreference,
@@ -1903,9 +1981,15 @@ export default function HomeownerWizard() {
 
         {state.step === 1 && <Step1Room state={state} onChange={onChange} onValidityChange={handleStep1Validity} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
-        {state.step === 3 && <Step3Style state={state} onChange={onChange} />}
-        {state.step === 4 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
-        {state.step === 4 && state.leadGateDone && (
+        {state.step === 3 && (
+          <StepAppliances
+            chosen={state.chosenAppliances}
+            onChange={next => onChange({ chosenAppliances: next })}
+          />
+        )}
+        {state.step === 4 && <Step3Style state={state} onChange={onChange} />}
+        {state.step === 5 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
+        {state.step === 5 && state.leadGateDone && (
           <StepDesign
             key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}`}
             brief={buildBrief(state)}
@@ -1916,10 +2000,10 @@ export default function HomeownerWizard() {
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
           />
         )}
-        {state.step === 5 && <Step4Review state={state} onChange={onChange} />}
+        {state.step === 6 && <Step4Review state={state} onChange={onChange} />}
 
         {/* Nav footer */}
-        {state.step < 5 ? (
+        {state.step < 6 ? (
           <div className="mt-8 sm:mt-10 pt-5 border-t border-slate-100">
             {state.step === 1 && step1Invalid && (
               <p className="text-xs text-red-600 mb-3 text-center sm:text-right">
@@ -1942,7 +2026,7 @@ export default function HomeownerWizard() {
                   disabled={!canAdvance}
                   className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
                 >
-                  {state.step === 4 ? 'Review & price' : 'Continue'}
+                  {state.step === 5 ? 'Review & price' : 'Continue'}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
