@@ -103,12 +103,13 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const heightM = item.height / 1000;
   const depthM = item.depth / 1000;
 
-  // Classify by SKU AND name — a "Dishwasher Opening" has sku DISHWASHER_OPENING
-  // (no 'DW') and a name containing 'wash', so it used to render as a front-loader
-  // washing machine. Match the name so it's recognised as a dishwasher opening.
+  // Classify by category-first via the shared helper so a fridge with an
+  // item_code containing "CT" (e.g. "PRODUCT-…") isn't mis-classified as a
+  // cooktop, and free-form vendor SKUs with "SINK" as a substring don't
+  // collide either.
   const applianceName = (def.name || '').toLowerCase();
-  const isSink = def.sku.includes('SINK') || applianceName.includes('sink');
-  const isCooktop = def.sku.includes('CT') || applianceName.includes('cooktop');
+  const isSink = isSinkAppliance(item, def);
+  const isCooktop = isCooktopAppliance(item, def);
   const isDishwasher = def.sku.includes('DW') || applianceName.includes('dishwasher');
   const isOven = applianceName.includes('oven');
   const isFrontLoader = !isDishwasher && (applianceName.includes('wash') || applianceName.includes('dryer'));
