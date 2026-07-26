@@ -144,10 +144,18 @@ export const aiDesignerRequestSchema = z.object({
   shape: z.enum(['single-wall', 'l-shape', 'u-shape', 'galley']).default('l-shape'),
   currentSpec: kitchenSpecSchema.optional(),
   currentProposalId: z.string().uuid().optional(),
+  // NOTE: this object is strict, so any extra key rejects the WHOLE request
+  // with `invalid_designer_request` before the model is called. The response
+  // echoes a `briefRevision` alongside these fields, and a client that spreads
+  // the response back into the next request used to trip exactly that — every
+  // refine and style call failed, silently, for the customer. The client now
+  // sends only the three authoritative keys; `briefRevision` is accepted and
+  // ignored so an older cached bundle degrades to working rather than broken.
   session: z.object({
     id: z.string().uuid(),
     token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
     designRevision: z.number().int().nonnegative(),
+    briefRevision: z.number().int().nonnegative().optional(),
   }).strict().optional(),
   message: z.string().trim().max(2000).optional(),
   history: z.array(z.object({

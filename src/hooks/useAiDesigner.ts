@@ -55,15 +55,37 @@ interface AuthorizedDesignSession {
 
 interface ChatTurn { role: 'user' | 'assistant'; content: string }
 
+/**
+ * The edge function validates `session` with a **strict** zod object of exactly
+ * { id, token, designRevision }. Its *response* carries an extra `briefRevision`,
+ * and spreading that response straight back into the next request made zod
+ * reject every refine/style call with `invalid_designer_request` (400) before
+ * the model was ever called — which surfaced to customers as the useless
+ * "Sorry — I couldn't apply that just now."
+ *
+ * Send only the three keys the server accepts. `briefRevision` is still kept in
+ * the ref because callers display it; it just must not go back over the wire.
+ */
+function sessionPayload(s: AuthorizedDesignSession | null) {
+  if (!s) return undefined;
+  return { id: s.id, token: s.token, designRevision: s.designRevision };
+}
+
 export function useAiDesigner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasActiveSession, setHasActiveSession] = useState(false);
   const sessionRef = useRef<AuthorizedDesignSession | null>(null);
+  // `error` is React state, so it is NOT readable by a caller immediately after
+  // `await refine(...)` returns — the render hasn't happened yet. Callers that
+  // need to branch on *why* a call failed read this ref instead, which is
+  // written synchronously in the catch below.
+  const lastErrorRef = useRef<string | null>(null);
 
   const call = useCallback(async (body: Record<string, unknown>): Promise<AiDesignResult | null> => {
     setLoading(true);
     setError(null);
+    lastErrorRef.current = null;
     try {
       const { data, error: fnError } = await supabase.functions.invoke('ai-designer', { body });
       if (fnError) {
@@ -92,6 +114,7 @@ export function useAiDesigner() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'AI designer unavailable';
       console.error('[ai-designer] request failed:', msg);
+      lastErrorRef.current = msg;
       setError(msg);
       return null;
     } finally {
@@ -119,7 +142,7 @@ export function useAiDesigner() {
       shape,
       currentSpec,
       currentProposalId,
-      session: sessionRef.current,
+      session: sessionPayload(sessionRef.current),
       message,
       history,
     }),
@@ -132,5 +155,11 @@ export function useAiDesigner() {
     [call],
   );
 
-  return { generate, refine, restyle, loading, error, hasActiveSession };
+  /**
+   * The reason the last call failed, readable synchronously right after the
+   * awaited call resolves to `null`. Returns `null` when nothing has failed.
+   */
+  const lastError = useCallback(() => lastErrorRef.current, []);
+
+  return { generate, refine, restyle, loading, error, lastError, hasActiveSession };
 }

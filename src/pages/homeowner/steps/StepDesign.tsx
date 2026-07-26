@@ -55,7 +55,7 @@ const LOADING_LINES = [
 
 export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
   const navigate = useNavigate();
-  const { generate, refine, loading, error } = useAiDesigner();
+  const { generate, refine, loading, error, lastError } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -146,14 +146,34 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
-  const handleRefine = async () => {
-    const msg = chatInput.trim();
+  /**
+   * Turn a failed refine into something the customer can act on. The old copy
+   * ("Sorry — I couldn't apply that just now") was shown for every cause,
+   * including causes rewording can never fix, which made the step a dead end.
+   */
+  const refineFailureMessage = (raw: string | null): string => {
+    const code = (raw ?? '').toLowerCase();
+    if (code.includes('rate_limited')) {
+      return "You've asked for a lot of changes in the last hour, so the designer is taking a breather. It'll free up shortly — or keep this layout and we'll fine-tune it with your quote.";
+    }
+    if (code.includes('invalid_ai_session') || code.includes('stale_design_revision') || code.includes('stale_brief_revision')) {
+      return 'This design session has expired. Tap "Design my kitchen" to start a fresh set of options — your room details are kept.';
+    }
+    if (code.includes('invalid_parent_proposal')) {
+      return "I've lost track of which design we were editing. Tap \"Design my kitchen\" for a fresh set of options.";
+    }
+    if (code.includes('unsupported_l_shape')) {
+      return "I can't edit L-shaped rooms yet — this one needs a human. Keep going and Ben will lay it out with you.";
+    }
+    return "Sorry — I couldn't apply that just now. Try rewording it, or keep going and we'll sort it out with your quote.";
+  };
+
+  const runRefine = async (msg: string) => {
     if (!msg || !design || !activeSpec) return;
     if (!design.proposalId) {
       toast.error('Generate a fresh AI option before asking for design changes.');
       return;
     }
-    setChatInput('');
     // Build the next log ONCE: state and the request share the same value, so
     // the bounded history is never stale relative to what the user sees.
     const nextChatLog: ChatEntry[] = [...chatLog, { role: 'user', content: msg }];
@@ -161,7 +181,10 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     trackEvent('ai_refine_used');
     const res = await refine(brief, shape, activeSpec, design.proposalId, msg, nextChatLog.slice(-7, -1));
     if (!res || res.options.length === 0) {
-      setChatLog(log => [...log, { role: 'assistant', content: "Sorry — I couldn't apply that just now. Try rewording, or adjust it after you get your quote." }]);
+      // `lastError()` is a ref, not state, so it is already correct here.
+      const why = lastError();
+      trackEvent('ai_refine_failed', { reason: why ?? 'unknown' });
+      setChatLog(log => [...log, { role: 'assistant', content: refineFailureMessage(why) }]);
       return;
     }
     const updated = res.options[0];
@@ -183,6 +206,24 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
       onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand });
     }
     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
+  };
+
+  const handleRefine = () => {
+    const msg = chatInput.trim();
+    if (!msg) return;
+    setChatInput('');
+    void runRefine(msg);
+  };
+
+  /**
+   * Warnings used to be a wall of text with nothing to do about them. Each one
+   * now sends itself back to the designer as a plain-English instruction, so
+   * the customer has a way forward instead of a list of complaints.
+   */
+  const handleFixWarning = (warning: string) => {
+    if (loading) return;
+    trackEvent('ai_fix_warning_used');
+    void runRefine(`Please fix this problem with the layout: ${warning}`);
   };
 
   const handleUndo = () => {
@@ -348,10 +389,29 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
       )}
 
       {warnings.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-0.5">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
+          <p className="text-xs font-semibold text-amber-800">Things worth a look</p>
           {warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-700">• {w}</p>
+            <div key={i} className="flex items-start justify-between gap-2">
+              <p className="text-xs text-amber-700 flex-1">• {w}</p>
+              {design?.aiGenerated && design.proposalId && (
+                <button
+                  type="button"
+                  onClick={() => handleFixWarning(w)}
+                  disabled={loading}
+                  aria-label={`Ask the designer to fix: ${w}`}
+                  className="shrink-0 text-xs font-medium text-amber-900 underline underline-offset-2 disabled:opacity-40 disabled:no-underline"
+                >
+                  Fix this
+                </button>
+              )}
+            </div>
           ))}
+          <p className="text-[11px] text-amber-600 pt-0.5">
+            {design?.aiGenerated && design.proposalId
+              ? 'These are trade-offs, not mistakes — you can leave them and Ben will talk them through with you.'
+              : 'Tap “Design my kitchen” above and the designer can work on these for you.'}
+          </p>
         </div>
       )}
 

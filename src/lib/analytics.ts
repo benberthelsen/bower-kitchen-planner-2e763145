@@ -19,6 +19,11 @@ export type FunnelEventType =
   | 'ai_generate_succeeded'
   | 'ai_option_selected'
   | 'ai_refine_used'
+  // Records WHY a refine failed. Without this, a designer that rejects every
+  // edit stays invisible in the funnel — it only surfaces in the customer's
+  // browser console, where nobody is looking.
+  | 'ai_refine_failed'
+  | 'ai_fix_warning_used'
   | 'lead_captured'
   | 'shared_design_opened';
 

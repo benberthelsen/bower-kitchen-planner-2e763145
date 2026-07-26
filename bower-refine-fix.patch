@@ -1,0 +1,457 @@
+diff --git a/package.json b/package.json
+index 4e519aa..420ef4e 100644
+--- a/package.json
++++ b/package.json
+@@ -31,7 +31,8 @@
+     "roomscan:check": "node scripts/check-room-scan-contract.mjs",
+     "typecheck": "tsc --noEmit -p tsconfig.app.json",
+     "test:trade-ai": "node tests/trade-ai.test.cjs",
+-    "test:scanner": "node tests/scanner-two-lane.test.cjs"
++    "test:scanner": "node tests/scanner-two-lane.test.cjs",
++    "test:refine-session": "esbuild scripts/refine-session-payload-smoke.mts --bundle --platform=node --format=esm --outfile=.tmp-snap-test/refine-session.mjs --log-level=error && node .tmp-snap-test/refine-session.mjs"
+   },
+   "dependencies": {
+     "@hookform/resolvers": "^3.10.0",
+@@ -118,4 +119,4 @@
+     "typescript-eslint": "^8.38.0",
+     "vite": "^5.4.19"
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/scripts/refine-session-payload-smoke.mts b/scripts/refine-session-payload-smoke.mts
+new file mode 100644
+index 0000000..0b9b207
+--- /dev/null
++++ b/scripts/refine-session-payload-smoke.mts
+@@ -0,0 +1,95 @@
++/**
++ * Proof for the refine regression.
++ *
++ * The homeowner Design step called `refine` and every attempt came back as
++ * "Sorry — I couldn't apply that just now". The cause was NOT the model, the
++ * key, or the database: `aiDesignerRequestSchema.session` is a **strict** zod
++ * object, and the client spread the edge function's *response* session
++ * (which carries an extra `briefRevision`) straight back into the request.
++ * Zod rejected the whole request with `invalid_designer_request` (400) before
++ * OpenAI was ever called.
++ *
++ * Run: npx esbuild ... (see refine-session-payload-smoke runner below)
++ */
++import { aiDesignerRequestSchema } from '../src/lib/layout/schemas';
++
++const SESSION_ID = '1d6951ad-bc1b-4da5-b892-1223718e8c82';
++const TOKEN = 'A'.repeat(43);
++
++// A minimally-valid brief is all we need: we are testing the `session` gate,
++// and zod reports every failing path, so we assert on the path, not on success.
++const baseRequest = {
++  mode: 'refine' as const,
++  brief: {} as never,
++  shape: 'l-shape' as const,
++  currentSpec: {} as never,
++  currentProposalId: '2f1b8f7a-3c4d-4e5f-8a9b-0c1d2e3f4a5b',
++  message: 'remove the fridge',
++  history: [],
++};
++
++function sessionIssuePaths(session: unknown): string[] {
++  const parsed = aiDesignerRequestSchema.safeParse({ ...baseRequest, session });
++  if (parsed.success) return [];
++  return parsed.error.issues
++    .filter(i => i.path[0] === 'session')
++    .map(i => `${i.path.join('.')}: ${i.code}${'keys' in i ? ` ${JSON.stringify((i as { keys: string[] }).keys)}` : ''}`);
++}
++
++let failures = 0;
++function check(name: string, ok: boolean, detail: string) {
++  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : ` — ${detail}`}`);
++  if (!ok) failures++;
++}
++
++// 1. What the OLD client sent: the response object spread back verbatim.
++const oldClientPayload = {
++  id: SESSION_ID,
++  token: TOKEN,
++  briefRevision: 1,
++  designRevision: 1,
++};
++
++// 2. What the FIXED client sends: exactly the three authoritative keys.
++const fixedClientPayload = {
++  id: SESSION_ID,
++  token: TOKEN,
++  designRevision: 1,
++};
++
++check(
++  'fixed client payload raises no session issue',
++  sessionIssuePaths(fixedClientPayload).length === 0,
++  JSON.stringify(sessionIssuePaths(fixedClientPayload)),
++);
++
++// After the server-side tolerance change, the OLD payload must also survive,
++// so a browser holding a cached pre-fix bundle degrades to working.
++check(
++  'legacy payload with briefRevision is now tolerated',
++  sessionIssuePaths(oldClientPayload).length === 0,
++  JSON.stringify(sessionIssuePaths(oldClientPayload)),
++);
++
++// A genuinely unknown key must still be rejected — tolerance is for one
++// known-benign field, not a hole in the strict contract.
++check(
++  'an unknown session key is still rejected',
++  sessionIssuePaths({ ...fixedClientPayload, injected: 'nope' }).length > 0,
++  'strictness was lost',
++);
++
++// A malformed token must still be rejected by the session sub-schema itself.
++check(
++  'a malformed session token is still rejected',
++  sessionIssuePaths({ ...fixedClientPayload, token: 'short' }).length > 0,
++  'token regex was lost',
++);
++
++// NOTE: the "refine mode requires a session" rule lives in the schema's
++// `.superRefine`, which zod only runs once the base object parses. This smoke
++// test deliberately uses a stub brief, so that rule is out of scope here — it
++// is exercised by the edge function's own request path.
++
++console.log(failures === 0 ? '\nREFINE SESSION PAYLOAD: all assertions pass' : `\n${failures} FAILURES`);
++process.exit(failures === 0 ? 0 : 1);
+diff --git a/src/hooks/useAiDesigner.ts b/src/hooks/useAiDesigner.ts
+index 3113d6a..d1f0f66 100644
+--- a/src/hooks/useAiDesigner.ts
++++ b/src/hooks/useAiDesigner.ts
+@@ -55,15 +55,37 @@ interface AuthorizedDesignSession {
+ 
+ interface ChatTurn { role: 'user' | 'assistant'; content: string }
+ 
++/**
++ * The edge function validates `session` with a **strict** zod object of exactly
++ * { id, token, designRevision }. Its *response* carries an extra `briefRevision`,
++ * and spreading that response straight back into the next request made zod
++ * reject every refine/style call with `invalid_designer_request` (400) before
++ * the model was ever called — which surfaced to customers as the useless
++ * "Sorry — I couldn't apply that just now."
++ *
++ * Send only the three keys the server accepts. `briefRevision` is still kept in
++ * the ref because callers display it; it just must not go back over the wire.
++ */
++function sessionPayload(s: AuthorizedDesignSession | null) {
++  if (!s) return undefined;
++  return { id: s.id, token: s.token, designRevision: s.designRevision };
++}
++
+ export function useAiDesigner() {
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [hasActiveSession, setHasActiveSession] = useState(false);
+   const sessionRef = useRef<AuthorizedDesignSession | null>(null);
++  // `error` is React state, so it is NOT readable by a caller immediately after
++  // `await refine(...)` returns — the render hasn't happened yet. Callers that
++  // need to branch on *why* a call failed read this ref instead, which is
++  // written synchronously in the catch below.
++  const lastErrorRef = useRef<string | null>(null);
+ 
+   const call = useCallback(async (body: Record<string, unknown>): Promise<AiDesignResult | null> => {
+     setLoading(true);
+     setError(null);
++    lastErrorRef.current = null;
+     try {
+       const { data, error: fnError } = await supabase.functions.invoke('ai-designer', { body });
+       if (fnError) {
+@@ -92,6 +114,7 @@ export function useAiDesigner() {
+     } catch (e) {
+       const msg = e instanceof Error ? e.message : 'AI designer unavailable';
+       console.error('[ai-designer] request failed:', msg);
++      lastErrorRef.current = msg;
+       setError(msg);
+       return null;
+     } finally {
+@@ -119,7 +142,7 @@ export function useAiDesigner() {
+       shape,
+       currentSpec,
+       currentProposalId,
+-      session: sessionRef.current,
++      session: sessionPayload(sessionRef.current),
+       message,
+       history,
+     }),
+@@ -132,5 +155,11 @@ export function useAiDesigner() {
+     [call],
+   );
+ 
+-  return { generate, refine, restyle, loading, error, hasActiveSession };
++  /**
++   * The reason the last call failed, readable synchronously right after the
++   * awaited call resolves to `null`. Returns `null` when nothing has failed.
++   */
++  const lastError = useCallback(() => lastErrorRef.current, []);
++
++  return { generate, refine, restyle, loading, error, lastError, hasActiveSession };
+ }
+diff --git a/src/lib/analytics.ts b/src/lib/analytics.ts
+index 52e7c0f..5529d80 100644
+--- a/src/lib/analytics.ts
++++ b/src/lib/analytics.ts
+@@ -19,6 +19,11 @@ export type FunnelEventType =
+   | 'ai_generate_succeeded'
+   | 'ai_option_selected'
+   | 'ai_refine_used'
++  // Records WHY a refine failed. Without this, a designer that rejects every
++  // edit stays invisible in the funnel — it only surfaces in the customer's
++  // browser console, where nobody is looking.
++  | 'ai_refine_failed'
++  | 'ai_fix_warning_used'
+   | 'lead_captured'
+   | 'shared_design_opened';
+ 
+diff --git a/src/lib/layout/schemas.ts b/src/lib/layout/schemas.ts
+index bc8c0ce..0e64b75 100644
+--- a/src/lib/layout/schemas.ts
++++ b/src/lib/layout/schemas.ts
+@@ -143,10 +143,18 @@ export const aiDesignerRequestSchema = z.object({
+   shape: z.enum(['single-wall', 'l-shape', 'u-shape', 'galley']).default('l-shape'),
+   currentSpec: kitchenSpecSchema.optional(),
+   currentProposalId: z.string().uuid().optional(),
++  // NOTE: this object is strict, so any extra key rejects the WHOLE request
++  // with `invalid_designer_request` before the model is called. The response
++  // echoes a `briefRevision` alongside these fields, and a client that spreads
++  // the response back into the next request used to trip exactly that — every
++  // refine and style call failed, silently, for the customer. The client now
++  // sends only the three authoritative keys; `briefRevision` is accepted and
++  // ignored so an older cached bundle degrades to working rather than broken.
+   session: z.object({
+     id: z.string().uuid(),
+     token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+     designRevision: z.number().int().nonnegative(),
++    briefRevision: z.number().int().nonnegative().optional(),
+   }).strict().optional(),
+   message: z.string().trim().max(2000).optional(),
+   history: z.array(z.object({
+diff --git a/src/pages/homeowner/steps/StepDesign.tsx b/src/pages/homeowner/steps/StepDesign.tsx
+index e441647..e6b4ef4 100644
+--- a/src/pages/homeowner/steps/StepDesign.tsx
++++ b/src/pages/homeowner/steps/StepDesign.tsx
+@@ -55,7 +55,7 @@ const LOADING_LINES = [
+ 
+ export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
+   const navigate = useNavigate();
+-  const { generate, refine, loading, error } = useAiDesigner();
++  const { generate, refine, loading, error, lastError } = useAiDesigner();
+   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
+   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
+   const [chatInput, setChatInput] = useState('');
+@@ -146,14 +146,34 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
+     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
+   };
+ 
+-  const handleRefine = async () => {
+-    const msg = chatInput.trim();
++  /**
++   * Turn a failed refine into something the customer can act on. The old copy
++   * ("Sorry — I couldn't apply that just now") was shown for every cause,
++   * including causes rewording can never fix, which made the step a dead end.
++   */
++  const refineFailureMessage = (raw: string | null): string => {
++    const code = (raw ?? '').toLowerCase();
++    if (code.includes('rate_limited')) {
++      return "You've asked for a lot of changes in the last hour, so the designer is taking a breather. It'll free up shortly — or keep this layout and we'll fine-tune it with your quote.";
++    }
++    if (code.includes('invalid_ai_session') || code.includes('stale_design_revision') || code.includes('stale_brief_revision')) {
++      return 'This design session has expired. Tap "Design my kitchen" to start a fresh set of options — your room details are kept.';
++    }
++    if (code.includes('invalid_parent_proposal')) {
++      return "I've lost track of which design we were editing. Tap \"Design my kitchen\" for a fresh set of options.";
++    }
++    if (code.includes('unsupported_l_shape')) {
++      return "I can't edit L-shaped rooms yet — this one needs a human. Keep going and Ben will lay it out with you.";
++    }
++    return "Sorry — I couldn't apply that just now. Try rewording it, or keep going and we'll sort it out with your quote.";
++  };
++
++  const runRefine = async (msg: string) => {
+     if (!msg || !design || !activeSpec) return;
+     if (!design.proposalId) {
+       toast.error('Generate a fresh AI option before asking for design changes.');
+       return;
+     }
+-    setChatInput('');
+     // Build the next log ONCE: state and the request share the same value, so
+     // the bounded history is never stale relative to what the user sees.
+     const nextChatLog: ChatEntry[] = [...chatLog, { role: 'user', content: msg }];
+@@ -161,7 +181,10 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
+     trackEvent('ai_refine_used');
+     const res = await refine(brief, shape, activeSpec, design.proposalId, msg, nextChatLog.slice(-7, -1));
+     if (!res || res.options.length === 0) {
+-      setChatLog(log => [...log, { role: 'assistant', content: "Sorry — I couldn't apply that just now. Try rewording, or adjust it after you get your quote." }]);
++      // `lastError()` is a ref, not state, so it is already correct here.
++      const why = lastError();
++      trackEvent('ai_refine_failed', { reason: why ?? 'unknown' });
++      setChatLog(log => [...log, { role: 'assistant', content: refineFailureMessage(why) }]);
+       return;
+     }
+     const updated = res.options[0];
+@@ -185,6 +208,24 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
+     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
+   };
+ 
++  const handleRefine = () => {
++    const msg = chatInput.trim();
++    if (!msg) return;
++    setChatInput('');
++    void runRefine(msg);
++  };
++
++  /**
++   * Warnings used to be a wall of text with nothing to do about them. Each one
++   * now sends itself back to the designer as a plain-English instruction, so
++   * the customer has a way forward instead of a list of complaints.
++   */
++  const handleFixWarning = (warning: string) => {
++    if (loading) return;
++    trackEvent('ai_fix_warning_used');
++    void runRefine(`Please fix this problem with the layout: ${warning}`);
++  };
++
+   const handleUndo = () => {
+     const prev = undoStack[undoStack.length - 1];
+     if (!prev) return;
+@@ -348,10 +389,29 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
+       )}
+ 
+       {warnings.length > 0 && (
+-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-0.5">
++        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
++          <p className="text-xs font-semibold text-amber-800">Things worth a look</p>
+           {warnings.map((w, i) => (
+-            <p key={i} className="text-xs text-amber-700">• {w}</p>
++            <div key={i} className="flex items-start justify-between gap-2">
++              <p className="text-xs text-amber-700 flex-1">• {w}</p>
++              {design?.aiGenerated && design.proposalId && (
++                <button
++                  type="button"
++                  onClick={() => handleFixWarning(w)}
++                  disabled={loading}
++                  aria-label={`Ask the designer to fix: ${w}`}
++                  className="shrink-0 text-xs font-medium text-amber-900 underline underline-offset-2 disabled:opacity-40 disabled:no-underline"
++                >
++                  Fix this
++                </button>
++              )}
++            </div>
+           ))}
++          <p className="text-[11px] text-amber-600 pt-0.5">
++            {design?.aiGenerated && design.proposalId
++              ? 'These are trade-offs, not mistakes — you can leave them and Ben will talk them through with you.'
++              : 'Tap “Design my kitchen” above and the designer can work on these for you.'}
++          </p>
+         </div>
+       )}
+ 
+diff --git a/supabase/functions/_shared/layout/core.ts b/supabase/functions/_shared/layout/core.ts
+index 8f7d480..d785439 100644
+--- a/supabase/functions/_shared/layout/core.ts
++++ b/supabase/functions/_shared/layout/core.ts
+@@ -67,11 +67,32 @@ export interface PlacedItem {
+   drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (overrides standard distribution)
+   tapId?: string;
+   applianceId?: string;
+-  
++
+   // Corner cabinet configuration (Phase 3)
+   cornerFillerWidth?: number;   // Gap between blind panel and wall (mm)
+   cornerStileWidth?: number;    // Face frame stile width (mm)
+   blindPullDistance?: number;   // How far blind extends past face (mm)
++
++  // -- Appliance catalog (Stage 1) ------------------------------------------
++  /** appliance_products.id when this placed item came from the catalog */
++  applianceProductId?: string;
++  /** Frozen snapshot at placement time — quote stays stable if catalog changes */
++  applianceSnapshot?: {
++    itemCode?: string | null;
++    name: string;
++    category: string;
++    unitPrice: number;
++    isPlaceholderPrice: boolean;
++    /** Stage 2 — GLB URL for real 3D rendering (planner / Android AR). */
++    modelUrl?: string | null;
++    /** Stage 2 — USDZ URL for Apple Quick Look per-product AR. */
++    modelIosUrl?: string | null;
++    /** Stage 2 — surface finish hint for procedural fallback (e.g. 'stainless'). */
++    finish?: string | null;
++  };
++  /** Default true when the product has a price. If false, appliance is
++   *  opening-only (client supplies) and NOT priced into the quote. */
++  supplyWithOrder?: boolean;
+ }
+ 
+ export type RoomShape = 'Rectangle' | 'LShape';
+diff --git a/supabase/functions/_shared/layout/schemas.ts b/supabase/functions/_shared/layout/schemas.ts
+index 9f866c2..ec8456d 100644
+--- a/supabase/functions/_shared/layout/schemas.ts
++++ b/supabase/functions/_shared/layout/schemas.ts
+@@ -144,10 +144,18 @@ export const aiDesignerRequestSchema = z.object({
+   shape: z.enum(['single-wall', 'l-shape', 'u-shape', 'galley']).default('l-shape'),
+   currentSpec: kitchenSpecSchema.optional(),
+   currentProposalId: z.string().uuid().optional(),
++  // NOTE: this object is strict, so any extra key rejects the WHOLE request
++  // with `invalid_designer_request` before the model is called. The response
++  // echoes a `briefRevision` alongside these fields, and a client that spreads
++  // the response back into the next request used to trip exactly that — every
++  // refine and style call failed, silently, for the customer. The client now
++  // sends only the three authoritative keys; `briefRevision` is accepted and
++  // ignored so an older cached bundle degrades to working rather than broken.
+   session: z.object({
+     id: z.string().uuid(),
+     token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+     designRevision: z.number().int().nonnegative(),
++    briefRevision: z.number().int().nonnegative().optional(),
+   }).strict().optional(),
+   message: z.string().trim().max(2000).optional(),
+   history: z.array(z.object({
+diff --git a/supabase/functions/_shared/trade/cabinetPlacedItem.ts b/supabase/functions/_shared/trade/cabinetPlacedItem.ts
+index 400665f..1cb1db6 100644
+--- a/supabase/functions/_shared/trade/cabinetPlacedItem.ts
++++ b/supabase/functions/_shared/trade/cabinetPlacedItem.ts
+@@ -36,6 +36,10 @@ export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?:
+     fillerRight: cabinet.construction?.rightFillerWidth,
+     blindSide: cabinet.construction?.blindSide,
+     drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
++    // Stage 1: catalog appliance passthrough
++    applianceProductId: cabinet.applianceProductId,
++    applianceSnapshot: cabinet.applianceSnapshot,
++    supplyWithOrder: cabinet.supplyWithOrder,
+   }));
+ }
+ 
+diff --git a/supabase/functions/_shared/trade/tradeTypes.ts b/supabase/functions/_shared/trade/tradeTypes.ts
+index 90a5d76..ce7b7ec 100644
+--- a/supabase/functions/_shared/trade/tradeTypes.ts
++++ b/supabase/functions/_shared/trade/tradeTypes.ts
+@@ -85,6 +85,23 @@ export interface ConfiguredCabinet {
+   isPlaced: boolean;
+   createdAt: Date;
+   updatedAt: Date;
++
++  // -- Appliance catalog (Stage 1) ------------------------------------------
++  /** appliance_products.id when this item came from the appliance catalog */
++  applianceProductId?: string;
++  /** Frozen snapshot so old jobs reprice consistently if the catalog changes */
++  applianceSnapshot?: {
++    itemCode?: string | null;
++    name: string;
++    category: string;
++    unitPrice: number;
++    isPlaceholderPrice: boolean;
++    modelUrl?: string | null;
++    modelIosUrl?: string | null;
++    finish?: string | null;
++  };
++  /** Include this appliance in the quote (default true when priced) */
++  supplyWithOrder?: boolean;
+ }
+ 
+ export interface RoomMaterialDefaults {

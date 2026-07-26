@@ -31,7 +31,8 @@
     "roomscan:check": "node scripts/check-room-scan-contract.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test:trade-ai": "node tests/trade-ai.test.cjs",
-    "test:scanner": "node tests/scanner-two-lane.test.cjs"
+    "test:scanner": "node tests/scanner-two-lane.test.cjs",
+    "test:refine-session": "esbuild scripts/refine-session-payload-smoke.mts --bundle --platform=node --format=esm --outfile=.tmp-snap-test/refine-session.mjs --log-level=error && node .tmp-snap-test/refine-session.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
