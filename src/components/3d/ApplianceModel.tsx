@@ -94,7 +94,7 @@ class ModelBoundary extends React.Component<
 }
 
 // ─── Loader inner: reads GLB, normalizes scale, positions on anchor ────────
-function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
+function GlbInner({ url, item, benchtopInset }: { url: string; item: PlacedItem; benchtopInset: boolean }) {
   const gltf = useGLTF(url, undefined, undefined, configureApplianceGltfLoader);
   const scene = useMemo(() => (gltf.scene ? gltf.scene.clone(true) : null), [gltf.scene]);
   const groupRef = useRef<THREE.Group>(null);
@@ -113,12 +113,15 @@ function GlbInner({ url, item }: { url: string; item: PlacedItem }) {
     const sz = size.z > 1e-4 && targetD > 0 ? targetD / size.z : 1;
     const cx = (box.min.x + box.max.x) / 2;
     const cz = (box.min.z + box.max.z) / 2;
-    const baseY = box.min.y;
+    // Sinks and cooktops follow the benchtop-inset convention: model CENTRE
+    // at `item.y` (an undermount sink drops into the benchtop). Everything
+    // else lifts the model BASE to `item.y`.
+    const anchorY = benchtopInset ? (box.min.y + box.max.y) / 2 : box.min.y;
     return {
       scale: [sx, sy, sz] as const,
-      offset: [-cx * sx, -baseY * sy, -cz * sz] as const,
+      offset: [-cx * sx, -anchorY * sy, -cz * sz] as const,
     };
-  }, [scene, targetW, targetH, targetD]);
+  }, [scene, targetW, targetH, targetD, benchtopInset]);
 
   // Refcounted dispose: multiple placed items can share one cached GLB, so
   // only clear when the last mounted instance for this URL unmounts. See the
