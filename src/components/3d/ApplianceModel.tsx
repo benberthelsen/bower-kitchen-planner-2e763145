@@ -166,6 +166,7 @@ const ApplianceModel: React.FC<Props> = (props) => {
   const widthM = item.width / 1000;
   const heightM = item.height / 1000;
   const depthM = item.depth / 1000;
+  const benchtopInset = isBenchtopInsetAppliance(item, def);
   const posY = (item.y / 1000);
   const position: [number, number, number] = [item.x / 1000, posY, item.z / 1000];
 
