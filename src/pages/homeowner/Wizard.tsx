@@ -435,6 +435,14 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
     if (typeof raw.styleWords === 'string' && raw.styleWords.trim()) {
       patch.styleWords = raw.styleWords.slice(0, 500);
     }
+    // chosenAppliances: keep only known category keys + string values.
+    if (raw.chosenAppliances && typeof raw.chosenAppliances === 'object') {
+      const cleaned: Record<string, string> = {};
+      for (const cat of APPLIANCE_CATEGORY_ORDER) {
+        const v = (raw.chosenAppliances as Record<string, unknown>)[cat];
+        if (typeof v === 'string' && v.length > 0 && v.length < 128) cleaned[cat] = v;
+      }
+      if (Object.keys(cleaned).length) patch.chosenAppliances = cleaned;
     // Style ids: validated against the catalog — unknown ids drop to defaults
     // so a stale/renamed id can't crash rendering or silently show nothing.
     if (raw.style && typeof raw.style === 'object') {
