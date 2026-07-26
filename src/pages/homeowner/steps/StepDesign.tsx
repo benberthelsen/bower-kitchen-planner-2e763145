@@ -90,6 +90,15 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
 
   const compiled = useMemo(() => (activeSpec ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
 
+  // Homeowner appliance catalog — enrich compiled items with chosen catalog
+  // products so the 3D preview here, the AR export below, the Review page
+  // and the enquiry payload all show the customer's actual product choices.
+  const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
+  const enrichedItems = useMemo(
+    () => (compiled ? enrichItemsWithChosenAppliances(compiled.items, chosenAppliances, applianceProducts) : []),
+    [compiled, chosenAppliances, applianceProducts],
+  );
+
   const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
   // One rules pipeline (brief v4.3 §4.4): geometric + policy evaluation.
