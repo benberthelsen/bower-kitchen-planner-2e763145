@@ -274,6 +274,8 @@ interface SharePayloadV1 {
     island: WizardState['island'];
   };
   styleWords?: string;
+  /** Homeowner appliance catalog picks (Stage 3). */
+  chosenAppliances?: Record<string, string>;
   /** Finish/benchtop/handle so a shared design renders and re-prices with the
    *  sender's style, not the recipient's defaults. */
   style?: { finishId: string; benchtopId: string; handleId: string };
@@ -353,6 +355,9 @@ export async function encodeSharePayload(state: WizardState): Promise<string | n
         island: state.island,
       },
       ...(state.styleWords ? { styleWords: state.styleWords } : {}),
+      ...(Object.keys(state.chosenAppliances ?? {}).length
+        ? { chosenAppliances: state.chosenAppliances }
+        : {}),
       style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
       ...(state.design
         ? { design: {
