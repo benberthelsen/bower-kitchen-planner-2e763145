@@ -5,6 +5,7 @@ import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
+import { isSinkAppliance, isCooktopAppliance } from './applianceClassification';
 
 interface ApplianceMeshProps {
   item: PlacedItem;
