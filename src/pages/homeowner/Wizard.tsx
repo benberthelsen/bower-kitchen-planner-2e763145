@@ -186,7 +186,7 @@ function stateToParams(s: WizardState): URLSearchParams {
 
 // v3: step order changed (Style before Design) + cabinetWalls added — old
 // saved states use the previous step numbering and are discarded.
-export const WIZARD_STATE_KEY = 'bower.wizard.state.v3';
+export const WIZARD_STATE_KEY = 'bower.wizard.state.v4';
 const WIZARD_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function loadSavedWizardState(): Partial<WizardState> {
@@ -194,7 +194,7 @@ function loadSavedWizardState(): Partial<WizardState> {
     const raw = sessionStorage.getItem(WIZARD_STATE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as { v?: number; savedAt?: number; state?: WizardState };
-    if (parsed?.v !== 3 || typeof parsed.savedAt !== 'number'
+    if (parsed?.v !== 4 || typeof parsed.savedAt !== 'number'
       || Date.now() - parsed.savedAt > WIZARD_STATE_MAX_AGE_MS
       || typeof parsed.state !== 'object' || parsed.state === null
       || typeof parsed.state.step !== 'number') {
@@ -209,7 +209,7 @@ function loadSavedWizardState(): Partial<WizardState> {
 
 export function saveWizardState(state: WizardState): void {
   try {
-    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 3, savedAt: Date.now(), state }));
+    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 4, savedAt: Date.now(), state }));
   } catch { /* storage full or unavailable — persistence is best-effort */ }
 }
 
@@ -519,7 +519,7 @@ function estimatePrice(
  *  are logged rather than shown. */
 // ─── Step indicator ─────────────────────────────────────────────────────────────
 
-const STEPS = ['Room', 'Cooking', 'Style', 'Design', 'Review'];
+const STEPS = ['Room', 'Cooking', 'Appliances', 'Style', 'Design', 'Review'];
 
 // ─── Wall selection ─────────────────────────────────────────────────────────────
 // Which walls each layout strategy needs: every inner group must have at least
@@ -1854,10 +1854,11 @@ export default function HomeownerWizard() {
       ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid :
     state.step === 2 ? true :
     state.step === 3 ? true :
-    state.step === 4 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
+    state.step === 4 ? true :
+    state.step === 5 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
 
   const advance = () => {
-    if (state.step < 5) {
+    if (state.step < 6) {
       trackEvent('step_complete', {
         step: state.step,
         shape: state.layoutPreference,
@@ -1918,9 +1919,15 @@ export default function HomeownerWizard() {
 
         {state.step === 1 && <Step1Room state={state} onChange={onChange} onValidityChange={handleStep1Validity} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
-        {state.step === 3 && <Step3Style state={state} onChange={onChange} />}
-        {state.step === 4 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
-        {state.step === 4 && state.leadGateDone && (
+        {state.step === 3 && (
+          <StepAppliances
+            chosen={state.chosenAppliances}
+            onChange={next => onChange({ chosenAppliances: next })}
+          />
+        )}
+        {state.step === 4 && <Step3Style state={state} onChange={onChange} />}
+        {state.step === 5 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
+        {state.step === 5 && state.leadGateDone && (
           <StepDesign
             key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}`}
             brief={buildBrief(state)}
@@ -1931,10 +1938,10 @@ export default function HomeownerWizard() {
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
           />
         )}
-        {state.step === 5 && <Step4Review state={state} onChange={onChange} />}
+        {state.step === 6 && <Step4Review state={state} onChange={onChange} />}
 
         {/* Nav footer */}
-        {state.step < 5 ? (
+        {state.step < 6 ? (
           <div className="mt-8 sm:mt-10 pt-5 border-t border-slate-100">
             {state.step === 1 && step1Invalid && (
               <p className="text-xs text-red-600 mb-3 text-center sm:text-right">
@@ -1957,7 +1964,7 @@ export default function HomeownerWizard() {
                   disabled={!canAdvance}
                   className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
                 >
-                  {state.step === 4 ? 'Review & price' : 'Continue'}
+                  {state.step === 5 ? 'Review & price' : 'Continue'}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
