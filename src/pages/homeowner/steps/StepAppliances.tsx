@@ -218,8 +218,17 @@ export default function StepAppliances({ chosen, onChange }: Props) {
       )}
 
       {error && !isLoading && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-          We couldn't load the appliance range right now — you can skip this step and pick appliances later with your consultant.
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 space-y-1">
+          <p className="font-semibold">We couldn't load the appliance range right now.</p>
+          <p>You can skip this step and pick appliances later with your consultant. If this keeps happening please let us know — details are in the browser console.</p>
+        </div>
+      )}
+
+      {!isLoading && !error && visibleCategories.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+          Dishwashers, fridges and rangehoods appear as your chosen product in the 3D preview.
+          Sinks, taps, cooktops, ovens and microwaves are shown as their cabinet openings for
+          now — they're always priced and listed on your quote.
         </div>
       )}
 
