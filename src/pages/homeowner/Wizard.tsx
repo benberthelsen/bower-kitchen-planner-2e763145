@@ -1664,6 +1664,7 @@ export default function HomeownerWizard() {
     contactName: '', contactEmail: '', contactPhone: '',
     leadGateDone: false,
     geometryEdits: 0,
+    chosenAppliances: {},
     ...DEFAULTS,
   });
 
