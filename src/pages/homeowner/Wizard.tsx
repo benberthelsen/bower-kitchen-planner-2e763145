@@ -51,7 +51,17 @@ import {
 import type { Wall } from '@/lib/layout';
 import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
 import StepCook from './steps/StepCook';
+import StepAppliances from './steps/StepAppliances';
 import StepDesign from './steps/StepDesign';
+import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import {
+  APPLIANCE_CATEGORY_ORDER,
+  APPLIANCE_CATEGORY_LABELS,
+  buildApplianceLineItems,
+  enrichItemsWithChosenAppliances,
+  appliancesTotal as sumAppliances,
+  anyPlaceholderPrices,
+} from './applianceSelection';
 import { buildBrief, type WizardDesign } from './wizardBrief';
 import { evaluateDesign } from '@/lib/designV2';
 import { STYLE_PRESETS } from '@/data/stylePresets';
@@ -64,7 +74,11 @@ type LayoutPreference = 'single-wall' | 'l-shape' | 'u-shape' | 'galley';
 type LayoutStyle  = 'minimal' | 'standard' | 'full-storage';
 
 interface WizardState {
-  step: 1 | 2 | 3 | 4 | 5;
+  step: 1 | 2 | 3 | 4 | 5 | 6;
+  /** Homeowner appliance catalog (Stage 3). Map of category → product id.
+   *  A value of '__none__' means the customer will supply their own for that
+   *  category. Absent keys mean "not yet chosen". Empty on legacy states. */
+  chosenAppliances: Record<string, string>;
   layoutPreference: LayoutPreference;
   roomWidth:   number;   // mm
   roomDepth:   number;   // mm
