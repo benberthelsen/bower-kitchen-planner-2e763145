@@ -1261,11 +1261,19 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const designViolations = evald.violations;
   const blockingErrors = designViolations.filter(v => v.severity === 'error');
   const conceptBlocked = evald.conceptBlocker || blockingErrors.length > 0;
+  const rangehoodChosen = !!state.chosenAppliances.rangehood && state.chosenAppliances.rangehood !== '__none__';
+  const rangehoodDrawn = items.some(it => {
+    const id = (it.definitionId || '').toLowerCase();
+    return id.includes('rangehood') || id.includes('hood');
+  });
   const buildNotes: string[] = Array.from(new Set<string>([
     ...compiled.notes,
     ...designViolations
       .filter(v => v.severity === 'warn')
       .map(v => v.message),
+    ...(rangehoodChosen && !rangehoodDrawn
+      ? ['Your chosen rangehood is included in your price but not shown in this layout — we\'ll confirm placement with you before manufacturing.']
+      : []),
   ]));
   const band = useWizardPricing(compiled.items, activeSpec.style);
 
@@ -1470,7 +1478,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         <div>
           <h2 className="text-lg font-semibold text-slate-900 mb-1">Your kitchen preview</h2>
           <p className="text-sm text-slate-500">
-            {items.length} cabinets · {selectedFinish.name} · {selectedBenchtop.name}
+            {items.length} items · {selectedFinish.name} · {selectedBenchtop.name}
           </p>
         </div>
         <ShareButton state={state} />
@@ -1935,7 +1943,7 @@ export default function HomeownerWizard() {
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="border-b border-slate-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between sticky top-0 bg-white z-20">
-        <Link to="/" className="font-bold text-base sm:text-lg text-slate-900">Bower</Link>
+        <Link to="/wizard" className="font-bold text-base sm:text-lg text-slate-900">Bower</Link>
         <div className="flex items-center gap-3">
           {state.step >= 2 && (
             <button
@@ -1996,6 +2004,7 @@ export default function HomeownerWizard() {
             shape={state.layoutPreference}
             style={{ finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId }}
             design={state.design}
+            chosenAppliances={state.chosenAppliances}
             onDesignChange={d => onChange({ design: d })}
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
           />

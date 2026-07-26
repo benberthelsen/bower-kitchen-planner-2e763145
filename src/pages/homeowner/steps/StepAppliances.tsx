@@ -44,6 +44,12 @@ function dimensionLabel(p: ApplianceProductRecord): string | null {
   return parts.length ? `${parts.join(' × ')} mm` : null;
 }
 
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua) || (/Mac/.test(ua) && (navigator as any).maxTouchPoints > 1);
+}
+
 function ProductCard({
   product,
   active,
@@ -56,50 +62,72 @@ function ProductCard({
   const price = applianceDisplayPrice(product);
   const dims = dimensionLabel(product);
   const label = product.brand ? `${product.brand} — ${product.name}` : product.name;
+  const iOS = isIOS();
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={active}
+    <div
       className={cn(
-        'group relative text-left w-full rounded-2xl border-2 bg-white overflow-hidden transition-all',
-        'flex flex-col min-h-[44px]',
+        'group relative rounded-2xl border-2 bg-white overflow-hidden transition-all flex flex-col min-h-[44px]',
         active
           ? 'border-slate-900 shadow-sm ring-2 ring-slate-900 ring-offset-1'
           : 'border-slate-200 hover:border-slate-400',
       )}
     >
-      <div className="aspect-[4/3] bg-slate-50 flex items-center justify-center overflow-hidden">
-        {product.image_url ? (
-          <img
-            src={product.image_url}
-            alt=""
-            loading="lazy"
-            className="w-full h-full object-contain"
-          />
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={active}
+        className="text-left w-full flex flex-col flex-1"
+      >
+        <div className="aspect-[4/3] bg-slate-50 flex items-center justify-center overflow-hidden">
+          {product.image_url ? (
+            <img
+              src={product.image_url}
+              alt=""
+              loading="lazy"
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <div className="text-slate-300 text-xs">No photo</div>
+          )}
+        </div>
+        <div className="p-3 space-y-1 flex-1">
+          <p className="text-sm font-semibold text-slate-900 leading-tight">{label}</p>
+          {product.finish && (
+            <p className="text-[11px] text-slate-500">{product.finish}</p>
+          )}
+          {dims && <p className="text-[11px] text-slate-400">{dims}</p>}
+          <p className={cn('text-xs font-medium', price > 0 ? 'text-slate-800' : 'text-slate-400')}>
+            {money(price)}
+          </p>
+          {product.price_is_placeholder && price > 0 && (
+            <p className="text-[10px] text-amber-600">Indicative — confirmed in final quote</p>
+          )}
+        </div>
+      </button>
+      {iOS && (
+        product.model_ios_url ? (
+          <a
+            href={product.model_ios_url}
+            rel="ar"
+            className="block text-center text-[11px] font-medium text-slate-700 border-t border-slate-200 py-1.5 hover:bg-slate-50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Quick Look wraps an image — required by Safari to trigger AR. */}
+            <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="" className="hidden" />
+            View in your room (AR)
+          </a>
         ) : (
-          <div className="text-slate-300 text-xs">No photo</div>
-        )}
-      </div>
-      <div className="p-3 space-y-1 flex-1">
-        <p className="text-sm font-semibold text-slate-900 leading-tight">{label}</p>
-        {product.finish && (
-          <p className="text-[11px] text-slate-500">{product.finish}</p>
-        )}
-        {dims && <p className="text-[11px] text-slate-400">{dims}</p>}
-        <p className={cn('text-xs font-medium', price > 0 ? 'text-slate-800' : 'text-slate-400')}>
-          {money(price)}
-        </p>
-        {product.price_is_placeholder && price > 0 && (
-          <p className="text-[10px] text-amber-600">Indicative — confirmed in final quote</p>
-        )}
-      </div>
+          <div className="text-center text-[11px] text-slate-400 border-t border-slate-100 py-1.5">
+            AR preview coming soon
+          </div>
+        )
+      )}
       {active && (
         <span className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-slate-900 text-white text-[10px] font-semibold px-2 py-0.5">
           <Check className="w-3 h-3" /> Chosen
         </span>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -190,8 +218,17 @@ export default function StepAppliances({ chosen, onChange }: Props) {
       )}
 
       {error && !isLoading && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-          We couldn't load the appliance range right now — you can skip this step and pick appliances later with your consultant.
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 space-y-1">
+          <p className="font-semibold">We couldn't load the appliance range right now.</p>
+          <p>You can skip this step and pick appliances later with your consultant. If this keeps happening please let us know — details are in the browser console.</p>
+        </div>
+      )}
+
+      {!isLoading && !error && visibleCategories.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+          Dishwashers, fridges and rangehoods appear as your chosen product in the 3D preview.
+          Sinks, taps, cooktops, ovens and microwaves are shown as their cabinet openings for
+          now — they're always priced and listed on your quote.
         </div>
       )}
 

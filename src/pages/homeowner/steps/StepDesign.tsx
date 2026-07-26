@@ -28,12 +28,15 @@ import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
 import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { WizardDesign } from '../wizardBrief';
+import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import { enrichItemsWithChosenAppliances } from '../applianceSelection';
 
 interface Props {
   brief: DesignBrief;
   shape: LayoutShape;
   style: { finishId: string; benchtopId: string; handleId: string };
   design: WizardDesign | null;
+  chosenAppliances: Record<string, string>;
   onDesignChange: (design: WizardDesign) => void;
   onRoomPatchProposed: (patch: ProposedRoomPatch) => void;
 }
@@ -50,7 +53,7 @@ const LOADING_LINES = [
   'Pricing it up…',
 ];
 
-export default function StepDesign({ brief, shape, style, design, onDesignChange, onRoomPatchProposed }: Props) {
+export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
   const navigate = useNavigate();
   const { generate, refine, loading, error } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
@@ -86,6 +89,15 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
   }, [design, style]);
 
   const compiled = useMemo(() => (activeSpec ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
+
+  // Homeowner appliance catalog — enrich compiled items with chosen catalog
+  // products so the 3D preview here, the AR export below, the Review page
+  // and the enquiry payload all show the customer's actual product choices.
+  const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
+  const enrichedItems = useMemo(
+    () => (compiled ? enrichItemsWithChosenAppliances(compiled.items, chosenAppliances, applianceProducts) : []),
+    [compiled, chosenAppliances, applianceProducts],
+  );
 
   const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
@@ -274,7 +286,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
               </div>
             }>
               <UnifiedScene
-                items={compiled.items}
+                items={enrichedItems}
                 room={room3D}
                 globalDimensions={DEFAULT_GLOBAL_DIMENSIONS}
                 selectedItemId={null}
@@ -305,7 +317,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
               const t = toast.loading('Preparing your kitchen for AR…');
               try {
                 const { exportSceneUsdz, openQuickLook } = await import('@/lib/ar/exportSceneUsdz');
-                const blob = await exportSceneUsdz(compiled.items, {
+                const blob = await exportSceneUsdz(enrichedItems, {
                   onProgress: (m) => toast.loading(m, { id: t }),
                 });
                 const url = URL.createObjectURL(blob);
@@ -321,7 +333,7 @@ export default function StepDesign({ brief, shape, style, design, onDesignChange
             try {
               sessionStorage.setItem(VIEW_AR_KEY, JSON.stringify({
                 version: 1,
-                items: compiled.items,
+                items: enrichedItems,
                 room: brief.room,
                 globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
                 finishId: style.finishId,
