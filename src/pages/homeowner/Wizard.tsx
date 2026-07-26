@@ -443,6 +443,7 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
         if (typeof v === 'string' && v.length > 0 && v.length < 128) cleaned[cat] = v;
       }
       if (Object.keys(cleaned).length) patch.chosenAppliances = cleaned;
+    }
     // Style ids: validated against the catalog — unknown ids drop to defaults
     // so a stale/renamed id can't crash rendering or silently show nothing.
     if (raw.style && typeof raw.style === 'object') {
