@@ -1241,7 +1241,22 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
     style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
   };
   const compiled = compileSpec(activeSpec, brief.room);
-  const items = compiled.items;
+  // Stage 3 — homeowner appliance catalog. Chosen products are (a) stamped
+  // onto matching engine-placed slots so the 3D preview renders real GLBs,
+  // and (b) priced independently below (so sinks/taps/ovens with no visible
+  // slot still contribute to the estimate). Empty when the customer skipped.
+  const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
+  const items = React.useMemo(
+    () => enrichItemsWithChosenAppliances(compiled.items, state.chosenAppliances, applianceProducts),
+    [compiled.items, state.chosenAppliances, applianceProducts],
+  );
+  const applianceLineItems = React.useMemo(
+    () => buildApplianceLineItems(state.chosenAppliances, applianceProducts),
+    [state.chosenAppliances, applianceProducts],
+  );
+  const applianceSubtotal = sumAppliances(applianceLineItems);
+  const applianceHasPlaceholder = anyPlaceholderPrices(applianceLineItems);
+
   const evald = evaluateDesign(compiled, brief.room, brief, activeSpec);
   const designViolations = evald.violations;
   const blockingErrors = designViolations.filter(v => v.severity === 'error');
@@ -1252,7 +1267,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       .filter(v => v.severity === 'warn')
       .map(v => v.message),
   ]));
-  const band = useWizardPricing(items, activeSpec.style);
+  const band = useWizardPricing(compiled.items, activeSpec.style);
 
   const room3D: RoomConfig = brief.room;
 
@@ -1260,8 +1275,10 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   // and this Review panel all show the SAME numbers for the SAME design.
   // The default (non-AI) layout has no stored band and keeps the estimator.
   const stored = state.design?.priceBand;
-  const low = stored ? stored.lowAud : band.lowAud;
-  const high = stored ? stored.highAud : band.highAud;
+  const cabinetsLow  = stored ? stored.lowAud  : band.lowAud;
+  const cabinetsHigh = stored ? stored.highAud : band.highAud;
+  const low  = cabinetsLow  + applianceSubtotal;
+  const high = cabinetsHigh + applianceSubtotal;
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
