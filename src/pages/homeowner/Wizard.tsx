@@ -1935,7 +1935,7 @@ export default function HomeownerWizard() {
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="border-b border-slate-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between sticky top-0 bg-white z-20">
-        <Link to="/" className="font-bold text-base sm:text-lg text-slate-900">Bower</Link>
+        <Link to="/wizard" className="font-bold text-base sm:text-lg text-slate-900">Bower</Link>
         <div className="flex items-center gap-3">
           {state.step >= 2 && (
             <button
