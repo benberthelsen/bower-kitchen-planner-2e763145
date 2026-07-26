@@ -24,7 +24,20 @@ async function fetchAppliances(activeOnly: boolean): Promise<ApplianceProductRec
     .order('name', { ascending: true });
   if (activeOnly) query = query.eq('is_active', true);
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) {
+    // Surface the real PostgREST failure so misconfigured RLS/grants/columns
+    // are diagnosable instead of hidden behind a generic "couldn't load"
+    // message in the wizard.
+    // eslint-disable-next-line no-console
+    console.error('[useApplianceCatalog] load failed', {
+      message: (error as any).message,
+      code: (error as any).code,
+      details: (error as any).details,
+      hint: (error as any).hint,
+      status: (error as any).status,
+    });
+    throw error;
+  }
   return (data ?? []) as ApplianceProductRecord[];
 }
 
