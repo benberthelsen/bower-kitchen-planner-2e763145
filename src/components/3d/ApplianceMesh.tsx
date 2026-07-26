@@ -84,14 +84,10 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   if (!def) {
     if (!catalogLoading) return null;
     const wM = item.width / 1000, hM = item.height / 1000, dM = item.depth / 1000;
-    // Match the real render path's inputs so classification (and therefore
-    // Y-origin) doesn't flip when `def` resolves. The real path checks
-    // `def.sku`/`def.name`; here we have neither yet, so fall back to the
-    // snapshot name and the definitionId slug (e.g. `cooktop_opening`).
-    const idHint = (item.definitionId ?? '').toLowerCase();
-    const nameHint = (item.applianceSnapshot?.name ?? '').toLowerCase();
-    const hint = `${idHint} ${nameHint}`;
-    const isSinkLike = /sink|cooktop/.test(hint);
+    // Match the real render path's classification so Y-origin doesn't flip
+    // when `def` resolves. `def` is null here, so the shared helper falls
+    // through to the snapshot-name check.
+    const isSinkLike = isSinkAppliance(item, null) || isCooktopAppliance(item, null);
     const placeholderY = isSinkLike ? (item.y / 1000) : (item.y / 1000) + (hM / 2);
     return (
       <group position={[item.x / 1000, placeholderY, item.z / 1000]} rotation={[0, -THREE.MathUtils.degToRad(item.rotation), 0]} userData={{ itemId: item.instanceId }}>
