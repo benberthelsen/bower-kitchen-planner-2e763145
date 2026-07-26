@@ -1996,6 +1996,7 @@ export default function HomeownerWizard() {
             shape={state.layoutPreference}
             style={{ finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId }}
             design={state.design}
+            chosenAppliances={state.chosenAppliances}
             onDesignChange={d => onChange({ design: d })}
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
           />
