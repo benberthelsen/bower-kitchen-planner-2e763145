@@ -317,7 +317,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
               const t = toast.loading('Preparing your kitchen for AR…');
               try {
                 const { exportSceneUsdz, openQuickLook } = await import('@/lib/ar/exportSceneUsdz');
-                const blob = await exportSceneUsdz(compiled.items, {
+                const blob = await exportSceneUsdz(enrichedItems, {
                   onProgress: (m) => toast.loading(m, { id: t }),
                 });
                 const url = URL.createObjectURL(blob);
@@ -333,7 +333,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
             try {
               sessionStorage.setItem(VIEW_AR_KEY, JSON.stringify({
                 version: 1,
-                items: compiled.items,
+                items: enrichedItems,
                 room: brief.room,
                 globalDimensions: DEFAULT_GLOBAL_DIMENSIONS,
                 finishId: style.finishId,
