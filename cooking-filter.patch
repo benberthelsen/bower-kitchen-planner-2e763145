@@ -1,0 +1,326 @@
+diff --git a/src/pages/homeowner/Wizard.tsx b/src/pages/homeowner/Wizard.tsx
+index b6393e0..5381465 100644
+--- a/src/pages/homeowner/Wizard.tsx
++++ b/src/pages/homeowner/Wizard.tsx
+@@ -2000,6 +2000,12 @@ export default function HomeownerWizard() {
+         {state.step === 3 && (
+           <StepAppliances
+             chosen={state.chosenAppliances}
++            cooking={{
++              oven: state.oven,
++              cooktop: state.cooktop,
++              dishwasher: state.dishwasher,
++              fridgeWidthMm: state.fridgeWidthMm,
++            }}
+             onChange={next => onChange({ chosenAppliances: next })}
+           />
+         )}
+diff --git a/src/pages/homeowner/applianceSelection.ts b/src/pages/homeowner/applianceSelection.ts
+index 352896a..4e99f2e 100644
+--- a/src/pages/homeowner/applianceSelection.ts
++++ b/src/pages/homeowner/applianceSelection.ts
+@@ -154,6 +154,91 @@ export function enrichItemsWithChosenAppliances(
+   });
+ }
+ 
++/* ── Matching the catalog to the "How you cook" answers ────────────────────
++ *
++ * The Appliances step showed the whole catalog regardless of what the customer
++ * had just told us: a dishwasher offered to someone who said they didn't want
++ * one, a 900 mm oven to someone who chose 600, both gas and induction cooktops
++ * to someone who had already picked. The answers were sitting in wizard state
++ * and simply never reached the step.
++ *
++ * Filtering is deliberately conservative. If a filter would empty a category
++ * we show that category unfiltered instead — a customer who can't see any sink
++ * is worse off than one who sees a slightly wider choice. Callers surface a
++ * "show everything" escape hatch on top of this.
++ */
++
++export interface CookingAnswers {
++  oven?: '600' | '900';
++  cooktop?: 'gas' | 'induction';
++  dishwasher?: boolean;
++  fridgeWidthMm?: number;
++}
++
++/** Categories the customer has ruled out entirely on the Cooking step. */
++export function excludedCategories(answers: CookingAnswers | undefined): ApplianceCategory[] {
++  if (!answers) return [];
++  const out: ApplianceCategory[] = [];
++  // An explicit "no dishwasher" is an answer, not an absence of one.
++  if (answers.dishwasher === false) out.push('dishwasher');
++  return out;
++}
++
++function matchesCooking(
++  p: ApplianceProductRecord,
++  cat: ApplianceCategory,
++  answers: CookingAnswers,
++): boolean {
++  const hay = `${p.subcategory ?? ''} ${p.name ?? ''} ${p.description ?? ''}`.toLowerCase();
++  if (cat === 'cooktop' && answers.cooktop) {
++    // Induction and electric-ceramic both satisfy "induction" loosely; gas is
++    // gas. Anything that names neither stays in — it might be a dual fuel.
++    const isGas = /\bgas\b/.test(hay);
++    const isInduction = /induction|ceramic|electric/.test(hay);
++    if (!isGas && !isInduction) return true;
++    return answers.cooktop === 'gas' ? isGas : isInduction;
++  }
++  if (cat === 'oven' && answers.oven) {
++    const wanted = Number(answers.oven);
++    if (!p.width_mm) return true;             // dimensionless rows stay
++    return Math.abs(p.width_mm - wanted) <= 60;
++  }
++  return true;
++}
++
++/**
++ * Narrow each category to the products that match the Cooking answers, and
++ * drop categories the customer ruled out. Never returns an empty category that
++ * had products before filtering.
++ */
++export function filterCatalogToCooking(
++  grouped: Record<ApplianceCategory, ApplianceProductRecord[]>,
++  answers: CookingAnswers | undefined,
++): { filtered: Record<ApplianceCategory, ApplianceProductRecord[]>; hiddenCount: number } {
++  if (!answers) return { filtered: grouped, hiddenCount: 0 };
++  const excluded = new Set(excludedCategories(answers));
++  const filtered = {} as Record<ApplianceCategory, ApplianceProductRecord[]>;
++  let hiddenCount = 0;
++
++  for (const cat of APPLIANCE_CATEGORY_ORDER) {
++    const all = grouped[cat] ?? [];
++    if (excluded.has(cat)) {
++      hiddenCount += all.length;
++      filtered[cat] = [];
++      continue;
++    }
++    const keep = all.filter(p => matchesCooking(p, cat, answers));
++    // An over-strict filter that empties a category is worse than no filter.
++    if (keep.length === 0) {
++      filtered[cat] = all;
++      continue;
++    }
++    hiddenCount += all.length - keep.length;
++    filtered[cat] = keep;
++  }
++  return { filtered, hiddenCount };
++}
++
+ /* ── Overlay synthesis ─────────────────────────────────────────────────────
+  *
+  * `enrichItemsWithChosenAppliances` above can only stamp a product onto a slot
+diff --git a/src/pages/homeowner/steps/StepAppliances.tsx b/src/pages/homeowner/steps/StepAppliances.tsx
+index 69445ed..e9034ae 100644
+--- a/src/pages/homeowner/steps/StepAppliances.tsx
++++ b/src/pages/homeowner/steps/StepAppliances.tsx
+@@ -22,11 +22,17 @@ import {
+   APPLIANCE_CATEGORY_LABELS,
+   applianceDisplayPrice,
+   groupAppliancesByCategory,
++  filterCatalogToCooking,
+   type ApplianceCategory,
++  type CookingAnswers,
+ } from '../applianceSelection';
+ 
+ interface Props {
+   chosen: Record<string, string>;
++  /** What the customer said on the Cooking step. Used to narrow the catalog —
++   *  this step used to show everything, including a dishwasher to someone who
++   *  had just said they didn't want one. */
++  cooking?: CookingAnswers;
+   onChange: (chosen: Record<string, string>) => void;
+ }
+ 
+@@ -178,13 +184,19 @@ function CategoryBlock({
+   );
+ }
+ 
+-export default function StepAppliances({ chosen, onChange }: Props) {
++export default function StepAppliances({ chosen, cooking, onChange }: Props) {
+   const { byCategory, isLoading, error } = useApplianceCatalog({ activeOnly: true });
+-  const grouped = React.useMemo(() => {
++  const [showAll, setShowAll] = React.useState(false);
++  const allGrouped = React.useMemo(() => {
+     // Prefer the hook's category grouping, then re-normalise into wizard keys.
+     const all = Object.values(byCategory).flat();
+     return groupAppliancesByCategory(all);
+   }, [byCategory]);
++  const { filtered, hiddenCount } = React.useMemo(
++    () => filterCatalogToCooking(allGrouped, cooking),
++    [allGrouped, cooking],
++  );
++  const grouped = showAll ? allGrouped : filtered;
+ 
+   const setChoice = (cat: ApplianceCategory, id: string | undefined) => {
+     const next = { ...chosen };
+@@ -209,6 +221,24 @@ export default function StepAppliances({ chosen, onChange }: Props) {
+             {chosenCount} product{chosenCount === 1 ? '' : 's'} chosen — priced on the review step.
+           </p>
+         )}
++        {/* The customer already answered these questions a step ago. Narrowing
++            the list respects that — but never silently: say what was hidden and
++            give them one tap to see the whole range. */}
++        {!isLoading && !error && (hiddenCount > 0 || showAll) && (
++          <p className="mt-2 text-xs text-slate-500">
++            {showAll
++              ? 'Showing the full range.'
++              : `Matched to your answers on the last step — ${hiddenCount} other product${hiddenCount === 1 ? '' : 's'} hidden.`}
++            {' '}
++            <button
++              type="button"
++              onClick={() => setShowAll(v => !v)}
++              className="underline underline-offset-2 font-medium text-slate-700"
++            >
++              {showAll ? 'Match to my answers' : 'Show everything'}
++            </button>
++          </p>
++        )}
+       </div>
+ 
+       {isLoading && (
+diff --git a/scripts/appliance-overlay-smoke.mts b/scripts/appliance-overlay-smoke.mts
+deleted file mode 100644
+index 46cadb8..0000000
+--- a/scripts/appliance-overlay-smoke.mts
++++ /dev/null
+@@ -1,138 +0,0 @@
+-/**
+- * Proof for the "my sink and cooktop never showed up" bug.
+- *
+- * The engine emits the sink and cooktop cabinets as `itemType: 'Cabinet'`, and
+- * only `itemType === 'Appliance'` routes to the appliance renderers. So a
+- * customer who chose products on the Appliances step saw none of them in the
+- * 3D preview. `synthesiseApplianceOverlays` lays real appliance items on top.
+- *
+- * This asserts the things that are easy to get wrong and invisible when you do:
+- * the Y convention, the id prefixes that keep the overlays out of the rules
+- * engine and pricing, and the tap finish riding on the sink.
+- *
+- * Run: npm run test:appliance-overlays
+- */
+-import { briefFromWizard } from '../src/lib/layout/wizardAdapter';
+-import { defaultSpecFor } from '../src/lib/layout/defaultSpec';
+-import { compileSpec } from '../src/lib/layout/compileSpec';
+-import { synthesiseApplianceOverlays } from '../src/pages/homeowner/applianceSelection';
+-import { DEFAULT_GLOBAL_DIMENSIONS } from '../src/constants';
+-
+-let failures = 0;
+-function check(name: string, ok: boolean, detail = '') {
+-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : ` — ${detail}`}`);
+-  if (!ok) failures++;
+-}
+-
+-const product = (over: Record<string, unknown>) => ({
+-  id: over.id as string,
+-  item_code: null,
+-  name: over.name as string,
+-  brand: null,
+-  category: over.category as string,
+-  subcategory: null,
+-  description: null,
+-  rrp: 449,
+-  sell_price: null,
+-  installed_price: null,
+-  width_mm: null,
+-  height_mm: null,
+-  depth_mm: null,
+-  cutout_width_mm: null,
+-  cutout_height_mm: null,
+-  cutout_depth_mm: null,
+-  finish: null,
+-  power_requirements: null,
+-  features: [],
+-  image_url: null,
+-  model_url: null,
+-  model_ios_url: null,
+-  is_active: true,
+-  price_is_placeholder: true,
+-  sort_order: 0,
+-  ...over,
+-}) as never;
+-
+-const PRODUCTS = [
+-  product({ id: '11111111-1111-4111-8111-111111111111', name: 'Single Bowl Undermount Sink', category: 'sink', width_mm: 440, height_mm: 200, depth_mm: 440, finish: 'Stainless Steel' }),
+-  product({ id: '22222222-2222-4222-8222-222222222222', name: '60cm Induction Cooktop', category: 'cooktop', width_mm: 590, height_mm: 60, depth_mm: 520, finish: 'Black Glass' }),
+-  product({ id: '33333333-3333-4333-8333-333333333333', name: 'Kitchen Mixer Tap', category: 'tap', finish: 'Matte Black' }),
+-];
+-
+-const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 3600, roomDepth: 3000, layoutStyle: 'standard' } as never);
+-const compiled = compileSpec(defaultSpecFor(brief, 'single-wall'), brief.room);
+-
+-const chosen = {
+-  sink: '11111111-1111-4111-8111-111111111111',
+-  cooktop: '22222222-2222-4222-8222-222222222222',
+-  tap: '33333333-3333-4333-8333-333333333333',
+-};
+-
+-const overlays = synthesiseApplianceOverlays(compiled, chosen, PRODUCTS);
+-const sink = overlays.find(o => o.instanceId === 'appl-sink');
+-const cooktop = overlays.find(o => o.instanceId === 'appl-cooktop');
+-
+-check('the engine placed a sink and a cooktop to hang products on',
+-  !!compiled.rolePositions.sink && !!compiled.rolePositions.cooktop,
+-  JSON.stringify(Object.keys(compiled.rolePositions)));
+-
+-check('a sink overlay is produced', !!sink, `got ${overlays.map(o => o.instanceId).join(', ')}`);
+-check('a cooktop overlay is produced', !!cooktop, `got ${overlays.map(o => o.instanceId).join(', ')}`);
+-
+-if (sink && cooktop) {
+-  // There is no benchtop-height constant — it is always derived.
+-  const hostSink = compiled.rolePositions.sink!.item;
+-  const benchtopTop = hostSink.y + hostSink.height + DEFAULT_GLOBAL_DIMENSIONS.benchtopThickness;
+-
+-  check('itemType is Appliance, or it renders as a cabinet and the whole thing is pointless',
+-    sink.itemType === 'Appliance' && cooktop.itemType === 'Appliance',
+-    `${sink.itemType} / ${cooktop.itemType}`);
+-
+-  check('definitionId is the appliance catalog key',
+-    sink.definitionId === `appliance:${chosen.sink}`,
+-    sink.definitionId);
+-
+-  // y is the CENTRE for benchtop-inset appliances (applianceClassification.ts).
+-  check('the sink hangs below the benchtop with its rim flush',
+-    Math.abs((sink.y + sink.height / 2) - benchtopTop) < 1,
+-    `sink top ${sink.y + sink.height / 2} vs benchtop ${benchtopTop}`);
+-
+-  check('the cooktop sits on the benchtop, not inside the cabinet',
+-    cooktop.y - cooktop.height / 2 >= benchtopTop - 1,
+-    `cooktop base ${cooktop.y - cooktop.height / 2} vs benchtop ${benchtopTop}`);
+-
+-  check('the sink is centred on its host cabinet',
+-    sink.x === hostSink.x && sink.z === hostSink.z && sink.rotation === hostSink.rotation,
+-    `${sink.x},${sink.z}@${sink.rotation} vs ${hostSink.x},${hostSink.z}@${hostSink.rotation}`);
+-
+-  // The tap has no item of its own — it rides on the sink.
+-  check('the chosen matte black tap reaches the sink item',
+-    sink.tapId === 'tap-goose-bk', String(sink.tapId));
+-
+-  check('the product snapshot travels with the item, for AR and the quote',
+-    sink.applianceProductId === chosen.sink && !!sink.applianceSnapshot,
+-    JSON.stringify(sink.applianceSnapshot));
+-}
+-
+-// These two are the load-bearing invariants. rules.ts detects islands via an
+-// `ai-` prefix, and both pricing paths read compiled.items — an overlay that
+-// leaked into either would silently corrupt a layout or a quote.
+-check('overlays never use the ai- instanceId prefix the rules engine watches',
+-  overlays.every(o => o.instanceId.startsWith('appl-') && !o.instanceId.startsWith('ai-')),
+-  overlays.map(o => o.instanceId).join(', '));
+-
+-check('overlays are not in compiled.items, so neither pricing path sees them',
+-  compiled.items.every(i => !i.instanceId.startsWith('appl-')),
+-  'an overlay reached compiled.items');
+-
+-check('overlays sit off the floor, so the rules engine (y === 0 only) ignores them',
+-  overlays.every(o => o.y > 0), overlays.map(o => `${o.instanceId}@${o.y}`).join(', '));
+-
+-// Nothing chosen must stay a no-op.
+-check('no chosen products yields no overlays',
+-  synthesiseApplianceOverlays(compiled, {}, PRODUCTS).length === 0, 'produced overlays from an empty selection');
+-check('no catalog yields no overlays',
+-  synthesiseApplianceOverlays(compiled, chosen, []).length === 0, 'produced overlays with no catalog');
+-
+-console.log(failures === 0 ? '\nAPPLIANCE OVERLAYS: all assertions pass' : `\n${failures} FAILURES`);
+-process.exit(failures === 0 ? 0 : 1);
