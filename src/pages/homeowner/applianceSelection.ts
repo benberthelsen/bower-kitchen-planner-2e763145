@@ -115,6 +115,12 @@ export function snapshotFromProduct(p: ApplianceProductRecord): NonNullable<Plac
     modelUrl: p.model_url ?? null,
     modelIosUrl: p.model_ios_url ?? null,
     finish: p.finish ?? null,
+    // The supplier elevation, so the 3D preview shows the customer's actual
+    // appliance rather than a correctly-sized grey box. Dimension and mounting
+    // drawings are screened out at the renderer — see applianceImage.ts.
+    imageUrl: p.image_url ?? null,
+    bowlCount: p.bowl_count ?? null,
+    bowlSizes: p.bowl_sizes ?? null,
   };
 }
 
@@ -152,6 +158,91 @@ export function enrichItemsWithChosenAppliances(
       supplyWithOrder: it.supplyWithOrder ?? true,
     };
   });
+}
+
+/* ── Matching the catalog to the "How you cook" answers ────────────────────
+ *
+ * The Appliances step showed the whole catalog regardless of what the customer
+ * had just told us: a dishwasher offered to someone who said they didn't want
+ * one, a 900 mm oven to someone who chose 600, both gas and induction cooktops
+ * to someone who had already picked. The answers were sitting in wizard state
+ * and simply never reached the step.
+ *
+ * Filtering is deliberately conservative. If a filter would empty a category
+ * we show that category unfiltered instead — a customer who can't see any sink
+ * is worse off than one who sees a slightly wider choice. Callers surface a
+ * "show everything" escape hatch on top of this.
+ */
+
+export interface CookingAnswers {
+  oven?: '600' | '900';
+  cooktop?: 'gas' | 'induction';
+  dishwasher?: boolean;
+  fridgeWidthMm?: number;
+}
+
+/** Categories the customer has ruled out entirely on the Cooking step. */
+export function excludedCategories(answers: CookingAnswers | undefined): ApplianceCategory[] {
+  if (!answers) return [];
+  const out: ApplianceCategory[] = [];
+  // An explicit "no dishwasher" is an answer, not an absence of one.
+  if (answers.dishwasher === false) out.push('dishwasher');
+  return out;
+}
+
+function matchesCooking(
+  p: ApplianceProductRecord,
+  cat: ApplianceCategory,
+  answers: CookingAnswers,
+): boolean {
+  const hay = `${p.subcategory ?? ''} ${p.name ?? ''} ${p.description ?? ''}`.toLowerCase();
+  if (cat === 'cooktop' && answers.cooktop) {
+    // Induction and electric-ceramic both satisfy "induction" loosely; gas is
+    // gas. Anything that names neither stays in — it might be a dual fuel.
+    const isGas = /\bgas\b/.test(hay);
+    const isInduction = /induction|ceramic|electric/.test(hay);
+    if (!isGas && !isInduction) return true;
+    return answers.cooktop === 'gas' ? isGas : isInduction;
+  }
+  if (cat === 'oven' && answers.oven) {
+    const wanted = Number(answers.oven);
+    if (!p.width_mm) return true;             // dimensionless rows stay
+    return Math.abs(p.width_mm - wanted) <= 60;
+  }
+  return true;
+}
+
+/**
+ * Narrow each category to the products that match the Cooking answers, and
+ * drop categories the customer ruled out. Never returns an empty category that
+ * had products before filtering.
+ */
+export function filterCatalogToCooking(
+  grouped: Record<ApplianceCategory, ApplianceProductRecord[]>,
+  answers: CookingAnswers | undefined,
+): { filtered: Record<ApplianceCategory, ApplianceProductRecord[]>; hiddenCount: number } {
+  if (!answers) return { filtered: grouped, hiddenCount: 0 };
+  const excluded = new Set(excludedCategories(answers));
+  const filtered = {} as Record<ApplianceCategory, ApplianceProductRecord[]>;
+  let hiddenCount = 0;
+
+  for (const cat of APPLIANCE_CATEGORY_ORDER) {
+    const all = grouped[cat] ?? [];
+    if (excluded.has(cat)) {
+      hiddenCount += all.length;
+      filtered[cat] = [];
+      continue;
+    }
+    const keep = all.filter(p => matchesCooking(p, cat, answers));
+    // An over-strict filter that empties a category is worse than no filter.
+    if (keep.length === 0) {
+      filtered[cat] = all;
+      continue;
+    }
+    hiddenCount += all.length - keep.length;
+    filtered[cat] = keep;
+  }
+  return { filtered, hiddenCount };
 }
 
 /* ── Overlay synthesis ─────────────────────────────────────────────────────

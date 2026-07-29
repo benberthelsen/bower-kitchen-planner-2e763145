@@ -11,6 +11,57 @@ import {
   isRangehoodAppliance,
   isDishwasherAppliance,
 } from './applianceClassification';
+import { useApplianceFaceTexture, isProductElevationUrl, type ApplianceFaceTexture } from './materials/applianceImage';
+
+/** THREE box face order is +x, -x, +y, -y, +z, -z. */
+const FACE_FRONT = 4;
+const FACE_TOP = 2;
+
+/**
+ * A box carrying the supplier's product elevation on one face and the photo's
+ * own dominant colour on the other five, so the edges match the front instead
+ * of banding against it.
+ */
+function PhotoBox({
+  size,
+  face,
+  photo,
+  fallbackColor,
+  roughness = 0.38,
+  metalness = 0.18,
+}: {
+  size: [number, number, number];
+  face: number;
+  photo: ApplianceFaceTexture;
+  fallbackColor: string;
+  roughness?: number;
+  metalness?: number;
+}) {
+  return (
+    <mesh>
+      <boxGeometry args={size} />
+      {[0, 1, 2, 3, 4, 5].map(i =>
+        i === face ? (
+          <meshStandardMaterial
+            key={i}
+            attach={`material-${i}`}
+            map={photo.texture}
+            roughness={roughness}
+            metalness={metalness}
+          />
+        ) : (
+          <meshStandardMaterial
+            key={i}
+            attach={`material-${i}`}
+            color={photo.dominantHex || fallbackColor}
+            roughness={roughness + 0.08}
+            metalness={metalness}
+          />
+        ),
+      )}
+    </mesh>
+  );
+}
 
 interface ApplianceMeshProps {
   item: PlacedItem;
@@ -64,6 +115,18 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const [hovered, setHovered] = useState(false);
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
+
+  // Supplier product elevation. Hooks cannot run after the catalog-loading
+  // early return below, so the face is chosen from the item and its snapshot;
+  // `isSinkAppliance(item, null)` falls through to the snapshot name, which is
+  // the same rule the real render path uses once `def` resolves.
+  const facesUp = isSinkAppliance(item, null) || isCooktopAppliance(item, null);
+  const snapshotImage = item.applianceSnapshot?.imageUrl ?? null;
+  const photoUrl = isProductElevationUrl(snapshotImage) ? snapshotImage : null;
+  const faceAspect = facesUp
+    ? (item.width || 600) / (item.depth || 500)
+    : (item.width || 600) / (item.height || 700);
+  const photo = useApplianceFaceTexture(photoUrl, faceAspect);
 
   // A gooseneck tap profile built with a lathe. Cached across renders per finish.
   const tapGooseneckGeom = useMemo(() => {
@@ -193,17 +256,34 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         const wallT = 0.012;
         const rimW = 0.022;
         const bowlDepth = Math.max(0.12, heightM - 0.01);
-        // An 820 mm sink is a double bowl. Drawing it as one long trough is
-        // the sort of thing a cabinetmaker spots immediately.
-        const doubleBowl = widthM > 0.7;
+        // Bowl count comes from the supplier now — "1 bowl", "1.75 bowl",
+        // "2.0 bowl" — instead of the old guess that anything wider than
+        // 700 mm was a double. A 1.75 gets a full bowl and a smaller one,
+        // which is what it actually is; drawing it as two equal bowls, or as
+        // one long trough, is the sort of thing a cabinetmaker spots at once.
+        const bowlCount = item.applianceSnapshot?.bowlCount ?? null;
         const usableW = widthM * 0.88;
-        const bowlW = doubleBowl ? (usableW - rimW) / 2 : usableW;
         const bowlD = depthM * 0.74;
-        const centres = doubleBowl ? [-(bowlW + rimW) / 2, (bowlW + rimW) / 2] : [0];
+        let bowls: { cx: number; w: number }[];
+        if (bowlCount !== null && bowlCount >= 1.5 && bowlCount < 2) {
+          // 1 & 3/4: main bowl about 60% of the run, half-bowl the rest.
+          const mainW = (usableW - rimW) * 0.6;
+          const halfW = (usableW - rimW) - mainW;
+          bowls = [
+            { cx: -(usableW - mainW) / 2, w: mainW },
+            { cx: (usableW - halfW) / 2, w: halfW },
+          ];
+        } else if ((bowlCount !== null && bowlCount >= 2) || (bowlCount === null && widthM > 0.7)) {
+          const w = (usableW - rimW) / 2;
+          bowls = [{ cx: -(w + rimW) / 2, w }, { cx: (w + rimW) / 2, w }];
+        } else {
+          bowls = [{ cx: 0, w: usableW }];
+        }
+        const doubleBowl = bowls.length > 1;
 
         return (
           <group>
-            {centres.map((cx, i) => (
+            {bowls.map(({ cx, w: bowlW }, i) => (
               <group key={i} position={[cx, 0, 0]}>
                 {/* Four walls and a floor, open at the top. */}
                 <mesh position={[-(bowlW / 2 - wallT / 2), topY - bowlDepth / 2, 0]} material={bodyMat}>
@@ -258,15 +338,24 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
 
       {isCooktop && (
         <group>
-          {/* Ceramic glass surface. */}
-          <mesh position={[0, 0.012, 0]} material={glassMat}>
-            <boxGeometry args={[widthM, 0.024, depthM]} />
-          </mesh>
+          {/* Ceramic glass surface. With a supplier elevation the photo goes on
+              the top face and the drawn burner rings are skipped — the photo
+              already has them, in the right places at the right sizes. */}
+          {photo ? (
+            <group position={[0, 0.012, 0]}>
+              <PhotoBox size={[widthM, 0.024, depthM]} face={FACE_TOP} photo={photo}
+                fallbackColor="#1c1c1f" roughness={0.18} metalness={0.1} />
+            </group>
+          ) : (
+            <mesh position={[0, 0.012, 0]} material={glassMat}>
+              <boxGeometry args={[widthM, 0.024, depthM]} />
+            </mesh>
+          )}
           {/* Burner rings scaled to the actual cooktop. These used to be
               hard-coded at ±150/±100 mm with a fixed 160 mm ring, so a 900 mm
               cooktop drew four burners bunched in the middle with a bare strip
               either side. */}
-          {(() => {
+          {!photo && (() => {
             const ringR = Math.min(0.085, widthM * 0.14);
             const xs = [-widthM * 0.25, widthM * 0.25];
             const zs = [-depthM * 0.21, depthM * 0.21];
@@ -282,15 +371,21 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
 
       {isDishwasher && (
         <group>
-          <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
-          {/* Recessed inset door glass. */}
-          <mesh position={[0, -0.02, depthM / 2 + 0.006]} material={glassMat}>
-            <boxGeometry args={[widthM - 0.06, heightM - 0.15, 0.012]} />
-          </mesh>
-          {/* Recessed handle bar. */}
-          <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.02]} material={handleMat}>
-            <boxGeometry args={[widthM - 0.12, 0.02, 0.02]} />
-          </mesh>
+          {photo ? (
+            <PhotoBox size={[widthM, heightM, depthM]} face={FACE_FRONT} photo={photo} fallbackColor="#9aa0a6" />
+          ) : (
+            <>
+              <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
+              {/* Recessed inset door glass. */}
+              <mesh position={[0, -0.02, depthM / 2 + 0.006]} material={glassMat}>
+                <boxGeometry args={[widthM - 0.06, heightM - 0.15, 0.012]} />
+              </mesh>
+              {/* Recessed handle bar. */}
+              <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.02]} material={handleMat}>
+                <boxGeometry args={[widthM - 0.12, 0.02, 0.02]} />
+              </mesh>
+            </>
+          )}
           {/* Top rails carrying the benchtop (dishwasher opening has no full top). */}
           {item.topRail !== false && (
             <>
@@ -342,7 +437,13 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         );
       })()}
 
-      {isGenericAppliance && (
+      {isGenericAppliance && photo && (
+        /* The supplier elevation already shows the door, controls, handle and
+           badge, so none of the procedural front furniture is drawn over it. */
+        <PhotoBox size={[widthM, heightM, depthM]} face={FACE_FRONT} photo={photo} fallbackColor="#9aa0a6" />
+      )}
+
+      {isGenericAppliance && !photo && (
         <group>
           {/* Main body */}
           <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>

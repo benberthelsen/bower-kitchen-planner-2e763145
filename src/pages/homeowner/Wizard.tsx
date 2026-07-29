@@ -2000,6 +2000,12 @@ export default function HomeownerWizard() {
         {state.step === 3 && (
           <StepAppliances
             chosen={state.chosenAppliances}
+            cooking={{
+              oven: state.oven,
+              cooktop: state.cooktop,
+              dishwasher: state.dishwasher,
+              fridgeWidthMm: state.fridgeWidthMm,
+            }}
             onChange={next => onChange({ chosenAppliances: next })}
           />
         )}

@@ -187,6 +187,14 @@ export interface ApplianceProductRecord {
   power_requirements?: string | null;
   features?: unknown;
   image_url?: string | null;
+  /** Sinks: supplier bowl count (1, 1.75, 2). */
+  bowl_count?: number | null;
+  /** Sinks: per-bowl "L x W x D" strings as published. */
+  bowl_sizes?: string[] | null;
+  /** "Undermount" / "Surface mount" — drives how the sink meets the stone. */
+  installation?: string | null;
+  /** False until a human has checked the sizes, mirroring price_is_placeholder. */
+  dimensions_confirmed?: boolean | null;
   model_url?: string | null;
   model_ios_url?: string | null;
   is_active: boolean;

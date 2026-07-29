@@ -22,11 +22,17 @@ import {
   APPLIANCE_CATEGORY_LABELS,
   applianceDisplayPrice,
   groupAppliancesByCategory,
+  filterCatalogToCooking,
   type ApplianceCategory,
+  type CookingAnswers,
 } from '../applianceSelection';
 
 interface Props {
   chosen: Record<string, string>;
+  /** What the customer said on the Cooking step. Used to narrow the catalog —
+   *  this step used to show everything, including a dishwasher to someone who
+   *  had just said they didn't want one. */
+  cooking?: CookingAnswers;
   onChange: (chosen: Record<string, string>) => void;
 }
 
@@ -178,13 +184,19 @@ function CategoryBlock({
   );
 }
 
-export default function StepAppliances({ chosen, onChange }: Props) {
+export default function StepAppliances({ chosen, cooking, onChange }: Props) {
   const { byCategory, isLoading, error } = useApplianceCatalog({ activeOnly: true });
-  const grouped = React.useMemo(() => {
+  const [showAll, setShowAll] = React.useState(false);
+  const allGrouped = React.useMemo(() => {
     // Prefer the hook's category grouping, then re-normalise into wizard keys.
     const all = Object.values(byCategory).flat();
     return groupAppliancesByCategory(all);
   }, [byCategory]);
+  const { filtered, hiddenCount } = React.useMemo(
+    () => filterCatalogToCooking(allGrouped, cooking),
+    [allGrouped, cooking],
+  );
+  const grouped = showAll ? allGrouped : filtered;
 
   const setChoice = (cat: ApplianceCategory, id: string | undefined) => {
     const next = { ...chosen };
@@ -207,6 +219,24 @@ export default function StepAppliances({ chosen, onChange }: Props) {
         {chosenCount > 0 && (
           <p className="mt-2 text-xs text-emerald-700 font-medium">
             {chosenCount} product{chosenCount === 1 ? '' : 's'} chosen — priced on the review step.
+          </p>
+        )}
+        {/* The customer already answered these questions a step ago. Narrowing
+            the list respects that — but never silently: say what was hidden and
+            give them one tap to see the whole range. */}
+        {!isLoading && !error && (hiddenCount > 0 || showAll) && (
+          <p className="mt-2 text-xs text-slate-500">
+            {showAll
+              ? 'Showing the full range.'
+              : `Matched to your answers on the last step — ${hiddenCount} other product${hiddenCount === 1 ? '' : 's'} hidden.`}
+            {' '}
+            <button
+              type="button"
+              onClick={() => setShowAll(v => !v)}
+              className="underline underline-offset-2 font-medium text-slate-700"
+            >
+              {showAll ? 'Match to my answers' : 'Show everything'}
+            </button>
           </p>
         )}
       </div>

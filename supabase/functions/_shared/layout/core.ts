@@ -94,6 +94,16 @@ export interface PlacedItem {
     modelIosUrl?: string | null;
     /** Stage 2 — surface finish hint for procedural fallback (e.g. 'stainless'). */
     finish?: string | null;
+    /** Supplier product elevation, mapped onto the face you actually look at.
+     *  Häfele's `ppic-` images are straight-on shots of the appliance filling
+     *  the frame — see materials/applianceImage.ts. `dimd-`/`mont-` drawings
+     *  must never land here. */
+    imageUrl?: string | null;
+    /** Sinks: real bowl count from the supplier ("1 bowl", "1.75 bowl",
+     *  "2.0 bowl"). Replaces the old "two bowls if wider than 700 mm" guess. */
+    bowlCount?: number | null;
+    /** Sinks: per-bowl "L x W x D" strings, in the supplier's own order. */
+    bowlSizes?: string[] | null;
   };
   /** Default true when the product has a price. If false, appliance is
    *  opening-only (client supplies) and NOT priced into the quote. */
