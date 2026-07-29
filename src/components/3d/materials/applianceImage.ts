@@ -46,6 +46,28 @@ const MIN_COVERAGE = 0.005;
 
 const cache = new Map<string, Promise<ApplianceFaceTexture | null>>();
 
+/**
+ * WebGL will not accept a cross-origin image as a texture unless the host sends
+ * CORS headers, and `crossOrigin="anonymous"` makes such an image fail to LOAD
+ * rather than merely lose pixel access. Häfele's CDN sends none, so a hot-linked
+ * supplier URL can never become a texture no matter what we do with the canvas.
+ * Checking up front saves a doomed request per appliance per scene, and makes
+ * the reason visible instead of leaving grey boxes with no explanation.
+ *
+ * Our own origin and Supabase Storage both send the headers. Copy supplier
+ * images across with `npm run assets:import-appliance-images`.
+ */
+export function isTexturableImageUrl(url: string): boolean {
+  try {
+    const { origin, hostname } = new URL(url, window.location.href);
+    return origin === window.location.origin || /(^|\.)supabase\.(co|in)$/i.test(hostname);
+  } catch {
+    return false;
+  }
+}
+
+const warnedHosts = new Set<string>();
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -107,6 +129,21 @@ function analyse(img: HTMLImageElement): {
 }
 
 async function build(url: string, faceAspect: number): Promise<ApplianceFaceTexture | null> {
+  if (!isTexturableImageUrl(url)) {
+    let host = url;
+    try { host = new URL(url, window.location.href).hostname; } catch { /* keep raw */ }
+    if (!warnedHosts.has(host)) {
+      warnedHosts.add(host);
+      console.warn(
+        `[appliance] ${host} sends no CORS headers, so its product images cannot be ` +
+          'used as 3D textures. Appliances will render as plain coloured boxes until ' +
+          'the images are copied into Supabase Storage ' +
+          '(npm run assets:import-appliance-images).',
+      );
+    }
+    return null;
+  }
+
   let img: HTMLImageElement;
   try {
     img = await loadImage(url);

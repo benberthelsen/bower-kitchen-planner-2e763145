@@ -15,7 +15,13 @@
 import { briefFromWizard } from '../src/lib/layout/wizardAdapter';
 import { defaultSpecFor } from '../src/lib/layout/defaultSpec';
 import { compileSpec } from '../src/lib/layout/compileSpec';
-import { synthesiseApplianceOverlays } from '../src/pages/homeowner/applianceSelection';
+import {
+  synthesiseApplianceOverlays,
+  filterCatalogToCooking,
+  excludedCategories,
+  APPLIANCE_CATEGORY_ORDER,
+} from '../src/pages/homeowner/applianceSelection';
+import type { ApplianceCategory } from '../src/pages/homeowner/applianceSelection';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '../src/constants';
 
 let failures = 0;
@@ -134,5 +140,68 @@ check('no chosen products yields no overlays',
 check('no catalog yields no overlays',
   synthesiseApplianceOverlays(compiled, chosen, []).length === 0, 'produced overlays with no catalog');
 
-console.log(failures === 0 ? '\nAPPLIANCE OVERLAYS: all assertions pass' : `\n${failures} FAILURES`);
+/* ── Cooking-step filter ───────────────────────────────────────────────────
+ *
+ * The customer answers gas-or-induction and 600-or-900 on the Cooking step,
+ * then the Appliances step showed them the whole catalogue anyway. These cover
+ * the two ways that filter can be wrong: too loose (a gas cooktop still on
+ * screen for someone who picked induction) and too strict (a category emptied
+ * so the customer cannot choose anything at all).
+ */
+const COOKING_CATALOG: Record<ApplianceCategory, unknown[]> = {
+  sink: [product({ id: 'c-sink-1', name: 'Single Bowl Sink', category: 'sink' })],
+  tap: [product({ id: 'c-tap-1', name: 'Mixer Tap', category: 'tap' })],
+  dishwasher: [
+    product({ id: 'c-dw-1', name: '600mm Freestanding Dishwasher', category: 'dishwasher', width_mm: 600 }),
+    product({ id: 'c-dw-2', name: '600mm Integrated Dishwasher', category: 'dishwasher', width_mm: 600 }),
+  ],
+  oven: [
+    product({ id: 'c-ov-600', name: '600mm Built-in Oven', category: 'oven', width_mm: 595 }),
+    product({ id: 'c-ov-900', name: '900mm Built-in Oven', category: 'oven', width_mm: 895 }),
+  ],
+  cooktop: [
+    product({ id: 'c-ct-gas', name: '600mm Gas Cooktop', category: 'cooktop', width_mm: 590 }),
+    product({ id: 'c-ct-ind', name: '600mm Induction Cooktop', category: 'cooktop', width_mm: 590 }),
+  ],
+  rangehood: [product({ id: 'c-rh-1', name: '600mm Undermount Rangehood', category: 'rangehood', width_mm: 600 })],
+  fridge: [],
+  microwave: [],
+} as never;
+
+const ids = (rows: unknown[]) => (rows as { id: string }[]).map(r => r.id).sort().join(',');
+
+{
+  const induction = filterCatalogToCooking(COOKING_CATALOG as never, { cooktop: 'induction' });
+  check('picking induction hides the gas cooktop',
+    ids(induction.filtered.cooktop) === 'c-ct-ind', ids(induction.filtered.cooktop));
+
+  const gas = filterCatalogToCooking(COOKING_CATALOG as never, { cooktop: 'gas' });
+  check('picking gas hides the induction cooktop',
+    ids(gas.filtered.cooktop) === 'c-ct-gas', ids(gas.filtered.cooktop));
+
+  const oven600 = filterCatalogToCooking(COOKING_CATALOG as never, { oven: '600' });
+  check('picking a 600mm oven hides the 900mm oven',
+    ids(oven600.filtered.oven) === 'c-ov-600', ids(oven600.filtered.oven));
+
+  const noDw = filterCatalogToCooking(COOKING_CATALOG as never, { dishwasher: false });
+  check('answering "no dishwasher" empties the dishwasher category',
+    noDw.filtered.dishwasher.length === 0 && excludedCategories({ dishwasher: false }).includes('dishwasher'),
+    `${noDw.filtered.dishwasher.length} rows left`);
+
+  // The filter must never leave a customer with nothing to pick. A 750mm oven
+  // answer matches neither fixture, so the category falls back to showing all.
+  const impossible = filterCatalogToCooking(COOKING_CATALOG as never, { oven: '750' as never });
+  check('an answer that matches nothing falls back to the full category',
+    impossible.filtered.oven.length === 2, `${impossible.filtered.oven.length} rows left`);
+
+  check('no cooking answers leaves every category untouched',
+    APPLIANCE_CATEGORY_ORDER.every(
+      cat => ids(filterCatalogToCooking(COOKING_CATALOG as never, undefined).filtered[cat])
+             === ids(COOKING_CATALOG[cat])),
+    'an unanswered Cooking step still filtered the catalogue');
+}
+
+console.log(failures === 0
+  ? '\nAPPLIANCE OVERLAYS + COOKING FILTER: all assertions pass'
+  : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

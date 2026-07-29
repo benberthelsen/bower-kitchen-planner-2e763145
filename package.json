@@ -33,7 +33,8 @@
     "test:trade-ai": "node tests/trade-ai.test.cjs",
     "test:scanner": "node tests/scanner-two-lane.test.cjs",
     "test:refine-session": "esbuild scripts/refine-session-payload-smoke.mts --bundle --platform=node --format=esm --outfile=.tmp-snap-test/refine-session.mjs --log-level=error && node .tmp-snap-test/refine-session.mjs",
-    "test:appliance-overlays": "esbuild scripts/appliance-overlay-smoke.mts --bundle --platform=node --format=esm --outfile=.tmp-snap-test/appliance-overlays.mjs \"--alias:@=./src\" --log-level=error && node .tmp-snap-test/appliance-overlays.mjs"
+    "test:appliance-overlays": "esbuild scripts/appliance-overlay-smoke.mts --bundle --platform=node --format=esm --outfile=.tmp-snap-test/appliance-overlays.mjs \"--alias:@=./src\" --log-level=error && node .tmp-snap-test/appliance-overlays.mjs",
+    "assets:import-appliance-images": "node scripts/import-appliance-images.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
