@@ -30,6 +30,7 @@ import { useWizardPricing } from '@/hooks/useWizardPricing';
 import type { WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
+import { featureFlags, isIosDevice } from '@/lib/featureFlags';
 
 interface Props {
   brief: DesignBrief;
@@ -126,8 +127,12 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
 
   const selectedFinish = FINISH_OPTIONS.find(f => f.id === style.finishId) ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === style.benchtopId) ?? BENCHTOP_OPTIONS[0];
+  const iosDevice = typeof navigator !== 'undefined'
+    && isIosDevice(navigator.userAgent, navigator.maxTouchPoints);
+  const arEnabled = iosDevice ? featureFlags.iosAr : featureFlags.androidAr;
 
   const handleGenerate = async () => {
+    if (!featureFlags.aiDesigner) return;
     trackEvent('ai_generate_requested', { shape });
     const res = await generate(brief, shape);
     if (!res || res.options.length === 0) {
@@ -264,7 +269,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
       </div>
 
       {/* AI generate / options */}
-      {!options && (
+      {!options && featureFlags.aiDesigner && (
         <Button
           onClick={handleGenerate}
           disabled={loading}
@@ -274,6 +279,13 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
             ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
             : <><Sparkles className="w-4 h-4 mr-2" /> Design my kitchen with AI</>}
         </Button>
+      )}
+
+      {!featureFlags.aiDesigner && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-sm font-medium text-slate-800">Your standard kitchen concept is ready below.</p>
+          <p className="mt-1 text-xs text-slate-500">AI alternatives are temporarily unavailable, but the normal planner and quote journey still work.</p>
+        </div>
       )}
 
       {options && (
@@ -365,7 +377,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
         </div>
       )}
 
-      {compiled && (
+      {compiled && arEnabled && (
         <Button
           variant="outline"
           className="w-full h-10 border-slate-300 text-slate-700"
@@ -373,7 +385,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
             // iOS → generate a USDZ and open Apple Quick Look inline.
             // Android/other → existing WebXR flow at /wizard/view-ar.
             const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-            const iOS = /iPad|iPhone|iPod/.test(ua) || (/Mac/.test(ua) && (navigator as any).maxTouchPoints > 1);
+            const iOS = isIosDevice(ua, navigator.maxTouchPoints);
             if (iOS) {
               const t = toast.loading('Preparing your kitchen for AR…');
               try {

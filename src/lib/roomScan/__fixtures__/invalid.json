@@ -137,7 +137,7 @@
     }
   },
   {
-    "name": "scan-lshape-rejected",
+    "name": "scan-lshape-cutout-outside-room",
     "kind": "scan",
     "data": {
       "state": "unconfirmed",
@@ -152,7 +152,7 @@
         "snappedQuarterTurnDegrees": 0,
         "originDescription": "north-west-corner-in-canonical-plan"
       },
-      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "LShape", "cutoutWidth": 900, "cutoutDepth": 900, "openings": [], "services": [] },
+      "room": { "width": 3600, "depth": 3000, "height": 2700, "shape": "LShape", "cutoutWidth": 3600, "cutoutDepth": 900, "openings": [], "services": [] },
       "confidence": { "overall": 0.8 },
       "capturedAt": "2026-07-14T01:00:00.000Z"
     }

@@ -1657,9 +1657,6 @@ function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Parti
     if (!canUnlock) return;
     trackEvent('lead_captured', {
       stage: 'design-gate',
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone.trim() || undefined,
       shape: state.layoutPreference,
     });
     onChange({

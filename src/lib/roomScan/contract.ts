@@ -176,7 +176,7 @@ export const roomSpecV1Schema = z
   });
 export type RoomSpecV1 = z.infer<typeof roomSpecV1Schema>;
 
-/** Scanner V1 rooms are rectangles. Runtime-enforced, not just a TS intersection. */
+/** Scanner V1 supports rectangular and L-shaped rooms. */
 export const scannerRectangleRoomV1Schema = roomSpecV1Schema.refine(
   (room) => room.shape === 'Rectangle' || room.shape === 'LShape',
   { message: 'scanner V1 rooms must be Rectangle or LShape' },

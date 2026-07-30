@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Auth from "./pages/Auth";
@@ -36,6 +36,7 @@ import DevNavBar from "./components/DevNavBar";
 import QuoteStatus from "./pages/homeowner/QuoteStatus";
 import AdminLeads from "./pages/admin/Leads";
 import AdminDesignRules from "./pages/admin/DesignRules";
+import { featureFlags } from "@/lib/featureFlags";
 
 // Lazy-load all pages that import @react-three/drei (directly or transitively)
 // so the CJS pre-bundle issue doesn't block the initial startup chain.
@@ -49,6 +50,22 @@ const LazyFallback = () => (
   <div className="flex items-center justify-center min-h-screen bg-gray-900">
     <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
   </div>
+);
+
+const FeatureUnavailable = ({ title, message }: { title: string; message: string }) => (
+  <main className="min-h-screen bg-slate-950 px-5 py-16 text-white">
+    <div className="mx-auto max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-xl">
+      <p className="text-xs font-semibold uppercase tracking-widest text-amber-400">Planner fallback</p>
+      <h1 className="mt-2 text-2xl font-semibold">{title}</h1>
+      <p className="mt-3 text-sm leading-6 text-slate-300">{message}</p>
+      <Link
+        to="/wizard"
+        className="mt-6 inline-flex min-h-11 items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400"
+      >
+        Continue with the planner
+      </Link>
+    </div>
+  </main>
 );
 
 const queryClient = new QueryClient({
@@ -73,8 +90,18 @@ const App = () => (
               <Route path="/" element={<Navigate to="/trade/dashboard" replace />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/wizard" element={<Suspense fallback={<LazyFallback />}><HomeownerWizard /></Suspense>} />
-              <Route path="/wizard/scan" element={<Suspense fallback={<LazyFallback />}><ScanRoom /></Suspense>} />
-              <Route path="/wizard/view-ar" element={<Suspense fallback={<LazyFallback />}><ViewInRoomAr /></Suspense>} />
+              <Route
+                path="/wizard/scan"
+                element={featureFlags.roomScanner
+                  ? <Suspense fallback={<LazyFallback />}><ScanRoom /></Suspense>
+                  : <FeatureUnavailable title="Room scanning is temporarily unavailable" message="Enter or adjust your measurements manually so you can keep planning without losing your work." />}
+              />
+              <Route
+                path="/wizard/view-ar"
+                element={featureFlags.androidAr
+                  ? <Suspense fallback={<LazyFallback />}><ViewInRoomAr /></Suspense>
+                  : <FeatureUnavailable title="Room view is temporarily unavailable" message="Your kitchen design is still safe. Return to the planner to keep using the normal 3D view." />}
+              />
               <Route path="/quote/:jobId" element={<QuoteStatus />} />
 
               <Route path="/trade-planner" element={<Navigate to="/trade/dashboard" replace />} />

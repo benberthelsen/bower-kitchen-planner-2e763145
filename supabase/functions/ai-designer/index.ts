@@ -453,6 +453,12 @@ serve(async (req) => {
   const json = (body: unknown, status = 200) => jsonResponse(req, status, body);
 
   try {
+    const designerEnabled = (Deno.env.get('AI_DESIGNER_ENABLED') ?? 'true').trim().toLowerCase();
+    if (['false', '0', 'off', 'disabled'].includes(designerEnabled)) {
+      logOutcome('ai-designer', requestId, 'disabled', started);
+      return errorResponse(req, 503, 'designer_disabled');
+    }
+
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');

@@ -73,7 +73,15 @@ check('proposal lineage stores engine, catalogue, pricing, prompt and model vers
     .every(column => migration.includes(column)));
 
 check('Edge Function creates sessions and atomically persists proposals', () =>
-  edge.includes("service.rpc('create_ai_designer_session_v1'")
+  (
+    edge.includes("service.rpc('create_ai_designer_session_v1'")
+    || (
+      edge.includes("const rpcName = syntheticTest")
+      && edge.includes("? 'create_ai_designer_session_v2'")
+      && edge.includes(": 'create_ai_designer_session_v1'")
+      && edge.includes('service.rpc(rpcName')
+    )
+  )
   && edge.includes("service.rpc('persist_ai_designer_proposals_v1'")
   && edge.includes('stale_design_revision'));
 
@@ -86,6 +94,10 @@ check('AI endpoint uses restricted CORS/body/rate helpers', () =>
 check('AI endpoint does not return raw provider failures', () =>
   edge.includes("errorResponse(req, 502, 'designer_provider_failed')")
   && !edge.includes('await resp.text()'));
+
+check('AI endpoint has a server-side kill switch', () =>
+  edge.includes("Deno.env.get('AI_DESIGNER_ENABLED')")
+  && edge.includes("errorResponse(req, 503, 'designer_disabled')"));
 
 if (failures > 0) {
   console.error(`\n${failures} persistence smoke test(s) failed`);
