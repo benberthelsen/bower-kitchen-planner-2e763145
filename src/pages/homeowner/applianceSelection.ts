@@ -269,6 +269,9 @@ export function filterCatalogToCooking(
  *    cabinet's footprint without tripping a hard rule and blocking the design.
  */
 
+/** How far a dropped-in cooktop's glass stands above the stone (mm). */
+const COOKTOP_PROUD_MM = 4;
+
 /** Roles the engine exposes that we can hang a chosen product on. */
 const OVERLAY_SLOTS = [
   { category: 'sink' as const, role: 'sink' as const },
@@ -335,8 +338,16 @@ export function synthesiseApplianceOverlays(
       // with the benchtop and let the rest hang below it.
       y = benchtopTopMm - height / 2;
     } else if (slot.category === 'cooktop') {
-      // Sits on the benchtop, glass just proud of the stone.
-      y = benchtopTopMm + height / 2;
+      // A cooktop drops INTO a cut-out: only the glass edge stands proud of the
+      // stone and the body hangs below, inside the cabinet. This used to read
+      // `benchtopTopMm + height / 2`, which put the item's centre at the stone
+      // and so lifted the entire appliance above it — a 60 mm paver sitting on
+      // the bench. The comment already said "just proud of the stone"; the
+      // arithmetic disagreed with it.
+      //
+      // Same centre convention as the sink, so the top lands at
+      // benchtop + COOKTOP_PROUD_MM.
+      y = benchtopTopMm + COOKTOP_PROUD_MM - height / 2;
     } else {
       // Ovens use the standard base-at-`y` convention inside their tower.
       y = Math.max(0, cab.y + 300);

@@ -10,17 +10,29 @@ import {
   isCooktopAppliance,
   isRangehoodAppliance,
   isDishwasherAppliance,
+  isFridgeAppliance,
 } from './applianceClassification';
 import { useApplianceFaceTexture, isProductElevationUrl, type ApplianceFaceTexture } from './materials/applianceImage';
+import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
 
 /** THREE box face order is +x, -x, +y, -y, +z, -z. */
-const FACE_FRONT = 4;
 const FACE_TOP = 2;
 
 /**
- * A box carrying the supplier's product elevation on one face and the photo's
- * own dominant colour on the other five, so the edges match the front instead
- * of banding against it.
+ * A box carrying the supplier's product elevation on its top face and the
+ * photo's own dominant colour on the other five.
+ *
+ * COOKTOPS ONLY. A supplier elevation on the front of a dishwasher, oven or
+ * fridge reads as a photograph pasted on a cube: the shot carries its own
+ * lighting and perspective, so it fights the scene's shading, and the door,
+ * handle and plinth are painted on rather than modelled — flat from every angle.
+ * Häfele's dishwasher elevation is worse again, being photographed with the door
+ * open, so the appliance rendered with its racks and crockery on the front.
+ *
+ * A cooktop is the honest exception: it genuinely *is* a flat plate seen from
+ * above. The photo lands on a plane, its cooking zones are in the right places
+ * at the right sizes, and there is no depth for it to get wrong. Everything else
+ * is modelled — see `appliances/fridgeModels.tsx`.
  */
 function PhotoBox({
   size,
@@ -120,12 +132,14 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   // early return below, so the face is chosen from the item and its snapshot;
   // `isSinkAppliance(item, null)` falls through to the snapshot name, which is
   // the same rule the real render path uses once `def` resolves.
-  const facesUp = isSinkAppliance(item, null) || isCooktopAppliance(item, null);
-  const snapshotImage = item.applianceSnapshot?.imageUrl ?? null;
+  // Only cooktops take a photo (see PhotoBox). Gating the URL here rather than
+  // at the draw site also means we stop downloading an image per appliance for
+  // renders that no longer use one.
+  const wantsPhoto = isCooktopAppliance(item, null);
+  const snapshotImage = wantsPhoto ? (item.applianceSnapshot?.imageUrl ?? null) : null;
   const photoUrl = isProductElevationUrl(snapshotImage) ? snapshotImage : null;
-  const faceAspect = facesUp
-    ? (item.width || 600) / (item.depth || 500)
-    : (item.width || 600) / (item.height || 700);
+  // A cooktop's photo maps onto its top, so the aspect is width over depth.
+  const faceAspect = (item.width || 600) / (item.depth || 500);
   const photo = useApplianceFaceTexture(photoUrl, faceAspect);
 
   // A gooseneck tap profile built with a lathe. Cached across renders per finish.
@@ -189,9 +203,10 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   // box with a recessed front and a handle, which reads as a fridge hanging
   // over the hotplates.
   const isRangehood = isRangehoodAppliance(item, def);
+  const isFridge = isFridgeAppliance(item, def);
   const isOven = applianceName.includes('oven');
   const isFrontLoader = !isDishwasher && (applianceName.includes('wash') || applianceName.includes('dryer'));
-  const isGenericAppliance = !isSink && !isCooktop && !isDishwasher && !isRangehood;
+  const isGenericAppliance = !isSink && !isCooktop && !isDishwasher && !isRangehood && !isFridge;
 
   // Resolve finish key from the placed snapshot; each sub-type has a sensible default.
   const snapFinish = item.applianceSnapshot?.finish ?? null;
@@ -202,6 +217,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
       : isOven ? 'stainless'
       : isDishwasher ? 'stainless'
       : isRangehood ? 'stainless'
+      : isFridge ? 'stainless'
       : 'whiteEnamel');
   const bodyMat = getApplianceMaterial(finishKey);
   const glassMat = getApplianceMaterial('blackGlass');
@@ -336,19 +352,38 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         );
       })()}
 
-      {isCooktop && (
+      {isCooktop && (() => {
+        // A cooktop DROPS INTO a cut-out. Only the glass edge stands proud of
+        // the stone — about 4 mm — and the body hangs below inside the cabinet.
+        //
+        // This used to draw a 24 mm slab starting at the item's centre, and
+        // `synthesiseApplianceOverlays` set that centre to the benchtop top, so
+        // the whole appliance sat ON the stone like a paver. Ben called it
+        // straight away: the hotplate was floating. Both halves are fixed —
+        // the overlay now puts the GLASS TOP at benchtop + 4 mm, and this draws
+        // downward from local +heightM/2 to match, the same convention the sink
+        // already used.
+        const topY = heightM / 2;
+        const glassT = 0.010;
+        const bodyH = Math.max(0.012, heightM - glassT);
+        return (
         <group>
-          {/* Ceramic glass surface. With a supplier elevation the photo goes on
-              the top face and the drawn burner rings are skipped — the photo
-              already has them, in the right places at the right sizes. */}
+          {/* The chassis in the cut-out: inset all round so the glass reads as
+              overhanging it, which is what you actually see at a bench edge. */}
+          <mesh position={[0, topY - glassT - bodyH / 2, 0]} material={bodyMat}>
+            <boxGeometry args={[widthM - 0.03, bodyH, depthM - 0.03]} />
+          </mesh>
+          {/* Ceramic glass. With a supplier elevation the photo goes on the top
+              face and the drawn burner rings are skipped — the photo already has
+              them, in the right places at the right sizes. */}
           {photo ? (
-            <group position={[0, 0.012, 0]}>
-              <PhotoBox size={[widthM, 0.024, depthM]} face={FACE_TOP} photo={photo}
+            <group position={[0, topY - glassT / 2, 0]}>
+              <PhotoBox size={[widthM, glassT, depthM]} face={FACE_TOP} photo={photo}
                 fallbackColor="#1c1c1f" roughness={0.18} metalness={0.1} />
             </group>
           ) : (
-            <mesh position={[0, 0.012, 0]} material={glassMat}>
-              <boxGeometry args={[widthM, 0.024, depthM]} />
+            <mesh position={[0, topY - glassT / 2, 0]} material={glassMat}>
+              <boxGeometry args={[widthM, glassT, depthM]} />
             </mesh>
           )}
           {/* Burner rings scaled to the actual cooktop. These used to be
@@ -360,32 +395,67 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
             const xs = [-widthM * 0.25, widthM * 0.25];
             const zs = [-depthM * 0.21, depthM * 0.21];
             return xs.flatMap((x, xi) => zs.map((z, zi) => (
-              <mesh key={`${xi}-${zi}`} position={[x, 0.026, z]}>
-                <cylinderGeometry args={[ringR, ringR, 0.006, 32]} />
+              <mesh key={`${xi}-${zi}`} position={[x, topY + 0.001, z]}>
+                <cylinderGeometry args={[ringR, ringR, 0.004, 32]} />
                 <meshStandardMaterial color="#2a2a2e" metalness={0.4} roughness={0.5} />
               </mesh>
             )));
           })()}
         </group>
-      )}
+        );
+      })()}
 
-      {isDishwasher && (
+      {isDishwasher && (() => {
+        // Modelled with the door SHUT. The supplier elevation for this product
+        // is photographed with the door down and the baskets pulled out, so the
+        // photo path put racks and crockery on the front of a closed machine.
+        // A dishwasher front is four things: a door, a control fascia along the
+        // top edge, a recessed pull, and a plinth. All four are cheap to build
+        // and all four survive being looked at from an angle.
+        const fasciaH = Math.min(0.075, heightM * 0.11);
+        const plinthH = Math.min(0.06, heightM * 0.09);
+        const doorH = heightM - fasciaH - plinthH - 0.008;
+        const doorY = -heightM / 2 + plinthH + doorH / 2;
+        const frontZ = depthM / 2;
+        return (
         <group>
-          {photo ? (
-            <PhotoBox size={[widthM, heightM, depthM]} face={FACE_FRONT} photo={photo} fallbackColor="#9aa0a6" />
-          ) : (
-            <>
-              <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
-              {/* Recessed inset door glass. */}
-              <mesh position={[0, -0.02, depthM / 2 + 0.006]} material={glassMat}>
-                <boxGeometry args={[widthM - 0.06, heightM - 0.15, 0.012]} />
-              </mesh>
-              {/* Recessed handle bar. */}
-              <mesh position={[0, heightM / 2 - 0.06, depthM / 2 + 0.02]} material={handleMat}>
-                <boxGeometry args={[widthM - 0.12, 0.02, 0.02]} />
-              </mesh>
-            </>
-          )}
+          <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
+
+          {/* Door: one flat proud panel. No glass — a dishwasher door is steel
+              or a matching cabinet panel, and the earlier inset "door glass"
+              read as an oven. */}
+          <mesh position={[0, doorY, frontZ + 0.009]} material={bodyMat}>
+            <boxGeometry args={[widthM - 0.008, doorH, 0.018]} />
+          </mesh>
+          {/* Shadow line around the door so the gap reads without real AO. */}
+          <mesh position={[0, doorY, frontZ + 0.001]}>
+            <boxGeometry args={[widthM - 0.002, doorH + 0.008, 0.002]} />
+            <meshStandardMaterial color="#2b2e31" roughness={0.85} metalness={0.05} />
+          </mesh>
+
+          {/* Control fascia along the top, angled back a touch. */}
+          <mesh position={[0, heightM / 2 - fasciaH / 2 - 0.004, frontZ + 0.006]} rotation={[-0.12, 0, 0]} material={bodyMat}>
+            <boxGeometry args={[widthM - 0.008, fasciaH, 0.014]} />
+          </mesh>
+          {/* Programme lights on the fascia — small, but they are what makes it
+              read as a machine rather than a drawer front. */}
+          {[-2, -1, 0, 1, 2].map(i => (
+            <mesh key={i} position={[i * 0.032, heightM / 2 - fasciaH / 2 - 0.004, frontZ + 0.014]}>
+              <boxGeometry args={[0.008, 0.005, 0.003]} />
+              <meshStandardMaterial color={i === 0 ? '#5eead4' : '#3f4448'} roughness={0.4} metalness={0.1} />
+            </mesh>
+          ))}
+
+          {/* Recessed pull under the fascia. */}
+          <mesh position={[0, heightM / 2 - fasciaH - 0.016, frontZ + 0.02]} material={handleMat}>
+            <boxGeometry args={[widthM - 0.12, 0.018, 0.022]} />
+          </mesh>
+
+          {/* Plinth, set back. */}
+          <mesh position={[0, -heightM / 2 + plinthH / 2, frontZ - 0.012]}>
+            <boxGeometry args={[widthM - 0.01, plinthH, 0.024]} />
+            <meshStandardMaterial color="#2b2e31" roughness={0.8} metalness={0.05} />
+          </mesh>
           {/* Top rails carrying the benchtop (dishwasher opening has no full top). */}
           {item.topRail !== false && (
             <>
@@ -404,6 +474,22 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
               "carrying the benchtop" — nothing was ever laid on them. */}
           {benchtopSlab}
         </group>
+        );
+      })()}
+
+      {isFridge && (
+        /* Real geometry, never a photo. The catalogue holds one fridge — an
+           integrated unit — so nearly every kitchen's fridge is a bare opening,
+           and the shape is inferred from its width. See fridgeModels.tsx. */
+        <FridgeModel
+          widthM={widthM}
+          heightM={heightM}
+          depthM={depthM}
+          style={fridgeStyleFor(item, def)}
+          finishKey={finishKey}
+          panelHex={item.finishColor ?? undefined}
+          handleless={item.handleType === 'None' || item.handleType === 'Flush'}
+        />
       )}
 
       {isRangehood && (() => {
@@ -437,13 +523,12 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         );
       })()}
 
-      {isGenericAppliance && photo && (
-        /* The supplier elevation already shows the door, controls, handle and
-           badge, so none of the procedural front furniture is drawn over it. */
-        <PhotoBox size={[widthM, heightM, depthM]} face={FACE_FRONT} photo={photo} fallbackColor="#9aa0a6" />
-      )}
-
-      {isGenericAppliance && !photo && (
+      {/* Ovens, microwaves and anything else: modelled, never photographed.
+          There used to be a PhotoBox branch here that won whenever a product had
+          an image, which meant a chosen appliance looked WORSE than an unchosen
+          one — the modelled door and handle below were skipped in favour of a
+          picture on a cube. */}
+      {isGenericAppliance && (
         <group>
           {/* Main body */}
           <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>

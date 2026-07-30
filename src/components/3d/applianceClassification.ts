@@ -71,6 +71,20 @@ export function isDishwasherAppliance(item: PlacedItem, def: MaybeDef): boolean 
   return (item.definitionId ?? '').includes('dishwasher');
 }
 
+/**
+ * Fridges. The layout engine emits a `fridge_opening` for every kitchen and
+ * almost none of them carry a chosen product — the catalogue holds exactly one
+ * fridge, an integrated unit — so this branch is what most customers actually
+ * see. It gets real geometry from `appliances/fridgeModels.tsx`.
+ */
+export function isFridgeAppliance(item: PlacedItem, def: MaybeDef): boolean {
+  const cat = categoryOf(def);
+  if (cat) return /fridge|refriger|freezer/.test(cat);
+  const name = (def?.name ?? item.applianceSnapshot?.name ?? '').toLowerCase();
+  if (/fridge|refriger|freezer/.test(name)) return true;
+  return /fridge|freezer/.test(item.definitionId ?? '');
+}
+
 /** True when the item follows the benchtop-inset Y convention (centred at
  *  `item.y` rather than base-at-`item.y`). */
 export function isBenchtopInsetAppliance(item: PlacedItem, def: MaybeDef): boolean {

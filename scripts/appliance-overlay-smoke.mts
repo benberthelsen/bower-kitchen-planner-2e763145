@@ -103,8 +103,18 @@ if (sink && cooktop) {
     Math.abs((sink.y + sink.height / 2) - benchtopTop) < 1,
     `sink top ${sink.y + sink.height / 2} vs benchtop ${benchtopTop}`);
 
-  check('the cooktop sits on the benchtop, not inside the cabinet',
-    cooktop.y - cooktop.height / 2 >= benchtopTop - 1,
+  // A cooktop drops into a cut-out: glass a few mm proud, body below the stone.
+  // The previous assertion here demanded the opposite — that the cooktop's BASE
+  // be at or above the benchtop — and passed, which is how a 60 mm appliance came
+  // to sit on the bench like a paver until Ben spotted it in the render. A test
+  // can only protect the behaviour it describes, and this one described the bug.
+  check('the cooktop glass sits just proud of the stone, not on top of it',
+    cooktop.y + cooktop.height / 2 > benchtopTop &&
+    cooktop.y + cooktop.height / 2 <= benchtopTop + 6,
+    `cooktop top ${cooktop.y + cooktop.height / 2} vs benchtop ${benchtopTop}`);
+
+  check('the cooktop body drops into the cabinet below the stone',
+    cooktop.y - cooktop.height / 2 < benchtopTop,
     `cooktop base ${cooktop.y - cooktop.height / 2} vs benchtop ${benchtopTop}`);
 
   check('the sink is centred on its host cabinet',
