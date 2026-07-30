@@ -1269,20 +1269,23 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const designViolations = evald.violations;
   const blockingErrors = designViolations.filter(v => v.severity === 'error');
   const conceptBlocked = evald.conceptBlocker || blockingErrors.length > 0;
-  const rangehoodChosen = !!state.chosenAppliances.rangehood && state.chosenAppliances.rangehood !== '__none__';
-  const rangehoodDrawn = items.some(it => {
-    const id = (it.definitionId || '').toLowerCase();
-    return id.includes('rangehood') || id.includes('hood');
-  });
+  // Anything the customer chose that no engine slot or overlay ended up
+  // carrying (a microwave with no tower, a rangehood in a layout with no wall
+  // cabinets) is called out rather than drawn somewhere arbitrary.
+  const undrawnAppliances = undrawnApplianceCategories(state.chosenAppliances, applianceProducts, items);
+  const undrawnLabel = undrawnAppliances
+    .map(c => APPLIANCE_CATEGORY_LABELS[c].singular)
+    .join(' and ');
   const buildNotes: string[] = Array.from(new Set<string>([
     ...compiled.notes,
     ...designViolations
       .filter(v => v.severity === 'warn')
       .map(v => v.message),
-    ...(rangehoodChosen && !rangehoodDrawn
-      ? ['Your chosen rangehood is included in your price but not shown in this layout — we\'ll confirm placement with you before manufacturing.']
+    ...(undrawnLabel
+      ? [`Your chosen ${undrawnLabel} is included in your price but not shown in this layout — we'll confirm placement with you before manufacturing.`]
       : []),
   ]));
+
   const band = useWizardPricing(compiled.items, activeSpec.style);
 
   const room3D: RoomConfig = brief.room;
