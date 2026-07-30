@@ -331,8 +331,10 @@ export function synthesiseApplianceOverlays(
     if (!productId) continue;
     const product = byId.get(productId);
     if (!product) continue;
-    const host = compiled.rolePositions[slot.role];
+    const host = compiled.rolePositions[slot.role]
+      ?? (slot.fallbackRole ? compiled.rolePositions[slot.fallbackRole] : undefined);
     if (!host) continue;
+    const inTower = !!compiled.rolePositions[slot.role];
 
     const cab = host.item;
     // There is no benchtop-height constant in this codebase; it is always
@@ -340,10 +342,13 @@ export function synthesiseApplianceOverlays(
     const benchtopTopMm = cab.y + cab.height + dims.benchtopThickness;
 
     // Fall back to the host cabinet's footprint when the product row has no
-    // dimensions (some sink and tap rows are dimensionless).
+    // dimensions (some sink and tap rows are dimensionless). Ovens and
+    // microwaves get sensible appliance-sized defaults so the procedural
+    // fallback still draws something the right shape when a row is bare.
+    const defaultHeight = slot.category === 'oven' ? 595 : slot.category === 'microwave' ? 455 : 200;
     const width = product.width_mm ?? Math.min(cab.width, 600);
     const depth = product.depth_mm ?? Math.min(cab.depth, 500);
-    const height = product.height_mm ?? 200;
+    const height = product.height_mm ?? defaultHeight;
 
     let y: number;
     if (slot.category === 'sink') {
@@ -362,10 +367,18 @@ export function synthesiseApplianceOverlays(
       // Same centre convention as the sink, so the top lands at
       // benchtop + COOKTOP_PROUD_MM.
       y = benchtopTopMm + COOKTOP_PROUD_MM - height / 2;
-    } else {
-      // Ovens use the standard base-at-`y` convention inside their tower.
+    } else if (slot.category === 'microwave') {
+      // Tower only (no fallback role), stacked above the oven aperture.
+      y = Math.max(0, cab.y + 1500);
+    } else if (inTower) {
+      // Oven in its tall tower: standard base-at-`y` convention.
       y = Math.max(0, cab.y + 300);
+    } else {
+      // Under-bench oven beneath the cooktop run: base-at-`y`, sitting on the
+      // cabinet floor just above the kick, and never poking through the stone.
+      y = Math.max(0, Math.min(cab.y + 100, benchtopTopMm - dims.benchtopThickness - height));
     }
+
 
     out.push({
       instanceId: `appl-${slot.category}`,
