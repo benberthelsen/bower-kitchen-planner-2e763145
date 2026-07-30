@@ -25,6 +25,11 @@ export type FunnelEventType =
   // browser console, where nobody is looking.
   | 'ai_refine_failed'
   | 'ai_fix_warning_used'
+  | 'ar_view_requested'
+  | 'ar_payload_stored'
+  | 'ar_view_started'
+  | 'ar_kitchen_placed'
+  | 'ar_view_failed'
   | 'lead_captured'
   | 'shared_design_opened';
 

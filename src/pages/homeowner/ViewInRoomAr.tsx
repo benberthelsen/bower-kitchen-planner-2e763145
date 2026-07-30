@@ -19,19 +19,53 @@ import * as THREE from 'three';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { itemRect } from '@/lib/layout';
-import type { PlacedItem } from '@/types';
+import type { GlobalDimensions, PlacedItem, RoomConfig } from '@/types';
 import { getApplianceMaterial, resolveFinishKey } from '@/components/3d/materials/applianceMaterials';
 import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
 import { resolveApplianceModelUrl } from '@/components/3d/applianceModelUrl';
 import { isBenchtopInsetAppliance } from '@/components/3d/applianceClassification';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import { trackEvent } from '@/lib/analytics';
+import {
+  createArBoxMaterials,
+  disposeArMaterial,
+  loadArSurfaceTexture,
+  resolveArSurfaceSelection,
+  shouldAddArBenchtop,
+} from '@/lib/ar/surfaceMaterials';
 
 
 export const VIEW_AR_KEY = 'bower.viewArPayload';
 
 /** ViewArPayloadV1 (brief v4.3 §4.8). Unversioned legacy payloads ({items})
  *  are accepted as v1; unknown future versions are rejected with friendly copy. */
-interface Payload { version?: number; items: PlacedItem[] }
+interface Payload {
+  version?: number;
+  items: PlacedItem[];
+  room?: RoomConfig;
+  globalDimensions?: GlobalDimensions;
+  finishId?: string;
+  benchtopId?: string;
+}
+
+export function arSessionErrorMessage(error: unknown): string {
+  const candidate = error as { name?: unknown; message?: unknown } | null;
+  const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  const message = typeof candidate?.message === 'string' ? candidate.message.toLowerCase() : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError' || message.includes('permission')) {
+    return 'Camera access was not allowed. Enable camera permission for this site, then try again.';
+  }
+  if (name === 'NotSupportedError' || message.includes('not supported')) {
+    return 'Life-size AR is not available on this device. You can still orbit the full 3D kitchen in the planner.';
+  }
+  if (name === 'InvalidStateError') {
+    return 'Another camera or AR session is already open. Close it, reload this page, and try again.';
+  }
+  if (message.includes('hit test') || message.includes('surface')) {
+    return 'AR surface tracking could not start. Try again in a well-lit room with a clear floor area.';
+  }
+  return 'The AR view could not start. Try again, or continue with the interactive 3D preview.';
+}
 
 export default function ViewInRoomAr() {
   const navigate = useNavigate();
@@ -40,6 +74,7 @@ export default function ViewInRoomAr() {
   useEffect(() => { applianceProductsRef.current = applianceProducts; }, [applianceProducts]);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [running, setRunning] = useState(false);
+  const [hasSurface, setHasSurface] = useState(false);
   const [taps, setTaps] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -48,6 +83,9 @@ export default function ViewInRoomAr() {
   const flipRef = useRef(1);
   const groupRef = useRef<THREE.Group | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sessionRef = useRef<XRSession | null>(null);
+  const cleanupRef = useRef<() => void>(() => {});
+  const hasSurfaceRef = useRef(false);
   // Aborts any in-flight GLB upgrade loop. Bumped on session `end`, on
   // unmount, and whenever a fresh AR session is started; the loop stops
   // when its captured session id no longer matches. Without this, tapping
@@ -72,6 +110,8 @@ export default function ViewInRoomAr() {
     xr.isSessionSupported('immersive-ar').then(setSupported).catch(() => setSupported(false));
   }, []);
 
+  const selectedSurfaces = resolveArSurfaceSelection(payload?.finishId, payload?.benchtopId);
+
   const placeKitchen = useCallback(() => {
     const group = groupRef.current;
     const [origin, along] = tapsRef.current;
@@ -83,11 +123,34 @@ export default function ViewInRoomAr() {
     group.rotation.set(0, Math.atan2(dz, dx) * -1, 0);
     group.scale.set(1, 1, flipRef.current);
     group.visible = true;
+    trackEvent('ar_kitchen_placed', { platform: 'android-webxr' });
   }, []);
+
+  const cleanupArResources = useCallback(() => {
+    sessionIdRef.current++;
+    cleanupRef.current();
+    cleanupRef.current = () => {};
+    rendererRef.current?.setAnimationLoop(null);
+    rendererRef.current?.dispose();
+    rendererRef.current = null;
+    groupRef.current = null;
+    hasSurfaceRef.current = false;
+    setHasSurface(false);
+    setRunning(false);
+  }, []);
+
+  const endSession = useCallback(async () => {
+    const activeSession = sessionRef.current;
+    sessionRef.current = null;
+    try { await activeSession?.end(); } catch { /* already ended */ }
+    cleanupArResources();
+  }, [cleanupArResources]);
 
   const start = useCallback(async () => {
     if (!payload?.items?.length) { setError('No design to show — generate a design first, then come back.'); return; }
     setError(null);
+    hasSurfaceRef.current = false;
+    setHasSurface(false);
     tapsRef.current = [];
     setTaps(0);
     // Bump the session id so any previous session's upgrade loop bails out
@@ -98,6 +161,15 @@ export default function ViewInRoomAr() {
       renderer.xr.enabled = true;
       rendererRef.current = renderer;
       const scene = new THREE.Scene();
+      cleanupRef.current = () => {
+        renderer.setAnimationLoop(null);
+        scene.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          mesh.geometry?.dispose();
+          if (mesh.material) disposeArMaterial(mesh.material);
+        });
+        renderer.dispose();
+      };
       scene.add(new THREE.HemisphereLight(0xffffff, 0x888877, 1.1));
       const camera = new THREE.PerspectiveCamera();
 
@@ -108,9 +180,17 @@ export default function ViewInRoomAr() {
       const group = new THREE.Group();
       group.visible = false;
 
-      // Shared cached materials — one instance per finish.
-      const cabinetMat = new THREE.MeshStandardMaterial({ color: 0xd8cfc0, roughness: 0.7, metalness: 0.05 });
-      const benchtopMat = new THREE.MeshStandardMaterial({ color: 0xb5b7ba, roughness: 0.3, metalness: 0.15 });
+      const surfaces = resolveArSurfaceSelection(payload.finishId, payload.benchtopId);
+      const cabinetMat = new THREE.MeshStandardMaterial({
+        color: surfaces.cabinet.hex,
+        roughness: surfaces.cabinet.roughness ?? 0.55,
+        metalness: surfaces.cabinet.metalness ?? 0,
+      });
+      const benchtopMat = new THREE.MeshStandardMaterial({
+        color: surfaces.benchtop.hex,
+        roughness: surfaces.benchtop.roughness ?? 0.5,
+        metalness: surfaces.benchtop.metalness ?? 0,
+      });
 
       // Hard triangle budget for AR — degrade least-important items to boxes
       // when we go over. Approximate box tri count = 12.
@@ -131,13 +211,33 @@ export default function ViewInRoomAr() {
 
         const finishKey = isAppliance ? resolveFinishKey(item.applianceSnapshot?.finish) ?? 'stainless' : null;
         const mat = isAppliance
-          ? getApplianceMaterial(finishKey ?? 'stainless')
+          ? getApplianceMaterial(finishKey ?? 'stainless').clone()
           : (item.itemType === 'Structure' ? benchtopMat : cabinetMat);
 
         const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         box.position.set(cx, cy, cz);
+        if (!isAppliance) {
+          box.userData.arSurface = item.itemType === 'Structure' ? 'benchtop' : 'cabinet';
+          box.userData.arDimensions = { widthM: w, heightM: h, depthM: d };
+        }
         group.add(box);
         triUsed += 12;
+
+        if (shouldAddArBenchtop(item)) {
+          const thickness = Math.max(0.02, (payload.globalDimensions?.benchtopThickness ?? 33) / 1000);
+          const overhang = Math.max(0, (payload.globalDimensions?.benchtopOverhang ?? 25) / 1000);
+          const benchW = w + overhang * 2;
+          const benchD = d + overhang * 2;
+          const bench = new THREE.Mesh(
+            new THREE.BoxGeometry(benchW, thickness, benchD),
+            benchtopMat,
+          );
+          bench.position.set(cx, item.y / 1000 + h + thickness / 2, cz);
+          bench.userData.arSurface = 'benchtop';
+          bench.userData.arDimensions = { widthM: benchW, heightM: thickness, depthM: benchD };
+          group.add(bench);
+          triUsed += 12;
+        }
 
         // Queue every appliance for a possible GLB upgrade — URL resolution
         // is deferred to the loader loop so items placed before their GLB
@@ -276,15 +376,54 @@ export default function ViewInRoomAr() {
         optionalFeatures: ['dom-overlay'],
         domOverlay: overlayRef.current ? { root: overlayRef.current } : undefined,
       } as XRSessionInit);
+      sessionRef.current = session;
       await renderer.xr.setSession(session as XRSession);
       setRunning(true);
+      trackEvent('ar_view_started', { platform: 'android-webxr', itemCount: payload.items.length });
 
       const refSpace = await session.requestReferenceSpace('local-floor');
       const viewerSpace = await session.requestReferenceSpace('viewer');
       const hitSource = await (session as XRSession & {
         requestHitTestSource(o: { space: XRReferenceSpace }): Promise<XRHitTestSource | undefined>;
       }).requestHitTestSource({ space: viewerSpace });
+      if (!hitSource) throw new Error('AR surface tracking could not start');
       let lastHit: { x: number; z: number } | null = null;
+
+      // Supplier textures load after the AR session begins so camera launch
+      // keeps the user's click activation. The selected Polytec/EGGER colours
+      // are already visible as the immediate, offline-safe fallback.
+      void (async () => {
+        const [cabinetTexture, benchtopTexture] = await Promise.all([
+          loadArSurfaceTexture(surfaces.cabinet),
+          loadArSurfaceTexture(surfaces.benchtop),
+        ]);
+        if (sessionIdRef.current !== mySessionId) {
+          cabinetTexture?.dispose();
+          benchtopTexture?.dispose();
+          return;
+        }
+        scene.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          const surface = mesh.userData.arSurface as 'cabinet' | 'benchtop' | undefined;
+          const dimensions = mesh.userData.arDimensions as
+            | { widthM: number; heightM: number; depthM: number }
+            | undefined;
+          if (!surface || !dimensions) return;
+          const option = surface === 'cabinet' ? surfaces.cabinet : surfaces.benchtop;
+          const texture = surface === 'cabinet' ? cabinetTexture : benchtopTexture;
+          mesh.material = createArBoxMaterials(
+            option,
+            texture,
+            dimensions.widthM,
+            dimensions.heightM,
+            dimensions.depthM,
+          );
+        });
+        cabinetMat.dispose();
+        benchtopMat.dispose();
+        cabinetTexture?.dispose();
+        benchtopTexture?.dispose();
+      })();
 
       session.addEventListener('select', () => {
         if (!lastHit || tapsRef.current.length >= 2) return;
@@ -294,11 +433,8 @@ export default function ViewInRoomAr() {
         if (tapsRef.current.length === 2) placeKitchen();
       });
       session.addEventListener('end', () => {
-        setRunning(false);
-        renderer.setAnimationLoop(null);
-        renderer.dispose();
-        // Cancel any GLB downloads still in flight for this session.
-        if (sessionIdRef.current === mySessionId) sessionIdRef.current++;
+        if (sessionRef.current === session) sessionRef.current = null;
+        cleanupArResources();
       });
 
       renderer.setAnimationLoop((_t: number, frame?: XRFrame) => {
@@ -306,20 +442,42 @@ export default function ViewInRoomAr() {
           const hits = frame.getHitTestResults(hitSource);
           const pose = hits.length ? hits[0].getPose(refSpace) : null;
           lastHit = pose ? { x: pose.transform.position.x, z: pose.transform.position.z } : null;
+          if (hasSurfaceRef.current !== Boolean(lastHit)) {
+            hasSurfaceRef.current = Boolean(lastHit);
+            setHasSurface(hasSurfaceRef.current);
+          }
         }
         renderer.render(scene, camera);
       });
     } catch (e) {
-      setRunning(false);
-      setError(e instanceof Error ? e.message : 'could not start the AR view');
+      await endSession();
+      trackEvent('ar_view_failed', { platform: 'android-webxr' });
+      setError(arSessionErrorMessage(e));
     }
-  }, [payload, placeKitchen]);
+  }, [cleanupArResources, endSession, payload, placeKitchen]);
 
-  useEffect(() => () => {
-    // Cancel any in-flight GLB upgrade loop on unmount.
-    sessionIdRef.current++;
-    void rendererRef.current?.xr.getSession()?.end().catch(() => {});
+  useEffect(() => () => { void endSession(); }, [endSession]);
+
+  useEffect(() => {
+    const root = overlayRef.current;
+    if (!root) return;
+    const suppress = (event: Event) => event.preventDefault();
+    root.addEventListener('beforexrselect', suppress as EventListener);
+    return () => root.removeEventListener('beforexrselect', suppress as EventListener);
   }, []);
+
+  useEffect(() => {
+    if (!running) return;
+    const stopWhenBackgrounded = () => {
+      if (document.visibilityState === 'hidden') void endSession();
+    };
+    document.addEventListener('visibilitychange', stopWhenBackgrounded);
+    window.addEventListener('pagehide', endSession);
+    return () => {
+      document.removeEventListener('visibilitychange', stopWhenBackgrounded);
+      window.removeEventListener('pagehide', endSession);
+    };
+  }, [endSession, running]);
 
   return (
     <div className="min-h-screen bg-white">
@@ -336,8 +494,46 @@ export default function ViewInRoomAr() {
           Stand in your kitchen. Tap the corner where you started your scan, then tap a point
           along your main wall — your new kitchen appears life-size, right where it will be built.
         </p>
+        {!!payload?.items?.length && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-left">
+            <p className="text-xs font-semibold text-slate-800">Your selected surfaces</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-7 w-7 shrink-0 rounded border border-slate-200 bg-cover bg-center"
+                  style={{
+                    backgroundColor: selectedSurfaces.cabinet.hex,
+                    backgroundImage: selectedSurfaces.cabinet.swatchUrl
+                      ? `url("${selectedSurfaces.cabinet.swatchUrl}")`
+                      : undefined,
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-slate-800">{selectedSurfaces.cabinet.name}</span>
+                  {selectedSurfaces.cabinet.supplier}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-7 w-7 shrink-0 rounded border border-slate-200 bg-cover bg-center"
+                  style={{
+                    backgroundColor: selectedSurfaces.benchtop.hex,
+                    backgroundImage: selectedSurfaces.benchtop.swatchUrl
+                      ? `url("${selectedSurfaces.benchtop.swatchUrl}")`
+                      : undefined,
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-slate-800">{selectedSurfaces.benchtop.name}</span>
+                  {selectedSurfaces.benchtop.supplier}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        {supported === null && <p role="status" className="text-sm text-slate-400">Checking AR support…</p>}
         {supported === false && (
-          <p className="text-sm text-slate-600 rounded-md bg-slate-50 border border-slate-200 p-3">
+          <p role="status" className="text-sm text-slate-600 rounded-md bg-slate-50 border border-slate-200 p-3">
             This device can't run browser AR (Android Chrome is needed). You can still explore the
             3D preview inside the planner.
           </p>
@@ -352,7 +548,7 @@ export default function ViewInRoomAr() {
             <Eye className="w-4 h-4 mr-2" /> Start AR view
           </Button>
         )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       </main>
 
       <div ref={overlayRef} className={running ? 'fixed inset-0 z-50 pointer-events-none' : 'hidden'}>
@@ -363,10 +559,35 @@ export default function ViewInRoomAr() {
               : 'Your new kitchen — walk around it'}
           </span>
         </div>
+        {taps < 2 && (
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+            <div className={cn(
+              'relative h-14 w-14 rounded-full border-2 transition-colors',
+              hasSurface ? 'border-emerald-400 bg-emerald-400/15' : 'border-white/80 bg-black/10',
+            )}>
+              <span className={cn(
+                'absolute left-1/2 top-2 bottom-2 w-0.5 -translate-x-1/2',
+                hasSurface ? 'bg-emerald-300' : 'bg-white/80',
+              )} />
+              <span className={cn(
+                'absolute top-1/2 left-2 right-2 h-0.5 -translate-y-1/2',
+                hasSurface ? 'bg-emerald-300' : 'bg-white/80',
+              )} />
+            </div>
+            <span className="rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">
+              {hasSurface ? 'Surface found — tap to anchor' : 'Move slowly to find the floor'}
+            </span>
+          </div>
+        )}
         <div className="absolute bottom-6 inset-x-0 flex items-center justify-center gap-3 pointer-events-auto">
           <Button
             variant="outline" className="bg-white/90"
-            onClick={() => { tapsRef.current = []; setTaps(0); if (groupRef.current) groupRef.current.visible = false; }}
+            onClick={() => {
+              tapsRef.current = [];
+              setTaps(0);
+              setError(null);
+              if (groupRef.current) groupRef.current.visible = false;
+            }}
             disabled={taps === 0}
           >
             <Redo2 className="w-4 h-4 mr-1" /> Re-place
@@ -378,7 +599,7 @@ export default function ViewInRoomAr() {
           >
             Flip side
           </Button>
-          <Button variant="outline" className="bg-white/90" onClick={() => { void rendererRef.current?.xr.getSession()?.end(); navigate('/wizard'); }}>
+          <Button variant="outline" className="bg-white/90" onClick={() => { void endSession().then(() => navigate('/wizard')); }}>
             Done
           </Button>
         </div>

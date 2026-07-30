@@ -470,19 +470,26 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
             // Android/other → existing WebXR flow at /wizard/view-ar.
             const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
             const iOS = isIosDevice(ua, navigator.maxTouchPoints);
+            trackEvent('ar_view_requested', { platform: iOS ? 'ios-quick-look' : 'android-webxr' });
             if (iOS) {
               const t = toast.loading('Preparing your kitchen for AR…');
               try {
                 const { exportSceneUsdz, openQuickLook } = await import('@/lib/ar/exportSceneUsdz');
                 const blob = await exportSceneUsdz(enrichedItems, {
                   onProgress: (m) => toast.loading(m, { id: t }),
+                  finishId: style.finishId,
+                  benchtopId: style.benchtopId,
+                  benchtopThicknessMm: DEFAULT_GLOBAL_DIMENSIONS.benchtopThickness,
+                  benchtopOverhangMm: DEFAULT_GLOBAL_DIMENSIONS.benchtopOverhang,
                 });
                 const url = URL.createObjectURL(blob);
                 toast.dismiss(t);
                 openQuickLook(url);
-                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                trackEvent('ar_view_started', { platform: 'ios-quick-look' });
+                setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
               } catch (e) {
                 toast.dismiss(t);
+                trackEvent('ar_view_failed', { platform: 'ios-quick-look' });
                 toast.error("Couldn't build the AR file — try again in a moment.");
               }
               return;
@@ -496,8 +503,12 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
                 finishId: style.finishId,
                 benchtopId: style.benchtopId,
               }));
+              trackEvent('ar_payload_stored', { platform: 'android-webxr', itemCount: enrichedItems.length });
               navigate('/wizard/view-ar');
-            } catch { /* storage blocked - stay put */ }
+            } catch {
+              trackEvent('ar_view_failed', { platform: 'android-webxr', reason: 'storage' });
+              toast.error("Couldn't open the AR view because this browser is blocking temporary storage.");
+            }
           }}
         >
           See it in your room (AR)
