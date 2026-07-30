@@ -20,11 +20,11 @@ const DevNavBar = () => {
   };
 
   return (
-    <div className="bg-amber-500 text-amber-950 px-4 py-2 flex items-center gap-4 shadow-md z-50">
+    <div className="max-w-full overflow-x-auto bg-amber-500 text-amber-950 px-4 py-2 flex items-center gap-4 shadow-md z-50">
       <span className="bg-amber-700 text-amber-100 text-xs font-bold px-2 py-1 rounded">
         DEV
       </span>
-      <div className="flex gap-2">
+      <div className="flex flex-shrink-0 gap-2">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.path, item.exact);

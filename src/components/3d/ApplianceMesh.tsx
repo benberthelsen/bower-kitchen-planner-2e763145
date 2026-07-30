@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { PlacedItem, GlobalDimensions, MaterialOption } from '../../types';
-import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
+import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS } from '../../constants';
 import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
@@ -223,6 +223,9 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const glassMat = getApplianceMaterial('blackGlass');
   const handleMat = getApplianceMaterial('brushedGunmetal');
   const tapMat = getApplianceMaterial(tapFinishKey(selectedTap.hex));
+  const panelHex = item.finishColor?.startsWith('#')
+    ? item.finishColor
+    : FINISH_OPTIONS.find(option => option.id === item.finishColor)?.hex;
 
   // Benchtop over an under-bench opening. Drawn here because the opening is an
   // Appliance, and CabinetAssembler only tops `category === 'Base'` cabinets.
@@ -487,7 +490,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
           depthM={depthM}
           style={fridgeStyleFor(item, def)}
           finishKey={finishKey}
-          panelHex={item.finishColor ?? undefined}
+          panelHex={panelHex}
           handleless={item.handleType === 'None' || item.handleType === 'Flush'}
         />
       )}

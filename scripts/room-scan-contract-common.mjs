@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 
 export const CANONICAL_PATH = 'src/lib/roomScan/contract.ts';
 export const DENO_PATH = 'supabase/functions/_shared/roomScan/contract.ts';
-export const WEBSITE_REPO_DEFAULT = 'C:/Users/bench/OneDrive/Projects-Code/Codex/bower-cabinet-web-site';
+export const WEBSITE_REPO_DEFAULT = resolve('..', 'bower-cabinet-web-site');
 export const WEBSITE_CONTRACT_REL = 'src/lib/roomScan/contract.ts';
 export const WEBSITE_LOCK_REL = 'src/lib/roomScan/contract.lock.json';
 

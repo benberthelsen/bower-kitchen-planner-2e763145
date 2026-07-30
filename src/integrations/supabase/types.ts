@@ -350,10 +350,15 @@ export type Database = {
           delivery_method: string | null
           design_data: Json | null
           id: string
+          is_synthetic_test: boolean
           job_number: number
           name: string
           notes: string | null
+          persona_id: string | null
           status: string | null
+          submission_fingerprint: string | null
+          submission_key: string | null
+          test_run_id: string | null
           updated_at: string | null
         }
         Insert: {
@@ -365,10 +370,15 @@ export type Database = {
           delivery_method?: string | null
           design_data?: Json | null
           id?: string
+          is_synthetic_test?: boolean
           job_number?: number
           name: string
           notes?: string | null
+          persona_id?: string | null
           status?: string | null
+          submission_fingerprint?: string | null
+          submission_key?: string | null
+          test_run_id?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -380,10 +390,15 @@ export type Database = {
           delivery_method?: string | null
           design_data?: Json | null
           id?: string
+          is_synthetic_test?: boolean
           job_number?: number
           name?: string
           notes?: string | null
+          persona_id?: string | null
           status?: string | null
+          submission_fingerprint?: string | null
+          submission_key?: string | null
+          test_run_id?: string | null
           updated_at?: string | null
         }
         Relationships: [

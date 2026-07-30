@@ -4,6 +4,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { CatalogItemDefinition, ItemType, CabinetType } from '@/types';
 import { CabinetRenderConfig, parseProductToRenderConfig } from '@/types/cabinetConfig';
 import type { ApplianceProductRecord } from '@/lib/pricing/types';
+import {
+  HOMEOWNER_CABINET_FAMILIES,
+  type HomeownerCabinetFamilyId,
+  type HomeownerCabinetVariant,
+} from '@/lib/homeowner/catalog';
 
 /** Prefix used on ExtendedCatalogItem.id for appliance catalog products. */
 export const APPLIANCE_CATALOG_ID_PREFIX = 'appliance:';
@@ -64,6 +69,12 @@ export interface ExtendedCatalogItem extends CatalogItemDefinition {
   /** Stage 1 — when set, this catalog entry is a purchasable appliance from
    *  the appliance_products table. Downstream placement captures a snapshot. */
   applianceProduct?: ApplianceProductRecord;
+  /** Plain-English grouping used only in the homeowner planner. */
+  homeownerFamilyId?: HomeownerCabinetFamilyId;
+  homeownerPurpose?: string;
+  homeownerWidthsMm?: readonly number[];
+  homeownerVariants?: readonly HomeownerCabinetVariant[];
+  homeownerTags?: readonly string[];
 }
 
 function mapCategoryToItemType(category: string | null, specGroup: string | null): ItemType {
@@ -380,6 +391,42 @@ const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
 const STATIC_LIBRARY_CATALOG: ExtendedCatalogItem[] = STATIC_LIBRARY_TEMPLATES.map(transformStaticTemplate);
 
 /**
+ * The homeowner planner exposes stable cabinet families, not the raw
+ * production/Microvellum library. Each family resolves to one canonical
+ * definition and carries the compatible widths/variants for plain-English UI.
+ * Trade and admin continue to receive the full catalog unchanged.
+ */
+function buildHomeownerCatalog(source: ExtendedCatalogItem[]): ExtendedCatalogItem[] {
+  return HOMEOWNER_CABINET_FAMILIES.flatMap((family, displayOrder) => {
+    const preferredVariant = family.variants.find(variant =>
+      variant.widthsMm.includes(family.defaultWidthMm)
+    ) ?? family.variants[0];
+    const sourceItem = source.find(item => item.id === preferredVariant.definitionId)
+      ?? STATIC_LIBRARY_CATALOG.find(item => item.id === preferredVariant.definitionId);
+    if (!sourceItem) return [];
+
+    return [{
+      ...sourceItem,
+      name: family.name,
+      category: family.category,
+      defaultWidth: family.defaultWidthMm,
+      specGroup: `${family.category} Cabinets`,
+      displayOrder,
+      homeownerFamilyId: family.id,
+      homeownerPurpose: family.purpose,
+      homeownerWidthsMm: [...new Set(family.variants.flatMap(variant => variant.widthsMm))].sort((a, b) => a - b),
+      homeownerVariants: family.variants,
+      homeownerTags: family.tags,
+      renderConfig: {
+        ...sourceItem.renderConfig,
+        productName: family.name,
+        defaultWidth: family.defaultWidthMm,
+      },
+    }];
+  });
+}
+
+/**
  * Stage 1 — turn an `appliance_products` row into a planner catalog entry.
  * Uses cutout dims when present (that's the opening the cabinet run needs
  * to leave for the appliance) and falls back to overall dims.
@@ -620,6 +667,7 @@ export function useCatalog(userType: UserType = 'standard') {
       return (data ?? []) as ApplianceProductRecord[];
     },
     staleTime: 1000 * 60 * 5,
+    enabled: userType !== 'standard',
   });
 
   const isDynamic = (dbProducts?.length ?? 0) > 0;
@@ -627,22 +675,25 @@ export function useCatalog(userType: UserType = 'standard') {
   const catalog = useMemo<ExtendedCatalogItem[]>(() => {
     const dynamicCatalog: ExtendedCatalogItem[] = dbProducts?.map(transformToDefinition) || [];
     const applianceCatalog: ExtendedCatalogItem[] = (applianceProducts ?? []).map(transformApplianceProduct);
+    let fullCatalog: ExtendedCatalogItem[];
     if (dynamicCatalog.length > 0) {
       // Prefer dynamic products, keeping static planner defs that aren't in the DB.
-      return [
+      fullCatalog = [
         ...dynamicCatalog,
         ...STATIC_LIBRARY_CATALOG.filter((staticItem) => !dynamicCatalog.some((dynamicItem) => dynamicItem.id === staticItem.id)),
         ...applianceCatalog,
       ];
+    } else {
+      fullCatalog = [
+        ...STATIC_LIBRARY_CATALOG,
+        ...FALLBACK_CATALOG,
+        ...applianceCatalog,
+      ].filter((item, index, all) =>
+        all.findIndex((candidate) => candidate.id === item.id) === index
+      );
     }
-    return [
-      ...STATIC_LIBRARY_CATALOG,
-      ...FALLBACK_CATALOG,
-      ...applianceCatalog,
-    ].filter((item, index, all) =>
-      all.findIndex((candidate) => candidate.id === item.id) === index
-    );
-  }, [dbProducts, applianceProducts]);
+    return userType === 'standard' ? buildHomeownerCatalog(fullCatalog) : fullCatalog;
+  }, [dbProducts, applianceProducts, userType]);
 
   // Group by category for sidebar display
   const groupedCatalog = useMemo(() => ({

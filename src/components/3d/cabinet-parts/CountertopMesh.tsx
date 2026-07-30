@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import { cloneTextureForSurface } from '../materials/physicalTexture';
 
 interface CountertopMeshProps {
   width: number;      // Width in meters
@@ -43,11 +44,9 @@ const CountertopMesh: React.FC<CountertopMeshProps> = ({
   hovered = false,
 }) => {
   const texture = React.useMemo(() => {
-    if (!map) return null;
-    const cloned = map.clone();
-    cloned.needsUpdate = true;
-    return cloned;
-  }, [map]);
+    return cloneTextureForSurface(map, width, depth, { rotateQuarterTurn: true });
+  }, [map, width, depth]);
+  React.useEffect(() => () => texture?.dispose(), [texture]);
 
   const totalWidth = width + leftOverhang + rightOverhang;
   const totalDepth = depth + overhang;

@@ -73,28 +73,36 @@ export default function Analytics() {
     }
   };
 
-  // Count by event type
-  const count = (type: string, filterFn?: (e: FunnelEvent) => boolean) =>
-    events.filter(e => e.event_type === type && (!filterFn || filterFn(e))).length;
+  // Funnel stages are session-based so back/forward navigation cannot inflate
+  // conversion rates with duplicate step_complete events.
+  const uniqueSessions = (type: string, filterFn?: (e: FunnelEvent) => boolean) =>
+    new Set(
+      events
+        .filter(e => e.event_type === type && (!filterFn || filterFn(e)))
+        .map(e => e.session_id ?? `event:${e.id}`),
+    ).size;
 
-  // Unique sessions
-  const uniqueSessions = (type: string) =>
-    new Set(events.filter(e => e.event_type === type).map(e => e.session_id)).size;
+  const completedStep = (step: number) =>
+    uniqueSessions('step_complete', e => (e.metadata as { step?: number })?.step === step);
 
   const started = uniqueSessions('wizard_started');
-  const step2   = count('step_complete', e => (e.metadata as { step?: number })?.step === 1);
-  const step3   = count('step_complete', e => (e.metadata as { step?: number })?.step === 2);
-  const step4   = count('step_complete', e => (e.metadata as { step?: number })?.step === 3);
-  const quoted  = count('quote_requested');
-  const approved = count('job_approved');
+  const roomComplete = completedStep(1);
+  const cookingComplete = completedStep(2);
+  const appliancesComplete = completedStep(3);
+  const styleComplete = completedStep(4);
+  const designComplete = completedStep(5);
+  const quoted = uniqueSessions('quote_requested');
+  const approved = uniqueSessions('job_approved');
 
   const stages: FunnelStage[] = [
-    { label: 'Wizard started',   key: 'started',  count: started,  color: '#6366f1', icon: <Users className="w-4 h-4" /> },
-    { label: 'Completed step 1', key: 'step2',    count: step2,    color: '#8b5cf6', icon: <MousePointerClick className="w-4 h-4" /> },
-    { label: 'Completed step 2', key: 'step3',    count: step3,    color: '#a78bfa', icon: <MousePointerClick className="w-4 h-4" /> },
-    { label: 'Completed step 3', key: 'step4',    count: step4,    color: '#c4b5fd', icon: <TrendingUp className="w-4 h-4" /> },
-    { label: 'Quote requested',  key: 'quoted',   count: quoted,   color: '#10b981', icon: <Send className="w-4 h-4" /> },
-    { label: 'Job approved',     key: 'approved', count: approved, color: '#059669', icon: <TrendingUp className="w-4 h-4" /> },
+    { label: 'Wizard started',      key: 'started',    count: started,            color: '#4f46e5', icon: <Users className="w-4 h-4" /> },
+    { label: 'Room confirmed',      key: 'room',       count: roomComplete,       color: '#6366f1', icon: <MousePointerClick className="w-4 h-4" /> },
+    { label: 'Cooking needs',       key: 'cooking',    count: cookingComplete,    color: '#7c3aed', icon: <MousePointerClick className="w-4 h-4" /> },
+    { label: 'Appliances selected', key: 'appliances', count: appliancesComplete, color: '#8b5cf6', icon: <MousePointerClick className="w-4 h-4" /> },
+    { label: 'Style selected',      key: 'style',      count: styleComplete,      color: '#a78bfa', icon: <MousePointerClick className="w-4 h-4" /> },
+    { label: 'Design completed',    key: 'design',     count: designComplete,     color: '#c4b5fd', icon: <TrendingUp className="w-4 h-4" /> },
+    { label: 'Quote requested',     key: 'quoted',     count: quoted,             color: '#10b981', icon: <Send className="w-4 h-4" /> },
+    { label: 'Job approved',        key: 'approved',   count: approved,           color: '#059669', icon: <TrendingUp className="w-4 h-4" /> },
   ];
 
   // Recent quote requests
@@ -143,7 +151,7 @@ export default function Analytics() {
       </div>
 
       {/* Funnel stages */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
         {stages.map((stage, i) => {
           const prev = stages[i - 1];
           const rate = prev ? conversionRate(prev.count, stage.count) : null;
@@ -173,7 +181,7 @@ export default function Analytics() {
       {/* Overall conversion */}
       {started > 0 && (
         <Card>
-          <CardContent className="p-4 flex items-center gap-6">
+          <CardContent className="p-4 flex flex-wrap items-center gap-6">
             <div>
               <p className="text-sm text-gray-500">Start → Quote</p>
               <p className="text-2xl font-bold text-gray-900">{conversionRate(started, quoted)}</p>

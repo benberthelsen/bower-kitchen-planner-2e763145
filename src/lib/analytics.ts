@@ -6,6 +6,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import type { Json } from '@/integrations/supabase/types';
+import { sanitizeAnalyticsMetadata } from '@/lib/analyticsPrivacy';
 
 export type FunnelEventType =
   | 'wizard_started'
@@ -24,6 +25,11 @@ export type FunnelEventType =
   // browser console, where nobody is looking.
   | 'ai_refine_failed'
   | 'ai_fix_warning_used'
+  | 'ar_view_requested'
+  | 'ar_payload_stored'
+  | 'ar_view_started'
+  | 'ar_kitchen_placed'
+  | 'ar_view_failed'
   | 'lead_captured'
   | 'shared_design_opened';
 
@@ -45,7 +51,7 @@ export async function trackEvent(
     const { error } = await (supabase as any).from('funnel_events').insert({
       session_id: getSessionId(),
       event_type: type,
-      metadata: metadata as Json,
+      metadata: sanitizeAnalyticsMetadata(metadata) as Json,
     });
     if (error) console.warn('[analytics] event insert failed', error.code);
   } catch {

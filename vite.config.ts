@@ -49,4 +49,10 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
+  // three.js is an intentionally lazy, reusable 3D vendor chunk. Route
+  // splitting keeps it off the initial homeowner step; its standalone size
+  // should not make an otherwise healthy production build warn.
+  build: {
+    chunkSizeWarningLimit: 750,
+  },
 }));

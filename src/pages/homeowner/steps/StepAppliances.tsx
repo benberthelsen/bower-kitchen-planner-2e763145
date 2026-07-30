@@ -13,7 +13,7 @@
  * The step is entirely optional — nothing here blocks progression.
  */
 import React from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import type { ApplianceProductRecord } from '@/lib/pricing/types';
@@ -59,10 +59,12 @@ function isIOS(): boolean {
 function ProductCard({
   product,
   active,
+  recommended,
   onToggle,
 }: {
   product: ApplianceProductRecord;
   active: boolean;
+  recommended?: boolean;
   onToggle: () => void;
 }) {
   const price = applianceDisplayPrice(product);
@@ -133,6 +135,11 @@ function ProductCard({
           <Check className="w-3 h-3" /> Chosen
         </span>
       )}
+      {recommended && !active && (
+        <span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-semibold text-slate-700 shadow-sm">
+          Recommended
+        </span>
+      )}
     </div>
   );
 }
@@ -150,18 +157,24 @@ function CategoryBlock({
 }) {
   const { plural, singular } = APPLIANCE_CATEGORY_LABELS[category];
   const noneActive = chosenId === '__none__';
+  const [expanded, setExpanded] = React.useState(false);
+  const recommendedIds = new Set(products.slice(0, 3).map(product => product.id));
+  const visibleProducts = expanded
+    ? products
+    : products.filter(product => recommendedIds.has(product.id) || product.id === chosenId);
   return (
     <section className="space-y-3">
       <div>
         <h3 className="text-base font-semibold text-slate-900">{plural}</h3>
-        <p className="text-xs text-slate-500 mt-0.5">Pick one — or skip and supply your own.</p>
+        <p className="text-xs text-slate-500 mt-0.5">Start with the recommended matches, or browse the full category.</p>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {products.map(p => (
+        {visibleProducts.map(p => (
           <ProductCard
             key={p.id}
             product={p}
             active={chosenId === p.id}
+            recommended={recommendedIds.has(p.id)}
             onToggle={() => onSelect(chosenId === p.id ? undefined : p.id)}
           />
         ))}
@@ -180,6 +193,17 @@ function CategoryBlock({
           <span className="text-[10px] text-slate-400 font-normal">Leave the opening — no {singular} added to your order</span>
         </button>
       </div>
+      {products.length > 3 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(value => !value)}
+          className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          aria-expanded={expanded}
+        >
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          {expanded ? 'Show recommended only' : `Browse all ${products.length} ${plural.toLowerCase()}`}
+        </button>
+      )}
     </section>
   );
 }
@@ -213,8 +237,8 @@ export default function StepAppliances({ chosen, cooking, onChange }: Props) {
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Choose your appliances</h2>
         <p className="text-sm text-slate-500">
-          Pick the pieces you'd like Bower to supply with your kitchen — sinks, taps, ovens,
-          cooktops, and everything else. Skip anything you'll bring yourself.
+          Start with a short list matched to how you cook. Choose what you'd like Bower to
+          supply, bring your own, or leave the decision for your consultation.
         </p>
         {chosenCount > 0 && (
           <p className="mt-2 text-xs text-emerald-700 font-medium">

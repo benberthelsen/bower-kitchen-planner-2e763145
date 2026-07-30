@@ -7,6 +7,7 @@
  */
 
 export * from './types.ts';
+export * from './versions.ts';
 export * from './schemas.ts';
 export * from './geometry.ts';
 export * from './catalogRoles.ts';

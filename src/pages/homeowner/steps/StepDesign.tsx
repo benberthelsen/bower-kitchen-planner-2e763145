@@ -10,7 +10,7 @@
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CornerUpLeft, Loader2, Send, Sparkles } from 'lucide-react';
+import { Check, CornerUpLeft, Loader2, Send, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,9 +27,10 @@ import type { LayoutShape } from '@/lib/layout';
 import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
 import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
-import type { WizardDesign } from '../wizardBrief';
+import { createWizardDesign, type WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
+import { featureFlags, isIosDevice } from '@/lib/featureFlags';
 
 interface Props {
   brief: DesignBrief;
@@ -53,6 +54,49 @@ const LOADING_LINES = [
   'Pricing it up…',
 ];
 
+function OptionPlanPreview({
+  option,
+  brief,
+}: {
+  option: AiDesignOption;
+  brief: DesignBrief;
+}) {
+  const width = Math.max(1, brief.room.width);
+  const depth = Math.max(1, brief.room.depth);
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${depth}`}
+      role="img"
+      aria-label={`${option.name} top-down layout`}
+      className="h-24 w-full rounded-lg bg-slate-50"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      <rect x="2" y="2" width={width - 4} height={depth - 4} fill="#f8fafc" stroke="#94a3b8" strokeWidth="18" />
+      {option.items.slice(0, 40).map(item => {
+        const quarterTurn = Math.abs(item.rotation ?? 0) % 180 === 90;
+        const itemWidth = quarterTurn ? item.depth : item.width;
+        const itemDepth = quarterTurn ? item.width : item.depth;
+        const appliance = item.itemType === 'Appliance';
+        const wall = item.definitionId.includes('wall') || item.definitionId.includes('upper');
+        return (
+          <rect
+            key={item.instanceId}
+            x={item.x - itemWidth / 2}
+            y={item.z - itemDepth / 2}
+            width={Math.max(20, itemWidth)}
+            height={Math.max(20, itemDepth)}
+            rx="16"
+            fill={appliance ? '#f59e0b' : wall ? '#94a3b8' : '#0f172a'}
+            fillOpacity={wall ? 0.62 : 0.86}
+            stroke="#ffffff"
+            strokeWidth="8"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
   const navigate = useNavigate();
   const { generate, refine, loading, error, lastError, hasActiveSession } = useAiDesigner();
@@ -67,7 +111,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
   useEffect(() => {
     if (!design) {
       const spec = defaultSpecFor(brief, shape, style);
-      onDesignChange({ name: 'Standard layout', spec, aiGenerated: false });
+      onDesignChange(createWizardDesign({ name: 'Standard layout', spec, aiGenerated: false }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -126,8 +170,12 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
 
   const selectedFinish = FINISH_OPTIONS.find(f => f.id === style.finishId) ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === style.benchtopId) ?? BENCHTOP_OPTIONS[0];
+  const iosDevice = typeof navigator !== 'undefined'
+    && isIosDevice(navigator.userAgent, navigator.maxTouchPoints);
+  const arEnabled = iosDevice ? featureFlags.iosAr : featureFlags.androidAr;
 
   const handleGenerate = async () => {
+    if (!featureFlags.aiDesigner) return;
     trackEvent('ai_generate_requested', { shape });
     const res = await generate(brief, shape);
     if (!res || res.options.length === 0) {
@@ -147,7 +195,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     }
     trackEvent('ai_option_selected', { name: opt.name });
     setUndoStack(design ? [...undoStack.slice(-9), design] : undoStack);
-    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand });
+    onDesignChange(createWizardDesign({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand }));
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
@@ -223,7 +271,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
         return;
       }
       setUndoStack(stack => [...stack.slice(-9), design]);
-      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand });
+      onDesignChange(createWizardDesign({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand }));
     }
     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
   };
@@ -259,26 +307,43 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Design your kitchen</h2>
         <p className="text-sm text-slate-500">
-          Let our AI designer plan it around your room and habits — or keep the standard layout and tweak the style next.
+          Your buildable starter layout is ready below. Compare AI alternatives if you want
+          a different balance of storage, bench space, or entertaining.
         </p>
       </div>
 
       {/* AI generate / options */}
-      {!options && (
-        <Button
-          onClick={handleGenerate}
-          disabled={loading}
-          className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
-        >
-          {loading
-            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
-            : <><Sparkles className="w-4 h-4 mr-2" /> Design my kitchen with AI</>}
-        </Button>
+      {!options && featureFlags.aiDesigner && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-sm font-semibold text-slate-900">Starter layout ready</p>
+          <p className="mt-0.5 text-xs text-slate-500">It already follows your room, appliance, and clearance rules.</p>
+          <Button
+            onClick={handleGenerate}
+            disabled={loading}
+            className="mt-3 w-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
+          >
+            {loading
+              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {LOADING_LINES[loadingLine]}</>
+              : <><Sparkles className="w-4 h-4 mr-2" /> Compare AI layout alternatives</>}
+          </Button>
+        </div>
+      )}
+
+      {!featureFlags.aiDesigner && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-sm font-medium text-slate-800">Your standard kitchen concept is ready below.</p>
+          <p className="mt-1 text-xs text-slate-500">AI alternatives are temporarily unavailable, but the normal planner and quote journey still work.</p>
+        </div>
       )}
 
       {options && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {options.map(opt => {
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Choose an alternative</p>
+            <p className="text-xs text-slate-500">Each option passed the same room and clearance checks.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {options.map((opt, index) => {
             const active = design?.aiGenerated === true && design.proposalId === opt.proposalId;
             const optionErrors = opt.violations.filter(v => v.severity === 'error');
             return (
@@ -292,7 +357,13 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
                   optionErrors.length > 0 && 'border-red-300 bg-red-50 cursor-not-allowed opacity-80',
                 )}
               >
-                <p className="font-semibold text-sm text-slate-900">{opt.name}</p>
+                <OptionPlanPreview option={opt} brief={brief} />
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <p className="font-semibold text-sm text-slate-900">{opt.name}</p>
+                  {active
+                    ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700"><Check className="h-3 w-3" /> Selected</span>
+                    : index === 0 && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Top-ranked</span>}
+                </div>
                 <p className="text-xs text-slate-500 line-clamp-3">{opt.rationale}</p>
                 <p className="text-xs font-medium text-slate-700">
                   ${opt.priceBand.lowAud.toLocaleString()} – ${opt.priceBand.highAud.toLocaleString()}
@@ -310,6 +381,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
               </button>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -340,6 +412,30 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
               );
             })()}
           </div>
+          <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[72%] gap-1.5">
+            {[selectedFinish, selectedBenchtop].map(material => (
+              <div
+                key={material.id}
+                className="flex min-w-0 items-center gap-1.5 rounded-lg border border-white/60 bg-white/90 p-1.5 pr-2 shadow-sm backdrop-blur"
+              >
+                <span
+                  className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded-md border border-slate-200"
+                  style={{ backgroundColor: material.hex }}
+                >
+                  {material.swatchUrl && (
+                    <img src={material.swatchUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  )}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[10px] font-semibold text-slate-800">{material.name}</span>
+                  <span className="block truncate text-[9px] text-slate-500">{material.supplier} {material.supplierCode}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="pointer-events-none absolute bottom-2 right-2 z-10 hidden rounded-md bg-slate-900/70 px-2 py-1 text-[9px] text-white sm:block">
+            Drag to orbit · pinch or scroll to zoom
+          </p>
           <Scene3DErrorBoundary>
             <Suspense fallback={
               <div className="absolute inset-0 flex items-center justify-center">
@@ -365,7 +461,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
         </div>
       )}
 
-      {compiled && (
+      {compiled && arEnabled && (
         <Button
           variant="outline"
           className="w-full h-10 border-slate-300 text-slate-700"
@@ -373,20 +469,27 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
             // iOS → generate a USDZ and open Apple Quick Look inline.
             // Android/other → existing WebXR flow at /wizard/view-ar.
             const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-            const iOS = /iPad|iPhone|iPod/.test(ua) || (/Mac/.test(ua) && (navigator as any).maxTouchPoints > 1);
+            const iOS = isIosDevice(ua, navigator.maxTouchPoints);
+            trackEvent('ar_view_requested', { platform: iOS ? 'ios-quick-look' : 'android-webxr' });
             if (iOS) {
               const t = toast.loading('Preparing your kitchen for AR…');
               try {
                 const { exportSceneUsdz, openQuickLook } = await import('@/lib/ar/exportSceneUsdz');
                 const blob = await exportSceneUsdz(enrichedItems, {
                   onProgress: (m) => toast.loading(m, { id: t }),
+                  finishId: style.finishId,
+                  benchtopId: style.benchtopId,
+                  benchtopThicknessMm: DEFAULT_GLOBAL_DIMENSIONS.benchtopThickness,
+                  benchtopOverhangMm: DEFAULT_GLOBAL_DIMENSIONS.benchtopOverhang,
                 });
                 const url = URL.createObjectURL(blob);
                 toast.dismiss(t);
                 openQuickLook(url);
-                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                trackEvent('ar_view_started', { platform: 'ios-quick-look' });
+                setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
               } catch (e) {
                 toast.dismiss(t);
+                trackEvent('ar_view_failed', { platform: 'ios-quick-look' });
                 toast.error("Couldn't build the AR file — try again in a moment.");
               }
               return;
@@ -400,8 +503,12 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
                 finishId: style.finishId,
                 benchtopId: style.benchtopId,
               }));
+              trackEvent('ar_payload_stored', { platform: 'android-webxr', itemCount: enrichedItems.length });
               navigate('/wizard/view-ar');
-            } catch { /* storage blocked - stay put */ }
+            } catch {
+              trackEvent('ar_view_failed', { platform: 'android-webxr', reason: 'storage' });
+              toast.error("Couldn't open the AR view because this browser is blocking temporary storage.");
+            }
           }}
         >
           See it in your room (AR)
@@ -430,7 +537,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
           <p className="text-[11px] text-amber-600 pt-0.5">
             {canRefine
               ? 'These are trade-offs, not mistakes — you can leave them and Ben will talk them through with you.'
-              : 'Tap “Design my kitchen” above and the designer can work on these for you.'}
+              : 'Tap “Compare AI layout alternatives” above and the designer can work on these for you.'}
           </p>
         </div>
       )}

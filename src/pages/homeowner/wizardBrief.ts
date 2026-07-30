@@ -7,6 +7,12 @@
 
 import type { Opening, RoomShape, ServicePoint } from '@/types';
 import { toRoomSpec } from '@/lib/layout';
+import {
+  CATALOG_VERSION,
+  ENGINE_VERSION,
+  PRICING_VERSION,
+  PROPOSAL_SCHEMA_VERSION,
+} from '@/lib/layout';
 import type { DesignBrief, KitchenSpec, Priority, Wall } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 
@@ -45,6 +51,11 @@ export interface WizardBriefFields {
 /** A chosen design in wizard state: the spec is the source of truth; items,
  *  price and warnings are derived on render via the engine. */
 export interface WizardDesign {
+  schemaVersion: typeof PROPOSAL_SCHEMA_VERSION;
+  engineVersion: string;
+  catalogVersion: string;
+  pricingVersion: string;
+  createdAt: string;
   name: string;
   spec: KitchenSpec;
   aiGenerated: boolean;
@@ -55,6 +66,36 @@ export interface WizardDesign {
    *  numbers for the same selection. Absent for the deterministic default
    *  layout, which falls back to the local estimator band. */
   priceBand?: { lowAud: number; highAud: number };
+}
+
+export function createWizardDesign(
+  input: Omit<WizardDesign, 'schemaVersion' | 'engineVersion' | 'catalogVersion' | 'pricingVersion' | 'createdAt'>,
+): WizardDesign {
+  return {
+    schemaVersion: PROPOSAL_SCHEMA_VERSION,
+    engineVersion: ENGINE_VERSION,
+    catalogVersion: CATALOG_VERSION,
+    pricingVersion: PRICING_VERSION,
+    createdAt: new Date().toISOString(),
+    ...input,
+  };
+}
+
+export function upgradeWizardDesign(input: Partial<WizardDesign> | null | undefined): WizardDesign | null {
+  if (!input || typeof input.name !== 'string' || !input.spec) return null;
+  return {
+    ...createWizardDesign({
+      name: input.name,
+      spec: input.spec,
+      aiGenerated: input.aiGenerated === true,
+      ...(input.proposalId ? { proposalId: input.proposalId } : {}),
+      ...(input.priceBand ? { priceBand: input.priceBand } : {}),
+    }),
+    ...(typeof input.engineVersion === 'string' ? { engineVersion: input.engineVersion } : {}),
+    ...(typeof input.catalogVersion === 'string' ? { catalogVersion: input.catalogVersion } : {}),
+    ...(typeof input.pricingVersion === 'string' ? { pricingVersion: input.pricingVersion } : {}),
+    ...(typeof input.createdAt === 'string' ? { createdAt: input.createdAt } : {}),
+  };
 }
 
 export function buildBrief(f: WizardBriefFields): DesignBrief {

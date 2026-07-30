@@ -29,6 +29,7 @@ import {
   compileSpec, defaultSpecFor, priceDesign, validate,
   kitchenSpecSchema, roomSpecSchema, aiDesignerRequestSchema, finalizeSelectionSchema,
   proposedRoomPatchSchema, RequestProposalRegistry, ROLE_PRODUCTS,
+  ENGINE_VERSION, CATALOG_VERSION, PRICING_VERSION,
   type AiDesignerRequestInput, type KitchenSpecInput, type ProposedRoomPatchInput,
 } from '../_shared/layout/index.ts';
 import { fingerprintV1 } from '../_shared/roomScan/fingerprint.ts';
@@ -97,9 +98,6 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = Deno.env.get('OPENAI_MODEL') ?? 'gpt-5.6-terra';
 const MAX_TOOL_ROUNDS = 8;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const ENGINE_VERSION = 'layout-v1.1';
-const CATALOG_VERSION = 'role-map-v1-provisional';
-const PRICING_VERSION = 'price-band-v1';
 const PROMPT_VERSION = 'ai-designer-v2.1';
 
 // ── catalog / style summary given to the model ──
@@ -453,6 +451,12 @@ serve(async (req) => {
   const json = (body: unknown, status = 200) => jsonResponse(req, status, body);
 
   try {
+    const designerEnabled = (Deno.env.get('AI_DESIGNER_ENABLED') ?? 'true').trim().toLowerCase();
+    if (['false', '0', 'off', 'disabled'].includes(designerEnabled)) {
+      logOutcome('ai-designer', requestId, 'disabled', started);
+      return errorResponse(req, 503, 'designer_disabled');
+    }
+
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');

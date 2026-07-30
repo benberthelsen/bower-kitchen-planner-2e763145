@@ -172,6 +172,19 @@ ok('hidden corner: NE corner of 4x3 room derived', hc2 && Math.abs(hc2.x - 4.0) 
 const withHidden = buildScanFromCapture([hc, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0, z: 3 }], {}, '2026-07-23T00:00:00.000Z');
 ok('hidden corner: derived corner feeds the normal fit', withHidden.ok && Math.abs(withHidden.scan.room.width - 4000) < 80 && Math.abs(withHidden.scan.room.depth - 3000) < 80, withHidden.ok ? withHidden.scan.room.width + 'x' + withHidden.scan.room.depth : withHidden.reason);
 
+// UI safety rails: the camera session must clean up on both normal and system
+// endings, manual openings must be bounded, and every new scan must return the
+// wizard to the room-confirmation step instead of reusing a stale design.
+const scanRoomSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'homeowner', 'ScanRoom.tsx'), 'utf8');
+const wizardSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'homeowner', 'Wizard.tsx'), 'utf8');
+ok('scanner UI: central session cleanup is wired', scanRoomSource.includes("session.addEventListener('end'") && scanRoomSource.includes('cleanupSessionResources();'));
+ok('scanner UI: imports are size bounded', scanRoomSource.includes('MAX_ROOMPLAN_FILE_BYTES') && scanRoomSource.includes('file.size > MAX_ROOMPLAN_FILE_BYTES'));
+ok('scanner UI: manual openings cannot exceed a wall', scanRoomSource.includes('offsetMm + widthMm > wallLengthMm'));
+ok(
+  'scanner handoff: forces room confirmation and clears stale design',
+  (wizardSource.match(/step: 1,\s+design: null,\s+incomingScan: scan,/g) ?? []).length >= 2,
+);
+
 fs.rmSync(OUT, { recursive: true, force: true });
 console.log(fail ? `\n${fail} FAILURES` : '\nSCANNER TWO-LANE: all assertions pass');
 process.exit(fail ? 1 : 0);
