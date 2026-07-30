@@ -34,6 +34,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   compileSpec, priceDesign, validate, kitchenSpecSchema,
+  ENGINE_VERSION, CATALOG_VERSION, PRICING_VERSION,
 } from '../_shared/layout/index.ts';
 import { proposalToTradeRoom } from '../_shared/trade/proposalToTradeRoom.ts';
 import { confirmedRoomScanV1Schema } from '../_shared/roomScan/contract.ts';
@@ -49,10 +50,6 @@ import {
   readJsonBody,
 } from '../_shared/roomScan/security.ts';
 
-// Keep in lockstep with ai-designer/index.ts until these move to one module.
-const ENGINE_VERSION = 'layout-v1.1';
-const CATALOG_VERSION = 'role-map-v1-provisional';
-const PRICING_VERSION = 'price-band-v1';
 const PROMOTER_VERSION = 'promote-ai-design-v1';
 
 /** Bower's current planner defaults — identical to the trade-adapter smoke

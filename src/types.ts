@@ -163,6 +163,18 @@ export interface MaterialOption {
   textureType?: TextureType;
   roughness?: number;
   metalness?: number;
+  /** Customer-facing source identity. Existing ids remain stable for saved jobs. */
+  supplier?: string;
+  supplierCode?: string;
+  /** Small product sample used by selectors and review summaries. */
+  swatchUrl?: string;
+  /** Physical material image used by the 3D renderer when available. */
+  textureUrl?: string;
+  surface?: 'door' | 'benchtop' | 'kick';
+  grainDirection?: 'none' | 'vertical' | 'horizontal';
+  /** Real-world repeat represented by the texture image. */
+  textureRepeatMm?: { width: number; height: number };
+  availability?: 'available' | 'limited' | 'quote-only';
 }
 
 /** Visual handle styles renderable by HandleMesh. */

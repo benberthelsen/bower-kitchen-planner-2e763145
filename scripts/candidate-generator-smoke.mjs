@@ -16,7 +16,7 @@ mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
 const LAYOUT_FILES = [
-  'types', 'schemas', 'geometry', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec',
+  'types', 'versions', 'schemas', 'geometry', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec',
   'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState',
   'designScore', 'candidateGenerator', 'index',
 ];

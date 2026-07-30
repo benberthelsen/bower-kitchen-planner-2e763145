@@ -63,7 +63,7 @@ import {
   appliancesTotal as sumAppliances,
   anyPlaceholderPrices,
 } from './applianceSelection';
-import { buildBrief, type WizardDesign } from './wizardBrief';
+import { buildBrief, createWizardDesign, upgradeWizardDesign, type WizardDesign } from './wizardBrief';
 import { evaluateDesign } from '@/lib/designV2';
 import { STYLE_PRESETS } from '@/data/stylePresets';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
@@ -202,7 +202,10 @@ function loadSavedWizardState(): Partial<WizardState> {
       sessionStorage.removeItem(WIZARD_STATE_KEY);
       return {};
     }
-    return parsed.state;
+    return {
+      ...parsed.state,
+      design: upgradeWizardDesign(parsed.state.design),
+    };
   } catch {
     return {};
   }
@@ -474,12 +477,12 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
             priceBand = { lowAud: lo, highAud: hi };
           }
         }
-        patch.design = {
+        patch.design = createWizardDesign({
           name: String(raw.design.name ?? 'Shared design').slice(0, 120) || 'Shared design',
           spec: spec.data as unknown as KitchenSpec,
           aiGenerated: raw.design.aiGenerated === true,
           ...(priceBand ? { priceBand } : {}),
-        };
+        });
       }
     }
     return patch;

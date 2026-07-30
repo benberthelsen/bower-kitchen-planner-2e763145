@@ -6,6 +6,7 @@
  */
 
 export * from './types';
+export * from './versions';
 export * from './schemas';
 export * from './geometry';
 export * from './catalogRoles';

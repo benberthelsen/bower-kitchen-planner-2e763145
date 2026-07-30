@@ -27,7 +27,7 @@ import type { LayoutShape } from '@/lib/layout';
 import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
 import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
-import type { WizardDesign } from '../wizardBrief';
+import { createWizardDesign, type WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
 import { featureFlags, isIosDevice } from '@/lib/featureFlags';
@@ -68,7 +68,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
   useEffect(() => {
     if (!design) {
       const spec = defaultSpecFor(brief, shape, style);
-      onDesignChange({ name: 'Standard layout', spec, aiGenerated: false });
+      onDesignChange(createWizardDesign({ name: 'Standard layout', spec, aiGenerated: false }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -152,7 +152,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     }
     trackEvent('ai_option_selected', { name: opt.name });
     setUndoStack(design ? [...undoStack.slice(-9), design] : undoStack);
-    onDesignChange({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand });
+    onDesignChange(createWizardDesign({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand }));
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
@@ -228,7 +228,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
         return;
       }
       setUndoStack(stack => [...stack.slice(-9), design]);
-      onDesignChange({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand });
+      onDesignChange(createWizardDesign({ name: design.name, spec: updated.spec, aiGenerated: true, proposalId: updated.proposalId, priceBand: updated.priceBand ?? design.priceBand }));
     }
     setChatLog(log => [...log, { role: 'assistant', content: res.changeSummary || updated.rationale || 'Done.' }]);
   };
