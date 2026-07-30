@@ -273,12 +273,25 @@ export function filterCatalogToCooking(
 /** How far a dropped-in cooktop's glass stands above the stone (mm). */
 const COOKTOP_PROUD_MM = 4;
 
-/** Roles the engine exposes that we can hang a chosen product on. */
+/**
+ * Roles the engine exposes that we can hang a chosen product on, in the order
+ * they are placed. `fallbackRole` is used when the primary role is absent:
+ *
+ *  - Oven: prefers the tall oven tower. With no tower it drops under the bench
+ *    beside/below the cooktop, which is the convention the trade planner
+ *    already uses for an under-bench oven (base-at-`y`, sitting on the cabinet
+ *    floor above the kick) — no second convention is invented here.
+ *  - Microwave: only ever placed IN a tower. With no tower it is deliberately
+ *    NOT drawn — see `undrawnApplianceCategories` — because guessing a spot on
+ *    the bench is worse than telling the customer we'll confirm placement.
+ */
 const OVERLAY_SLOTS = [
-  { category: 'sink' as const, role: 'sink' as const },
-  { category: 'cooktop' as const, role: 'cooktop' as const },
-  { category: 'oven' as const, role: 'oven-tower' as const },
+  { category: 'sink' as const, role: 'sink' as const, fallbackRole: null },
+  { category: 'cooktop' as const, role: 'cooktop' as const, fallbackRole: null },
+  { category: 'oven' as const, role: 'oven-tower' as const, fallbackRole: 'cooktop' as const },
+  { category: 'microwave' as const, role: 'oven-tower' as const, fallbackRole: null },
 ];
+
 
 /** Map a tap product's finish to one of the built-in TAP_OPTIONS ids. */
 export function tapOptionIdForFinish(finish: string | null | undefined): string | undefined {
