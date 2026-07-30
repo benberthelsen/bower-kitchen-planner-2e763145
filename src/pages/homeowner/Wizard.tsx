@@ -21,7 +21,7 @@ import {
   type RoomScanV1,
 } from '@/lib/roomScan/contract';
 import {
-  Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, Sparkles, RotateCcw,
+  Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -113,10 +113,6 @@ interface WizardState {
   contactName:  string;
   contactEmail: string;
   contactPhone: string;
-  /** Lead gate (pipeline capture): set once contact details are collected at
-   *  the entry to the Design step — after the user has invested in room +
-   *  cooking answers, before AI designs and prices are revealed. */
-  leadGateDone: boolean;
   // Scanner handoff context (master plan §5.3/§6.3): the tokenized capability
   // for atomic submission, the incoming (unconfirmed) scan pre-filling the
   // editor, and an edit counter that bumps roomRevision on any geometry change.
@@ -674,9 +670,15 @@ function ShareButton({ state }: { state: WizardState }) {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleShare} className="gap-1.5">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleShare}
+      className="gap-1.5"
+      aria-label={copied ? 'Design link copied' : 'Share design'}
+    >
       {copied ? <ClipboardCheck className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4" />}
-      {copied ? 'Copied!' : 'Share design'}
+      <span className="hidden sm:inline">{copied ? 'Copied!' : 'Share design'}</span>
     </Button>
   );
 }
@@ -1290,6 +1292,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted]   = useState(false);
   const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   // Durable idempotency key: generated before the first submit attempt and
   // retained across retries so a lost response never creates two enquiries.
   const submissionKeyRef = useRef<string>(crypto.randomUUID());
@@ -1356,14 +1359,20 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
+  const contactName = state.contactName.trim();
+  const contactEmail = state.contactEmail.trim();
+  const contactPhone = state.contactPhone.trim();
+  const contactNameValid = contactName.length >= 2;
+  const contactEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail);
 
   const handleSubmit = async () => {
+    setSubmitAttempted(true);
     if (conceptBlocked) {
       toast.error('This layout has a blocking problem. Return to Design and choose or generate another option.');
       return;
     }
-    if (!state.contactName.trim() || !state.contactEmail.trim()) {
-      toast.error('Please enter your name and email');
+    if (!contactNameValid || !contactEmailValid) {
+      toast.error('Please check your name and email');
       return;
     }
     setSubmitting(true);
@@ -1465,11 +1474,11 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
             ? { handoffId: state.handoffContext.handoffId, token: state.handoffContext.token }
             : {}),
           job: {
-            name: `${state.contactName} – Kitchen Enquiry`,
+            name: `${contactName} – Kitchen Enquiry`,
             notes: [
-              `Contact: ${state.contactName}`,
-              `Email: ${state.contactEmail}`,
-              state.contactPhone ? `Phone: ${state.contactPhone}` : null,
+              `Contact: ${contactName}`,
+              `Email: ${contactEmail}`,
+              contactPhone ? `Phone: ${contactPhone}` : null,
               `Cabinet layout preference: ${state.layoutPreference}`,
               `Width: ${(state.roomWidth / 1000).toFixed(1)} m`,
               `Layout: ${state.layoutStyle}`,
@@ -1489,6 +1498,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       if (error) throw error;
       const jobId = (submitData as { jobId?: string } | null)?.jobId;
       if (jobId) setSubmittedJobId(jobId);
+      trackEvent('lead_captured', { stage: 'quote-request', shape: state.layoutPreference });
       trackEvent('quote_requested', { shape: state.layoutPreference, layout: state.layoutStyle });
 
       // The admin new-lead alert email is sent server-side by
@@ -1513,7 +1523,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
           <Check className="w-8 h-8 text-emerald-600" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900">Thanks, {state.contactName.split(' ')[0]}!</h2>
+        <h2 className="text-2xl font-bold text-slate-900">Thanks, {contactName.split(' ')[0]}!</h2>
         <p className="text-slate-500 max-w-sm mx-auto text-sm">
           We've received your kitchen enquiry and will be in touch within one business day.
         </p>
@@ -1667,12 +1677,22 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
           <div className="space-y-1.5">
             <Label htmlFor="cname">Full name <span className="text-red-500">*</span></Label>
             <Input id="cname" placeholder="Jane Smith" value={state.contactName}
-              onChange={e => onChange({ contactName: e.target.value })} autoComplete="name" />
+              onChange={e => onChange({ contactName: e.target.value })} autoComplete="name"
+              aria-invalid={submitAttempted && !contactNameValid}
+              aria-describedby={submitAttempted && !contactNameValid ? 'cname-error' : undefined} />
+            {submitAttempted && !contactNameValid && (
+              <p id="cname-error" className="text-xs text-red-600">Please enter your full name.</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cemail">Email <span className="text-red-500">*</span></Label>
             <Input id="cemail" type="email" placeholder="jane@example.com" value={state.contactEmail}
-              onChange={e => onChange({ contactEmail: e.target.value })} autoComplete="email" />
+              onChange={e => onChange({ contactEmail: e.target.value })} autoComplete="email"
+              aria-invalid={submitAttempted && !contactEmailValid}
+              aria-describedby={submitAttempted && !contactEmailValid ? 'cemail-error' : undefined} />
+            {submitAttempted && !contactEmailValid && (
+              <p id="cemail-error" className="text-xs text-red-600">Enter a valid email so we can send your quote.</p>
+            )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="cphone">Phone <span className="text-slate-400 font-normal">(optional)</span></Label>
@@ -1690,86 +1710,6 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
             : <><Send className="w-4 h-4 mr-2" /> Request my free quote</>}
         </Button>
         <p className="text-xs text-center text-slate-400">No spam. We'll reach out within 1 business day.</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Lead gate ──────────────────────────────────────────────────────────────────
-// Pipeline capture at the moment of maximum investment: the user has entered
-// their room and how they cook; the AI designs + price band are the payoff.
-// Contact details unlock the payoff and prefill the final Review step.
-
-function LeadGate({ state, onChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void }) {
-  const [name, setName]   = useState(state.contactName);
-  const [email, setEmail] = useState(state.contactEmail);
-  const [phone, setPhone] = useState(state.contactPhone);
-  const [touched, setTouched] = useState(false);
-
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
-  const nameValid = name.trim().length >= 2;
-  const canUnlock = nameValid && emailValid;
-
-  const unlock = () => {
-    setTouched(true);
-    if (!canUnlock) return;
-    trackEvent('lead_captured', {
-      stage: 'design-gate',
-      shape: state.layoutPreference,
-    });
-    onChange({
-      contactName: name.trim(),
-      contactEmail: email.trim(),
-      contactPhone: phone.trim(),
-      leadGateDone: true,
-    });
-  };
-
-  return (
-    <div className="max-w-lg mx-auto">
-      <div className="text-center mb-8">
-        <div className="w-14 h-14 mx-auto rounded-full bg-slate-900 text-white flex items-center justify-center mb-4">
-          <Sparkles className="w-7 h-7" />
-        </div>
-        <h2 className="text-2xl font-bold text-slate-900">Your kitchen designs are ready to build</h2>
-        <p className="mt-3 text-slate-500 text-sm sm:text-base">
-          We've got your room and how you cook. Tell us where to send your AI-designed
-          layouts (up to 3) and price estimate — then watch them appear.
-        </p>
-      </div>
-
-      <div className="space-y-4 bg-slate-50 border border-slate-100 rounded-xl p-5 sm:p-6">
-        <div className="space-y-1.5">
-          <Label htmlFor="lg-name">Your name <span className="text-red-500">*</span></Label>
-          <Input id="lg-name" placeholder="Jane Smith" value={name}
-            onChange={e => setName(e.target.value)} autoComplete="name" />
-          {touched && !nameValid && <p className="text-xs text-red-500">Please enter your name.</p>}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="lg-email">Email <span className="text-red-500">*</span></Label>
-          <Input id="lg-email" type="email" placeholder="jane@example.com" value={email}
-            onChange={e => setEmail(e.target.value)} autoComplete="email" />
-          {touched && !emailValid && <p className="text-xs text-red-500">Please enter a valid email address.</p>}
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="lg-phone">Phone <span className="text-slate-400 font-normal">(optional)</span></Label>
-          <Input id="lg-phone" type="tel" placeholder="04xx xxx xxx" value={phone}
-            onChange={e => setPhone(e.target.value)} autoComplete="tel" />
-        </div>
-
-        <Button onClick={unlock} className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white gap-2">
-          <Sparkles className="w-4 h-4" /> Show my designs
-        </Button>
-        <p className="text-xs text-center text-slate-400">
-          No spam — your designs and estimate are saved to this email. Bower will only reach
-          out about this project.
-        </p>
-      </div>
-
-      <div className="mt-6 grid grid-cols-3 gap-3 text-center text-xs text-slate-400">
-        <div>Up to 3 AI layouts<br />around your room</div>
-        <div>Walk-around<br />3D preview</div>
-        <div>Instant price<br />estimate</div>
       </div>
     </div>
   );
@@ -1795,7 +1735,6 @@ export default function HomeownerWizard() {
     design: null,
     doorsOpen: false,
     contactName: '', contactEmail: '', contactPhone: '',
-    leadGateDone: false,
     geometryEdits: 0,
     chosenAppliances: {},
     ...DEFAULTS,
@@ -1988,7 +1927,7 @@ export default function HomeownerWizard() {
     state.step === 2 ? true :
     state.step === 3 ? true :
     state.step === 4 ? true :
-    state.step === 5 ? state.design !== null && !selectedDesignHasBlockingErrors && state.leadGateDone : false;
+    state.step === 5 ? state.design !== null && !selectedDesignHasBlockingErrors : false;
 
   const advance = () => {
     if (state.step < 6) {
@@ -2065,8 +2004,7 @@ export default function HomeownerWizard() {
           />
         )}
         {state.step === 4 && <Step3Style state={state} onChange={onChange} />}
-        {state.step === 5 && !state.leadGateDone && <LeadGate state={state} onChange={onChange} />}
-        {state.step === 5 && state.leadGateDone && (
+        {state.step === 5 && (
           <StepDesign
             key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}`}
             brief={buildBrief(state)}
