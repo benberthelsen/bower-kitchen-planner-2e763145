@@ -16,7 +16,7 @@ mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
 const LAYOUT_FILES = [
-  'types', 'versions', 'schemas', 'geometry', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec',
+  'types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec',
   'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState',
   'designScore', 'candidateGenerator', 'index',
 ];
@@ -119,12 +119,18 @@ check('allowedStrategies is respected', () => {
 check('allowedWalls is authoritative for original and mirrored candidates', () => {
   const brief = roomyBrief();
   brief.allowedWalls = ['N', 'W'];
+  brief.wallRanges = { N: { startMm: 300, endMm: 4500 }, W: { startMm: 0, endMm: 3600 } };
   const pool = generateCandidatePool({ brief, allowedStrategies: ['l-shape'], maxCandidates: 12 });
   assert(pool.candidates.length > 0, 'wall-restricted brief produced no candidates');
   for (const candidate of pool.candidates) {
     const used = candidate.spec.runs.map(run => run.wall);
     assert(used.every(wall => brief.allowedWalls.includes(wall)),
       `${candidate.candidateId} used disallowed walls: ${used.join(',')}`);
+    for (const run of candidate.spec.runs) {
+      const expected = brief.wallRanges[run.wall];
+      assert(!expected || (run.startMm === expected.startMm && run.endMm === expected.endMm),
+        `${candidate.candidateId} lost the selected range on ${run.wall}`);
+    }
   }
   assert(!pool.candidates.some(candidate => candidate.candidateId.includes('mirrored')),
     'mirrored candidate escaped onto the disallowed E wall');

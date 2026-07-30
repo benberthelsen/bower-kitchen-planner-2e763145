@@ -14,6 +14,7 @@
 
 import type { GlobalDimensions, PlacedItem } from './core.ts';
 import { DEFAULT_GLOBAL_DIMENSIONS } from './core.ts';
+import { runRange, runTouchesWallEnd } from './briefConstraints.ts';
 import { WALL_CAB, RANGEHOOD_ID, resolveCornerVariant } from './catalogRoles.ts';
 import {
   sharedCornerAt, usableIntervals, wallCabBlockedIntervals, wallLength, wallToWorld,
@@ -27,6 +28,8 @@ export interface CompiledDesign {
   notes: string[];
   /** Source run walls retained so validation can enforce the customer's wall selection. */
   runWalls: Wall[];
+  /** Source coverage retained so validation can enforce partial-wall choices. */
+  runRanges: { wall: Wall; startMm: number; endMm: number }[];
   /** wall + interval of key roles, used by validate() */
   rolePositions: Partial<Record<SegmentRole, { wall: Wall | 'island'; startMm: number; widthMm: number; item: PlacedItem }>>;
 }
@@ -72,7 +75,14 @@ export function compileSpec(
     const cornerBlocked: Interval[] = [];
     const reserve = dims.baseDepth + 25;
     for (let k = 0; k < runIdx; k++) {
-      const at = sharedCornerAt(run.wall, spec.runs[k].wall);
+      const previous = spec.runs[k];
+      const at = sharedCornerAt(run.wall, previous.wall);
+      const previousAt = sharedCornerAt(previous.wall, run.wall);
+      if (!at || !previousAt) continue;
+      const previousLength = wallLength(previous.wall, room);
+      const bothReachCorner = runTouchesWallEnd(run, len, at)
+        && runTouchesWallEnd(previous, previousLength, previousAt);
+      if (!bothReachCorner) continue;
       if (at === 'start') cornerBlocked.push({ start: 0, end: reserve });
       if (at === 'end') cornerBlocked.push({ start: len - reserve, end: len });
     }
@@ -158,10 +168,13 @@ export function compileSpec(
 
     // wall cabinet row
     if (run.wallCabinets) {
+      const coverage = runRange(run, len);
       const blocked: Interval[] = [
         ...wallCabBlockedIntervals(run.wall, room.openings),
         ...tallSpans,
         ...cornerBlocked,
+        ...(coverage.startMm > 0 ? [{ start: 0, end: coverage.startMm }] : []),
+        ...(coverage.endMm < len ? [{ start: coverage.endMm, end: len }] : []),
       ];
       // reserve the rangehood slot above the cooktop
       if (cooktopSeg) blocked.push({ start: cooktopSeg.startMm, end: cooktopSeg.startMm + cooktopSeg.widthMm });
@@ -239,5 +252,11 @@ export function compileSpec(
     }
   }
 
-  return { items, notes, runWalls: spec.runs.map(run => run.wall), rolePositions };
+  return {
+    items,
+    notes,
+    runWalls: spec.runs.map(run => run.wall),
+    runRanges: spec.runs.map(run => ({ wall: run.wall, ...runRange(run, wallLength(run.wall, room)) })),
+    rolePositions,
+  };
 }

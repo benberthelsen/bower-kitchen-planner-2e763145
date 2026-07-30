@@ -25,6 +25,7 @@
  */
 
 import type { PlacedItem } from '@/types';
+import { rangeForWall } from './briefConstraints';
 import { dist, itemRect, rectsOverlap, wallPointWorld, WALL_ROTATION } from './geometry';
 import type { CompiledDesign } from './compileSpec';
 import type { DesignBrief, RoomSpec, Wall } from './types';
@@ -111,17 +112,49 @@ export const RULES: Rule[] = [
   {
     id: 'allowed-wall', tier: 'hard', scope: 'relational',
     title: 'Customer-selected cabinet walls',
-    why: 'A design must use only the walls the customer nominated for cabinetry.',
+    why: 'A design must use exactly the walls the customer nominated for cabinetry.',
     evaluate: ({ design, brief }) => {
       const allowed = brief?.allowedWalls?.length ? new Set(brief.allowedWalls) : null;
       if (!allowed) return [];
-      return design.runWalls
-        .filter(wall => !allowed.has(wall))
-        .map(wall => finding(
-          'allowed-wall',
+      const used = new Set(design.runWalls);
+      return [
+        ...design.runWalls
+          .filter(wall => !allowed.has(wall))
+          .map(wall => finding(
+            'allowed-wall',
+            'hard',
+            `The design places cabinets on wall ${wall}, which was not selected for cabinetry`,
+          )),
+        ...[...allowed]
+          .filter(wall => !used.has(wall))
+          .map(wall => finding(
+            'selected-wall-missing',
+            'hard',
+            `The design leaves out wall ${wall}, which was selected for cabinetry`,
+          )),
+      ];
+    },
+  },
+  {
+    id: 'wall-run-range', tier: 'hard', scope: 'relational',
+    title: 'Customer-selected partial wall runs',
+    why: 'Cabinets must stay inside the start and finish points selected for each wall.',
+    evaluate: ({ design, brief }) => {
+      if (!brief?.wallRanges) return [];
+      return Object.entries(brief.wallRanges).flatMap(([wallKey, requested]) => {
+        if (!requested) return [];
+        const wall = wallKey as Wall;
+        const expected = rangeForWall(brief, wall);
+        const actual = design.runRanges.find(range => range.wall === wall);
+        if (!actual || (actual.startMm >= expected.startMm - 1 && actual.endMm <= expected.endMm + 1)) {
+          return [];
+        }
+        return [finding(
+          'wall-run-range',
           'hard',
-          `The design places cabinets on wall ${wall}, which was not selected for cabinetry`,
-        ));
+          `The design extends beyond the selected ${expected.startMm}–${expected.endMm} mm range on wall ${wall}`,
+        )];
+      });
     },
   },
   {

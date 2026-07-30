@@ -98,6 +98,15 @@ export const designBriefSchema = z.object({
   // Wizard wall picker — without this line zod strips the field and the
   // edge function would silently ignore the customer's wall choices.
   allowedWalls: z.array(wallSchema).max(4).optional(),
+  wallRanges: z.record(
+    wallSchema,
+    z.object({
+      startMm: z.number().min(0).max(12000),
+      endMm: z.number().min(0).max(12000),
+    }).refine(range => range.endMm > range.startMm, {
+      message: 'Wall run end must be after its start',
+    }),
+  ).optional(),
 });
 
 export const segmentRoleSchema = z.enum([
@@ -116,7 +125,12 @@ export const runSchema = z.object({
   segments: z.array(segmentSchema).min(1).max(24),
   wallCabinets: z.boolean(),
   fromEnd: z.boolean().optional(),
-});
+  startMm: z.number().min(0).max(12000).optional(),
+  endMm: z.number().min(0).max(12000).optional(),
+}).refine(
+  run => run.startMm === undefined || run.endMm === undefined || run.endMm > run.startMm,
+  { message: 'Run end must be after its start' },
+);
 
 export const styleSpecSchema = z.object({
   finishId: z.string(),

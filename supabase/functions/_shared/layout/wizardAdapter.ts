@@ -5,7 +5,7 @@
  */
 
 import type { RoomConfig } from './core.ts';
-import type { DesignBrief, RoomSpec } from './types.ts';
+import type { DesignBrief, RoomSpec, Wall, WallRunRanges } from './types.ts';
 import type { LayoutShape } from './defaultSpec.ts';
 
 /** Fill the optional arrays so the engine always sees a complete RoomSpec. */
@@ -18,6 +18,8 @@ export interface WizardLayoutInput {
   roomWidth: number;
   roomDepth: number;
   layoutStyle: 'minimal' | 'standard' | 'full-storage';
+  cabinetWalls?: Wall[];
+  cabinetWallRanges?: WallRunRanges;
 }
 
 /** Map today's wizard fields to a DesignBrief (richer wizard steps can extend this). */
@@ -38,5 +40,9 @@ export function briefFromWizard(input: WizardLayoutInput, room?: Partial<RoomCon
     priorities: input.layoutStyle === 'full-storage' ? ['storage'] : input.layoutStyle === 'minimal' ? ['bench-space'] : [],
     appliances: { dishwasher: input.layoutStyle !== 'minimal', fridgeWidthMm: 940 },
     island: 'no',
+    ...(input.cabinetWalls?.length ? { allowedWalls: input.cabinetWalls } : {}),
+    ...(input.cabinetWallRanges && Object.keys(input.cabinetWallRanges).length
+      ? { wallRanges: input.cabinetWallRanges }
+      : {}),
   };
 }

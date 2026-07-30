@@ -26,7 +26,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
-  compileSpec, defaultSpecFor, priceDesign, validate,
+  applyBriefConstraints, compileSpec, defaultSpecFor, priceDesign, validate,
   kitchenSpecSchema, roomSpecSchema, aiDesignerRequestSchema, finalizeSelectionSchema,
   proposedRoomPatchSchema, RequestProposalRegistry, ROLE_PRODUCTS,
   ENGINE_VERSION, CATALOG_VERSION, PRICING_VERSION,
@@ -98,7 +98,7 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = Deno.env.get('OPENAI_MODEL') ?? 'gpt-5.6-terra';
 const MAX_TOOL_ROUNDS = 8;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const PROMPT_VERSION = 'ai-designer-v2.1';
+const PROMPT_VERSION = 'ai-designer-v2.2';
 
 // ── catalog / style summary given to the model ──
 function catalogSummary() {
@@ -133,16 +133,19 @@ function compileAndScore(spec: unknown, room: unknown, brief: unknown, shape: st
   if (!parsed.success) {
     return { ok: false as const, error: `Invalid KitchenSpec: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}` };
   }
-  const shapeError = layoutShapeError(parsed.data, shape);
+  // The customer's partial-wall limits are authoritative even when the model
+  // omits or changes run bounds in its authored JSON.
+  const constrained = applyBriefConstraints(parsed.data as never, brief as never) as KitchenSpecInput;
+  const shapeError = layoutShapeError(constrained, shape);
   if (shapeError) return { ok: false as const, error: shapeError };
   // deno-lint-ignore no-explicit-any
-  const design = compileSpec(parsed.data as any, room as any);
+  const design = compileSpec(constrained as any, room as any);
   // deno-lint-ignore no-explicit-any
   const violations = validate(design, room as any, brief as any);
-  const band = priceDesign(design.items, parsed.data.style);
+  const band = priceDesign(design.items, constrained.style);
   return {
     ok: true as const,
-    spec: parsed.data,
+    spec: constrained,
     items: design.items,
     notes: design.notes,
     violations,
@@ -415,10 +418,10 @@ const TOOLS = [
 function systemPrompt(mode: string, brief: unknown, shape: string): string {
   const base = `You are an expert Australian kitchen designer working inside a constrained design harness.
 You express designs ONLY as KitchenSpec JSON:
-{ runs: [{ wall: 'N'|'E'|'S'|'W', segments: [{kind:'cabinet', role, widthMm?}...], wallCabinets: boolean, fromEnd?: boolean }],
+{ runs: [{ wall: 'N'|'E'|'S'|'W', segments: [{kind:'cabinet', role, widthMm?}...], wallCabinets: boolean, fromEnd?: boolean, startMm?: number, endMm?: number }],
   island?: { lengthMm, depthMm, features: [] }, style: { finishId, benchtopId, handleId }, rationale: string }
 Roles: sink, cooktop, dishwasher, drawers, doors, pantry, oven-tower, fridge-gap, corner.
-Rules: side runs meeting another run start with a 'corner' segment (W wall runs also set fromEnd:true when they meet the N wall).
+Rules: side runs that physically reach a shared room corner start with a 'corner' segment. Use fromEnd:true when the segment order starts from the wall's high-offset end.
 Sink near existing plumbing (drain service point), dishwasher beside sink, cooktop with bench both sides, fridge-gap at a run end near a door.
 Use ONLY the finish/benchtop/handle ids from the catalog summary. ALWAYS test with propose_layout and fix every error-severity violation. A successful test returns a proposalId; finalize using only those IDs. Address warnings when reasonable; explain unavoidable ones in the rationale.
 The rationale is shown to the homeowner: plain English, warm, no jargon.
@@ -428,7 +431,7 @@ Room+brief: ${JSON.stringify(brief)}
 Kitchen shape: ${shape}`;
 
   const wallRule = Array.isArray((brief as { allowedWalls?: unknown }).allowedWalls)
-    ? `\nCUSTOMER WALL RESTRICTION: use only these cabinet walls: ${JSON.stringify((brief as { allowedWalls: unknown }).allowedWalls)}. This is mandatory, not a preference.`
+    ? `\nCUSTOMER WALL SELECTION: use exactly these cabinet walls: ${JSON.stringify((brief as { allowedWalls: unknown }).allowedWalls)}. This is mandatory, not a preference. CUSTOMER PARTIAL-WALL LIMITS: ${JSON.stringify((brief as { wallRanges?: unknown }).wallRanges ?? {})}. Keep every cabinet run inside those startMm/endMm limits; the server will enforce them.`
     : '';
 
   if (mode === 'generate') {
