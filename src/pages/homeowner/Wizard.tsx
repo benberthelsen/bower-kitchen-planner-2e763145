@@ -42,7 +42,7 @@ import {
   HANDLE_OPTIONS,
   DEFAULT_GLOBAL_DIMENSIONS,
 } from '@/constants';
-import type { Opening, RoomConfig, RoomShape, ServicePoint } from '@/types';
+import type { MaterialOption, Opening, RoomConfig, RoomShape, ServicePoint } from '@/types';
 import { z } from 'zod';
 import {
   briefFromWizard, compileSpec, defaultSpecFor, priceDesign,
@@ -635,7 +635,7 @@ function StepIndicator({ current }: { current: number }) {
             </div>
             {i < STEPS.length - 1 && (
               <div className={cn(
-                'h-px w-8 sm:w-12 mb-5 mx-1 flex-shrink-0 transition-colors',
+                'h-px w-3 sm:w-12 mb-5 mx-0.5 sm:mx-1 flex-shrink-0 transition-colors',
                 done ? 'bg-emerald-400' : 'bg-slate-200',
               )} />
             )}
@@ -1099,6 +1099,31 @@ function Step2Layout({ state, onChange }: { state: WizardState; onChange: (p: Pa
 
 // ─── Step 3: Style ───────────────────────────────────────────────────────────────
 
+function MaterialSwatch({
+  option,
+  className,
+}: {
+  option: MaterialOption;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn('relative block overflow-hidden bg-slate-100', className)}
+      style={{ backgroundColor: option.hex }}
+    >
+      {option.swatchUrl && (
+        <img
+          src={option.swatchUrl}
+          alt=""
+          loading="lazy"
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={(event) => { event.currentTarget.style.display = 'none'; }}
+        />
+      )}
+    </span>
+  );
+}
+
 function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void }) {
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
@@ -1136,9 +1161,15 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
                   active ? 'border-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-400 bg-white',
                 )}
               >
-                <div className="flex gap-1 mb-1.5">
-                  <span className="w-4 h-4 rounded-full border border-slate-200" style={{ background: FINISH_OPTIONS.find(f => f.id === preset.style.finishId)?.hex }} />
-                  <span className="w-4 h-4 rounded border border-slate-200" style={{ background: BENCHTOP_OPTIONS.find(b => b.id === preset.style.benchtopId)?.hex }} />
+                <div className="flex gap-1 mb-2">
+                  <MaterialSwatch
+                    option={FINISH_OPTIONS.find(f => f.id === preset.style.finishId) ?? FINISH_OPTIONS[0]}
+                    className="w-8 h-8 rounded-md border border-slate-200"
+                  />
+                  <MaterialSwatch
+                    option={BENCHTOP_OPTIONS.find(b => b.id === preset.style.benchtopId) ?? BENCHTOP_OPTIONS[0]}
+                    className="w-8 h-8 rounded-md border border-slate-200"
+                  />
                 </div>
                 <p className="text-xs font-medium text-slate-900">{preset.name}</p>
                 <p className="text-[10px] text-slate-400 leading-tight hidden sm:block">{preset.blurb}</p>
@@ -1152,9 +1183,11 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Door Colour</Label>
-          <span className="text-sm text-slate-500">{selectedFinish.name}</span>
+          <span className="text-xs text-slate-500">
+            {selectedFinish.supplier} {selectedFinish.supplierCode}
+          </span>
         </div>
-        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Door colour">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5" role="group" aria-label="Door colour">
           {FINISH_OPTIONS.map(f => (
             <button
               key={f.id}
@@ -1163,13 +1196,23 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
               aria-pressed={state.finishId === f.id}
               onClick={() => onChange({ finishId: f.id })}
               className={cn(
-                'w-9 h-9 rounded-full border-2 transition-all shadow-sm',
+                'relative overflow-hidden rounded-xl border-2 bg-white text-left transition-all',
                 state.finishId === f.id
                   ? 'border-slate-900 ring-2 ring-slate-900 ring-offset-2'
                   : 'border-slate-200 hover:border-slate-400',
               )}
-              style={{ background: f.hex === '#fcfcfc' || f.hex === '#f4f4f4' ? '#e5e7eb' : f.hex }}
-            />
+            >
+              <MaterialSwatch option={f} className="aspect-[4/3] w-full border-b border-slate-100" />
+              <span className="block p-2">
+                <span className="block text-[11px] font-semibold leading-tight text-slate-900">{f.name}</span>
+                <span className="mt-1 block text-[9px] text-slate-500">{f.supplierCode}</span>
+              </span>
+              {state.finishId === f.id && (
+                <span className="absolute right-1.5 top-1.5 rounded-full bg-slate-900 p-1 text-white">
+                  <Check className="h-3 w-3" />
+                </span>
+              )}
+            </button>
           ))}
         </div>
       </div>
@@ -1178,9 +1221,11 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Label>Benchtop</Label>
-          <span className="text-sm text-slate-500">{selectedBenchtop.name}</span>
+          <span className="text-xs text-slate-500">
+            {selectedBenchtop.supplier} {selectedBenchtop.supplierCode}
+          </span>
         </div>
-        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Benchtop">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5" role="group" aria-label="Benchtop">
           {BENCHTOP_OPTIONS.map(b => (
             <button
               key={b.id}
@@ -1189,13 +1234,23 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
               aria-pressed={state.benchtopId === b.id}
               onClick={() => onChange({ benchtopId: b.id })}
               className={cn(
-                'w-9 h-9 rounded-md border-2 transition-all shadow-sm',
+                'relative overflow-hidden rounded-xl border-2 bg-white text-left transition-all',
                 state.benchtopId === b.id
                   ? 'border-slate-900 ring-2 ring-slate-900 ring-offset-2'
                   : 'border-slate-200 hover:border-slate-400',
               )}
-              style={{ background: b.hex }}
-            />
+            >
+              <MaterialSwatch option={b} className="aspect-[4/3] w-full border-b border-slate-100" />
+              <span className="block p-2">
+                <span className="block text-[11px] font-semibold leading-tight text-slate-900">{b.name}</span>
+                <span className="mt-1 block text-[9px] text-slate-500">{b.supplierCode}</span>
+              </span>
+              {state.benchtopId === b.id && (
+                <span className="absolute right-1.5 top-1.5 rounded-full bg-slate-900 p-1 text-white">
+                  <Check className="h-3 w-3" />
+                </span>
+              )}
+            </button>
           ))}
         </div>
       </div>

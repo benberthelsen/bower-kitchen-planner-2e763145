@@ -259,7 +259,9 @@ export function UnifiedCatalog({
     return Object.entries(groupedProducts).reduce((acc, [group, products]) => {
       const filtered = products.filter(p => 
         p.name.toLowerCase().includes(query) ||
-        p.sku.toLowerCase().includes(query)
+        p.sku.toLowerCase().includes(query) ||
+        p.homeownerPurpose?.toLowerCase().includes(query) ||
+        p.homeownerTags?.some(tag => tag.toLowerCase().includes(query))
       );
       if (filtered.length > 0) acc[group] = filtered;
       return acc;
@@ -314,11 +316,19 @@ export function UnifiedCatalog({
       <div
         key={product.id}
         draggable
+        role="button"
+        tabIndex={0}
         onDragStart={(e) => handleDragStart(e, product)}
         onDragEnd={handleDragEnd}
         onClick={() => handleItemClick(product)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleItemClick(product);
+          }
+        }}
         className={cn(
-          "flex items-center gap-2 w-full p-2 rounded-md transition-colors text-left group cursor-grab active:cursor-grabbing",
+          "flex items-center gap-2 w-full p-2 rounded-md transition-colors text-left group cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
           isSelected
             ? "bg-green-50 border border-green-400 ring-2 ring-green-200"
             : draggedProduct === product.id
@@ -331,8 +341,15 @@ export function UnifiedCatalog({
         <ProductThumbnail product={product} />
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium truncate">{product.name}</p>
-          <p className="text-[10px] text-muted-foreground">
-            {product.defaultWidth} × {product.defaultDepth}mm
+          {product.homeownerPurpose && (
+            <p className="text-[10px] leading-tight text-muted-foreground mt-0.5">
+              {product.homeownerPurpose}
+            </p>
+          )}
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {product.homeownerWidthsMm?.length
+              ? `${product.homeownerWidthsMm.join(', ')} mm widths`
+              : `${product.defaultWidth} × ${product.defaultDepth} mm`}
           </p>
           <CabinetTypeIndicators item={product} />
           {showQuickLook && (
@@ -359,19 +376,21 @@ export function UnifiedCatalog({
         </div>
         <div className="flex flex-col items-center gap-1 flex-shrink-0">
           {/* Star: add/remove from the user's own Quick Picks list */}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); toggleFavorite(product.id); }}
-            className={cn(
-              "p-0.5 rounded transition-all",
-              isFav
-                ? "text-trade-amber"
-                : "text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-trade-amber"
-            )}
-            title={isFav ? 'Remove from Quick Picks' : 'Add to my Quick Picks'}
-          >
-            <Star className={cn("w-3.5 h-3.5", isFav && "fill-current")} />
-          </button>
+          {isTrade && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); toggleFavorite(product.id); }}
+              className={cn(
+                "p-0.5 rounded transition-all",
+                isFav
+                  ? "text-trade-amber"
+                  : "text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-trade-amber"
+              )}
+              title={isFav ? 'Remove from Quick Picks' : 'Add to my Quick Picks'}
+            >
+              <Star className={cn("w-3.5 h-3.5", isFav && "fill-current")} />
+            </button>
+          )}
           <Plus className="w-3.5 h-3.5 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       </div>
@@ -385,7 +404,7 @@ export function UnifiedCatalog({
         <div className="flex items-center gap-2">
           <Grid3X3 className="w-4 h-4 text-primary" />
           <h3 className="font-semibold text-sm">
-            {isTrade ? 'Product Catalog' : 'Popular Cabinets'}
+            {isTrade ? 'Product Catalog' : 'Cabinet Library'}
           </h3>
         </div>
 
@@ -424,7 +443,7 @@ export function UnifiedCatalog({
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search products..."
+            placeholder={isTrade ? 'Search products...' : 'Search by purpose...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 h-8 text-sm"
@@ -452,7 +471,7 @@ export function UnifiedCatalog({
         </p>
         {!isTrade && (
           <p className="text-[10px] text-muted-foreground">
-            Built with original assets and naming. No affiliation with third-party planner brands.
+            Choose by purpose. Width and door details can be adjusted after placement.
           </p>
         )}
       </div>
@@ -471,21 +490,21 @@ export function UnifiedCatalog({
           ) : (
             <>
               {/* Catalog info */}
-              {isDynamic && (
+              {isDynamic && isTrade && (
                 <div className="mb-2 px-2 py-1 text-xs text-muted-foreground bg-muted/50 rounded">
-                  {catalog.length} products {userType === 'standard' ? '(curated)' : 'available'}
+                  {catalog.length} products available
                 </div>
               )}
               
-              {!isDynamic && userType === 'standard' && (
+              {userType === 'standard' && (
                 <div className="mb-2 px-2 py-1 text-xs text-muted-foreground bg-blue-50 rounded border border-blue-100">
-                  Showing popular selections
+                  {catalog.length} practical cabinet families, grouped by where they fit.
                 </div>
               )}
 
               {/* Quick Picks — the user's favourites + most-used, seeded with the
                   industry-standard workhorse set. Hidden while searching. */}
-              {!searchQuery.trim() && quickPicks.length > 0 && (
+              {isTrade && !searchQuery.trim() && quickPicks.length > 0 && (
                 <div className="mb-2 pb-2 border-b">
                   <div className="flex items-center gap-2 p-2">
                     <Star className="w-3.5 h-3.5 text-trade-amber fill-current" />
