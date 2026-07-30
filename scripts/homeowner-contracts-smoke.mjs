@@ -8,6 +8,10 @@ const constants = await import(pathToFileURL(resolve('.tmp-snap-test/homeowner-c
 const useCatalogSource = readFileSync('src/hooks/useCatalog.ts', 'utf8');
 const wizardSource = readFileSync('src/pages/homeowner/Wizard.tsx', 'utf8');
 const designStepSource = readFileSync('src/pages/homeowner/steps/StepDesign.tsx', 'utf8');
+const appSource = readFileSync('src/App.tsx', 'utf8');
+const leadsSource = readFileSync('src/pages/admin/Leads.tsx', 'utf8');
+const analyticsSource = readFileSync('src/pages/admin/Analytics.tsx', 'utf8');
+const supabaseConfig = readFileSync('supabase/config.toml', 'utf8');
 
 const families = catalog.HOMEOWNER_CABINET_FAMILIES;
 assert.ok(families.length >= 20 && families.length <= 30, 'homeowner catalogue must stay curated');
@@ -40,4 +44,15 @@ assert.ok(!wizardSource.includes('function LeadGate('), '3D design must not be h
 assert.ok(wizardSource.includes('{state.step === 5 && ('), 'Design step must render directly at step 5');
 assert.ok(wizardSource.includes('Request my free quote'), 'contact capture belongs at the quote request');
 assert.ok(designStepSource.includes('OptionPlanPreview'), 'AI alternatives require a visual plan preview');
+assert.ok(appSource.includes('<Navigate to="/wizard" replace />'), 'public root must enter the homeowner planner');
+assert.ok(wizardSource.includes('maxLength={254}'), 'lead email must be length bounded');
+assert.ok(wizardSource.includes('contactPhoneValid'), 'optional phone must be validated when supplied');
+assert.ok(leadsSource.includes('is_synthetic_test, persona_id'), 'lead inbox must load synthetic-test tags');
+assert.ok(analyticsSource.includes('const designComplete = completedStep(5)'), 'analytics must show the complete six-step homeowner funnel');
+assert.ok(analyticsSource.includes('e.session_id ?? `event:${e.id}`'), 'funnel stages must deduplicate repeat navigation by session');
+assert.match(
+  supabaseConfig,
+  /\[functions\.submit-planner-enquiry\]\s+verify_jwt = false/,
+  'organic quote submission must be a public Edge entry point',
+);
 console.log(`homeowner contracts: ${families.length} cabinet families, ${constants.FINISH_OPTIONS.length} finishes, ${constants.BENCHTOP_OPTIONS.length} benchtops`);

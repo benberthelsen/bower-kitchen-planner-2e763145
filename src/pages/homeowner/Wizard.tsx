@@ -1362,8 +1362,13 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const contactName = state.contactName.trim();
   const contactEmail = state.contactEmail.trim();
   const contactPhone = state.contactPhone.trim();
-  const contactNameValid = contactName.length >= 2;
-  const contactEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail);
+  const contactNameValid = contactName.length >= 2 && contactName.length <= 100;
+  const contactEmailValid = contactEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail);
+  const contactPhoneValid = !contactPhone || (
+    contactPhone.length >= 6
+    && contactPhone.length <= 30
+    && /^[+\d()\s.-]+$/.test(contactPhone)
+  );
 
   const handleSubmit = async () => {
     setSubmitAttempted(true);
@@ -1371,8 +1376,8 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       toast.error('This layout has a blocking problem. Return to Design and choose or generate another option.');
       return;
     }
-    if (!contactNameValid || !contactEmailValid) {
-      toast.error('Please check your name and email');
+    if (!contactNameValid || !contactEmailValid || !contactPhoneValid) {
+      toast.error('Please check your contact details');
       return;
     }
     setSubmitting(true);
@@ -1511,7 +1516,19 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       toast.success("Quote request sent! We'll be in touch soon.");
     } catch (err) {
       console.error('Quote submission error:', err);
-      toast.error('Something went wrong. Please try again or call us directly.');
+      let code = '';
+      const context = (err as { context?: Response } | null)?.context;
+      if (context && typeof context.clone === 'function') {
+        try {
+          code = String((await context.clone().json())?.error ?? '');
+        } catch { /* use the safe generic retry message */ }
+      }
+      const message = code === 'rate_limited'
+        ? 'Too many quote attempts were received from this connection. Please wait a little and try again.'
+        : code === 'unconfirmed_scan'
+          ? 'Please return to the Room step and confirm the room details before requesting your quote.'
+          : 'Your quote was not sent. Your design is still here — check your connection and try again.';
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -1678,26 +1695,36 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
             <Label htmlFor="cname">Full name <span className="text-red-500">*</span></Label>
             <Input id="cname" placeholder="Jane Smith" value={state.contactName}
               onChange={e => onChange({ contactName: e.target.value })} autoComplete="name"
+              maxLength={100}
               aria-invalid={submitAttempted && !contactNameValid}
               aria-describedby={submitAttempted && !contactNameValid ? 'cname-error' : undefined} />
             {submitAttempted && !contactNameValid && (
-              <p id="cname-error" className="text-xs text-red-600">Please enter your full name.</p>
+              <p id="cname-error" role="alert" className="text-xs text-red-600">Please enter your full name.</p>
             )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cemail">Email <span className="text-red-500">*</span></Label>
             <Input id="cemail" type="email" placeholder="jane@example.com" value={state.contactEmail}
               onChange={e => onChange({ contactEmail: e.target.value })} autoComplete="email"
+              maxLength={254}
               aria-invalid={submitAttempted && !contactEmailValid}
               aria-describedby={submitAttempted && !contactEmailValid ? 'cemail-error' : undefined} />
             {submitAttempted && !contactEmailValid && (
-              <p id="cemail-error" className="text-xs text-red-600">Enter a valid email so we can send your quote.</p>
+              <p id="cemail-error" role="alert" className="text-xs text-red-600">Enter a valid email so we can send your quote.</p>
             )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="cphone">Phone <span className="text-slate-400 font-normal">(optional)</span></Label>
             <Input id="cphone" type="tel" placeholder="04xx xxx xxx" value={state.contactPhone}
-              onChange={e => onChange({ contactPhone: e.target.value })} autoComplete="tel" />
+              onChange={e => onChange({ contactPhone: e.target.value })} autoComplete="tel"
+              maxLength={30}
+              aria-invalid={submitAttempted && !contactPhoneValid}
+              aria-describedby={submitAttempted && !contactPhoneValid ? 'cphone-error' : undefined} />
+            {submitAttempted && !contactPhoneValid && (
+              <p id="cphone-error" role="alert" className="text-xs text-red-600">
+                Enter a valid phone number using digits, spaces, brackets, +, dots or dashes.
+              </p>
+            )}
           </div>
         </div>
         <Button

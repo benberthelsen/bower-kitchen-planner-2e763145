@@ -9,6 +9,17 @@ verify_jwt = false
 [functions.ai-designer]
 verify_jwt = false
 
+# Public, capability/rate-limited homeowner entry points. Each function owns
+# strict body validation; requiring a user JWT would reject organic visitors.
+[functions.submit-planner-enquiry]
+verify_jwt = false
+
+[functions.create-planner-handoff]
+verify_jwt = false
+
+[functions.get-planner-handoff]
+verify_jwt = false
+
 # Synthetic usability control is protected by a separate server-only secret.
 # It never accepts a public URL flag and has no browser-readable data policies.
 [functions.synthetic-test-control]

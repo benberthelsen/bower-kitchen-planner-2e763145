@@ -73,7 +73,7 @@ export default function AdminLeads() {
     try {
       const { data, error } = await supabase
         .from('jobs')
-        .select('id, name, notes, cost_incl_tax, created_at, status, design_data')
+        .select('id, name, notes, cost_incl_tax, created_at, status, design_data, is_synthetic_test, persona_id')
         .eq('status', 'enquiry')
         .order('created_at', { ascending: false });
 
@@ -150,13 +150,14 @@ export default function AdminLeads() {
     (l.name.toLowerCase().includes(search.toLowerCase()) ||
       (l.notes ?? '').toLowerCase().includes(search.toLowerCase())),
   );
+  const visibleLeadCount = showSynthetic ? leads.length : leads.filter(lead => !lead.is_synthetic_test).length;
 
   const dd = (lead: Lead) => lead.design_data as Record<string, unknown> | null;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -165,7 +166,7 @@ export default function AdminLeads() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-base px-3 py-1">
-            {leads.length} {leads.length === 1 ? 'lead' : 'leads'}
+            {visibleLeadCount} {visibleLeadCount === 1 ? 'lead' : 'leads'}
           </Badge>
           <Button
             variant="outline"
