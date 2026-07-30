@@ -60,6 +60,8 @@ import {
   buildApplianceLineItems,
   enrichItemsWithChosenAppliances,
   synthesiseApplianceOverlays,
+  undrawnApplianceCategories,
+
   appliancesTotal as sumAppliances,
   anyPlaceholderPrices,
 } from './applianceSelection';
