@@ -1849,6 +1849,8 @@ export default function HomeownerWizard() {
       handoffContext: { handoffId, ...(handoffToken ? { token: handoffToken } : {}) },
       ...(scan
         ? {
+            step: 1,
+            design: null,
             incomingScan: scan,
             roomWidth: scan.room.width,
             roomDepth: scan.room.depth,
@@ -1881,6 +1883,8 @@ export default function HomeownerWizard() {
       if (!parsed.ok || parsed.scan.state !== 'unconfirmed') return;
       const scan = parsed.scan;
       onChange({
+        step: 1,
+        design: null,
         incomingScan: scan,
         roomWidth: scan.room.width,
         roomDepth: scan.room.depth,

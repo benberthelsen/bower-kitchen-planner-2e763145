@@ -51,6 +51,28 @@ const OPENING_LABELS: Record<OpeningType, string> = {
   door: 'Door', window: 'Window', walkway: 'Walkway',
 };
 
+const MAX_ROOMPLAN_FILE_BYTES = 10 * 1024 * 1024;
+
+export function quickScanErrorMessage(error: unknown): string {
+  const candidate = error as { name?: unknown; message?: unknown } | null;
+  const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  const message = typeof candidate?.message === 'string' ? candidate.message.toLowerCase() : '';
+
+  if (name === 'NotAllowedError' || name === 'SecurityError' || message.includes('permission')) {
+    return 'Camera access was not allowed. Enable camera permission for this site, then try again.';
+  }
+  if (name === 'NotSupportedError' || message.includes('not supported')) {
+    return 'Quick scan is not available on this device. Use Pro scan or enter the room by hand below.';
+  }
+  if (name === 'InvalidStateError') {
+    return 'Another camera or AR session is already open. Close it, reload this page, and try again.';
+  }
+  if (message.includes('hit test') || message.includes('surface tracking')) {
+    return 'AR surface tracking could not start. Move to a well-lit room and try again, or enter measurements by hand.';
+  }
+  return 'The camera scan could not start. Try again, or use Pro scan or manual measurements below.';
+}
+
 export default function ScanRoom() {
   const navigate = useNavigate();
   const [support, setSupport] = useState<Support>('checking');
@@ -62,6 +84,8 @@ export default function ScanRoom() {
   const [pendingPoint, setPendingPoint] = useState<XrCorner | null>(null);
   const [openingType, setOpeningType] = useState<OpeningType>('door');
   const [heightMm, setHeightMm] = useState<number | null>(null);
+  const [detectedHeightMm, setDetectedHeightMm] = useState<number | null>(null);
+  const [scanHint, setScanHint] = useState<string | null>(null);
   // Hidden-corner mode: the floor corner is blocked (existing kitchen), so the
   // customer taps 2 points on each wall instead; we intersect the wall lines.
   const [wallTaps, setWallTaps] = useState<XrCorner[]>([]);
@@ -90,8 +114,10 @@ export default function ScanRoom() {
   const pendingPointRef = useRef<XrCorner | null>(null);
   const openingTypeRef = useRef<OpeningType>('door');
   const heightRef = useRef<number | null>(null);
+  const detectedHeightRef = useRef<number | null>(null);
   const lastHitRef = useRef<Hit | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const arCleanupRef = useRef<() => void>(() => {});
   // Rebuilds the in-scene "ghost" of everything captured so far; assigned a
   // real implementation while an AR session is live.
   const rebuildGhostRef = useRef<() => void>(() => {});
@@ -123,17 +149,25 @@ export default function ScanRoom() {
     return () => root.removeEventListener('beforexrselect', suppress as EventListener);
   }, []);
 
-  const endSession = useCallback(async () => {
-    try { await sessionRef.current?.end(); } catch { /* already ended */ }
+  const cleanupSessionResources = useCallback(() => {
+    arCleanupRef.current();
+    arCleanupRef.current = () => {};
     rendererRef.current?.setAnimationLoop(null);
     rendererRef.current?.dispose();
     rendererRef.current = null;
     rebuildGhostRef.current = () => {};
-    sessionRef.current = null;
+    lastHitRef.current = null;
     hasSurfaceRef.current = false;
     setHasSurface(false);
     setScanning(false);
   }, []);
+
+  const endSession = useCallback(async () => {
+    const activeSession = sessionRef.current;
+    sessionRef.current = null;
+    try { await activeSession?.end(); } catch { /* already ended */ }
+    cleanupSessionResources();
+  }, [cleanupSessionResources]);
 
   const storeAndGo = useCallback((scan: unknown): boolean => {
     try {
@@ -163,10 +197,13 @@ export default function ScanRoom() {
     setOpenings([]);
     setPendingPoint(null);
     setHeightMm(null);
+    setDetectedHeightMm(null);
+    setScanHint(null);
     cornersRef.current = [];
     openingsRef.current = [];
     pendingPointRef.current = null;
     heightRef.current = null;
+    detectedHeightRef.current = null;
     wallTapsRef.current = [];
     hiddenModeRef.current = false;
     setWallTaps([]);
@@ -177,7 +214,11 @@ export default function ScanRoom() {
     setHasSurface(false);
     setPhaseBoth('corners');
     const xr = (navigator as unknown as { xr?: XRSystem }).xr;
-    if (!xr) return;
+    if (!xr) {
+      setSupport('no-xr');
+      setError('This browser cannot run camera scanning. Use Chrome on a compatible Android phone, or enter the room by hand.');
+      return;
+    }
 
     try {
       const session = await xr.requestSession('immersive-ar', {
@@ -195,6 +236,16 @@ export default function ScanRoom() {
       renderer.xr.enabled = true;
       rendererRef.current = renderer;
       const scene = new THREE.Scene();
+      arCleanupRef.current = () => {
+        renderer.setAnimationLoop(null);
+        scene.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          mesh.geometry?.dispose();
+          const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+          materials.forEach((material) => material.dispose());
+        });
+        renderer.dispose();
+      };
       scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 1));
       const camera = new THREE.PerspectiveCamera();
       const ghost = new THREE.Group();
@@ -223,7 +274,7 @@ export default function ScanRoom() {
         map: new Map<object, { line: WallLine; t: number }>(),
         lines: [] as WallLine[],
         dirty: false,
-        ceilingY: null as number | null,
+        ceiling: null as { y: number; area: number } | null,
       };
       const rebuildPlanes = () => {
         planesGroup.clear();
@@ -324,8 +375,14 @@ export default function ScanRoom() {
           }
         } else if (p === 'height') {
           // local-floor: y≈0 at floor level, so the ceiling hit's y IS the height.
-          heightRef.current = Math.round(hit.y * 1000);
+          const measuredMm = Math.round(hit.y * 1000);
+          if (measuredMm < 2000 || measuredMm > 4500) {
+            setScanHint('That does not look like a ceiling. Aim overhead, or use the detected height or Skip height.');
+            return;
+          }
+          heightRef.current = measuredMm;
           setHeightMm(heightRef.current);
+          setScanHint(null);
           setPhaseBoth('openings');
         } else {
           const point = { x: hit.x, z: hit.z };
@@ -346,10 +403,8 @@ export default function ScanRoom() {
         if (navigator.vibrate) navigator.vibrate(40);
       });
       session.addEventListener('end', () => {
-        sessionRef.current = null;
-        hasSurfaceRef.current = false;
-        setHasSurface(false);
-        setScanning(false);
+        if (sessionRef.current === session) sessionRef.current = null;
+        cleanupSessionResources();
       });
 
       renderer.setAnimationLoop((_t: number, frame?: XRFrame) => {
@@ -395,7 +450,18 @@ export default function ScanRoom() {
               }
             } else if (plane.orientation === 'horizontal') {
               const y = world.reduce((sum, w) => sum + w.y, 0) / Math.max(1, world.length);
-              if (y > 1.8 && (planeState.ceilingY === null || y < planeState.ceilingY)) planeState.ceilingY = y;
+              const area = Math.abs(world.reduce((sum, point, index) => {
+                const next = world[(index + 1) % world.length];
+                return sum + point.x * next.z - next.x * point.z;
+              }, 0) / 2);
+              if (y >= 2 && y <= 4.5 && area >= 0.5 && (!planeState.ceiling || area > planeState.ceiling.area)) {
+                planeState.ceiling = { y, area };
+                const nextHeight = Math.round(y * 1000);
+                if (Math.abs(nextHeight - (detectedHeightRef.current ?? 0)) >= 20) {
+                  detectedHeightRef.current = nextHeight;
+                  setDetectedHeightMm(nextHeight);
+                }
+              }
             }
           });
           if (planeState.dirty) { planeState.dirty = false; rebuildPlanes(); }
@@ -446,18 +512,42 @@ export default function ScanRoom() {
         renderer.render(scene, camera);
       });
     } catch (err) {
-      setScanning(false);
-      setError(err instanceof Error ? err.message : 'could not start the camera session');
+      await endSession();
+      setError(quickScanErrorMessage(err));
     }
-  }, []);
+  }, [endSession]);
 
   useEffect(() => () => { void endSession(); }, [endSession]);
+
+  useEffect(() => {
+    if (!scanning) return;
+    const stopWhenBackgrounded = () => {
+      if (document.visibilityState === 'hidden') void endSession();
+    };
+    document.addEventListener('visibilitychange', stopWhenBackgrounded);
+    window.addEventListener('pagehide', endSession);
+    return () => {
+      document.removeEventListener('visibilitychange', stopWhenBackgrounded);
+      window.removeEventListener('pagehide', endSession);
+    };
+  }, [endSession, scanning]);
 
   const handleImportFile = useCallback(async (file: File) => {
     setImportError(null);
     setPreviewScan(null);
     setImporting(true);
     try {
+      const looksLikeJson = file.name.toLowerCase().endsWith('.json')
+        || file.type === 'application/json'
+        || file.type === '';
+      if (!looksLikeJson) {
+        setImportError('Choose the JSON file exported by your room-scanning app.');
+        return;
+      }
+      if (file.size > MAX_ROOMPLAN_FILE_BYTES) {
+        setImportError('That scan file is over 10 MB. Export the room as JSON without photos or mesh data, then try again.');
+        return;
+      }
       const text = await file.text();
       const result = importRoomPlanFileText(text);
       if ('reason' in result) { setImportError(result.reason); return; }
@@ -492,11 +582,14 @@ export default function ScanRoom() {
     const openings: import('@/lib/roomScan/contract').OpeningV1[] = [];
     if (input.doorWall && input.doorWidthMm && input.doorWidthMm > 0) {
       openings.push({ id: 'door-1', wall: input.doorWall, type: 'door',
-        offsetMm: input.doorOffsetMm ?? 0, widthMm: input.doorWidthMm });
+        offsetMm: input.doorOffsetMm ?? 0, widthMm: input.doorWidthMm,
+        heightMm: Math.min(2040, input.heightMm) });
     }
     if (input.windowWall && input.windowWidthMm && input.windowWidthMm > 0) {
+      const sillHeightMm = Math.min(900, Math.max(0, input.heightMm - 1200));
       openings.push({ id: 'window-1', wall: input.windowWall, type: 'window',
-        offsetMm: input.windowOffsetMm ?? 0, widthMm: input.windowWidthMm });
+        offsetMm: input.windowOffsetMm ?? 0, widthMm: input.windowWidthMm,
+        heightMm: Math.min(1200, input.heightMm - sillHeightMm), sillHeightMm });
     }
     return {
       state: 'unconfirmed',
@@ -543,14 +636,18 @@ export default function ScanRoom() {
               ? 'Aim at the floor in a corner, then tap'
               : `${corners.length} corner${corners.length === 1 ? '' : 's'} marked — walk to the next one`))
       : phase === 'height'
-        ? 'Aim at the CEILING and tap to measure height — or skip'
+        ? (detectedHeightMm
+            ? `Ceiling detected at about ${(detectedHeightMm / 1000).toFixed(2)} m — use it or tap to remeasure`
+            : 'Aim at the CEILING and tap to measure height — or skip')
         : pendingPoint
           ? `Now tap the OTHER side of the ${OPENING_LABELS[openingType].toLowerCase()}`
           : `${openings.length} marked · Choose a type, then tap ONE side of it at floor level`;
 
   const reticleCaption =
     phase === 'height'
-      ? (hasSurface ? 'Surface found — tap to measure' : 'Aim at the ceiling')
+      ? (detectedHeightMm
+          ? `Detected ${(detectedHeightMm / 1000).toFixed(2)} m`
+          : hasSurface ? 'Surface found — tap to measure' : 'Aim at the ceiling')
       : hasSurface
         ? (phase === 'corners'
             ? (hiddenMode ? 'Tap a point ON the wall surface' : 'Floor found — aim at the corner and tap')
@@ -610,11 +707,11 @@ export default function ScanRoom() {
               <Button onClick={startScan} className="w-full h-11 bg-slate-900 text-white hover:bg-slate-700">
                 <Camera className="w-4 h-4 mr-2" /> Start quick scan
               </Button>
-              {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+              {error && <p role="alert" className="text-sm text-red-600 text-center">{error}</p>}
             </div>
           )}
           {support !== 'checking' && support !== 'ready' && (
-            <p className="text-sm text-slate-500 rounded-md bg-slate-50 border border-slate-200 p-3">
+            <p role="status" className="text-sm text-slate-500 rounded-md bg-slate-50 border border-slate-200 p-3">
               {supportCopy[support as Exclude<Support, 'ready' | 'checking'>]}{' '}
               If you have an iPhone Pro, use the Pro scan below — otherwise manual entry only takes a minute.
             </p>
@@ -670,7 +767,7 @@ export default function ScanRoom() {
           >
             <Upload className="w-4 h-4 mr-2" /> {importing ? 'Importing…' : 'Choose or drop scan file'}
           </Button>
-          {importError && <p className="text-sm text-red-600 text-center">{importError}</p>}
+          {importError && <p role="alert" className="text-sm text-red-600 text-center">{importError}</p>}
 
           {previewScan && (
             <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-3 space-y-2">
@@ -769,6 +866,11 @@ export default function ScanRoom() {
           <span className="inline-block rounded-full bg-black/70 text-white text-sm px-4 py-2">
             {topCaption}
           </span>
+          {scanHint && (
+            <span role="alert" className="mt-2 mx-auto block max-w-sm rounded-lg bg-amber-500/95 text-slate-950 text-xs px-3 py-2">
+              {scanHint}
+            </span>
+          )}
         </div>
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
@@ -860,6 +962,19 @@ export default function ScanRoom() {
 
           {phase === 'height' && (
             <>
+              {detectedHeightMm && (
+                <Button
+                  className="bg-emerald-600 text-white hover:bg-emerald-500"
+                  onClick={() => {
+                    heightRef.current = detectedHeightMm;
+                    setHeightMm(detectedHeightMm);
+                    setScanHint(null);
+                    setPhaseBoth('openings');
+                  }}
+                >
+                  <Check className="w-4 h-4 mr-1" /> Use {(detectedHeightMm / 1000).toFixed(2)} m
+                </Button>
+              )}
               <Button variant="outline" className="bg-white/90" onClick={() => setPhaseBoth('openings')}>
                 Skip height
               </Button>
@@ -928,17 +1043,65 @@ function ManualEntryDialog({
   useEffect(() => { if (open) { setStep(1); setError(null); } }, [open]);
 
   const num = (s: string) => { const n = Number(s); return Number.isFinite(n) ? n : NaN; };
-  const submit = () => {
-    const w = Math.round(num(widthM) * 1000);
-    const d = Math.round(num(depthM) * 1000);
-    const h = Math.round(num(heightM) * 1000);
-    if (!(w >= 1000 && w <= 20000) || !(d >= 1000 && d <= 20000) || !(h >= 2000 && h <= 4500)) {
-      setError('Widths must be 1–20 m and ceiling 2.0–4.5 m.'); setStep(2); return;
+  const readDimensions = (): Pick<ManualInput, 'widthMm' | 'depthMm' | 'heightMm'> | null => {
+    const dimensions = {
+      widthMm: Math.round(num(widthM) * 1000),
+      depthMm: Math.round(num(depthM) * 1000),
+      heightMm: Math.round(num(heightM) * 1000),
+    };
+    if (
+      !(dimensions.widthMm >= 1000 && dimensions.widthMm <= 20000)
+      || !(dimensions.depthMm >= 1000 && dimensions.depthMm <= 20000)
+      || !(dimensions.heightMm >= 2000 && dimensions.heightMm <= 4500)
+    ) {
+      setError('Room width and depth must be 1–20 m, and the ceiling must be 2.0–4.5 m.');
+      return null;
     }
+    return dimensions;
+  };
+
+  const continueToOpenings = () => {
+    if (!readDimensions()) return;
+    setError(null);
+    setStep(3);
+  };
+
+  const submit = () => {
+    const dimensions = readDimensions();
+    if (!dimensions) { setStep(2); return; }
+
+    const validateOpening = (
+      label: string,
+      wall: 'N' | 'E' | 'S' | 'W' | '',
+      offsetText: string,
+      widthText: string,
+    ): { offsetMm: number; widthMm: number } | null => {
+      if (!wall) return { offsetMm: 0, widthMm: 0 };
+      const offsetMm = Math.round(num(offsetText));
+      const widthMm = Math.round(num(widthText));
+      if (!Number.isFinite(offsetMm) || !Number.isFinite(widthMm) || offsetMm < 0 || widthMm < 300 || widthMm > 3000) {
+        setError(`${label} offset must be 0 or more, and width must be 300–3000 mm.`);
+        return null;
+      }
+      const wallLengthMm = wall === 'N' || wall === 'S' ? dimensions.widthMm : dimensions.depthMm;
+      if (offsetMm + widthMm > wallLengthMm) {
+        setError(`${label} extends past wall ${wall}. Its offset plus width must fit within ${wallLengthMm} mm.`);
+        return null;
+      }
+      return { offsetMm, widthMm };
+    };
+
+    const door = validateOpening('Door', doorWall, doorOffsetMm, doorWidthMm);
+    if (!door) return;
+    const windowOpening = validateOpening('Window', windowWall, windowOffsetMm, windowWidthMm);
+    if (!windowOpening) return;
+
     onSubmit({
-      widthMm: w, depthMm: d, heightMm: h,
-      ...(doorWall ? { doorWall, doorOffsetMm: num(doorOffsetMm) || 0, doorWidthMm: num(doorWidthMm) || 820 } : {}),
-      ...(windowWall ? { windowWall, windowOffsetMm: num(windowOffsetMm) || 0, windowWidthMm: num(windowWidthMm) || 1200 } : {}),
+      ...dimensions,
+      ...(doorWall ? { doorWall, doorOffsetMm: door.offsetMm, doorWidthMm: door.widthMm } : {}),
+      ...(windowWall
+        ? { windowWall, windowOffsetMm: windowOpening.offsetMm, windowWidthMm: windowOpening.widthMm }
+        : {}),
     });
   };
 
@@ -991,10 +1154,10 @@ function ManualEntryDialog({
                 <input inputMode="decimal" value={heightM} onChange={(e) => setHeightM(e.target.value)}
                   className="w-full h-10 px-3 rounded-md border border-slate-300" />
               </label>
-              {error && <p className="text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-red-600">{error}</p>}
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
-                <Button className="flex-1 bg-slate-900 text-white hover:bg-slate-700" onClick={() => { setError(null); setStep(3); }}>Continue</Button>
+                <Button className="flex-1 bg-slate-900 text-white hover:bg-slate-700" onClick={continueToOpenings}>Continue</Button>
               </div>
             </div>
           )}
@@ -1028,7 +1191,7 @@ function ManualEntryDialog({
                   </div>
                 )}
               </div>
-              {error && <p className="text-red-600">{error}</p>}
+              {error && <p role="alert" className="text-red-600">{error}</p>}
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setStep(2)}>Back</Button>
                 <Button className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500" onClick={submit}>
