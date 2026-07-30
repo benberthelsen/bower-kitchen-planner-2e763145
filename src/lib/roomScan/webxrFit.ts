@@ -171,7 +171,31 @@ function projectOntoLine(p: XrCorner, line: WallLine): { point: XrCorner; distM:
   return { point, distM: Math.hypot(p.x - point.x, p.z - point.z) };
 }
 
-export interface PlaneSnap { point: XrCorner; kind: 'corner' | 'wall' | 'none' }
+export interface PlaneSnap {
+  point: XrCorner;
+  kind: 'corner' | 'wall' | 'none';
+  /** The recognised wall plane when kind=wall. */
+  line?: WallLine;
+  /** The two recognised wall planes used when kind=corner. */
+  cornerLines?: [WallLine, WallLine];
+}
+
+/**
+ * Intersect two device-detected wall planes, optionally rejecting an
+ * intersection that is implausibly far from the point the customer aimed at.
+ * This is the geometry behind the scanner's two-tap "Smart wall lock" mode.
+ */
+export function intersectDetectedWallLines(
+  first: WallLine,
+  second: WallLine,
+  aimedNear?: XrCorner,
+  maxDistanceM = 2,
+): XrCorner | null {
+  const corner = intersectWallLines(first.a, first.b, second.a, second.b);
+  if (!corner) return null;
+  if (aimedNear && distance(corner, aimedNear) > maxDistanceM) return null;
+  return corner;
+}
 
 /** Snap a tapped point onto detected wall geometry: the intersection of the
  *  two nearest (sufficiently angled) walls when both are close — a corner —
@@ -183,13 +207,13 @@ export function snapToPlanes(p: XrCorner, lines: WallLine[], tolM = 0.3): PlaneS
     .sort((x, y) => x.distM - y.distM);
   if (near.length >= 2) {
     for (let j = 1; j < near.length; j++) {
-      const corner = intersectWallLines(near[0].line.a, near[0].line.b, near[j].line.a, near[j].line.b);
+      const corner = intersectDetectedWallLines(near[0].line, near[j].line, p, tolM * 1.5);
       if (corner && Math.hypot(corner.x - p.x, corner.z - p.z) <= tolM * 1.5) {
-        return { point: corner, kind: 'corner' };
+        return { point: corner, kind: 'corner', cornerLines: [near[0].line, near[j].line] };
       }
     }
   }
-  if (near.length >= 1) return { point: near[0].point, kind: 'wall' };
+  if (near.length >= 1) return { point: near[0].point, kind: 'wall', line: near[0].line };
   return { point: p, kind: 'none' };
 }
 
