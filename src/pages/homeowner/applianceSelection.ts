@@ -91,18 +91,19 @@ export function groupAppliancesByCategory(
   return out;
 }
 
-/** Match a compiled `PlacedItem` to a chosen appliance category (or null). */
+/** Match a compiled `PlacedItem` to a chosen appliance category (or null).
+ *  Driven by the explicit `layoutRole` compileSpec stamps on every item — we
+ *  never reverse-engineer intent from the definitionId SKU string. */
 function itemCategory(item: PlacedItem): ApplianceCategory | null {
   if (item.itemType !== 'Appliance') return null;
-  const id = (item.definitionId || '').toLowerCase();
-  if (id.includes('dishwasher')) return 'dishwasher';
-  if (id.includes('fridge')) return 'fridge';
-  if (id.includes('rangehood') || id.includes('hood')) return 'rangehood';
-  // Cooktops are rendered as base cabinets by the wizard engine, not standalone
-  // appliance items — ovens/microwaves likewise. No attempt to match here; they
-  // still price via the line-item list below.
-  return null;
+  switch (item.layoutRole) {
+    case 'dishwasher': return 'dishwasher';
+    case 'fridge-gap': return 'fridge';
+    case 'rangehood': return 'rangehood';
+    default: return null;
+  }
 }
+
 
 /** Build a snapshot from a catalog row (mirrors the trade planner's shape). */
 export function snapshotFromProduct(p: ApplianceProductRecord): NonNullable<PlacedItem['applianceSnapshot']> {
