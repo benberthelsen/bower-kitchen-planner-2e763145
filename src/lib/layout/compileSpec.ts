@@ -201,9 +201,11 @@ export function compileSpec(
         push({
           definitionId: RANGEHOOD_ID,
           itemType: 'Appliance',
+          layoutRole: 'rangehood',
           x: pos.x, y: dims.wallMountHeight, z: pos.z, rotation: pos.rotation,
           width: Math.min(cooktopSeg.widthMm, 900), height: dims.wallHeight, depth: dims.wallDepth,
         });
+
       }
     }
   }
