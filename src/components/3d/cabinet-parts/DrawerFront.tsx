@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useFrame, ThreeEvent } from '@react-three/fiber';
 import EdgeOutline from './EdgeOutline';
 import HandleMesh, { HandleType } from './HandleMesh';
+import { cloneTextureForSurface } from '../materials/physicalTexture';
 
 interface DrawerFrontProps {
   width: number;      // Width in meters
@@ -74,21 +75,9 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   // the width/height ratio spreads the grain across a wide drawer front instead
   // of smearing one texture image over the whole panel.
   const texture = React.useMemo(() => {
-    if (!map) return null;
-    try {
-      const cloned = map.clone();
-      cloned.rotation = Math.PI / 2; // grain runs horizontally
-      cloned.center.set(0.5, 0.5);
-      cloned.wrapS = THREE.RepeatWrapping;
-      cloned.wrapT = THREE.RepeatWrapping;
-      cloned.repeat.set(1, Math.max(1, actualWidth / actualHeight));
-      cloned.needsUpdate = true;
-      return cloned;
-    } catch (e) {
-      console.warn('DrawerFront: Texture clone failed:', e);
-      return null;
-    }
+    return cloneTextureForSurface(map, actualWidth, actualHeight, { rotateQuarterTurn: true });
   }, [map, actualWidth, actualHeight]);
+  React.useEffect(() => () => texture?.dispose(), [texture]);
   
   // Drawer box dimensions (behind the front)
   // Standard Blum/Hettich runner clearance: 13mm each side

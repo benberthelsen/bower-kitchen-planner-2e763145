@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useFrame, ThreeEvent } from '@react-three/fiber';
 import EdgeOutline from './EdgeOutline';
 import HandleMesh, { HandleType } from './HandleMesh';
+import { cloneTextureForSurface } from '../materials/physicalTexture';
 
 interface DoorFrontProps {
   width: number;      // Width in meters
@@ -77,21 +78,9 @@ const DoorFront: React.FC<DoorFrontProps> = ({
   // and the grain tiles along the height by the door's aspect ratio so a tall
   // door shows more grain length instead of a vertically-smeared texture.
   const texture = React.useMemo(() => {
-    if (!map) return null;
-    try {
-      const cloned = map.clone();
-      cloned.rotation = 0; // grain runs vertically
-      cloned.center.set(0.5, 0.5);
-      cloned.wrapS = THREE.ClampToEdgeWrapping;
-      cloned.wrapT = THREE.RepeatWrapping;
-      cloned.repeat.set(1, Math.max(1, actualHeight / actualWidth));
-      cloned.needsUpdate = true;
-      return cloned;
-    } catch (e) {
-      console.warn('DoorFront: Texture clone failed:', e);
-      return null;
-    }
+    return cloneTextureForSurface(map, actualWidth, actualHeight);
   }, [map, actualWidth, actualHeight]);
+  React.useEffect(() => () => texture?.dispose(), [texture]);
 
   // Hinge position offset from center (door pivots around hinge edge)
   const hingeOffset = hingeLeft ? -actualWidth / 2 : actualWidth / 2;

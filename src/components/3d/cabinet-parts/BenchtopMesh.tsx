@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import { cloneTextureForSurface } from '../materials/physicalTexture';
 
 interface BenchtopMeshProps {
   width: number;      // Width in meters
@@ -50,11 +51,9 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
   rightArmDepth = 0.575,
 }) => {
   const texture = React.useMemo(() => {
-    if (!map) return null;
-    const cloned = map.clone();
-    cloned.needsUpdate = true;
-    return cloned;
-  }, [map]);
+    return cloneTextureForSurface(map, width, depth, { rotateQuarterTurn: true });
+  }, [map, width, depth]);
+  React.useEffect(() => () => texture?.dispose(), [texture]);
 
   const materialProps = {
     color,

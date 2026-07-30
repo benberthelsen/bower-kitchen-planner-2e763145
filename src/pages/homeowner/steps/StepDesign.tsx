@@ -352,6 +352,30 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
               );
             })()}
           </div>
+          <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[72%] gap-1.5">
+            {[selectedFinish, selectedBenchtop].map(material => (
+              <div
+                key={material.id}
+                className="flex min-w-0 items-center gap-1.5 rounded-lg border border-white/60 bg-white/90 p-1.5 pr-2 shadow-sm backdrop-blur"
+              >
+                <span
+                  className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded-md border border-slate-200"
+                  style={{ backgroundColor: material.hex }}
+                >
+                  {material.swatchUrl && (
+                    <img src={material.swatchUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                  )}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[10px] font-semibold text-slate-800">{material.name}</span>
+                  <span className="block truncate text-[9px] text-slate-500">{material.supplier} {material.supplierCode}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="pointer-events-none absolute bottom-2 right-2 z-10 hidden rounded-md bg-slate-900/70 px-2 py-1 text-[9px] text-white sm:block">
+            Drag to orbit · pinch or scroll to zoom
+          </p>
           <Scene3DErrorBoundary>
             <Suspense fallback={
               <div className="absolute inset-0 flex items-center justify-center">

@@ -22,33 +22,82 @@ import {
 } from './cabinet-parts';
 import FoldingDoor from './cabinet-parts/FoldingDoor';
 import CornerBiFold from './cabinet-parts/CornerBiFold';
+import { setPhysicalTextureSize, type PhysicalTextureSizeMm } from './materials/physicalTexture';
 
 /**
  * Loads a supplier swatch/texture image as a THREE texture for the cabinet finish.
  * Safe + optional: returns null (so the renderer keeps its base colour) when the
  * URL is empty or fails to load, and never throws/suspends.
  */
-function useOptionalTexture(url?: string | null): THREE.Texture | null {
+interface OptionalTextureEntry {
+  texture: THREE.Texture | null;
+  loading: boolean;
+  retired: boolean;
+  refs: number;
+  listeners: Set<(texture: THREE.Texture | null) => void>;
+}
+
+const optionalTextureCache = new Map<string, OptionalTextureEntry>();
+
+function useOptionalTexture(
+  url?: string | null,
+  physicalSizeMm?: PhysicalTextureSizeMm | null,
+): THREE.Texture | null {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     if (!url) { setTex(null); return; }
     let active = true;
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin('anonymous');
-    loader.load(
-      url,
-      (t) => {
-        if (!active) return;
-        t.wrapS = THREE.RepeatWrapping;
-        t.wrapT = THREE.RepeatWrapping;
-        t.colorSpace = THREE.SRGBColorSpace ?? t.colorSpace;
-        setTex(t);
-      },
-      undefined,
-      () => { if (active) setTex(null); },
-    );
-    return () => { active = false; };
-  }, [url]);
+    setTex(null);
+    const cacheKey = `${url}|${physicalSizeMm?.width ?? 0}x${physicalSizeMm?.height ?? 0}`;
+    let entry = optionalTextureCache.get(cacheKey);
+    if (!entry) {
+      entry = { texture: null, loading: true, retired: false, refs: 0, listeners: new Set() };
+      optionalTextureCache.set(cacheKey, entry);
+      const loadingEntry = entry;
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(
+        url,
+        (texture) => {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
+          texture.anisotropy = 4;
+          setPhysicalTextureSize(texture, physicalSizeMm);
+          loadingEntry.loading = false;
+          if (loadingEntry.retired || loadingEntry.refs === 0) {
+            texture.dispose();
+            return;
+          }
+          loadingEntry.texture = texture;
+          loadingEntry.listeners.forEach(listener => listener(texture));
+        },
+        undefined,
+        () => {
+          loadingEntry.loading = false;
+          loadingEntry.listeners.forEach(listener => listener(null));
+        },
+      );
+    }
+
+    entry.refs += 1;
+    const listener = (texture: THREE.Texture | null) => {
+      if (active) setTex(texture);
+    };
+    entry.listeners.add(listener);
+    if (entry.texture) setTex(entry.texture);
+
+    return () => {
+      active = false;
+      entry!.listeners.delete(listener);
+      entry!.refs -= 1;
+      if (entry!.refs <= 0) {
+        entry!.retired = true;
+        entry!.texture?.dispose();
+        optionalTextureCache.delete(cacheKey);
+      }
+    };
+  }, [url, physicalSizeMm?.width, physicalSizeMm?.height]);
   return tex;
 }
 import { 
@@ -124,8 +173,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // (in Preview3D / RoomPlanner, where the data hooks run) and passed in on the
   // item, so the texture reliably follows the selected finish. useOptionalTexture
   // only loads an image — no data hooks — so it's safe inside the canvas.
-  const doorTex = useOptionalTexture(item.doorTextureUrl || null);
-  const carcaseTex = useOptionalTexture(item.carcaseTextureUrl || item.doorTextureUrl || null);
+  const doorTextureUrl = item.doorTextureUrl || finishMaterial.textureUrl || null;
+  const doorTextureSize = doorTextureUrl === finishMaterial.textureUrl
+    ? finishMaterial.textureRepeatMm
+    : null;
+  const doorTex = useOptionalTexture(doorTextureUrl, doorTextureSize);
+  const carcaseTex = useOptionalTexture(item.carcaseTextureUrl || null);
+  const benchTex = useOptionalTexture(benchtopMaterial.textureUrl || null, benchtopMaterial.textureRepeatMm);
 
   // Get construction recipe from product name
   const recipe = useMemo(() => {
@@ -218,13 +272,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const applyTex = (m: MaterialProps, t: THREE.Texture | null): MaterialProps => (t && m ? { ...m, map: t } : m);
   const gableMat = applyTex(gableRaw, carcaseTex);
   const gableIntMat = applyTex(gableIntRaw, carcaseTex);
-  const gableExtMat = applyTex(gableExtRaw, carcaseTex);
+  const gableExtMat = applyTex(gableExtRaw, doorTex);
   const doorMat = applyTex(doorRaw, doorTex);
   const drawerMat = applyTex(drawerRaw, doorTex);
   const shelfMat = applyTex(shelfRaw, carcaseTex);
   const bottomMat = applyTex(bottomRaw, carcaseTex);
   const kickMat = kickRaw;
-  const benchMat = benchRaw;
+  const benchMat = applyTex(benchRaw, benchTex);
   const endPanelMat = applyTex(endPanelRaw, doorTex);
   const falseFrontMat = applyTex(falseFrontRaw, doorTex);
   
