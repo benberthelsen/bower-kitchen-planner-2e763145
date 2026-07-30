@@ -117,9 +117,13 @@ export function compileSpec(
         itemType: role === 'dishwasher' || role === 'fridge-gap' ? 'Appliance' : 'Cabinet',
         x: pos.x, y: 0, z: pos.z, rotation: pos.rotation,
         width: rs.widthMm, height, depth,
+        // Explicit role tag so downstream consumers (appliance enrichment,
+        // build notes) never have to reverse-engineer intent from the SKU.
+        ...(role ? { layoutRole: role } : {}),
         ...(blindSide ? { blindSide } : {}),
         ...(pendingFillerLeft > 0 ? { fillerLeft: pendingFillerLeft } : {}),
       });
+
       const fillerL = pendingFillerLeft;
       pendingFillerLeft = 0;
       rowItems.push({ item: placed, start: rs.startMm - fillerL, end: rs.startMm + rs.widthMm });
