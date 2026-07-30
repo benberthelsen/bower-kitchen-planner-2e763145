@@ -408,6 +408,34 @@ export function isSynthesisedAppliance(item: PlacedItem): boolean {
   return item.instanceId.startsWith('appl-');
 }
 
+/** A chosen category counts as "not shown" when neither an engine-placed slot
+ *  nor a synthesised overlay carries that product. The customer is told about
+ *  these in the build notes rather than being shown a wrong placement. */
+export function undrawnApplianceCategories(
+  chosen: Record<string, string>,
+  products: ApplianceProductRecord[] | undefined,
+  drawnItems: PlacedItem[],
+): ApplianceCategory[] {
+  if (!chosen || !products?.length) return [];
+  const byId = new Map(products.map(p => [p.id, p]));
+  const drawn = new Set(
+    drawnItems
+      .filter(it => !!it.applianceProductId)
+      .map(it => it.applianceProductId as string),
+  );
+  const out: ApplianceCategory[] = [];
+  for (const cat of APPLIANCE_CATEGORY_ORDER) {
+    // The tap has no item of its own — it rides on the sink — so it is
+    // "drawn" whenever the sink overlay exists.
+    if (cat === 'tap') continue;
+    const id = chosen[cat];
+    if (!id || !byId.has(id)) continue;
+    if (!drawn.has(id)) out.push(cat);
+  }
+  return out;
+}
+
+
 /**
  * Build ApplianceLineItem[] directly from the chosen map — independent of
  * whether the item was placed. This is what feeds the customer's estimate
