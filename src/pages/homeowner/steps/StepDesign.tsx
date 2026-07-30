@@ -103,6 +103,8 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     // out of the rules engine — see applianceSelection.ts for why.
     return [...base, ...synthesiseApplianceOverlays(compiled, chosenAppliances, applianceProducts)];
   }, [compiled, chosenAppliances, applianceProducts]);
+  (window as any).__enriched = enrichedItems.map((i:any)=>({id:i.instanceId,type:i.itemType,role:i.layoutRole,name:i.applianceSnapshot?.name,y:i.y}));
+
 
   const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
