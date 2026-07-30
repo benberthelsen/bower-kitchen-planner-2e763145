@@ -46,41 +46,149 @@ const DRY_RUN = process.argv.includes('--dry-run');
 
 /* ── config ─────────────────────────────────────────────────────────────── */
 
-// Read .env files the same way Vite does, so the script works with the repo's
-// existing local setup instead of needing its own.
-function loadEnvFiles() {
-  for (const file of ['.env', '.env.local']) {
-    if (!existsSync(file)) continue;
-    for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-      const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
-      if (!m) continue;
-      const [, k, raw] = m;
-      if (process.env[k]) continue; // real env wins
-      process.env[k] = raw.replace(/^["']|["']$/g, '');
-    }
+const KEY_VARS = ['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_KEY'];
+const ENV_FILES = ['.env.local', '.env'];
+
+/** Parse a dotenv file into a plain map. Quotes and `export ` are tolerated. */
+function parseEnvFile(file) {
+  const out = new Map();
+  if (!existsSync(file)) return out;
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!m || line.trim().startsWith('#')) continue;
+    out.set(m[1], m[2].replace(/^["']|["']$/g, ''));
   }
+  return out;
 }
-loadEnvFiles();
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+const fileEnv = ENV_FILES.map(f => ({ file: f, vars: parseEnvFile(f) }));
 
-if (!SUPABASE_URL || !SERVICE_KEY) {
+function lookup(name) {
+  if (process.env[name]) return { value: process.env[name], source: `environment ${name}` };
+  for (const { file, vars } of fileEnv) {
+    if (vars.has(name)) return { value: vars.get(name), source: `${file} ${name}` };
+  }
+  return null;
+}
+
+const SUPABASE_URL = (lookup('SUPABASE_URL') ?? lookup('VITE_SUPABASE_URL'))?.value;
+
+if (!SUPABASE_URL) {
   console.error(
-    'Missing config.\n' +
-      '  SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY must be set,\n' +
-      '  either in the environment or in a local .env file.\n' +
-      '  The service_role key is in Supabase -> Project Settings -> API.',
+    'No Supabase URL.\n' +
+      '  Set SUPABASE_URL (or VITE_SUPABASE_URL) in the environment or in .env / .env.local.',
   );
   process.exit(1);
 }
 
 const api = SUPABASE_URL.replace(/\/+$/, '');
+const projectRef = (() => {
+  const m = /^https?:\/\/([a-z0-9]+)\.supabase\./i.exec(api);
+  return m ? m[1] : null;
+})();
+
+/* ── choosing the key ───────────────────────────────────────────────────────
+ *
+ * Supabase answers every wrong key with the same `401 Invalid API key`, whether
+ * it is the anon key, a key for another project, or a personal access token.
+ * A legacy service_role key is an unsigned-readable JWT carrying both its role
+ * and its project ref, so nearly all of that is answerable locally, before any
+ * request is made. Nothing here checks the signature — only that the key is the
+ * *kind* this job needs, for *this* project.
+ *
+ * Every source is checked and the first one that could actually work is used,
+ * rather than the conventional "environment always wins". That rule cost us two
+ * rounds: a junk `SUPABASE_SERVICE_ROLE_KEY="..."` left in the shell silently
+ * shadowed a perfectly good `.env.local`, and the error pointed at the file.
+ * A wrong value in a higher-priority slot should not be able to hide a right
+ * one — it gets reported and skipped.
+ */
+function describeKey(key) {
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    try {
+      const pad = parts[1] + '='.repeat((4 - (parts[1].length % 4)) % 4);
+      const claims = JSON.parse(Buffer.from(pad, 'base64url').toString('utf8'));
+      return { kind: 'jwt', role: claims.role, ref: claims.ref };
+    } catch {
+      return { kind: 'malformed-jwt' };
+    }
+  }
+  if (/^sb_secret_/.test(key)) return { kind: 'secret' };
+  if (/^sb_publishable_/.test(key)) return { kind: 'publishable' };
+  if (/^sbp_/.test(key)) return { kind: 'personal-access-token' };
+  return { kind: 'unknown' };
+}
+
+/** Why this key cannot be used, or null if it looks usable. */
+function keyProblem(value) {
+  const key = describeKey(value);
+  if (key.kind === 'publishable' || key.role === 'anon') {
+    return 'that is the anon / publishable key — it cannot write to storage, the bucket policy needs an admin and only service_role bypasses it';
+  }
+  if (key.kind === 'personal-access-token') {
+    return 'that is a personal access token (sbp_...), which is for the management API, not the project API';
+  }
+  if (key.kind === 'malformed-jwt' || key.kind === 'unknown') {
+    return `does not look like a Supabase API key — ${value.length} characters, check for a truncated paste, stray quotes, or a leftover placeholder`;
+  }
+  if (key.kind === 'jwt' && key.ref && projectRef && key.ref !== projectRef) {
+    return `belongs to project "${key.ref}", not "${projectRef}"`;
+  }
+  if (key.kind === 'jwt' && key.role && key.role !== 'service_role') {
+    return `role is "${key.role}", not service_role`;
+  }
+  return null;
+}
+
+const candidates = [];
+for (const name of KEY_VARS) {
+  if (process.env[name]) {
+    candidates.push({ source: `environment  ${name}`, value: process.env[name].trim() });
+  }
+  for (const { file, vars } of fileEnv) {
+    if (vars.has(name)) candidates.push({ source: `${file}   ${name}`, value: vars.get(name).trim() });
+  }
+}
+
+const usable = candidates.find(c => !keyProblem(c.value));
+
+if (!usable) {
+  console.error('No usable service_role key.\n');
+  if (candidates.length) {
+    console.error('Checked, in order:');
+    for (const c of candidates) console.error(`  ${c.source}\n      ${keyProblem(c.value)}`);
+  } else {
+    console.error(`  Nothing set. Looked for ${KEY_VARS.join(' / ')} in the environment,\n` +
+      `  then in ${ENV_FILES.join(', ')}.`);
+  }
+  console.error(
+    `\nThe key you want: Supabase -> Project Settings -> API -> service_role (project ${projectRef ?? api}).\n` +
+      '\nPut it in .env.local, which is gitignored and survives closing the terminal:\n' +
+      '    SUPABASE_SERVICE_ROLE_KEY=eyJ...            <- no quotes, all one line\n' +
+      '\nA value already set in the environment is reported above but never hides a\n' +
+      'good one in a file. To clear a stale environment variable in PowerShell:\n' +
+      '    Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY                       # this window\n' +
+      '    [Environment]::SetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY",$null,"User")   # permanent',
+  );
+  process.exit(1);
+}
+
+const SERVICE_KEY = usable.value;
 const authHeaders = {
   apikey: SERVICE_KEY,
   Authorization: `Bearer ${SERVICE_KEY}`,
 };
+
+{
+  const key = describeKey(SERVICE_KEY);
+  console.log(
+    `key: ${usable.source.trim()}` +
+      (key.kind === 'jwt' ? `  role=${key.role} project=${key.ref ?? '?'}` : `  (${key.kind})`),
+  );
+  const skipped = candidates.filter(c => c !== usable);
+  for (const c of skipped) console.log(`     ignoring ${c.source.trim()} — ${keyProblem(c.value)}`);
+}
 
 /* ── helpers ────────────────────────────────────────────────────────────── */
 

@@ -15,9 +15,11 @@
  *
  * Two things have to happen before the photo is usable as a texture:
  *
- *  1. **Trim the white.** The product covers only 8–18% of a typical supplier
- *     frame. Untrimmed, a black cooktop renders as a small black rectangle
- *     floating in a white border.
+ *  1. **Trim the white.** Measured across the copied images, the product covers
+ *     48–90% of its frame — a wide cooktop nearly fills it, a tall integrated
+ *     fridge sits in a portrait frame at 48%. So the surround is a border to
+ *     remove, not the majority of the picture: untrimmed, that fridge would
+ *     render with a white stripe down each side of the door.
  *  2. **Letterbox to the face.** After trimming, the photo's aspect ratio will
  *     not match the appliance face. Stretching an oven door to fit is
  *     immediately obvious, so the product is drawn "contain"-style, centred,
