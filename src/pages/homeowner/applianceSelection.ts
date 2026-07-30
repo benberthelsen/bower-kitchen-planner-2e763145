@@ -91,18 +91,19 @@ export function groupAppliancesByCategory(
   return out;
 }
 
-/** Match a compiled `PlacedItem` to a chosen appliance category (or null). */
+/** Match a compiled `PlacedItem` to a chosen appliance category (or null).
+ *  Driven by the explicit `layoutRole` compileSpec stamps on every item — we
+ *  never reverse-engineer intent from the definitionId SKU string. */
 function itemCategory(item: PlacedItem): ApplianceCategory | null {
   if (item.itemType !== 'Appliance') return null;
-  const id = (item.definitionId || '').toLowerCase();
-  if (id.includes('dishwasher')) return 'dishwasher';
-  if (id.includes('fridge')) return 'fridge';
-  if (id.includes('rangehood') || id.includes('hood')) return 'rangehood';
-  // Cooktops are rendered as base cabinets by the wizard engine, not standalone
-  // appliance items — ovens/microwaves likewise. No attempt to match here; they
-  // still price via the line-item list below.
-  return null;
+  switch (item.layoutRole) {
+    case 'dishwasher': return 'dishwasher';
+    case 'fridge-gap': return 'fridge';
+    case 'rangehood': return 'rangehood';
+    default: return null;
+  }
 }
+
 
 /** Build a snapshot from a catalog row (mirrors the trade planner's shape). */
 export function snapshotFromProduct(p: ApplianceProductRecord): NonNullable<PlacedItem['applianceSnapshot']> {
@@ -272,12 +273,25 @@ export function filterCatalogToCooking(
 /** How far a dropped-in cooktop's glass stands above the stone (mm). */
 const COOKTOP_PROUD_MM = 4;
 
-/** Roles the engine exposes that we can hang a chosen product on. */
+/**
+ * Roles the engine exposes that we can hang a chosen product on, in the order
+ * they are placed. `fallbackRole` is used when the primary role is absent:
+ *
+ *  - Oven: prefers the tall oven tower. With no tower it drops under the bench
+ *    beside/below the cooktop, which is the convention the trade planner
+ *    already uses for an under-bench oven (base-at-`y`, sitting on the cabinet
+ *    floor above the kick) — no second convention is invented here.
+ *  - Microwave: only ever placed IN a tower. With no tower it is deliberately
+ *    NOT drawn — see `undrawnApplianceCategories` — because guessing a spot on
+ *    the bench is worse than telling the customer we'll confirm placement.
+ */
 const OVERLAY_SLOTS = [
-  { category: 'sink' as const, role: 'sink' as const },
-  { category: 'cooktop' as const, role: 'cooktop' as const },
-  { category: 'oven' as const, role: 'oven-tower' as const },
+  { category: 'sink' as const, role: 'sink' as const, fallbackRole: null },
+  { category: 'cooktop' as const, role: 'cooktop' as const, fallbackRole: null },
+  { category: 'oven' as const, role: 'oven-tower' as const, fallbackRole: 'cooktop' as const },
+  { category: 'microwave' as const, role: 'oven-tower' as const, fallbackRole: null },
 ];
+
 
 /** Map a tap product's finish to one of the built-in TAP_OPTIONS ids. */
 export function tapOptionIdForFinish(finish: string | null | undefined): string | undefined {
@@ -317,8 +331,10 @@ export function synthesiseApplianceOverlays(
     if (!productId) continue;
     const product = byId.get(productId);
     if (!product) continue;
-    const host = compiled.rolePositions[slot.role];
+    const host = compiled.rolePositions[slot.role]
+      ?? (slot.fallbackRole ? compiled.rolePositions[slot.fallbackRole] : undefined);
     if (!host) continue;
+    const inTower = !!compiled.rolePositions[slot.role];
 
     const cab = host.item;
     // There is no benchtop-height constant in this codebase; it is always
@@ -326,10 +342,13 @@ export function synthesiseApplianceOverlays(
     const benchtopTopMm = cab.y + cab.height + dims.benchtopThickness;
 
     // Fall back to the host cabinet's footprint when the product row has no
-    // dimensions (some sink and tap rows are dimensionless).
+    // dimensions (some sink and tap rows are dimensionless). Ovens and
+    // microwaves get sensible appliance-sized defaults so the procedural
+    // fallback still draws something the right shape when a row is bare.
+    const defaultHeight = slot.category === 'oven' ? 595 : slot.category === 'microwave' ? 455 : 200;
     const width = product.width_mm ?? Math.min(cab.width, 600);
     const depth = product.depth_mm ?? Math.min(cab.depth, 500);
-    const height = product.height_mm ?? 200;
+    const height = product.height_mm ?? defaultHeight;
 
     let y: number;
     if (slot.category === 'sink') {
@@ -348,10 +367,18 @@ export function synthesiseApplianceOverlays(
       // Same centre convention as the sink, so the top lands at
       // benchtop + COOKTOP_PROUD_MM.
       y = benchtopTopMm + COOKTOP_PROUD_MM - height / 2;
-    } else {
-      // Ovens use the standard base-at-`y` convention inside their tower.
+    } else if (slot.category === 'microwave') {
+      // Tower only (no fallback role), stacked above the oven aperture.
+      y = Math.max(0, cab.y + 1500);
+    } else if (inTower) {
+      // Oven in its tall tower: standard base-at-`y` convention.
       y = Math.max(0, cab.y + 300);
+    } else {
+      // Under-bench oven beneath the cooktop run: base-at-`y`, sitting on the
+      // cabinet floor just above the kick, and never poking through the stone.
+      y = Math.max(0, Math.min(cab.y + 100, benchtopTopMm - dims.benchtopThickness - height));
     }
+
 
     out.push({
       instanceId: `appl-${slot.category}`,
@@ -380,6 +407,34 @@ export function synthesiseApplianceOverlays(
 export function isSynthesisedAppliance(item: PlacedItem): boolean {
   return item.instanceId.startsWith('appl-');
 }
+
+/** A chosen category counts as "not shown" when neither an engine-placed slot
+ *  nor a synthesised overlay carries that product. The customer is told about
+ *  these in the build notes rather than being shown a wrong placement. */
+export function undrawnApplianceCategories(
+  chosen: Record<string, string>,
+  products: ApplianceProductRecord[] | undefined,
+  drawnItems: PlacedItem[],
+): ApplianceCategory[] {
+  if (!chosen || !products?.length) return [];
+  const byId = new Map(products.map(p => [p.id, p]));
+  const drawn = new Set(
+    drawnItems
+      .filter(it => !!it.applianceProductId)
+      .map(it => it.applianceProductId as string),
+  );
+  const out: ApplianceCategory[] = [];
+  for (const cat of APPLIANCE_CATEGORY_ORDER) {
+    // The tap has no item of its own — it rides on the sink — so it is
+    // "drawn" whenever the sink overlay exists.
+    if (cat === 'tap') continue;
+    const id = chosen[cat];
+    if (!id || !byId.has(id)) continue;
+    if (!drawn.has(id)) out.push(cat);
+  }
+  return out;
+}
+
 
 /**
  * Build ApplianceLineItem[] directly from the chosen map — independent of

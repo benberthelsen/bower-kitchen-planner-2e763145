@@ -71,6 +71,11 @@ export interface PlacedItem {
   drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (overrides standard distribution)
   tapId?: string;
   applianceId?: string;
+  /** Layout role stamped by compileSpec (`sink`, `cooktop`, `oven-tower`,
+   *  `dishwasher`, `fridge-gap`, …). Downstream code must read this rather
+   *  than pattern-matching the definitionId SKU string. */
+  layoutRole?: string;
+
 
   // Corner cabinet configuration (Phase 3)
   cornerFillerWidth?: number;   // Gap between blind panel and wall (mm)

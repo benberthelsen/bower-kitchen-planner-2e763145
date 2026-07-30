@@ -280,9 +280,11 @@ export default function StepAppliances({ chosen, cooking, onChange }: Props) {
 
       {!isLoading && !error && visibleCategories.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
-          Dishwashers, fridges and rangehoods appear as your chosen product in the 3D preview.
-          Sinks, taps, cooktops, ovens and microwaves are shown as their cabinet openings for
-          now — they're always priced and listed on your quote.
+          Your chosen sink, tap, cooktop, oven, dishwasher, fridge and rangehood appear as the
+          actual product in the 3D preview. A microwave — and a rangehood in a layout with no
+          wall cabinets above the cooktop — is priced and listed on your quote, with placement
+          confirmed with your consultant.
+
         </div>
       )}
 
