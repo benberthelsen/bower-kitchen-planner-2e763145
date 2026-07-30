@@ -181,6 +181,18 @@ ok('scanner UI: central session cleanup is wired', scanRoomSource.includes("sess
 ok('scanner UI: imports are size bounded', scanRoomSource.includes('MAX_ROOMPLAN_FILE_BYTES') && scanRoomSource.includes('file.size > MAX_ROOMPLAN_FILE_BYTES'));
 ok('scanner UI: manual openings cannot exceed a wall', scanRoomSource.includes('offsetMm + widthMm > wallLengthMm'));
 ok(
+  'scanner UI: assisted wall lock keeps a manual fallback',
+  scanRoomSource.includes('Smart wall lock')
+    && scanRoomSource.includes('intersectDetectedWallLines')
+    && scanRoomSource.includes('Use 4-point fallback'),
+);
+ok(
+  'scanner UI: makes floor and wall plane acquisition visible',
+  scanRoomSource.includes('Floor locked')
+    && scanRoomSource.includes('wall plane')
+    && scanRoomSource.includes('Plane matching runs on your phone'),
+);
+ok(
   'scanner handoff: forces room confirmation and clears stale design',
   (wizardSource.match(/step: 1,\s+design: null,\s+incomingScan: scan,/g) ?? []).length >= 2,
 );

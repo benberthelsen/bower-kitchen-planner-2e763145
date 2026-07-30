@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const F = await import(pathToFileURL(resolve('.tmp-snap-test/webxrFit.mjs')).href);
-const { buildScanFromCorners } = F;
+const { buildScanFromCorners, intersectDetectedWallLines, snapToPlanes } = F;
 
 let pass = 0;
 let fail = 0;
@@ -67,6 +67,36 @@ const apply = (m, p) => ({ x: m[0] * p.x + m[1] * p.z + m[2], z: m[3] * p.x + m[
   check('duplicate corner rejected', !duplicate.ok);
   const crossed = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 3 }, { x: 4, z: 0 }, { x: 0, z: 3 }]);
   check('self-crossing corner order rejected', !crossed.ok);
+}
+
+// 5. Assisted wall lock: one recognised plane per adjoining wall is enough
+// to recover a corner hidden behind an existing kitchen.
+{
+  const north = { a: { x: 0.5, z: 0.01 }, b: { x: 3.6, z: -0.01 } };
+  const west = { a: { x: 0.01, z: 0.4 }, b: { x: -0.01, z: 2.8 } };
+  const onWall = snapToPlanes({ x: 1.4, z: 0.14 }, [north, west]);
+  check('smart lock exposes the recognised wall', onWall.kind === 'wall' && onWall.line === north);
+
+  const atCorner = snapToPlanes({ x: 0.08, z: 0.09 }, [north, west]);
+  check(
+    'smart lock recognises adjoining planes as a corner',
+    atCorner.kind === 'corner'
+      && Array.isArray(atCorner.cornerLines)
+      && Math.abs(atCorner.point.x) < 0.08
+      && Math.abs(atCorner.point.z) < 0.08,
+    JSON.stringify(atCorner),
+  );
+
+  const assisted = intersectDetectedWallLines(north, west, { x: 0.1, z: 0.1 });
+  check(
+    'two detected wall planes recover the hidden corner',
+    assisted !== null && Math.abs(assisted.x) < 0.08 && Math.abs(assisted.z) < 0.08,
+    JSON.stringify(assisted),
+  );
+  check(
+    'far-away plane intersections are rejected',
+    intersectDetectedWallLines(north, west, { x: 4, z: 4 }, 0.5) === null,
+  );
 }
 
 console.log(`webxr fit smoke: ${pass} passed, ${fail} failed`);

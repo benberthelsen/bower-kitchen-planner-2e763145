@@ -27,7 +27,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   buildScanFromCapture, intersectWallLines, type XrCorner, type XrOpeningMark,
-  dominantLine, snapToPlanes, type WallLine,
+  dominantLine, intersectDetectedWallLines, snapToPlanes, type PlaneSnap, type WallLine,
 } from '@/lib/roomScan/webxrFit';
 import { importRoomPlanFileText } from '@/lib/roomScan/roomplanImport';
 
@@ -36,6 +36,8 @@ export const PENDING_SCAN_KEY = 'bower.pendingScan';
 type Support = 'checking' | 'insecure' | 'no-xr' | 'no-ar' | 'ready';
 type Phase = 'corners' | 'height' | 'openings';
 type OpeningType = XrOpeningMark['type'];
+type AimTarget = 'searching' | 'floor' | 'surface' | 'wall' | 'corner';
+type HiddenCaptureMode = 'smart' | 'manual';
 
 interface Hit { x: number; y: number; z: number }
 
@@ -90,6 +92,11 @@ export default function ScanRoom() {
   // customer taps 2 points on each wall instead; we intersect the wall lines.
   const [wallTaps, setWallTaps] = useState<XrCorner[]>([]);
   const [hiddenMode, setHiddenMode] = useState(false);
+  const [hiddenCaptureMode, setHiddenCaptureMode] = useState<HiddenCaptureMode>('smart');
+  const [lockedWallCount, setLockedWallCount] = useState(0);
+  const [detectedWallCount, setDetectedWallCount] = useState(0);
+  const [floorLocked, setFloorLocked] = useState(false);
+  const [aimTarget, setAimTarget] = useState<AimTarget>('searching');
   const [hiddenHint, setHiddenHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -110,6 +117,11 @@ export default function ScanRoom() {
   const cornersRef = useRef<XrCorner[]>([]);
   const wallTapsRef = useRef<XrCorner[]>([]);
   const hiddenModeRef = useRef(false);
+  const hiddenCaptureModeRef = useRef<HiddenCaptureMode>('smart');
+  const lockedWallLineRef = useRef<WallLine | null>(null);
+  const detectedWallCountRef = useRef(0);
+  const aimTargetRef = useRef<AimTarget>('searching');
+  const currentPlaneSnapRef = useRef<PlaneSnap | null>(null);
   const openingsRef = useRef<XrOpeningMark[]>([]);
   const pendingPointRef = useRef<XrCorner | null>(null);
   const openingTypeRef = useRef<OpeningType>('door');
@@ -121,6 +133,7 @@ export default function ScanRoom() {
   // Rebuilds the in-scene "ghost" of everything captured so far; assigned a
   // real implementation while an AR session is live.
   const rebuildGhostRef = useRef<() => void>(() => {});
+  const captureCurrentPointRef = useRef<() => void>(() => {});
   const hasSurfaceRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -156,9 +169,18 @@ export default function ScanRoom() {
     rendererRef.current?.dispose();
     rendererRef.current = null;
     rebuildGhostRef.current = () => {};
+    captureCurrentPointRef.current = () => {};
     lastHitRef.current = null;
+    currentPlaneSnapRef.current = null;
+    lockedWallLineRef.current = null;
+    detectedWallCountRef.current = 0;
+    aimTargetRef.current = 'searching';
     hasSurfaceRef.current = false;
     setHasSurface(false);
+    setDetectedWallCount(0);
+    setFloorLocked(false);
+    setAimTarget('searching');
+    setLockedWallCount(0);
     setScanning(false);
   }, []);
 
@@ -206,8 +228,18 @@ export default function ScanRoom() {
     detectedHeightRef.current = null;
     wallTapsRef.current = [];
     hiddenModeRef.current = false;
+    hiddenCaptureModeRef.current = 'smart';
+    lockedWallLineRef.current = null;
+    detectedWallCountRef.current = 0;
+    aimTargetRef.current = 'searching';
+    currentPlaneSnapRef.current = null;
     setWallTaps([]);
     setHiddenMode(false);
+    setHiddenCaptureMode('smart');
+    setLockedWallCount(0);
+    setDetectedWallCount(0);
+    setFloorLocked(false);
+    setAimTarget('searching');
     setHiddenHint(null);
     lastHitRef.current = null;
     hasSurfaceRef.current = false;
@@ -320,6 +352,9 @@ export default function ScanRoom() {
         for (let i = 0; i + 1 < cs.length; i++) panel(cs[i], cs[i + 1], EMERALD, 0.16, wallH);
         // Faint closing hint back to the first corner once the room takes shape.
         if (cs.length >= 3) panel(cs[cs.length - 1], cs[0], EMERALD, 0.06, wallH);
+        if (lockedWallLineRef.current) {
+          panel(lockedWallLineRef.current.a, lockedWallLineRef.current.b, EMERALD, 0.42, 1.2);
+        }
         for (const t of wallTapsRef.current) post(t, AMBER, 0.9);
         if (pendingPointRef.current) post(pendingPointRef.current, AMBER, 0.6);
         for (const o of openingsRef.current) {
@@ -331,37 +366,80 @@ export default function ScanRoom() {
       rebuildGhostRef.current();
 
       const refSpace = await session.requestReferenceSpace('local-floor');
+      setFloorLocked(true);
       const viewerSpace = await session.requestReferenceSpace('viewer');
       const hitTestSource = await (session as XRSession & {
         requestHitTestSource(o: { space: XRReferenceSpace }): Promise<XRHitTestSource | undefined>;
       }).requestHitTestSource({ space: viewerSpace });
       if (!hitTestSource) throw new Error('AR surface tracking could not start');
 
-      // Tap = act on the point currently under the reticle, per phase.
-      session.addEventListener('select', () => {
+      const completeHiddenCorner = (corner: XrCorner, message: string) => {
+        cornersRef.current = [...cornersRef.current, corner];
+        setCorners(cornersRef.current);
+        hiddenModeRef.current = false;
+        setHiddenMode(false);
+        hiddenCaptureModeRef.current = 'smart';
+        setHiddenCaptureMode('smart');
+        lockedWallLineRef.current = null;
+        setLockedWallCount(0);
+        wallTapsRef.current = [];
+        setWallTaps([]);
+        setHiddenHint(message);
+      };
+
+      // Both a screen tap and the large overlay capture button call this same
+      // action. The button makes acquisition explicit; tap-anywhere remains as
+      // a convenient shortcut for customers already familiar with AR capture.
+      const captureCurrentPoint = () => {
         const hit = lastHitRef.current;
         if (!hit) return;
         const p = phaseRef.current;
         if (p === 'corners') {
           if (hiddenModeRef.current) {
-            // Collect 2 taps on the first wall, 2 on the second (on the wall
-            // surface, above the benchtop — Y is dropped), then intersect.
-            const tapSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines);
-            wallTapsRef.current = [...wallTapsRef.current, tapSnap.point];
-            setWallTaps(wallTapsRef.current);
-            if (wallTapsRef.current.length === 4) {
-              const [a1, a2, b1, b2] = wallTapsRef.current;
-              const corner = intersectWallLines(a1, a2, b1, b2);
-              wallTapsRef.current = [];
-              setWallTaps([]);
-              if (corner) {
-                cornersRef.current = [...cornersRef.current, corner];
-                setCorners(cornersRef.current);
-                hiddenModeRef.current = false;
-                setHiddenMode(false);
-                setHiddenHint('Hidden corner added from the wall lines ✓');
+            if (hiddenCaptureModeRef.current === 'smart') {
+              const aimedAt = { x: hit.x, z: hit.z };
+              const planeSnap = snapToPlanes(aimedAt, planeState.lines, 0.55);
+              currentPlaneSnapRef.current = planeSnap;
+
+              if (planeSnap.kind === 'corner') {
+                completeHiddenCorner(planeSnap.point, 'Corner calculated from the two detected wall planes ✓');
+              } else if (planeSnap.kind === 'wall' && planeSnap.line) {
+                if (!lockedWallLineRef.current) {
+                  lockedWallLineRef.current = planeSnap.line;
+                  setLockedWallCount(1);
+                  setHiddenHint('First wall locked ✓ Now point at the adjoining wall.');
+                } else {
+                  const corner = intersectDetectedWallLines(
+                    lockedWallLineRef.current,
+                    planeSnap.line,
+                    aimedAt,
+                    2,
+                  );
+                  if (corner) {
+                    completeHiddenCorner(corner, 'Hidden corner calculated from two wall locks ✓');
+                  } else {
+                    setHiddenHint('That looks like the same wall. Keep the first wall locked and point at the wall around the corner.');
+                  }
+                }
               } else {
-                setHiddenHint('Those taps were too close or the walls too parallel — try again, spacing the two taps further apart along each wall');
+                setHiddenHint('No wall plane is locked yet. Move the phone slowly across the wall until the reticle turns blue.');
+              }
+            } else {
+              // Compatibility fallback for devices that expose hit testing but
+              // not vertical plane detection: two points on each wall.
+              const tapSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines);
+              wallTapsRef.current = [...wallTapsRef.current, tapSnap.point];
+              setWallTaps(wallTapsRef.current);
+              if (wallTapsRef.current.length === 4) {
+                const [a1, a2, b1, b2] = wallTapsRef.current;
+                const corner = intersectWallLines(a1, a2, b1, b2);
+                wallTapsRef.current = [];
+                setWallTaps([]);
+                if (corner) {
+                  completeHiddenCorner(corner, 'Hidden corner added from the four wall points ✓');
+                } else {
+                  setHiddenHint('Those points did not form a reliable corner. Space each pair further apart and try again.');
+                }
               }
             }
           } else {
@@ -401,7 +479,9 @@ export default function ScanRoom() {
         }
         rebuildGhostRef.current();
         if (navigator.vibrate) navigator.vibrate(40);
-      });
+      };
+      captureCurrentPointRef.current = captureCurrentPoint;
+      session.addEventListener('select', captureCurrentPoint);
       session.addEventListener('end', () => {
         if (sessionRef.current === session) sessionRef.current = null;
         cleanupSessionResources();
@@ -464,7 +544,15 @@ export default function ScanRoom() {
               }
             }
           });
-          if (planeState.dirty) { planeState.dirty = false; rebuildPlanes(); }
+          if (planeState.dirty) {
+            planeState.dirty = false;
+            rebuildPlanes();
+            const count = planeState.lines.length;
+            if (count !== detectedWallCountRef.current) {
+              detectedWallCountRef.current = count;
+              setDetectedWallCount(count);
+            }
+          }
         }
 
         // Live preview line: from the last relevant point to the reticle.
@@ -494,15 +582,41 @@ export default function ScanRoom() {
           preview.visible = false;
         }
 
+        let currentSnap: PlaneSnap | null = null;
+        let nextAimTarget: AimTarget = hit ? 'surface' : 'searching';
+        if (hit && p === 'corners') {
+          currentSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, hiddenModeRef.current ? 0.55 : 0.3);
+          currentPlaneSnapRef.current = currentSnap;
+          nextAimTarget = currentSnap.kind === 'corner'
+            ? 'corner'
+            : currentSnap.kind === 'wall'
+              ? 'wall'
+              : Math.abs(hit.y) <= 0.2
+                ? 'floor'
+                : 'surface';
+        } else {
+          currentPlaneSnapRef.current = null;
+        }
+        if (nextAimTarget !== aimTargetRef.current) {
+          aimTargetRef.current = nextAimTarget;
+          setAimTarget(nextAimTarget);
+        }
+
         if (hit && (p === 'corners' || p === 'openings')) {
           // Snap the pillar onto detected wall geometry so it locks on target
           // instead of hovering nearby — the tap uses the same snapped point.
-          const snap = p === 'corners' ? snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines) : { point: { x: hit.x, z: hit.z }, kind: 'none' as const };
+          const snap = currentSnap ?? { point: { x: hit.x, z: hit.z }, kind: 'none' as const };
           previewPost.position.set(snap.point.x, 0.6, snap.point.z);
           const mat = previewPost.material as THREE.MeshBasicMaterial;
-          mat.color.setHex(
-            hiddenModeRef.current || p === 'openings' ? 0xf59e0b : snap.kind === 'none' ? 0x34d399 : 0x10b981,
-          );
+          mat.color.setHex(p === 'openings'
+            ? 0xf59e0b
+            : snap.kind === 'corner'
+              ? 0x10b981
+              : snap.kind === 'wall'
+                ? 0x38bdf8
+                : hiddenModeRef.current
+                  ? 0xf59e0b
+                  : 0x34d399);
           mat.opacity = snap.kind === 'none' ? 0.45 : 0.9;
           previewPost.visible = true;
         } else {
@@ -628,13 +742,20 @@ export default function ScanRoom() {
   const topCaption =
     phase === 'corners'
       ? (hiddenMode
-          ? (wallTaps.length < 2
-              ? `Corner hidden: tap 2 points along the FIRST wall, above the bench (${wallTaps.length}/2)`
-              : `Now tap 2 points along the SECOND wall (${wallTaps.length - 2}/2)`)
+          ? (hiddenCaptureMode === 'smart'
+              ? hiddenHint
+                ?? (detectedWallCount === 0
+                  ? 'Move slowly across both walls so the camera can recognise their planes.'
+                  : lockedWallCount === 0
+                    ? 'Point anywhere at the first wall above the cabinets, then lock it.'
+                    : 'First wall locked. Point at the adjoining wall to calculate the hidden corner.')
+              : (wallTaps.length < 2
+                  ? `Fallback: mark 2 spaced points on the first wall (${wallTaps.length}/2)`
+                  : `Now mark 2 spaced points on the adjoining wall (${wallTaps.length - 2}/2)`))
           : hiddenHint
             ?? (corners.length === 0
-              ? 'Aim at the floor in a corner, then tap'
-              : `${corners.length} corner${corners.length === 1 ? '' : 's'} marked — walk to the next one`))
+              ? 'Floor level is locked. Aim at the first room corner and capture it.'
+              : `${corners.length} corner${corners.length === 1 ? '' : 's'} captured — move to the next one.`))
       : phase === 'height'
         ? (detectedHeightMm
             ? `Ceiling detected at about ${(detectedHeightMm / 1000).toFixed(2)} m — use it or tap to remeasure`
@@ -648,11 +769,40 @@ export default function ScanRoom() {
       ? (detectedHeightMm
           ? `Detected ${(detectedHeightMm / 1000).toFixed(2)} m`
           : hasSurface ? 'Surface found — tap to measure' : 'Aim at the ceiling')
-      : hasSurface
-        ? (phase === 'corners'
-            ? (hiddenMode ? 'Tap a point ON the wall surface' : 'Floor found — aim at the corner and tap')
-            : 'Tap to mark this point')
-        : 'Move slowly to find the surface';
+      : phase === 'corners' && hiddenMode && hiddenCaptureMode === 'smart'
+        ? (aimTarget === 'corner'
+            ? 'Two walls found — corner ready'
+            : aimTarget === 'wall'
+              ? (lockedWallCount ? 'Adjoining wall ready' : 'Wall ready to lock')
+              : detectedWallCount === 0
+                ? 'Scan slowly across the wall'
+                : 'Aim at a blue wall plane')
+        : hasSurface
+          ? (phase === 'corners'
+              ? aimTarget === 'corner'
+                ? 'Corner recognised — capture'
+                : aimTarget === 'wall'
+                  ? 'Wall found — aim toward its end'
+                  : 'Floor locked — aim at the corner'
+              : 'Tap to mark this point')
+          : 'Move slowly to find a surface';
+
+  const cornerCaptureLabel = hiddenMode
+    ? hiddenCaptureMode === 'smart'
+      ? aimTarget === 'corner'
+        ? 'Use recognised corner'
+        : lockedWallCount
+          ? 'Lock adjoining wall'
+          : 'Lock first wall'
+      : `Mark wall point ${Math.min(wallTaps.length + 1, 4)} of 4`
+    : `Place corner ${corners.length + 1}`;
+
+  const cornerCaptureDisabled = !hasSurface || (
+    hiddenMode
+    && hiddenCaptureMode === 'smart'
+    && aimTarget !== 'wall'
+    && aimTarget !== 'corner'
+  );
 
   return (
     <div className="min-h-screen bg-white">
@@ -692,15 +842,15 @@ export default function ScanRoom() {
             <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">Android · Chrome</span>
           </div>
           <p className="text-sm text-slate-500">
-            Use your phone camera to mark the room's corners, ceiling height, and
-            doors &amp; windows. Works in the browser — nothing to install.
+            Let your phone recognise the floor and walls, then capture the room's
+            corners, ceiling height, doors and windows. Nothing to install.
           </p>
           {support === 'checking' && <p className="text-sm text-slate-400">Checking your device…</p>}
           {support === 'ready' && !scanning && (
             <div className="space-y-3">
               <ol className="text-sm text-slate-600 space-y-2 rounded-md border border-slate-200 p-3">
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Walk to each corner of the room and tap to mark it — 4 corners, or 6 for an L-shaped room.</li>
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Corner blocked by an existing kitchen? Line the ghost pillar up and tap on TOP of the benchtop at the corner (only the floor position is used) — or tap "Corner hidden?" and mark two points on each wall and we'll find it for you.</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Move the camera slowly while the floor and wall planes lock, then capture each room corner — 4 corners, or 6 for an L-shaped room.</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Existing cabinets hiding a corner? Tap "Corner blocked?", lock the two adjoining walls above the benchtop, and Smart wall lock calculates the corner for you.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Aim at the ceiling to measure the height — or skip it.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Mark each door and window by tapping both sides — or add them later on the plan.</li>
               </ol>
@@ -822,8 +972,10 @@ export default function ScanRoom() {
             <div className="rounded-lg border border-slate-200 p-3 space-y-1">
               <p className="font-semibold text-slate-900 flex items-center gap-2"><Camera className="w-4 h-4" /> Quick scan — most Android phones</p>
               <p className="text-slate-600">
-                Runs in your browser using the camera. You tap to mark the room's
-                corners, then optionally the ceiling and each door and window.
+                Runs in your browser using the camera. Your phone recognises floor
+                and wall planes, and Smart wall lock can calculate corners hidden
+                behind existing cabinets. You confirm the corners, then optionally
+                the ceiling and each door and window.
                 Takes 2–3 minutes. Measurements are a strong starting point — you'll confirm
                 them on a plan, and a professional check measure happens before manufacture.
               </p>
@@ -862,10 +1014,39 @@ export default function ScanRoom() {
 
       {/* ── DOM overlay shown inside the AR session ── */}
       <div ref={overlayRef} className={scanning ? 'fixed inset-0 z-50 pointer-events-none' : 'hidden'}>
-        <div className="absolute top-0 inset-x-0 p-4 text-center pointer-events-none">
-          <span className="inline-block rounded-full bg-black/70 text-white text-sm px-4 py-2">
-            {topCaption}
-          </span>
+        <div className="absolute top-0 inset-x-0 p-3 pointer-events-none">
+          <div className="mx-auto max-w-sm rounded-2xl border border-white/15 bg-slate-950/80 px-4 py-3 text-white shadow-xl backdrop-blur-md">
+            <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300">
+              <span>{phase === 'corners' ? '1 · Map walls' : phase === 'height' ? '2 · Ceiling' : '3 · Openings'}</span>
+              <span>{phase === 'corners' ? `${corners.length} corners` : phase === 'openings' ? `${openings.length} marked` : 'Optional'}</span>
+            </div>
+            <p className="mt-2 text-sm font-medium leading-snug">{topCaption}</p>
+            {phase === 'corners' && (
+              <div className="mt-2.5 flex flex-wrap gap-2 text-[11px]">
+                <span className={cn(
+                  'rounded-full border px-2.5 py-1',
+                  floorLocked
+                    ? 'border-emerald-300/40 bg-emerald-400/15 text-emerald-100'
+                    : 'border-white/20 bg-white/5 text-slate-300',
+                )}>
+                  {floorLocked ? '✓ Floor locked' : 'Finding floor…'}
+                </span>
+                <span className={cn(
+                  'rounded-full border px-2.5 py-1',
+                  detectedWallCount > 0
+                    ? 'border-sky-300/40 bg-sky-400/15 text-sky-100'
+                    : 'border-white/20 bg-white/5 text-slate-300',
+                )}>
+                  {detectedWallCount} wall plane{detectedWallCount === 1 ? '' : 's'} seen
+                </span>
+              </div>
+            )}
+            {phase === 'corners' && (
+              <p className="mt-2 text-[10px] leading-snug text-slate-400">
+                Plane matching runs on your phone. Room photos are not uploaded.
+              </p>
+            )}
+          </div>
           {scanHint && (
             <span role="alert" className="mt-2 mx-auto block max-w-sm rounded-lg bg-amber-500/95 text-slate-950 text-xs px-3 py-2">
               {scanHint}
@@ -875,16 +1056,22 @@ export default function ScanRoom() {
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
           <div className={cn(
-            'relative w-14 h-14 rounded-full border-2 transition-colors',
-            hasSurface ? 'border-emerald-400 bg-emerald-400/15' : 'border-white/70 bg-black/10',
+            'relative w-16 h-16 rounded-full border-2 transition-all duration-200',
+            aimTarget === 'corner'
+              ? 'scale-110 border-emerald-300 bg-emerald-400/20 shadow-[0_0_0_8px_rgba(52,211,153,0.12)]'
+              : aimTarget === 'wall'
+                ? 'border-sky-300 bg-sky-400/20 shadow-[0_0_0_6px_rgba(56,189,248,0.10)]'
+                : hasSurface
+                  ? 'border-emerald-400 bg-emerald-400/15'
+                  : 'border-white/70 bg-black/10',
           )}>
             <span className={cn(
               'absolute left-1/2 top-2 bottom-2 w-0.5 -translate-x-1/2',
-              hasSurface ? 'bg-emerald-300' : 'bg-white/70',
+              aimTarget === 'wall' ? 'bg-sky-200' : hasSurface ? 'bg-emerald-300' : 'bg-white/70',
             )} />
             <span className={cn(
               'absolute top-1/2 left-2 right-2 h-0.5 -translate-y-1/2',
-              hasSurface ? 'bg-emerald-300' : 'bg-white/70',
+              aimTarget === 'wall' ? 'bg-sky-200' : hasSurface ? 'bg-emerald-300' : 'bg-white/70',
             )} />
           </div>
           <span className="rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">
@@ -910,58 +1097,141 @@ export default function ScanRoom() {
           </div>
         )}
 
-        <div className="absolute bottom-4 inset-x-0 flex flex-wrap items-center justify-center gap-2 px-3 pointer-events-auto">
+        <div className="absolute bottom-3 inset-x-0 flex items-center justify-center px-3 pointer-events-auto">
           {phase === 'corners' && (
-            <>
+            <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-950/85 p-3 shadow-2xl backdrop-blur-md">
+              {hiddenMode && (
+                <div className="mb-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-white">Hidden corner</p>
+                      <p className="text-[11px] text-slate-300">
+                        {hiddenCaptureMode === 'smart' ? 'Smart wall lock' : 'Four-point fallback'}
+                      </p>
+                    </div>
+                    {hiddenCaptureMode === 'smart' && (
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <span className={cn(
+                          'rounded-full px-2 py-1',
+                          lockedWallCount > 0 ? 'bg-emerald-400 text-emerald-950' : 'bg-white/10 text-slate-300',
+                        )}>Wall 1</span>
+                        <span className="text-slate-500">→</span>
+                        <span className={cn(
+                          'rounded-full px-2 py-1',
+                          aimTarget === 'corner' ? 'bg-emerald-400 text-emerald-950' : 'bg-white/10 text-slate-300',
+                        )}>Wall 2</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <Button
-                variant="outline"
-                className="bg-white/90"
-                onClick={() => {
-                  if (wallTapsRef.current.length > 0) {
-                    wallTapsRef.current = wallTapsRef.current.slice(0, -1);
-                    setWallTaps(wallTapsRef.current);
-                  } else if (hiddenModeRef.current) {
-                    hiddenModeRef.current = false;
-                    setHiddenMode(false);
-                  } else {
-                    cornersRef.current = cornersRef.current.slice(0, -1);
-                    setCorners(cornersRef.current);
-                  }
-                  setHiddenHint(null);
-                  rebuildGhostRef.current();
-                }}
-                disabled={corners.length === 0 && !hiddenMode && wallTaps.length === 0}
+                className={cn(
+                  'h-12 w-full text-sm font-semibold text-white',
+                  aimTarget === 'wall' && hiddenMode && hiddenCaptureMode === 'smart'
+                    ? 'bg-sky-500 hover:bg-sky-400'
+                    : 'bg-emerald-600 hover:bg-emerald-500',
+                )}
+                onClick={() => captureCurrentPointRef.current()}
+                disabled={cornerCaptureDisabled}
               >
-                <Redo2 className="w-4 h-4 mr-1" /> Undo
+                <ScanLine className="mr-2 h-4 w-4" /> {cornerCaptureLabel}
               </Button>
-              <Button
-                variant="outline"
-                className={cn('bg-white/90', hiddenMode && 'ring-2 ring-amber-400')}
-                onClick={() => {
-                  const next = !hiddenModeRef.current;
-                  hiddenModeRef.current = next;
-                  setHiddenMode(next);
-                  wallTapsRef.current = [];
-                  setWallTaps([]);
-                  setHiddenHint(null);
-                  rebuildGhostRef.current();
-                }}
-              >
-                {hiddenMode ? 'Cancel hidden' : 'Corner hidden?'}
-              </Button>
-              <Button
-                className="bg-emerald-600 text-white hover:bg-emerald-500 h-11 px-4"
-                onClick={() => setPhaseBoth('height')}
-                disabled={corners.length < 4 || hiddenMode}
-              >
-                <Check className="w-4 h-4 mr-1" /> Corners done ({corners.length})
-              </Button>
-              <Button variant="outline" className="bg-white/90" onClick={endSession}>Cancel</Button>
-            </>
+
+              {hiddenMode && (
+                <button
+                  type="button"
+                  className="mt-2 w-full rounded-lg py-1.5 text-xs text-slate-300 underline underline-offset-2 hover:text-white"
+                  onClick={() => {
+                    const next: HiddenCaptureMode = hiddenCaptureModeRef.current === 'smart' ? 'manual' : 'smart';
+                    hiddenCaptureModeRef.current = next;
+                    setHiddenCaptureMode(next);
+                    lockedWallLineRef.current = null;
+                    setLockedWallCount(0);
+                    wallTapsRef.current = [];
+                    setWallTaps([]);
+                    setHiddenHint(null);
+                    rebuildGhostRef.current();
+                  }}
+                >
+                  {hiddenCaptureMode === 'smart'
+                    ? 'Phone not finding walls? Use 4-point fallback'
+                    : 'Try Smart wall lock instead'}
+                </button>
+              )}
+
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                  onClick={() => {
+                    if (lockedWallLineRef.current) {
+                      lockedWallLineRef.current = null;
+                      setLockedWallCount(0);
+                    } else if (wallTapsRef.current.length > 0) {
+                      wallTapsRef.current = wallTapsRef.current.slice(0, -1);
+                      setWallTaps(wallTapsRef.current);
+                    } else if (hiddenModeRef.current) {
+                      hiddenModeRef.current = false;
+                      setHiddenMode(false);
+                    } else {
+                      cornersRef.current = cornersRef.current.slice(0, -1);
+                      setCorners(cornersRef.current);
+                    }
+                    setHiddenHint(null);
+                    rebuildGhostRef.current();
+                  }}
+                  disabled={corners.length === 0 && !hiddenMode && wallTaps.length === 0 && lockedWallCount === 0}
+                >
+                  <Redo2 className="mr-1 h-4 w-4" /> Undo
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white',
+                    hiddenMode && 'border-amber-300/60 bg-amber-400/20',
+                  )}
+                  onClick={() => {
+                    const next = !hiddenModeRef.current;
+                    hiddenModeRef.current = next;
+                    setHiddenMode(next);
+                    hiddenCaptureModeRef.current = 'smart';
+                    setHiddenCaptureMode('smart');
+                    lockedWallLineRef.current = null;
+                    setLockedWallCount(0);
+                    wallTapsRef.current = [];
+                    setWallTaps([]);
+                    setHiddenHint(null);
+                    rebuildGhostRef.current();
+                  }}
+                >
+                  {hiddenMode ? 'Cancel hidden' : 'Corner blocked?'}
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-white text-slate-950 hover:bg-slate-100"
+                  onClick={() => setPhaseBoth('height')}
+                  disabled={corners.length < 4 || hiddenMode}
+                >
+                  <Check className="mr-1 h-4 w-4" /> Walls done ({corners.length})
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-slate-300 hover:bg-white/10 hover:text-white"
+                  onClick={endSession}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
           )}
 
           {phase === 'height' && (
-            <>
+            <div className="flex flex-wrap items-center justify-center gap-2">
               {detectedHeightMm && (
                 <Button
                   className="bg-emerald-600 text-white hover:bg-emerald-500"
@@ -979,11 +1249,11 @@ export default function ScanRoom() {
                 Skip height
               </Button>
               <Button variant="outline" className="bg-white/90" onClick={endSession}>Cancel</Button>
-            </>
+            </div>
           )}
 
           {phase === 'openings' && (
-            <>
+            <div className="flex flex-wrap items-center justify-center gap-2">
               <Button
                 variant="outline"
                 className="bg-white/90"
@@ -1008,7 +1278,7 @@ export default function ScanRoom() {
                 <DoorOpen className="w-4 h-4 mr-1" /> Finish{heightMm ? ` · ${(heightMm / 1000).toFixed(2)}m` : ''}
               </Button>
               <Button variant="outline" className="bg-white/90" onClick={endSession}>Cancel</Button>
-            </>
+            </div>
           )}
         </div>
       </div>
