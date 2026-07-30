@@ -46,9 +46,10 @@ import type { MaterialOption, Opening, RoomConfig, RoomShape, ServicePoint } fro
 import { z } from 'zod';
 import {
   briefFromWizard, compileSpec, defaultSpecFor, priceDesign,
-  kitchenSpecSchema, openingSchema, servicePointSchema,
+  inferLayoutShapeFromWalls, kitchenSpecSchema, MIN_WALL_RUN_MM,
+  openingSchema, servicePointSchema,
 } from '@/lib/layout';
-import type { Wall } from '@/lib/layout';
+import type { Wall, WallRunRanges } from '@/lib/layout';
 import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
 import StepCook from './steps/StepCook';
 import StepAppliances from './steps/StepAppliances';
@@ -97,6 +98,8 @@ interface WizardState {
   services:    ServicePoint[];
   /** Walls the customer wants cabinetry on. Empty = auto (engine decides). */
   cabinetWalls: Wall[];
+  /** Optional partial coverage along selected walls. */
+  cabinetWallRanges: WallRunRanges;
   // "How you cook" (step 2)
   householdSize?: number;
   cooks?:       'rare' | 'daily' | 'entertainer';
@@ -174,6 +177,13 @@ function stateToParams(s: WizardState): URLSearchParams {
   if (s.benchtopId  !== DEFAULTS.benchtopId)  p.set('b',  s.benchtopId);
   if (s.handleId    !== DEFAULTS.handleId)    p.set('h',  s.handleId);
   if (s.cabinetWalls.length > 0)              p.set('cw', s.cabinetWalls.join(''));
+  const rangeParam = s.cabinetWalls
+    .flatMap(wall => {
+      const range = s.cabinetWallRanges[wall];
+      return range ? [`${wall}:${Math.round(range.startMm)}-${Math.round(range.endMm)}`] : [];
+    })
+    .join(',');
+  if (rangeParam) p.set('wr', rangeParam);
   return p;
 }
 
@@ -244,6 +254,20 @@ function paramsToState(p: URLSearchParams): Partial<WizardState> {
     const walls = p.get('cw')!.split('').filter((c): c is Wall => ['N', 'E', 'S', 'W'].includes(c));
     out.cabinetWalls = [...new Set(walls)];
   }
+  if (p.has('wr')) {
+    const ranges: WallRunRanges = {};
+    for (const token of p.get('wr')!.split(',')) {
+      const match = /^([NESW]):(\d+)-(\d+)$/.exec(token);
+      if (!match) continue;
+      const wall = match[1] as Wall;
+      const startMm = Number(match[2]);
+      const endMm = Number(match[3]);
+      if (Number.isFinite(startMm) && Number.isFinite(endMm) && endMm > startMm) {
+        ranges[wall] = { startMm, endMm };
+      }
+    }
+    if (Object.keys(ranges).length) out.cabinetWallRanges = ranges;
+  }
   return out;
 }
 
@@ -265,6 +289,7 @@ interface SharePayloadV1 {
   openings?: Opening[];
   services?: ServicePoint[];
   cabinetWalls?: Wall[];
+  cabinetWallRanges?: WallRunRanges;
   cook?: {
     householdSize?: number;
     cooks?: WizardState['cooks'];
@@ -346,6 +371,9 @@ export async function encodeSharePayload(state: WizardState): Promise<string | n
       ...(state.openings.length ? { openings: state.openings } : {}),
       ...(state.services.length ? { services: state.services } : {}),
       ...(state.cabinetWalls.length ? { cabinetWalls: state.cabinetWalls } : {}),
+      ...(Object.keys(state.cabinetWallRanges).length
+        ? { cabinetWallRanges: state.cabinetWallRanges }
+        : {}),
       cook: {
         householdSize: state.householdSize,
         cooks: state.cooks,
@@ -419,6 +447,20 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
     if (services.success && services.data.length) patch.services = services.data as unknown as ServicePoint[];
     if (Array.isArray(raw.cabinetWalls)) {
       patch.cabinetWalls = [...new Set(raw.cabinetWalls.filter((w): w is Wall => ['N', 'E', 'S', 'W'].includes(w)))];
+    }
+    if (raw.cabinetWallRanges && typeof raw.cabinetWallRanges === 'object') {
+      const ranges: WallRunRanges = {};
+      for (const wall of ['N', 'E', 'S', 'W'] as Wall[]) {
+        const candidate = raw.cabinetWallRanges[wall];
+        if (!candidate || typeof candidate !== 'object') continue;
+        const startMm = Number(candidate.startMm);
+        const endMm = Number(candidate.endMm);
+        if (Number.isFinite(startMm) && Number.isFinite(endMm)
+          && startMm >= 0 && endMm <= 12000 && endMm > startMm) {
+          ranges[wall] = { startMm, endMm };
+        }
+      }
+      if (Object.keys(ranges).length) patch.cabinetWallRanges = ranges;
     }
     if (raw.cook && typeof raw.cook === 'object') {
       const c = raw.cook;
@@ -506,6 +548,8 @@ function estimatePrice(
     | 'layoutStyle'
     | 'openings'
     | 'services'
+    | 'cabinetWalls'
+    | 'cabinetWallRanges'
   >,
 ) {
   const brief = briefFromWizard({
@@ -513,6 +557,8 @@ function estimatePrice(
     roomWidth: state.roomWidth,
     roomDepth: state.roomDepth,
     layoutStyle: state.layoutStyle,
+    cabinetWalls: state.cabinetWalls,
+    cabinetWallRanges: state.cabinetWallRanges,
   }, {
     height: state.roomHeight,
     shape: state.roomGeometryShape,
@@ -540,22 +586,77 @@ const STEPS = ['Room', 'Cooking', 'Appliances', 'Style', 'Design', 'Review'];
 // ─── Wall selection ─────────────────────────────────────────────────────────────
 // Which walls each layout strategy needs: every inner group must have at least
 // one allowed wall. Mirrors strategyPlausible() in the layout engine.
-const SHAPE_WALL_NEEDS: Record<LayoutPreference, Wall[][]> = {
-  'single-wall': [['N']],
-  'l-shape':     [['N'], ['W', 'E']],
-  'u-shape':     [['N'], ['W'], ['E']],
-  galley:        [['N'], ['S']],
+const WALL_LABELS: Record<Wall, string> = {
+  N: 'Back wall',
+  E: 'Right wall',
+  S: 'Front wall',
+  W: 'Left wall',
 };
+
+function wallLengthForRoom(wall: Wall, widthMm: number, depthMm: number): number {
+  return wall === 'N' || wall === 'S' ? widthMm : depthMm;
+}
+
+function layoutLabel(shape: LayoutPreference): string {
+  return ({
+    'single-wall': 'Single Wall',
+    'l-shape': 'L-Shape',
+    'u-shape': 'U-Shape',
+    galley: 'Galley',
+  } as const)[shape];
+}
 
 function shapeCompatibleWithWalls(shape: LayoutPreference, walls: Wall[]): boolean {
   if (walls.length === 0) return true; // auto — engine decides
-  return SHAPE_WALL_NEEDS[shape].every(group => group.some(w => walls.includes(w)));
+  return inferLayoutShapeFromWalls(walls) === shape;
 }
 
-/** Tappable mini floor-plan: toggle which walls may hold cabinets. */
-function WallPicker({ value, onChange }: { value: Wall[]; onChange: (walls: Wall[]) => void }) {
+/** Tappable floor-plan with precise start/finish limits for selected walls. */
+function WallPicker({
+  value,
+  ranges,
+  widthMm,
+  depthMm,
+  onChange,
+}: {
+  value: Wall[];
+  ranges: WallRunRanges;
+  widthMm: number;
+  depthMm: number;
+  onChange: (walls: Wall[], ranges: WallRunRanges) => void;
+}) {
   const toggle = (w: Wall) => {
-    onChange(value.includes(w) ? value.filter(x => x !== w) : [...value, w]);
+    if (value.includes(w)) {
+      const nextRanges = { ...ranges };
+      delete nextRanges[w];
+      onChange(value.filter(x => x !== w), nextRanges);
+      return;
+    }
+    if (value.length >= 3) {
+      toast.info('Choose up to three cabinet walls. Four-wall layouts need a designer review.');
+      return;
+    }
+    onChange([...value, w], ranges);
+  };
+  const updateClearance = (wall: Wall, side: 'left' | 'right', rawValue: number) => {
+    const length = wallLengthForRoom(wall, widthMm, depthMm);
+    const current = ranges[wall] ?? { startMm: 0, endMm: length };
+    const currentLeft = Math.max(0, Math.min(length, current.startMm));
+    const currentRight = Math.max(0, Math.min(length, length - current.endMm));
+    const valueMm = Math.max(0, Math.round(Number.isFinite(rawValue) ? rawValue : 0));
+    const nextLeft = side === 'left'
+      ? Math.min(valueMm, Math.max(0, length - currentRight - MIN_WALL_RUN_MM))
+      : currentLeft;
+    const nextRight = side === 'right'
+      ? Math.min(valueMm, Math.max(0, length - currentLeft - MIN_WALL_RUN_MM))
+      : currentRight;
+    const nextRanges = { ...ranges };
+    if (nextLeft === 0 && nextRight === 0) {
+      delete nextRanges[wall];
+    } else {
+      nextRanges[wall] = { startMm: nextLeft, endMm: length - nextRight };
+    }
+    onChange(value, nextRanges);
   };
   const wallBtn = (w: Wall, label: string, cls: string) => {
     const on = value.includes(w);
@@ -577,7 +678,8 @@ function WallPicker({ value, onChange }: { value: Wall[]; onChange: (walls: Wall
     );
   };
   return (
-    <div className="flex flex-col sm:flex-row items-center gap-4">
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row items-center gap-4">
       <div className="relative w-48 h-40 flex-shrink-0">
         <div className="absolute inset-6 rounded-lg bg-slate-50 border border-dashed border-slate-200 flex items-center justify-center">
           <span className="text-[10px] text-slate-400">your room</span>
@@ -589,21 +691,86 @@ function WallPicker({ value, onChange }: { value: Wall[]; onChange: (walls: Wall
       </div>
       <div className="text-xs text-slate-500 space-y-1.5">
         {value.length === 0 ? (
-          <p><span className="font-medium text-slate-700">Auto:</span> the designer picks the best walls for your room.</p>
+          <p><span className="font-medium text-slate-700">Auto:</span> the designer picks the walls using your layout preference.</p>
         ) : (
           <p>
-            Cabinets only on: <span className="font-medium text-slate-700">
-              {value.map(w => ({ N: 'back', E: 'right', S: 'front', W: 'left' } as const)[w]).join(', ')}
-            </span> wall{value.length > 1 ? 's' : ''}.
+            Cabinets on: <span className="font-medium text-slate-700">
+              {value.map(wall => WALL_LABELS[wall].toLowerCase()).join(', ')}
+            </span>.
           </p>
         )}
-        <p className="text-slate-400">Tap walls to include or exclude them — e.g. leave out a wall of windows or an open side.</p>
+        <p className="text-slate-400">Choose the exact walls. Your layout type follows these choices instead of replacing them.</p>
         {value.length > 0 && (
-          <button type="button" className="text-slate-500 underline underline-offset-2" onClick={() => onChange([])}>
-            Reset to auto
+          <button type="button" className="text-slate-500 underline underline-offset-2" onClick={() => onChange([], {})}>
+            Let the designer choose walls
           </button>
         )}
       </div>
+      </div>
+
+      {value.length > 0 && (
+        <div className="grid gap-3">
+          {value.map(wall => {
+            const length = wallLengthForRoom(wall, widthMm, depthMm);
+            const range = ranges[wall] ?? { startMm: 0, endMm: length };
+            const leftClearance = Math.max(0, Math.min(length, range.startMm));
+            const rightClearance = Math.max(0, Math.min(length, length - range.endMm));
+            const startPct = length > 0 ? (leftClearance / length) * 100 : 0;
+            const widthPct = length > 0
+              ? ((length - leftClearance - rightClearance) / length) * 100
+              : 100;
+            return (
+              <div key={wall} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-slate-800">{WALL_LABELS[wall]}</p>
+                  <p className="text-xs text-slate-500">
+                    {Math.round(length - leftClearance - rightClearance)} mm of {length} mm
+                  </p>
+                </div>
+                <div className="relative mt-2 h-3 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
+                  <div
+                    className="absolute inset-y-0 rounded-full bg-emerald-500"
+                    style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Facing this wall from inside the room, enter any clear space to leave at each end.
+                </p>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor={`wall-${wall}-left`} className="text-xs">Clear at left (mm)</Label>
+                    <Input
+                      id={`wall-${wall}-left`}
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={Math.max(0, length - rightClearance - MIN_WALL_RUN_MM)}
+                      step={50}
+                      value={Math.round(leftClearance)}
+                      onChange={event => updateClearance(wall, 'left', Number(event.target.value))}
+                      className="mt-1 h-9 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`wall-${wall}-right`} className="text-xs">Clear at right (mm)</Label>
+                    <Input
+                      id={`wall-${wall}-right`}
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={Math.max(0, length - leftClearance - MIN_WALL_RUN_MM)}
+                      step={50}
+                      value={Math.round(rightClearance)}
+                      onChange={event => updateClearance(wall, 'right', Number(event.target.value))}
+                      className="mt-1 h-9 bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -861,6 +1028,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
     { id: 'u-shape',     label: 'U-Shape',     desc: 'Three-wall storage' },
     { id: 'galley',      label: 'Galley',      desc: 'Two facing runs' },
   ];
+  const manualLayout = inferLayoutShapeFromWalls(state.cabinetWalls);
   const pending = state.pendingRoomPatch;
   const pendingSummary = pending ? [
     pending.width !== undefined ? `Width: ${pending.width} mm` : null,
@@ -953,22 +1121,38 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
       <Step1Section n={2} title="Which walls should hold cabinets?" subtitle="Leave it on auto, or rule walls in and out — windows, open sides, walkways.">
         <WallPicker
           value={state.cabinetWalls}
-          onChange={walls => {
-            const patch: Partial<WizardState> = { cabinetWalls: walls };
-            if (!shapeCompatibleWithWalls(state.layoutPreference, walls)) {
-              const fallback = (['l-shape', 'single-wall', 'galley', 'u-shape'] as LayoutPreference[])
-                .find(s => shapeCompatibleWithWalls(s, walls));
-              if (fallback) {
-                patch.layoutPreference = fallback;
-                toast.info('Layout shape adjusted to fit your wall choices.');
-              }
-            }
-            onChange(patch);
+          ranges={state.cabinetWallRanges}
+          widthMm={state.roomWidth}
+          depthMm={state.roomDepth}
+          onChange={(walls, ranges) => {
+            const inferred = inferLayoutShapeFromWalls(walls);
+            onChange({
+              cabinetWalls: walls,
+              cabinetWallRanges: ranges,
+              ...(inferred ? { layoutPreference: inferred } : {}),
+            });
           }}
         />
       </Step1Section>
 
-      <Step1Section n={3} title="Which cabinet layout do you prefer?" subtitle="Pick a starting shape — the room plan below sketches it in as you choose.">
+      <Step1Section
+        n={3}
+        title={manualLayout ? 'Layout created from your wall choices' : 'Which cabinet layout do you prefer?'}
+        subtitle={manualLayout
+          ? 'Your selected walls are authoritative.'
+          : 'This preference is used only while wall placement is set to auto.'}
+      >
+        {manualLayout ? (
+          <div className="flex items-center gap-4 rounded-2xl border-2 border-emerald-500 bg-emerald-50/60 p-4">
+            <ShapeIcon shape={manualLayout} selected />
+            <div>
+              <p className="font-semibold text-slate-900">{layoutLabel(manualLayout)} from your walls</p>
+              <p className="text-sm text-slate-600">
+                There is no second competing choice. Change the wall buttons above to change the arrangement.
+              </p>
+            </div>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" role="group" aria-label="Kitchen layout shape">
           {shapes.map(({ id, label, desc }) => {
             const compatible = shapeCompatibleWithWalls(id, state.cabinetWalls);
@@ -1002,6 +1186,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
             );
           })}
         </div>
+        )}
       </Step1Section>
 
       <Step1Section n={4} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
@@ -1461,6 +1646,8 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         layoutStyle: state.layoutStyle, finishId: state.finishId,
         benchtopId: state.benchtopId, handleId: state.handleId, items,
         openings: state.openings, services: state.services,
+        cabinetWalls: state.cabinetWalls,
+        cabinetWallRanges: state.cabinetWallRanges,
         spec: activeSpec,
         designName: state.design?.name ?? 'Standard layout',
         aiGenerated: state.design?.aiGenerated ?? false,
@@ -1760,6 +1947,7 @@ export default function HomeownerWizard() {
     openings: [],
     services: [],
     cabinetWalls: [],
+    cabinetWallRanges: {},
     priorities: [],
     dishwasher: true,
     fridgeWidthMm: 940,
@@ -1821,7 +2009,7 @@ export default function HomeownerWizard() {
       return {
         ...prev,
         ...patch,
-        design: touchesGeometry || 'layoutPreference' in patch || 'cabinetWalls' in patch
+        design: touchesGeometry || 'layoutPreference' in patch || 'cabinetWalls' in patch || 'cabinetWallRanges' in patch
           ? null
           : ('design' in patch ? patch.design ?? null : prev.design),
         geometryEdits: touchesGeometry ? prev.geometryEdits + 1 : prev.geometryEdits,
@@ -1942,6 +2130,7 @@ export default function HomeownerWizard() {
   }, [
     state.layoutPreference, state.roomWidth, state.roomDepth, state.roomHeight,
     state.layoutStyle, state.finishId, state.benchtopId, state.handleId,
+    state.cabinetWalls, state.cabinetWallRanges,
     // intentionally omitting step / doorsOpen / contact fields
   ]);
 

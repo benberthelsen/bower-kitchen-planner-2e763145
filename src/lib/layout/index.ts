@@ -9,6 +9,7 @@ export * from './types';
 export * from './versions';
 export * from './schemas';
 export * from './geometry';
+export * from './briefConstraints';
 export * from './catalogRoles';
 export { solveRun } from './solveRun';
 export { compileSpec, type CompiledDesign } from './compileSpec';
@@ -37,7 +38,7 @@ export {
   type RuleFinding,
   type RuleContext,
 } from './rules';
-export { defaultSpecFor, type LayoutShape } from './defaultSpec';
+export { defaultSpecFor, inferLayoutShapeFromWalls, type LayoutShape } from './defaultSpec';
 export { priceDesign } from './priceDesign';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter';
 export { scoreDesign, type DesignScore, type DesignScoreParts } from './designScore';

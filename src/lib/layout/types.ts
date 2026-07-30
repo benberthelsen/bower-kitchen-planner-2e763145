@@ -9,6 +9,15 @@ import type { Opening, RoomConfig, ServicePoint, WallId } from '@/types';
 
 export type Wall = WallId;
 
+/** Cabinet coverage along a wall, measured from the wall's left corner while
+ *  facing it from inside the room. The end is exclusive. */
+export interface WallRunRange {
+  startMm: number;
+  endMm: number;
+}
+
+export type WallRunRanges = Partial<Record<Wall, WallRunRange>>;
+
 /** Room description consumed by the engine. Same shape as RoomConfig but with
  *  openings/services guaranteed present. */
 export interface RoomSpec extends RoomConfig {
@@ -55,9 +64,12 @@ export interface DesignBrief {
   styleIds?: { finishId: string; benchtopId: string; handleId: string };
   budgetBand?: BudgetBand;
   /** Walls the customer wants cabinetry on (wizard wall selection).
-   *  Omitted/empty = engine decides. Strategies needing a disallowed wall are
-   *  skipped by the candidate generator. */
+   *  Omitted/empty = engine decides. When present, these are the exact walls
+   *  to use, not merely an allow-list. */
   allowedWalls?: Wall[];
+  /** Optional cabinet coverage for selected walls. Omitted walls use their
+   *  full length. */
+  wallRanges?: WallRunRanges;
 }
 
 // ─── KitchenSpec DSL (what the AI writes) ──────────────────────────────────
@@ -85,6 +97,9 @@ export interface Run {
   wallCabinets: boolean;
   /** solve the run from the far corner backward (segments listed corner-first) */
   fromEnd?: boolean;
+  /** Optional customer-selected coverage along this wall. */
+  startMm?: number;
+  endMm?: number;
 }
 
 export interface StyleSpec {

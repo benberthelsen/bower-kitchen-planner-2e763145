@@ -10,6 +10,7 @@ export * from './types.ts';
 export * from './versions.ts';
 export * from './schemas.ts';
 export * from './geometry.ts';
+export * from './briefConstraints.ts';
 export * from './catalogRoles.ts';
 export { solveRun } from './solveRun.ts';
 export { compileSpec, type CompiledDesign } from './compileSpec.ts';
@@ -38,7 +39,7 @@ export {
   type RuleFinding,
   type RuleContext,
 } from './rules.ts';
-export { defaultSpecFor, type LayoutShape } from './defaultSpec.ts';
+export { defaultSpecFor, inferLayoutShapeFromWalls, type LayoutShape } from './defaultSpec.ts';
 export { priceDesign } from './priceDesign.ts';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter.ts';
 export { scoreDesign, type DesignScore, type DesignScoreParts } from './designScore.ts';

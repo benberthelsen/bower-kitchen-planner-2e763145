@@ -250,14 +250,38 @@ check('door mid-wall: both sides of the opening get cabinets', () => {
   assert.deepEqual(errors.map(error => error.code), []);
 });
 
-check('customer-selected walls are enforced by final validation', () => {
-  const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4200, roomDepth: 3200, layoutStyle: 'standard' });
+check('customer-selected wall becomes the actual single-wall run', () => {
+  const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4200, roomDepth: 4200, layoutStyle: 'standard' });
   brief.allowedWalls = ['W'];
   const spec = defaultSpecFor(brief, 'single-wall');
+  assert.deepEqual(spec.runs.map(run => run.wall), ['W']);
   const design = compileSpec(spec, brief.room);
   const errors = validate(design, brief.room, brief).filter(x => x.severity === 'error');
-  assert.ok(errors.some(error => error.code === 'allowed-wall'),
-    `expected allowed-wall, got: ${errors.map(error => error.code).join(',')}`);
+  assert.deepEqual(errors.map(error => error.code), []);
+});
+
+check('partial wall range constrains base, tall and wall cabinets', () => {
+  const brief = briefFromWizard({
+    layoutPreference: 'single-wall',
+    roomWidth: 4200,
+    roomDepth: 4800,
+    layoutStyle: 'standard',
+    cabinetWalls: ['W'],
+    cabinetWallRanges: { W: { startMm: 500, endMm: 4200 } },
+  });
+  const spec = defaultSpecFor(brief, 'single-wall');
+  assert.equal(spec.runs[0].startMm, 500);
+  assert.equal(spec.runs[0].endMm, 4200);
+  const design = compileSpec(spec, brief.room);
+  assert.deepEqual(design.runRanges, [{ wall: 'W', startMm: 500, endMm: 4200 }]);
+  for (const item of design.items.filter(item => item.rotation === 270)) {
+    const startMm = brief.room.depth - item.z - item.width / 2;
+    const endMm = startMm + item.width;
+    assert.ok(startMm >= 499 && endMm <= 4201,
+      `${item.definitionId} escaped selected range (${startMm}..${endMm})`);
+  }
+  const errors = validate(design, brief.room, brief).filter(x => x.severity === 'error');
+  assert.deepEqual(errors.map(error => error.code), []);
 });
 
 check('fromEnd run assigns panels to physical exposed sides', () => {

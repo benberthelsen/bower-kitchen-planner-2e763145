@@ -16,6 +16,7 @@
 
 import type { Opening } from './core.ts';
 import { ROLE_PRODUCTS, FIXED_WIDTH_ROLES, resolveDefinition } from './catalogRoles.ts';
+import { runRange } from './briefConstraints.ts';
 import { baseBlockedIntervals, usableIntervals, type Interval } from './geometry.ts';
 import type { ResolvedSegment, Run, Segment, SegmentRole } from './types.ts';
 
@@ -59,12 +60,18 @@ export function solveRun(
 ): SolvedRun {
   // Mirrored solve: flip blocked zones, solve left-to-right, flip results back.
   if (run.fromEnd) {
+    const range = runRange(run, wallLengthMm);
     const mirror = (b: Interval): Interval => ({ start: wallLengthMm - b.end, end: wallLengthMm - b.start });
     const mirroredOpenings = openings.map(o => (o.wall === run.wall
       ? { ...o, offsetMm: wallLengthMm - o.offsetMm - o.widthMm }
       : o));
     const inner = solveRun(
-      { ...run, fromEnd: false },
+      {
+        ...run,
+        fromEnd: false,
+        startMm: wallLengthMm - range.endMm,
+        endMm: wallLengthMm - range.startMm,
+      },
       wallLengthMm,
       mirroredOpenings,
       extraBlocked.map(mirror),
@@ -77,7 +84,12 @@ export function solveRun(
 
   const notes: string[] = [];
   const wallName = `${WALL_NAMES[run.wall] ?? run.wall} wall`;
-  const blocked = [...baseBlockedIntervals(run.wall, openings), ...extraBlocked];
+  const range = runRange(run, wallLengthMm);
+  const rangeBlocked: Interval[] = [
+    ...(range.startMm > 0 ? [{ start: 0, end: range.startMm }] : []),
+    ...(range.endMm < wallLengthMm ? [{ start: range.endMm, end: wallLengthMm }] : []),
+  ];
+  const blocked = [...baseBlockedIntervals(run.wall, openings), ...extraBlocked, ...rangeBlocked];
   const intervals = usableIntervals(wallLengthMm, blocked);
   if (intervals.length === 0) {
     return { resolved: [], notes: [`No usable space on the ${wallName} — openings cover it`] };

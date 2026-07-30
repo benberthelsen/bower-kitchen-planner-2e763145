@@ -12,10 +12,11 @@
 
 import type { DesignBrief, KitchenSpec, Segment, SegmentRole, StyleSpec, Violation, Wall } from './types';
 import type { PlacedItem } from '@/types';
+import { rangeForWall } from './briefConstraints';
 import { compileSpec } from './compileSpec';
 import { validate } from './validate';
 import { priceDesign } from './priceDesign';
-import { defaultSpecFor, type LayoutShape } from './defaultSpec';
+import { defaultSpecFor, inferLayoutShapeFromWalls, type LayoutShape } from './defaultSpec';
 import { scoreDesign, type DesignScore } from './designScore';
 
 export type CandidateEmphasis = 'workflow' | 'storage' | 'social';
@@ -66,14 +67,15 @@ function seg(role: SegmentRole, widthMm?: number): Segment {
 /** Cheap geometric pre-filter; final authority is compile + validate. */
 function strategyPlausible(strategy: LayoutShape, brief: DesignBrief): boolean {
   const { width, depth } = brief.room;
-  const allowed = brief.allowedWalls && brief.allowedWalls.length > 0 ? brief.allowedWalls : null;
-  const ok = (...walls: Wall[]) => !allowed || walls.every(w => allowed.includes(w));
-  const okAny = (...walls: Wall[]) => !allowed || walls.some(w => allowed.includes(w));
+  const selectedShape = brief.allowedWalls?.length
+    ? inferLayoutShapeFromWalls(brief.allowedWalls)
+    : null;
+  if (selectedShape) return strategy === selectedShape;
   switch (strategy) {
-    case 'single-wall': return width >= 1800 && ok('N');
-    case 'l-shape': return width >= 2400 && depth >= 2100 && ok('N') && okAny('W', 'E');
-    case 'u-shape': return width >= 2400 && depth >= 2400 && ok('N', 'W', 'E');
-    case 'galley': return width >= 2400 && depth >= 2400 && ok('N', 'S');
+    case 'single-wall': return width >= 1800;
+    case 'l-shape': return width >= 2400 && depth >= 2100;
+    case 'u-shape': return width >= 2400 && depth >= 2400;
+    case 'galley': return width >= 2400 && depth >= 2400;
   }
 }
 
@@ -123,16 +125,23 @@ function socialVariant(brief: DesignBrief, strategy: LayoutShape, style?: StyleS
 }
 
 /** Sink-wall alternative for l/u strategies: mirror the side runs. */
-function mirrorSideRuns(spec: KitchenSpec, allowedWalls?: Wall[]): KitchenSpec | null {
+function mirrorSideRuns(spec: KitchenSpec, brief: DesignBrief): KitchenSpec | null {
   const flip: Partial<Record<Wall, Wall>> = { W: 'E', E: 'W' };
-  const allowed = allowedWalls?.length ? new Set(allowedWalls) : null;
+  const allowed = brief.allowedWalls?.length ? new Set(brief.allowedWalls) : null;
   let changed = false;
   const runs = spec.runs.map(run => {
     const target = flip[run.wall];
     if (!target) return run;
     if (allowed && !allowed.has(target)) return run;
     changed = true;
-    return { ...run, wall: target, fromEnd: target === 'W' };
+    const { startMm: _startMm, endMm: _endMm, ...rest } = run;
+    const selectedRange = brief.wallRanges?.[target];
+    return {
+      ...rest,
+      wall: target,
+      fromEnd: target === 'W',
+      ...(selectedRange ? rangeForWall(brief, target) : {}),
+    };
   });
   if (!changed) return null;
   return { ...spec, runs, rationale: `${spec.rationale} (mirrored to the opposite side wall.)` };
@@ -160,7 +169,7 @@ export function generateCandidatePool(input: GenerateCandidatesInput): Candidate
     const workflow = defaultSpecFor(brief, strategy, style);
     attempts.push({ candidateId: `${strategy}/workflow`, strategy, emphasis: 'workflow', spec: workflow });
 
-    const mirrored = mirrorSideRuns(workflow, brief.allowedWalls);
+    const mirrored = mirrorSideRuns(workflow, brief);
     if (mirrored) {
       attempts.push({ candidateId: `${strategy}/workflow-mirrored`, strategy, emphasis: 'workflow', spec: mirrored });
     }

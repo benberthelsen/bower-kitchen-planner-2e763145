@@ -13,7 +13,7 @@ import {
   PRICING_VERSION,
   PROPOSAL_SCHEMA_VERSION,
 } from '@/lib/layout';
-import type { DesignBrief, KitchenSpec, Priority, Wall } from '@/lib/layout';
+import type { DesignBrief, KitchenSpec, Priority, Wall, WallRunRanges } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 
 export interface WizardBriefFields {
@@ -42,6 +42,8 @@ export interface WizardBriefFields {
   /** Walls the customer wants cabinetry on (wizard wall picker). Empty/absent
    *  = auto. Fed to the engine as DesignBrief.allowedWalls. */
   cabinetWalls?: Wall[];
+  /** Exact start/finish coverage for selected walls. */
+  cabinetWallRanges?: WallRunRanges;
   /** Style-first: chosen at step 3, fed to generation as brief.styleIds. */
   finishId: string;
   benchtopId: string;
@@ -129,5 +131,8 @@ export function buildBrief(f: WizardBriefFields): DesignBrief {
     ...(f.styleWords ? { styleWords: f.styleWords } : {}),
     styleIds: { finishId: f.finishId, benchtopId: f.benchtopId, handleId: f.handleId },
     ...(f.cabinetWalls && f.cabinetWalls.length > 0 ? { allowedWalls: f.cabinetWalls } : {}),
+    ...(f.cabinetWallRanges && Object.keys(f.cabinetWallRanges).length > 0
+      ? { wallRanges: f.cabinetWallRanges }
+      : {}),
   };
 }
