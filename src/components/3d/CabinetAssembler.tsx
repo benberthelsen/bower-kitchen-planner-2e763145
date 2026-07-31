@@ -24,7 +24,10 @@ import FoldingDoor from './cabinet-parts/FoldingDoor';
 import CornerBiFold from './cabinet-parts/CornerBiFold';
 import { useOptionalTexture } from './materials/useOptionalTexture';
 import { withOptionalSurfaceTexture } from './materials/physicalTexture';
-import { shouldRenderKickboard } from './cabinetConstruction';
+import {
+  carcassMaterialForCategory,
+  shouldRenderKickboard,
+} from './cabinetConstruction';
 import { 
   ConstructionRecipe, 
   getConstructionRecipe, 
@@ -207,13 +210,32 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           endPanel: endPanelRaw, falseFront: falseFrontRaw } = materials;
   // Apply the supplier finish texture (when loaded) over the base material.
   const applyTex = (m: MaterialProps, t: THREE.Texture | null): MaterialProps => (t && m ? { ...m, map: t } : m);
-  const gableMat = applyTex(gableRaw, carcaseTex);
-  const gableIntMat = applyTex(gableIntRaw, carcaseTex);
+  // Decorative finishes belong on doors and explicit finished end panels.
+  // Overhead cabinet structure is white melamine, including the top surface
+  // that is visible from the planner's elevated camera angle.
+  const gableMat = carcassMaterialForCategory(
+    config.category,
+    applyTex(gableRaw, carcaseTex),
+    gableIntRaw,
+  );
+  const gableIntMat = carcassMaterialForCategory(
+    config.category,
+    applyTex(gableIntRaw, carcaseTex),
+    gableIntRaw,
+  );
   const gableExtMat = applyTex(gableExtRaw, doorTex);
   const doorMat = applyTex(doorRaw, doorTex);
   const drawerMat = applyTex(drawerRaw, doorTex);
-  const shelfMat = applyTex(shelfRaw, carcaseTex);
-  const bottomMat = applyTex(bottomRaw, carcaseTex);
+  const shelfMat = carcassMaterialForCategory(
+    config.category,
+    applyTex(shelfRaw, carcaseTex),
+    gableIntRaw,
+  );
+  const bottomMat = carcassMaterialForCategory(
+    config.category,
+    applyTex(bottomRaw, carcaseTex),
+    gableIntRaw,
+  );
   const kickMat = kickRaw;
   const benchMat = withOptionalSurfaceTexture(benchRaw, benchTex);
   const endPanelMat = applyTex(endPanelRaw, doorTex);
@@ -481,8 +503,8 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           depth={depthM - backPanelThickness - shelfSetback}
           thickness={shelfThickness}
           position={[0, shelfY, backPanelThickness / 2 + 0.005]}
-          color="#f0f0f0"
-          map={null}
+          color={shelfMat.color}
+          map={shelfMat.map}
           setback={shelfSetback}
           adjustable={isAdjustable}
         />

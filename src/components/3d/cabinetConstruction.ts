@@ -9,6 +9,19 @@ interface KickboardEligibility {
 }
 
 /**
+ * Overhead cabinet boxes are white melamine even when their doors use a
+ * decorative timber finish. Base and tall cabinet structure keeps the
+ * configured carcass material.
+ */
+export function carcassMaterialForCategory<T>(
+  category: CabinetRenderConfig['category'],
+  configuredMaterial: T,
+  whiteMelamineMaterial: T,
+): T {
+  return category === 'Wall' ? whiteMelamineMaterial : configuredMaterial;
+}
+
+/**
  * A standard base cabinet placed on the floor must continue the kickboard run.
  *
  * Catalogue names are fuzzy-matched to Microvellum recipes, so an ordinary

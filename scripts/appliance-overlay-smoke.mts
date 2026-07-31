@@ -31,7 +31,10 @@ import {
 } from '../src/components/3d/applianceClassification';
 import { rectangularCutoutSegments } from '../src/components/3d/cabinet-parts/benchtopCutout';
 import { sinkOpeningDimensions } from '../src/components/3d/appliances/sinkDimensions';
-import { shouldRenderKickboard } from '../src/components/3d/cabinetConstruction';
+import {
+  carcassMaterialForCategory,
+  shouldRenderKickboard,
+} from '../src/components/3d/cabinetConstruction';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -240,6 +243,13 @@ check('wall cabinets and applied panels never gain a kick',
     itemY: 0,
     recipeEnabled: true,
   }));
+
+const timberCarcass = { finish: 'timber' };
+const whiteMelamineCarcass = { finish: 'white-melamine' };
+check('overhead carcass stays white while other cabinet categories keep their configured material',
+  carcassMaterialForCategory('Wall', timberCarcass, whiteMelamineCarcass) === whiteMelamineCarcass
+  && carcassMaterialForCategory('Base', timberCarcass, whiteMelamineCarcass) === timberCarcass
+  && carcassMaterialForCategory('Tall', timberCarcass, whiteMelamineCarcass) === timberCarcass);
 
 // These two are the load-bearing invariants. rules.ts detects islands via an
 // `ai-` prefix, and both pricing paths read compiled.items — an overlay that
