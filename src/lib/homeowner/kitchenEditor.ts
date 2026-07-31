@@ -31,6 +31,106 @@ export const KITCHEN_ROLE_LABELS: Record<SegmentRole, string> = {
   'corner-buffer': 'Corner clearance cupboard',
 };
 
+export interface KitchenUnitWidthPolicy {
+  custom: boolean;
+  minMm: number;
+  maxMm: number;
+  lockedReason?: string;
+}
+
+export const MAX_CUSTOM_KITCHEN_UNIT_WIDTH_MM = 1200;
+
+/**
+ * A sink cabinet needs support material beside the bowl/cut-out. Use the
+ * larger supplier dimension and allow 50 mm each side, rounded up to 10 mm.
+ */
+export function sinkCabinetMinimumWidthMm(
+  sinkWidthMm?: number | null,
+  cutoutWidthMm?: number | null,
+): number {
+  const productWidth = Math.max(sinkWidthMm ?? 0, cutoutWidthMm ?? 0);
+  if (productWidth <= 0) return 600;
+  return Math.max(600, Math.ceil((productWidth + 100) / 10) * 10);
+}
+
+/**
+ * Custom widths are for manufactured cabinets, not fixed appliance openings
+ * or corner geometry. Oven/rangehood compatibility remains controlled by
+ * their discrete appliance sizes.
+ */
+export function kitchenUnitWidthPolicy(
+  role: SegmentRole,
+  sinkMinimumWidthMm = 600,
+): KitchenUnitWidthPolicy {
+  switch (role) {
+    case 'doors':
+      return { custom: true, minMm: 150, maxMm: MAX_CUSTOM_KITCHEN_UNIT_WIDTH_MM };
+    case 'drawers':
+      return { custom: true, minMm: 300, maxMm: MAX_CUSTOM_KITCHEN_UNIT_WIDTH_MM };
+    case 'sink':
+      {
+        const minimumWidth = Math.max(600, sinkMinimumWidthMm);
+        return {
+          custom: true,
+          minMm: minimumWidth,
+          maxMm: Math.max(MAX_CUSTOM_KITCHEN_UNIT_WIDTH_MM, minimumWidth),
+        };
+      }
+    case 'cooktop':
+      return { custom: true, minMm: 600, maxMm: MAX_CUSTOM_KITCHEN_UNIT_WIDTH_MM };
+    case 'pantry':
+      return { custom: true, minMm: 300, maxMm: MAX_CUSTOM_KITCHEN_UNIT_WIDTH_MM };
+    case 'oven-tower':
+      return {
+        custom: false,
+        minMm: 600,
+        maxMm: 600,
+        lockedReason: 'Fixed to the selected oven size.',
+      };
+    case 'dishwasher':
+      return {
+        custom: false,
+        minMm: 600,
+        maxMm: 600,
+        lockedReason: 'Fixed to the dishwasher opening.',
+      };
+    case 'fridge-gap':
+      return {
+        custom: false,
+        minMm: ROLE_PRODUCTS['fridge-gap'].widths.at(-1) ?? 960,
+        maxMm: ROLE_PRODUCTS['fridge-gap'].widths[0],
+        lockedReason: 'Fixed to the fridge and its side clearances.',
+      };
+    case 'corner':
+    case 'corner-buffer':
+      return {
+        custom: false,
+        minMm: ROLE_PRODUCTS[role].widths.at(-1) ?? 600,
+        maxMm: ROLE_PRODUCTS[role].widths[0],
+        lockedReason: 'Fixed to buildable corner geometry.',
+      };
+  }
+}
+
+export function kitchenUnitWidthError(
+  role: SegmentRole,
+  widthMm: number,
+  sinkMinimumWidthMm = 600,
+): string | null {
+  const policy = kitchenUnitWidthPolicy(role, sinkMinimumWidthMm);
+  if (!Number.isInteger(widthMm)) return 'Enter a whole millimetre width.';
+  if (!policy.custom && !ROLE_PRODUCTS[role].widths.includes(widthMm)) {
+    return policy.lockedReason ?? 'Choose one of the compatible sizes.';
+  }
+  if (widthMm < policy.minMm) {
+    return role === 'sink'
+      ? `The selected sink needs a cabinet at least ${policy.minMm}mm wide.`
+      : `Minimum width is ${policy.minMm}mm.`;
+  }
+  if (widthMm > policy.maxMm) return `Maximum width is ${policy.maxMm}mm.`;
+  return null;
+}
+
 export function cloneKitchenSpec(spec: KitchenSpec): KitchenSpec {
   return {
     ...spec,

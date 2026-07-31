@@ -222,13 +222,25 @@ export function compileSpec(
       }
 
       if (cooktopSeg) {
-        const pos = wallToWorld(run.wall, cooktopSeg.startMm, cooktopSeg.widthMm, dims.wallDepth, room);
+        // A custom cooktop cabinet must not create a made-up rangehood width.
+        // Keep the extraction unit at a buildable 600/900 appliance size and
+        // centre it over the cabinet below.
+        const rangehoodWidth = cooktopSeg.widthMm >= 900 ? 900 : 600;
+        const rangehoodStart = cooktopSeg.startMm
+          + (cooktopSeg.widthMm - rangehoodWidth) / 2;
+        const pos = wallToWorld(
+          run.wall,
+          rangehoodStart,
+          rangehoodWidth,
+          dims.wallDepth,
+          room,
+        );
         push({
           definitionId: RANGEHOOD_ID,
           itemType: 'Appliance',
           layoutRole: 'rangehood',
           x: pos.x, y: dims.wallMountHeight, z: pos.z, rotation: pos.rotation,
-          width: Math.min(cooktopSeg.widthMm, 900), height: dims.wallHeight, depth: dims.wallDepth,
+          width: rangehoodWidth, height: dims.wallHeight, depth: dims.wallDepth,
         });
 
       }

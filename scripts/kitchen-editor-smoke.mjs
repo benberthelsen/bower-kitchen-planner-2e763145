@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import {
   addKitchenUnit,
   cloneKitchenSpec,
+  kitchenUnitWidthError,
+  kitchenUnitWidthPolicy,
   moveKitchenUnit,
   removeKitchenUnit,
   replaceKitchenUnit,
   setRunWallCabinets,
+  sinkCabinetMinimumWidthMm,
 } from '../.tmp-snap-test/kitchen-editor.mjs';
 
 const baseSpec = {
@@ -29,6 +32,28 @@ const original = cloneKitchenSpec(baseSpec);
 const replaced = replaceKitchenUnit(original, { runIndex: 0, segmentIndex: 1 }, 'drawers', 450);
 assert.deepEqual(replaced.runs[0].segments[1], { kind: 'cabinet', role: 'drawers', widthMm: 450 });
 assert.deepEqual(original, baseSpec, 'replace must not mutate the saved design');
+
+const customSized = replaceKitchenUnit(
+  original,
+  { runIndex: 0, segmentIndex: 1 },
+  'drawers',
+  735,
+);
+assert.equal(customSized.runs[0].segments[1].widthMm, 735);
+assert.equal(kitchenUnitWidthError('drawers', 735), null);
+
+const sinkMinimum = sinkCabinetMinimumWidthMm(780, 760);
+assert.equal(sinkMinimum, 880);
+assert.match(
+  kitchenUnitWidthError('sink', 870, sinkMinimum),
+  /selected sink needs a cabinet at least 880mm/i,
+);
+assert.equal(kitchenUnitWidthError('sink', 880, sinkMinimum), null);
+
+assert.equal(kitchenUnitWidthPolicy('oven-tower').custom, false);
+assert.match(kitchenUnitWidthError('oven-tower', 650), /selected oven size/i);
+assert.equal(kitchenUnitWidthPolicy('dishwasher').custom, false);
+assert.match(kitchenUnitWidthError('dishwasher', 750), /dishwasher opening/i);
 
 const removed = removeKitchenUnit(replaced, { runIndex: 0, segmentIndex: 1 }, 450);
 assert.deepEqual(removed.runs[0].segments[1], {

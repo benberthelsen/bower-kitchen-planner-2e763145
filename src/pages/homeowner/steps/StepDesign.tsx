@@ -8,7 +8,7 @@
  *   entry and the AI path degrades to it on any failure.
  */
 
-import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, CornerUpLeft, Loader2, PencilRuler, Send, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
@@ -31,8 +31,9 @@ import { createWizardDesign, type WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
 import { featureFlags, isIosDevice } from '@/lib/featureFlags';
-import KitchenUnitEditor from '@/components/homeowner/KitchenUnitEditor';
 import { createPlannerAlternatives } from '@/lib/homeowner/plannerAlternatives';
+
+const KitchenUnitEditor = lazy(() => import('@/components/homeowner/KitchenUnitEditor'));
 
 interface Props {
   brief: DesignBrief;
@@ -594,15 +595,17 @@ export default function StepDesign({
             Edit cabinets
           </Button>
           {cabinetEditorOpen && (
-            <KitchenUnitEditor
-              open={cabinetEditorOpen}
-              designName={design.name}
-              spec={activeSpec ?? design.spec}
-              brief={brief}
-              chosenAppliances={chosenAppliances}
-              onOpenChange={setCabinetEditorOpen}
-              onSave={handleSaveCabinetEdits}
-            />
+            <Suspense fallback={null}>
+              <KitchenUnitEditor
+                open={cabinetEditorOpen}
+                designName={design.name}
+                spec={activeSpec ?? design.spec}
+                brief={brief}
+                chosenAppliances={chosenAppliances}
+                onOpenChange={setCabinetEditorOpen}
+                onSave={handleSaveCabinetEdits}
+              />
+            </Suspense>
           )}
         </>
       )}

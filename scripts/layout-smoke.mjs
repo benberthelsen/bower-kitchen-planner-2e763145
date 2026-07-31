@@ -83,6 +83,28 @@ check('compiled cabinets retain their editable KitchenSpec source coordinates', 
 });
 
 // ── openings: cabinets avoid a doorway ──
+check('custom cooktop cabinets keep the rangehood at a compatible fixed size', () => {
+  const brief = briefFromWizard({
+    layoutPreference: 'single-wall',
+    roomWidth: 4200,
+    roomDepth: 3000,
+    layoutStyle: 'standard',
+  });
+  const spec = defaultSpecFor(brief, 'single-wall');
+  const cooktopSegment = spec.runs[0].segments.find(segment =>
+    segment.kind === 'cabinet' && segment.role === 'cooktop');
+  assert.ok(cooktopSegment, 'no cooktop cabinet generated');
+  cooktopSegment.widthMm = 735;
+
+  const design = compileSpec(spec, brief.room);
+  const cooktop = design.rolePositions.cooktop;
+  const rangehood = design.items.find(item => item.layoutRole === 'rangehood');
+  assert.ok(cooktop, 'no cooktop compiled');
+  assert.ok(rangehood, 'no rangehood compiled');
+  assert.equal(rangehood.width, 600);
+  assert.equal(rangehood.x, cooktop.item.x);
+});
+
 check('door opening blocks base cabinets', () => {
   const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4200, roomDepth: 3000, layoutStyle: 'standard' });
   brief.room.openings.push({ id: 'd1', wall: 'N', type: 'door', offsetMm: 1800, widthMm: 900, swing: 'in-left' });

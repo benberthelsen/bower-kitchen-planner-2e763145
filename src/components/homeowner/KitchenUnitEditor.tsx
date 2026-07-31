@@ -29,12 +29,15 @@ import {
   addKitchenUnit,
   cloneKitchenSpec,
   EDITABLE_KITCHEN_ROLES,
+  kitchenUnitWidthError,
+  kitchenUnitWidthPolicy,
   KITCHEN_ROLE_LABELS,
   moveKitchenUnit,
   removeKitchenUnit,
   replaceKitchenUnit,
   segmentWidthMm,
   setRunWallCabinets,
+  sinkCabinetMinimumWidthMm,
   type KitchenUnitRef,
 } from '@/lib/homeowner/kitchenEditor';
 import {
@@ -64,6 +67,105 @@ function sameRef(a: KitchenUnitRef | null, b: KitchenUnitRef): boolean {
   return !!a && a.runIndex === b.runIndex && a.segmentIndex === b.segmentIndex;
 }
 
+interface KitchenWidthControlProps {
+  role: SegmentRole;
+  value: number;
+  sinkMinimumWidthMm: number;
+  ariaLabel: string;
+  onCommit: (widthMm: number) => void;
+}
+
+function KitchenWidthControl({
+  role,
+  value,
+  sinkMinimumWidthMm,
+  ariaLabel,
+  onCommit,
+}: KitchenWidthControlProps) {
+  const policy = kitchenUnitWidthPolicy(role, sinkMinimumWidthMm);
+  const presets = useMemo(
+    () => ROLE_PRODUCTS[role].widths.filter(width =>
+      width >= policy.minMm && width <= policy.maxMm),
+    [policy.maxMm, policy.minMm, role],
+  );
+  const valueIsPreset = presets.includes(value);
+  const [customMode, setCustomMode] = useState(policy.custom && !valueIsPreset);
+  const [draftValue, setDraftValue] = useState(String(value));
+
+  useEffect(() => {
+    setCustomMode(policy.custom && !presets.includes(value));
+    setDraftValue(String(value));
+  }, [policy.custom, presets, value]);
+
+  const commitCustomWidth = () => {
+    const widthMm = Number(draftValue);
+    const error = kitchenUnitWidthError(role, widthMm, sinkMinimumWidthMm);
+    if (error) {
+      toast.error(error);
+      setDraftValue(String(value));
+      return;
+    }
+    onCommit(widthMm);
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block space-y-1 text-[11px] font-medium text-slate-600">
+        Width
+        <select
+          aria-label={ariaLabel}
+          value={customMode ? 'custom' : String(value)}
+          onChange={event => {
+            if (event.target.value === 'custom') {
+              setCustomMode(true);
+              setDraftValue(String(value));
+              return;
+            }
+            setCustomMode(false);
+            onCommit(Number(event.target.value));
+          }}
+          className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800"
+        >
+          {presets.map(width => (
+            <option key={width} value={width}>{width}mm</option>
+          ))}
+          {policy.custom && <option value="custom">Custom width…</option>}
+        </select>
+      </label>
+
+      {customMode && policy.custom && (
+        <label className="block space-y-1 text-[11px] font-medium text-slate-600">
+          Custom width (mm)
+          <input
+            type="number"
+            inputMode="numeric"
+            min={policy.minMm}
+            max={policy.maxMm}
+            step={1}
+            aria-label={`${ariaLabel} custom width`}
+            value={draftValue}
+            onChange={event => setDraftValue(event.target.value)}
+            onBlur={commitCustomWidth}
+            onKeyDown={event => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+          />
+          <span className="block font-normal text-slate-500">
+            {role === 'sink'
+              ? `Minimum ${policy.minMm}mm for the selected sink`
+              : `${policy.minMm}–${policy.maxMm}mm`}
+          </span>
+        </label>
+      )}
+
+      {!policy.custom && policy.lockedReason && (
+        <p className="text-[11px] text-slate-500">{policy.lockedReason}</p>
+      )}
+    </div>
+  );
+}
+
 export default function KitchenUnitEditor({
   open,
   designName,
@@ -90,11 +192,6 @@ export default function KitchenUnitEditor({
     setSelectedRef(null);
   }, [open, spec]);
 
-  useEffect(() => {
-    const widths = ROLE_PRODUCTS[newRole].widths;
-    if (!widths.includes(newWidth)) setNewWidth(widths[0]);
-  }, [newRole, newWidth]);
-
   const compiled = useMemo(() => compileSpec(draft, brief.room), [draft, brief.room]);
   const evaluation = useMemo(
     () => evaluateDesign(compiled, brief.room, brief, draft),
@@ -102,6 +199,23 @@ export default function KitchenUnitEditor({
   );
   const blockingErrors = evaluation.violations.filter(violation => violation.severity === 'error');
   const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
+  const selectedSinkProduct = applianceProducts.find(product =>
+    product.id === chosenAppliances.sink);
+  const selectedSinkMinimumWidth = sinkCabinetMinimumWidthMm(
+    selectedSinkProduct?.width_mm,
+    selectedSinkProduct?.cutout_width_mm,
+  );
+
+  useEffect(() => {
+    setNewWidth(current => {
+      if (!kitchenUnitWidthError(newRole, current, selectedSinkMinimumWidth)) return current;
+      const compatiblePreset = ROLE_PRODUCTS[newRole].widths.find(width =>
+        !kitchenUnitWidthError(newRole, width, selectedSinkMinimumWidth));
+      return compatiblePreset
+        ?? kitchenUnitWidthPolicy(newRole, selectedSinkMinimumWidth).minMm;
+    });
+  }, [newRole, selectedSinkMinimumWidth]);
+
   const sceneItems = useMemo(() => {
     const base = enrichItemsWithChosenAppliances(
       compiled.items,
@@ -402,9 +516,22 @@ export default function KitchenUnitEditor({
                             value={selectedSegment.role}
                             onChange={event => {
                               const role = event.target.value as SegmentRole;
-                              const width = ROLE_PRODUCTS[role].widths.includes(selectedWidth)
+                              const width = !kitchenUnitWidthError(
+                                role,
+                                selectedWidth,
+                                selectedSinkMinimumWidth,
+                              )
                                 ? selectedWidth
-                                : ROLE_PRODUCTS[role].widths[0];
+                                : ROLE_PRODUCTS[role].widths.find(candidate =>
+                                  !kitchenUnitWidthError(
+                                    role,
+                                    candidate,
+                                    selectedSinkMinimumWidth,
+                                  ))
+                                  ?? kitchenUnitWidthPolicy(
+                                    role,
+                                    selectedSinkMinimumWidth,
+                                  ).minMm;
                               applyDraft(replaceKitchenUnit(draft, selectedRef, role, width));
                             }}
                             className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800"
@@ -414,24 +541,18 @@ export default function KitchenUnitEditor({
                             ))}
                           </select>
                         </label>
-                        <label className="space-y-1 text-[11px] font-medium text-slate-600">
-                          Width
-                          <select
-                            aria-label="Replacement unit width"
-                            value={selectedWidth}
-                            onChange={event => applyDraft(replaceKitchenUnit(
-                              draft,
-                              selectedRef,
-                              selectedSegment.role,
-                              Number(event.target.value),
-                            ))}
-                            className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800"
-                          >
-                            {ROLE_PRODUCTS[selectedSegment.role].widths.map(width => (
-                              <option key={width} value={width}>{width}mm</option>
-                            ))}
-                          </select>
-                        </label>
+                        <KitchenWidthControl
+                          role={selectedSegment.role}
+                          value={selectedWidth}
+                          sinkMinimumWidthMm={selectedSinkMinimumWidth}
+                          ariaLabel="Replacement unit width"
+                          onCommit={width => applyDraft(replaceKitchenUnit(
+                            draft,
+                            selectedRef,
+                            selectedSegment.role,
+                            width,
+                          ))}
+                        />
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         <Button
@@ -499,16 +620,13 @@ export default function KitchenUnitEditor({
                           <option key={role} value={role}>{KITCHEN_ROLE_LABELS[role]}</option>
                         ))}
                       </select>
-                      <select
-                        aria-label="New unit width"
+                      <KitchenWidthControl
+                        role={newRole}
                         value={newWidth}
-                        onChange={event => setNewWidth(Number(event.target.value))}
-                        className="h-10 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800"
-                      >
-                        {ROLE_PRODUCTS[newRole].widths.map(width => (
-                          <option key={width} value={width}>{width}mm</option>
-                        ))}
-                      </select>
+                        sinkMinimumWidthMm={selectedSinkMinimumWidth}
+                        ariaLabel="New unit width"
+                        onCommit={setNewWidth}
+                      />
                     </div>
                     <Button
                       type="button"
