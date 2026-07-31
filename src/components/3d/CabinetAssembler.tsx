@@ -24,6 +24,7 @@ import FoldingDoor from './cabinet-parts/FoldingDoor';
 import CornerBiFold from './cabinet-parts/CornerBiFold';
 import { useOptionalTexture } from './materials/useOptionalTexture';
 import { withOptionalSurfaceTexture } from './materials/physicalTexture';
+import { shouldRenderKickboard } from './cabinetConstruction';
 import { 
   ConstructionRecipe, 
   getConstructionRecipe, 
@@ -159,7 +160,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Wall cabinets should never render base/tall toe-kick construction even if recipe data is noisy
   const recipeKickEnabled = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
-  const hasKick = config.category === 'Wall' ? false : recipeKickEnabled;
+  const hasKick = shouldRenderKickboard({
+    category: config.category,
+    productType: config.productType,
+    productName: config.productName,
+    itemY: item.y ?? 0,
+    recipeEnabled: recipeKickEnabled,
+  });
   
   // Other global dimensions
   const btThickness = recipe?.benchtop.thickness 

@@ -31,6 +31,7 @@ import {
 } from '../src/components/3d/applianceClassification';
 import { rectangularCutoutSegments } from '../src/components/3d/cabinet-parts/benchtopCutout';
 import { sinkOpeningDimensions } from '../src/components/3d/appliances/sinkDimensions';
+import { shouldRenderKickboard } from '../src/components/3d/cabinetConstruction';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -207,6 +208,38 @@ check('the split slab has the expected opening area',
 check('no benchtop segment covers the centre of the sink',
   !centerCovered,
   JSON.stringify(cutoutSegments));
+
+check('a floor-standing base cabinet keeps its kick despite noisy recipe metadata',
+  shouldRenderKickboard({
+    category: 'Base',
+    productType: 'cabinet',
+    productName: 'Base 1 Door',
+    itemY: 0,
+    recipeEnabled: false,
+  }));
+check('a genuinely suspended base cabinet does not gain a kick',
+  !shouldRenderKickboard({
+    category: 'Base',
+    productType: 'cabinet',
+    productName: '1 Drawer Suspended Cabinet',
+    itemY: 0,
+    recipeEnabled: false,
+  }));
+check('wall cabinets and applied panels never gain a kick',
+  !shouldRenderKickboard({
+    category: 'Wall',
+    productType: 'cabinet',
+    productName: 'Upper 2 Door',
+    itemY: 1350,
+    recipeEnabled: true,
+  })
+  && !shouldRenderKickboard({
+    category: 'Base',
+    productType: 'panel',
+    productName: 'Base Applied Panel',
+    itemY: 0,
+    recipeEnabled: true,
+  }));
 
 // These two are the load-bearing invariants. rules.ts detects islands via an
 // `ai-` prefix, and both pricing paths read compiled.items — an overlay that
