@@ -9,9 +9,14 @@ const useCatalogSource = readFileSync('src/hooks/useCatalog.ts', 'utf8');
 const wizardSource = readFileSync('src/pages/homeowner/Wizard.tsx', 'utf8');
 const designStepSource = readFileSync('src/pages/homeowner/steps/StepDesign.tsx', 'utf8');
 const appSource = readFileSync('src/App.tsx', 'utf8');
+const authSource = readFileSync('src/pages/Auth.tsx', 'utf8');
 const leadsSource = readFileSync('src/pages/admin/Leads.tsx', 'utf8');
 const analyticsSource = readFileSync('src/pages/admin/Analytics.tsx', 'utf8');
 const supabaseConfig = readFileSync('supabase/config.toml', 'utf8');
+const officeAdminMigration = readFileSync(
+  'supabase/migrations/20260731153500_grant_info_bower_admin.sql',
+  'utf8',
+);
 
 const families = catalog.HOMEOWNER_CABINET_FAMILIES;
 assert.ok(families.length >= 20 && families.length <= 30, 'homeowner catalogue must stay curated');
@@ -45,6 +50,15 @@ assert.ok(wizardSource.includes('{state.step === 5 && ('), 'Design step must ren
 assert.ok(wizardSource.includes('Request my free quote'), 'contact capture belongs at the quote request');
 assert.ok(designStepSource.includes('OptionPlanPreview'), 'AI alternatives require a visual plan preview');
 assert.ok(appSource.includes('<Navigate to="/wizard" replace />'), 'public root must enter the homeowner planner');
+assert.ok(
+  authSource.includes("navigate(isAdmin ? '/admin' : '/trade/dashboard', { replace: true })"),
+  'authenticated admins must land on the admin dashboard',
+);
+assert.match(
+  officeAdminMigration,
+  /info@bowercabinets\.com[\s\S]*'admin'::public\.app_role/,
+  'the Bower office account must retain its database admin grant',
+);
 assert.ok(wizardSource.includes('maxLength={254}'), 'lead email must be length bounded');
 assert.ok(wizardSource.includes('contactPhoneValid'), 'optional phone must be validated when supplied');
 assert.ok(leadsSource.includes('is_synthetic_test, persona_id'), 'lead inbox must load synthetic-test tags');

@@ -14,7 +14,7 @@ const emailSchema = z.string().email('Invalid email address');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
 
 export default function Auth() {
-  const { user, loading, signIn, signUp } = useAuth();
+  const { user, loading, isAdmin, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -30,9 +30,9 @@ export default function Auth() {
 
   useEffect(() => {
     if (user && !loading) {
-      navigate('/trade/dashboard');
+      navigate(isAdmin ? '/admin' : '/trade/dashboard', { replace: true });
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, isAdmin, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +59,9 @@ export default function Auth() {
       }
     } else {
       toast.success('Logged in successfully');
-      navigate('/trade/dashboard');
+      // useAuth keeps loading=true until the database role lookup completes.
+      // The effect above then sends admins to /admin and trade users to their
+      // dashboard without racing the role check.
     }
   };
 
