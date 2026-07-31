@@ -19,6 +19,7 @@ import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
 import ApplianceBenchtop from './ApplianceBenchtop';
 import IntegratedDishwasherFront from './IntegratedDishwasherFront';
 import { resolveHandleDefinition } from '../../lib/handleStyles';
+import { fridgeBodyWidthMm } from '../../lib/layout/catalogRoles';
 import CabinetMesh from './CabinetMesh';
 import { SINK_RIM_WIDTH_M, sinkOpeningDimensions } from './appliances/sinkDimensions';
 
@@ -180,7 +181,11 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   // truly complete AND the definition doesn't exist.
   if (!def) {
     if (!catalogLoading) return null;
-    const wM = item.width / 1000, hM = item.height / 1000, dM = item.depth / 1000;
+    const isFridgeLike = isFridgeAppliance(item, null);
+    const wM = (isFridgeLike
+      ? fridgeBodyWidthMm(item.width, item.applianceBodyWidth)
+      : item.width) / 1000;
+    const hM = item.height / 1000, dM = item.depth / 1000;
     // Match the real render path's classification so Y-origin doesn't flip
     // when `def` resolves. `def` is null here, so the shared helper falls
     // through to the snapshot-name check.
@@ -580,7 +585,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
            integrated unit — so nearly every kitchen's fridge is a bare opening,
            and the shape is inferred from its width. See fridgeModels.tsx. */
         <FridgeModel
-          widthM={widthM}
+          widthM={fridgeBodyWidthMm(item.width, item.applianceBodyWidth) / 1000}
           heightM={heightM}
           depthM={depthM}
           style={fridgeStyleFor(item, def)}

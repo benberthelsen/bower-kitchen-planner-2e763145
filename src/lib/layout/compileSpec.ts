@@ -14,7 +14,12 @@
 import type { GlobalDimensions, PlacedItem } from '@/types';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { runRange, runTouchesWallEnd } from './briefConstraints';
-import { WALL_CAB, RANGEHOOD_ID, resolveCornerVariant } from './catalogRoles';
+import {
+  fridgeBodyWidthMm,
+  WALL_CAB,
+  RANGEHOOD_ID,
+  resolveCornerVariant,
+} from './catalogRoles';
 import {
   sharedCornerAt, usableIntervals, wallCabBlockedIntervals, wallLength, wallToWorld,
   type Interval,
@@ -128,6 +133,9 @@ export function compileSpec(
         itemType: role === 'dishwasher' || role === 'fridge-gap' ? 'Appliance' : 'Cabinet',
         x: pos.x, y: 0, z: pos.z, rotation: pos.rotation,
         width: rs.widthMm, height, depth,
+        ...(role === 'fridge-gap'
+          ? { applianceBodyWidth: fridgeBodyWidthMm(rs.widthMm) }
+          : {}),
         // Explicit role tag so downstream consumers (appliance enrichment,
         // build notes) never have to reverse-engineer intent from the SKU.
         ...(role ? { layoutRole: role } : {}),

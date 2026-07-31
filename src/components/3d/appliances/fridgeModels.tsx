@@ -41,12 +41,11 @@ import React from 'react';
 import * as THREE from 'three';
 import type { PlacedItem } from '../../../types';
 import type { ExtendedCatalogItem } from '../../../hooks/useCatalog';
+import { fridgeBodyWidthMm } from '../../../lib/layout/catalogRoles';
 import { getApplianceMaterial, type ApplianceFinishKey } from '../materials/applianceMaterials';
 
 export type FridgeStyle = 'top-mount' | 'bottom-mount' | 'french-door' | 'integrated';
 
-/** Air gap left around the appliance inside its opening (m). */
-const SIDE_GAP = 0.006;
 /** Shadow gap between doors (m). Real gaps are 3–5 mm. */
 const DOOR_GAP = 0.004;
 /** How far a door face stands off the carcase (m). */
@@ -69,7 +68,7 @@ export function fridgeStyleFor(
   if (/bottom[- ]?mount|bottom[- ]?freezer/.test(name)) return 'bottom-mount';
   if (/top[- ]?mount|top[- ]?freezer/.test(name)) return 'top-mount';
 
-  const widthMm = item.width || 600;
+  const widthMm = fridgeBodyWidthMm(item.width || 600, item.applianceBodyWidth);
   if (widthMm >= 850) return 'french-door';
   if (widthMm >= 700) return 'bottom-mount';
   return 'top-mount';
@@ -196,7 +195,8 @@ export const FridgeModel: React.FC<FridgeModelProps> = ({
   );
   const doorMat = style === 'integrated' && panelMat ? panelMat : bodyMat;
 
-  const w = Math.max(0.2, widthM - SIDE_GAP * 2);
+  // The parent opening already provides the 50 mm service gap on each side.
+  const w = Math.max(0.2, widthM);
   const d = Math.max(0.2, depthM - 0.004);
   const base = -heightM / 2;
   const doorZ = d / 2 + DOOR_PROUD / 2;

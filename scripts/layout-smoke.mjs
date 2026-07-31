@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   briefFromWizard, compileSpec, defaultSpecFor, priceDesign, solveRun,
   toRoomSpec, validate, kitchenSpecSchema, roomSpecSchema, aiDesignerRequestSchema, finalizeSelectionSchema,
-  proposedRoomPatchSchema, RequestProposalRegistry,
+  proposedRoomPatchSchema, RequestProposalRegistry, FRIDGE_SIDE_CLEARANCE_MM,
 } from '../.tmp-snap-test/layout.mjs';
 
 const shapes = ['single-wall', 'l-shape', 'u-shape', 'galley'];
@@ -38,6 +38,25 @@ for (const shape of shapes) {
 }
 
 // ── small room still works ──
+check('fridge opening reserves 50mm each side without shrinking the appliance', () => {
+  const brief = briefFromWizard({
+    layoutPreference: 'single-wall',
+    roomWidth: 4200,
+    roomDepth: 3000,
+    layoutStyle: 'standard',
+  });
+  brief.appliances.fridgeWidthMm = 940;
+  const design = compileSpec(defaultSpecFor(brief, 'single-wall'), brief.room);
+  const fridge = design.rolePositions['fridge-gap'];
+  assert.ok(fridge, 'no fridge opening placed');
+  assert.equal(fridge.widthMm, 940 + FRIDGE_SIDE_CLEARANCE_MM * 2);
+  assert.equal(fridge.item.applianceBodyWidth, 940);
+  assert.equal(
+    (fridge.widthMm - fridge.item.applianceBodyWidth) / 2,
+    FRIDGE_SIDE_CLEARANCE_MM,
+  );
+});
+
 check('small single-wall (2400mm) compiles without errors', () => {
   const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 2400, roomDepth: 2400, layoutStyle: 'minimal' });
   const spec = defaultSpecFor(brief, 'single-wall');

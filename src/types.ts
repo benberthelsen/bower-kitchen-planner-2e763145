@@ -32,6 +32,8 @@ export interface PlacedItem {
   width: number;
   depth: number;
   height: number;
+  /** Physical appliance width inside a larger service/ventilation opening. */
+  applianceBodyWidth?: number;
 
   // Cabinet intent options
   handingOverride?: HandingOverride;
