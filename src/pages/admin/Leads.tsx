@@ -78,7 +78,7 @@ export default function AdminLeads() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setLeads((data as Lead[]) || []);
+      setLeads((data as unknown as Lead[]) || []);
     } catch (err) {
       console.error(err);
       toast.error('Failed to load leads');
