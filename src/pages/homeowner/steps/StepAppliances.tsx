@@ -13,7 +13,7 @@
  * The step is entirely optional — nothing here blocks progression.
  */
 import React from 'react';
-import { Check, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Loader2, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import type { ApplianceProductRecord } from '@/lib/pricing/types';
@@ -21,6 +21,7 @@ import {
   APPLIANCE_CATEGORY_ORDER,
   APPLIANCE_CATEGORY_LABELS,
   applianceDisplayPrice,
+  filterApplianceProducts,
   groupAppliancesByCategory,
   filterCatalogToCooking,
   type ApplianceCategory,
@@ -100,6 +101,11 @@ function ProductCard({
         </div>
         <div className="p-3 space-y-1 flex-1">
           <p className="text-sm font-semibold text-slate-900 leading-tight">{label}</p>
+          {product.item_code && (
+            <p className="text-[11px] font-medium text-slate-500">
+              {product.brand ? `${product.brand} code` : 'Product code'} {product.item_code}
+            </p>
+          )}
           {product.finish && (
             <p className="text-[11px] text-slate-500">{product.finish}</p>
           )}
@@ -158,17 +164,97 @@ function CategoryBlock({
   const { plural, singular } = APPLIANCE_CATEGORY_LABELS[category];
   const noneActive = chosenId === '__none__';
   const [expanded, setExpanded] = React.useState(false);
+  const [query, setQuery] = React.useState('');
   const recommendedIds = new Set(products.slice(0, 3).map(product => product.id));
+  const matchingProducts = React.useMemo(
+    () => filterApplianceProducts(products, query),
+    [products, query],
+  );
   const visibleProducts = expanded
-    ? products
+    ? matchingProducts
     : products.filter(product => recommendedIds.has(product.id) || product.id === chosenId);
+  const resultsId = `appliance-results-${category}`;
+  const toggleExpanded = () => {
+    setExpanded(value => {
+      if (value) setQuery('');
+      return !value;
+    });
+  };
   return (
     <section className="space-y-3">
-      <div>
-        <h3 className="text-base font-semibold text-slate-900">{plural}</h3>
-        <p className="text-xs text-slate-500 mt-0.5">Start with the recommended matches, or browse the full category.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">{plural}</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {expanded
+              ? `${matchingProducts.length} of ${products.length} available`
+              : `${Math.min(3, products.length)} recommended · ${products.length} available`}
+          </p>
+        </div>
+        {products.length > 3 && (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+            aria-expanded={expanded}
+            aria-controls={resultsId}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+            {expanded ? 'Show 3 picks' : `View all ${products.length}`}
+          </button>
+        )}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+
+      {expanded && products.length > 3 && (
+        <div className="space-y-2">
+          <label htmlFor={`appliance-search-${category}`} className="sr-only">
+            Search {plural.toLowerCase()}
+          </label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              id={`appliance-search-${category}`}
+              type="search"
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              placeholder={`Search ${plural.toLowerCase()} by name, code, size or finish`}
+              className="min-h-11 w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-10 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label={`Clear ${plural.toLowerCase()} search`}
+                className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {category === 'sink' && (
+            <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Common sink searches">
+              {['Single bowl', 'Double bowl', '1 3/4 bowl', 'With drainer', 'Undermount'].map(filter => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setQuery(current => current === filter ? '' : filter)}
+                  aria-pressed={query === filter}
+                  className={cn(
+                    'min-h-9 shrink-0 rounded-full border px-3 text-xs font-medium',
+                    query === filter
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
+                  )}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div id={resultsId} className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {visibleProducts.map(p => (
           <ProductCard
             key={p.id}
@@ -178,6 +264,18 @@ function CategoryBlock({
             onToggle={() => onSelect(chosenId === p.id ? undefined : p.id)}
           />
         ))}
+        {expanded && visibleProducts.length === 0 && (
+          <div className="col-span-2 sm:col-span-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+            <p className="text-sm font-semibold text-slate-800">No {plural.toLowerCase()} match “{query}”</p>
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="mt-2 min-h-11 rounded-lg px-3 text-xs font-semibold text-slate-700 underline underline-offset-2"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => onSelect(noneActive ? undefined : '__none__')}
@@ -196,12 +294,13 @@ function CategoryBlock({
       {products.length > 3 && (
         <button
           type="button"
-          onClick={() => setExpanded(value => !value)}
+          onClick={toggleExpanded}
           className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           aria-expanded={expanded}
+          aria-controls={resultsId}
         >
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          {expanded ? 'Show recommended only' : `Browse all ${products.length} ${plural.toLowerCase()}`}
+          {expanded ? 'Back to recommended' : `View all ${products.length} ${plural.toLowerCase()}`}
         </button>
       )}
     </section>
@@ -235,7 +334,7 @@ export default function StepAppliances({ chosen, cooking, onChange }: Props) {
   return (
     <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">Choose your appliances</h2>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">Choose your appliances</h2>
         <p className="text-sm text-slate-500">
           Start with a short list matched to how you cook. Choose what you'd like Bower to
           supply, bring your own, or leave the decision for your consultation.

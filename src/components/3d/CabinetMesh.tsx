@@ -24,6 +24,8 @@ interface CabinetMeshProps {
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
   onEdit?: (id: string) => void;
+  /** An appliance overlay replaces these cabinet fronts (under-bench oven). */
+  suppressFronts?: boolean;
 }
 
 /**
@@ -47,6 +49,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   onSelect,
   onDragStart,
   onEdit,
+  suppressFronts,
 }) => {
   // Props-first: this component is used by both planners, so it must not rely on PlannerContext.
   const selectedFinish = finishProp ?? FINISH_OPTIONS[0];
@@ -224,6 +227,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
         isDragged={isDragged}
         hovered={hovered}
         doorsOpen={doorsOpen}
+        suppressFronts={suppressFronts}
       />
     </group>
   );

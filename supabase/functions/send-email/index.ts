@@ -289,7 +289,7 @@ function tplQuoteConfirmed(payload: Record<string, unknown>): { subject: string;
       Track Your Enquiry →
     </a>
     <p style="margin-top:24px;font-size:13px;color:#64748b">
-      Questions? Reply to this email or call us on 1300 XXX XXX.
+      Questions? Reply to this email or call us on 0437 732 286.
     </p>
   </div>
 </div>`,

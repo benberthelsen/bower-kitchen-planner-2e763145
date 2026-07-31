@@ -357,7 +357,7 @@ export default function StepDesign({
   return (
     <div className="space-y-5 sm:space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">Design your kitchen</h2>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">Design your kitchen</h2>
         <p className="text-sm text-slate-500">
           {blockingErrors.length > 0
             ? 'Your room and style choices are safe. The selected cabinet run just needs more space before the layout can be priced.'
@@ -469,7 +469,8 @@ export default function StepDesign({
                 </p>
                 {opt.violations.filter(v => v.severity === 'warn').length > 0 && (
                   <p className="text-[11px] text-amber-600">
-                    {opt.violations.filter(v => v.severity === 'warn').length} thing(s) to know
+                    {opt.violations.filter(v => v.severity === 'warn').length}{' '}
+                    {opt.violations.filter(v => v.severity === 'warn').length === 1 ? 'thing' : 'things'} to know
                   </p>
                 )}
                 {optionErrors.length > 0 && (

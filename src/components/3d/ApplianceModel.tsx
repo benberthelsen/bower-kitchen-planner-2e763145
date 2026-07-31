@@ -23,7 +23,13 @@ import { useCatalogItem } from '../../hooks/useCatalog';
 import { useApplianceCatalog } from '../../hooks/useApplianceCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { resolveApplianceModelUrl } from './applianceModelUrl';
-import { isBenchtopInsetAppliance } from './applianceClassification';
+import {
+  isBenchtopInsetAppliance,
+  isDishwasherAppliance,
+  isIntegratedDishwasherAppliance,
+} from './applianceClassification';
+import ApplianceBenchtop from './ApplianceBenchtop';
+import { DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
 
 // ─── Refcounted GLB disposal ───────────────────────────────────────────────
 // Two instances of the same product share drei's GLTF cache entry. Clearing
@@ -52,6 +58,8 @@ interface Props {
   /** Benchtop material, so under-bench openings can carry the stone across.
    *  Spread straight through to the procedural ApplianceMesh fallback. */
   benchtop?: MaterialOption;
+  /** Selected door finish for integrated dishwasher fallback. */
+  cabinetFinish?: MaterialOption;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
 }
@@ -160,6 +168,9 @@ const ApplianceModel: React.FC<Props> = (props) => {
   // (would double the transform). Rendered at the top level for both the
   // Suspense fallback and the ModelBoundary error fallback.
   const fallback = <ApplianceMesh {...props} />;
+  // A fully integrated dishwasher's visible face is the selected joinery panel.
+  // A vendor GLB would reintroduce its generic appliance front.
+  if (isIntegratedDishwasherAppliance(item, def)) return fallback;
   if (!url) return fallback;
   // If we have a resolved GLB URL and the item's own dimensions, render it
   // even when the catalog definition is still loading — the model doesn't
@@ -170,6 +181,7 @@ const ApplianceModel: React.FC<Props> = (props) => {
   const heightM = item.height / 1000;
   const depthM = item.depth / 1000;
   const benchtopInset = isBenchtopInsetAppliance(item, def);
+  const isDishwasher = isDishwasherAppliance(item, def);
   const posY = (item.y / 1000);
   const position: [number, number, number] = [item.x / 1000, posY, item.z / 1000];
 
@@ -203,6 +215,15 @@ const ApplianceModel: React.FC<Props> = (props) => {
             </mesh>
           )}
           <GlbInner url={url} item={item} benchtopInset={benchtopInset} />
+          {isDishwasher && (
+            <ApplianceBenchtop
+              material={props.benchtop}
+              globalDimensions={props.globalDimensions ?? DEFAULT_GLOBAL_DIMENSIONS}
+              widthM={widthM}
+              depthM={depthM}
+              topY={heightM}
+            />
+          )}
         </group>
       </Suspense>
     </ModelBoundary>

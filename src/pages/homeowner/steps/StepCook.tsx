@@ -63,7 +63,7 @@ export default function StepCook({ value, onChange }: Props) {
   return (
     <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">How do you use your kitchen?</h2>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">How do you use your kitchen?</h2>
         <p className="text-sm text-slate-500">This shapes where everything goes — skip anything you're unsure about.</p>
       </div>
 

@@ -164,7 +164,7 @@ export default function QuoteStatus() {
           This link may be expired or the reference is incorrect. Please contact us directly.
         </p>
         <a
-          href="mailto:info@bowerkitchens.com.au"
+          href="mailto:info@bowerbuilding.net"
           className="inline-flex items-center gap-2 bg-amber-500 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-amber-600 transition-colors"
         >
           <Mail className="w-4 h-4" />
@@ -254,18 +254,18 @@ export default function QuoteStatus() {
               <p className="text-xs text-gray-400 font-medium mb-3">Need to speak with us?</p>
               <div className="flex flex-col gap-2">
                 <a
-                  href="tel:1300000000"
+                  href="tel:+61437732286"
                   className="flex items-center gap-2.5 text-sm text-slate-700 hover:text-amber-600 transition-colors"
                 >
                   <Phone className="w-4 h-4 text-gray-400" />
-                  1300 XXX XXX
+                  0437 732 286
                 </a>
                 <a
-                  href="mailto:info@bowerkitchens.com.au"
+                  href="mailto:info@bowerbuilding.net"
                   className="flex items-center gap-2.5 text-sm text-slate-700 hover:text-amber-600 transition-colors"
                 >
                   <Mail className="w-4 h-4 text-gray-400" />
-                  info@bowerkitchens.com.au
+                  info@bowerbuilding.net
                 </a>
               </div>
             </div>

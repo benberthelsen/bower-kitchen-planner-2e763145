@@ -558,14 +558,45 @@ serve(async (req) => {
         }),
       });
       if (!resp.ok) {
-        console.error('[ai-designer] provider request failed', { requestId, status: resp.status });
+        const providerRequestId = resp.headers.get('x-request-id');
+        let providerError: Record<string, unknown> | string = 'unreadable_provider_error';
+        try {
+          const payload = await resp.json();
+          const error = payload?.error;
+          providerError = error && typeof error === 'object'
+            ? {
+                type: error.type,
+                code: error.code,
+                param: error.param,
+                message: typeof error.message === 'string' ? error.message.slice(0, 300) : undefined,
+              }
+            : 'provider_error_without_details';
+        } catch {
+          // Keep logs structured and avoid copying an arbitrary provider body.
+        }
+        console.error('[ai-designer] provider request failed', {
+          requestId,
+          providerRequestId,
+          status: resp.status,
+          model: MODEL,
+          error: providerError,
+        });
         return errorResponse(req, 502, 'designer_provider_failed');
       }
       const data = await resp.json();
 
       const assistant = data.choices?.[0]?.message as
         { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] } | undefined;
-      if (!assistant) return errorResponse(req, 502, 'designer_provider_failed');
+      if (!assistant) {
+        console.error('[ai-designer] provider response missing assistant', {
+          requestId,
+          providerRequestId: resp.headers.get('x-request-id'),
+          model: MODEL,
+          responseId: data.id,
+          finishReason: data.choices?.[0]?.finish_reason,
+        });
+        return errorResponse(req, 502, 'designer_provider_failed');
+      }
 
       // Echo the assistant turn back verbatim so tool_call_ids line up.
       messages.push(assistant);

@@ -1005,7 +1005,7 @@ function Step1Section({ n, title, subtitle, children }: {
           {n}
         </span>
         <div>
-          <h2 className="text-base sm:text-lg font-semibold text-slate-900 leading-tight">{title}</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-slate-900 leading-tight outline-none">{title}</h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>
         </div>
       </div>
@@ -1242,7 +1242,7 @@ function Step2Layout({ state, onChange }: { state: WizardState; onChange: (p: Pa
   return (
     <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">How much storage do you want?</h2>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">How much storage do you want?</h2>
         <p className="text-sm text-slate-500">We'll plan your cabinet layout to suit.</p>
       </div>
 
@@ -1321,7 +1321,7 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
   return (
     <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1">Choose your style</h2>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">Choose your style</h2>
         <p className="text-sm text-slate-500">Pick colours and hardware to preview in 3D on the next step.</p>
       </div>
 
@@ -1732,7 +1732,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
           <Check className="w-8 h-8 text-emerald-600" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900">Thanks, {contactName.split(' ')[0]}!</h2>
+        <h2 className="text-2xl font-bold text-slate-900 outline-none">Thanks, {contactName.split(' ')[0]}!</h2>
         <p className="text-slate-500 max-w-sm mx-auto text-sm">
           We've received your kitchen enquiry and will be in touch within one business day.
         </p>
@@ -1761,7 +1761,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
     <div className="space-y-5 sm:space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-1">Your kitchen preview</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">Your kitchen preview</h2>
           <p className="text-sm text-slate-500">
             {items.length} items · {selectedFinish.name} · {selectedBenchtop.name}
           </p>

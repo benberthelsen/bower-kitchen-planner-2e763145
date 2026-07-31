@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { PlacedItem, GlobalDimensions, MaterialOption } from '../../types';
-import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS } from '../../constants';
+import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, HANDLE_OPTIONS } from '../../constants';
 import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
@@ -10,10 +10,14 @@ import {
   isCooktopAppliance,
   isRangehoodAppliance,
   isDishwasherAppliance,
+  isIntegratedDishwasherAppliance,
   isFridgeAppliance,
 } from './applianceClassification';
 import { useApplianceFaceTexture, isProductElevationUrl, type ApplianceFaceTexture } from './materials/applianceImage';
 import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
+import ApplianceBenchtop from './ApplianceBenchtop';
+import IntegratedDishwasherFront from './IntegratedDishwasherFront';
+import { resolveHandleDefinition } from '../../lib/handleStyles';
 
 /** THREE box face order is +x, -x, +y, -y, +z, -z. */
 const FACE_TOP = 2;
@@ -85,6 +89,8 @@ interface ApplianceMeshProps {
    *  their own, so without this the stone simply stopped at the opening and
    *  the run had a gap in it. */
   benchtop?: MaterialOption;
+  /** Selected door finish for integrated dishwasher panels. */
+  cabinetFinish?: MaterialOption;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
 }
@@ -100,6 +106,7 @@ function tapFinishKey(hex: string): ApplianceFinishKey {
 const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   item,
   benchtop,
+  cabinetFinish: cabinetFinishProp,
   globalDimensions: dimensionsProp,
   isSelected: isSelectedProp,
   isDragged: isDraggedProp,
@@ -198,6 +205,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const isSink = isSinkAppliance(item, def);
   const isCooktop = isCooktopAppliance(item, def);
   const isDishwasher = isDishwasherAppliance(item, def);
+  const isIntegratedDishwasher = isIntegratedDishwasherAppliance(item, def);
   // compileSpec emits a rangehood above every cooktop at full wall-cabinet
   // height. Without its own branch it drew as a generic appliance — a tall
   // box with a recessed front and a handle, which reads as a fridge hanging
@@ -226,20 +234,12 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const panelHex = item.finishColor?.startsWith('#')
     ? item.finishColor
     : FINISH_OPTIONS.find(option => option.id === item.finishColor)?.hex;
-
-  // Benchtop over an under-bench opening. Drawn here because the opening is an
-  // Appliance, and CabinetAssembler only tops `category === 'Base'` cabinets.
-  const btThickM = (globalDimensions.benchtopThickness ?? 33) / 1000;
-  const benchtopSlab = benchtop ? (
-    <mesh position={[0, heightM / 2 + btThickM / 2, 0]}>
-      <boxGeometry args={[widthM, btThickM, depthM]} />
-      <meshStandardMaterial
-        color={benchtop.hex}
-        roughness={benchtop.roughness ?? 0.3}
-        metalness={benchtop.metalness ?? 0}
-      />
-    </mesh>
-  ) : null;
+  const cabinetFinish = FINISH_OPTIONS.find(option => option.id === item.finishColor)
+    ?? cabinetFinishProp
+    ?? FINISH_OPTIONS[0];
+  const cabinetHandle = resolveHandleDefinition(item.handleType)
+    ?? HANDLE_OPTIONS.find(option => option.id === item.handleType)
+    ?? HANDLE_OPTIONS[0];
 
   let posY = (item.y / 1000) + (heightM / 2);
   if (isSink || isCooktop) posY = item.y / 1000;
@@ -416,13 +416,27 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         // top edge, a recessed pull, and a plinth. All four are cheap to build
         // and all four survive being looked at from an angle.
         const fasciaH = Math.min(0.075, heightM * 0.11);
-        const plinthH = Math.min(0.06, heightM * 0.09);
+        const plinthH = Math.min(
+          (globalDimensions.toeKickHeight ?? 135) / 1000,
+          heightM * 0.3,
+        );
         const doorH = heightM - fasciaH - plinthH - 0.008;
         const doorY = -heightM / 2 + plinthH + doorH / 2;
         const frontZ = depthM / 2;
         return (
         <group>
           <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
+          {isIntegratedDishwasher ? (
+            <IntegratedDishwasherFront
+              widthM={widthM}
+              heightM={heightM}
+              depthM={depthM}
+              plinthHeightM={plinthH}
+              finish={cabinetFinish}
+              handle={cabinetHandle}
+            />
+          ) : (
+          <>
 
           {/* Door: one flat proud panel. No glass — a dishwasher door is steel
               or a matching cabinet panel, and the earlier inset "door glass"
@@ -453,6 +467,8 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
           <mesh position={[0, heightM / 2 - fasciaH - 0.016, frontZ + 0.02]} material={handleMat}>
             <boxGeometry args={[widthM - 0.12, 0.018, 0.022]} />
           </mesh>
+          </>
+          )}
 
           {/* Plinth, set back. */}
           <mesh position={[0, -heightM / 2 + plinthH / 2, frontZ - 0.012]}>
@@ -475,7 +491,13 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
               so the run simply stopped either side of the opening and left a
               gap over the machine. The rails above were already commented as
               "carrying the benchtop" — nothing was ever laid on them. */}
-          {benchtopSlab}
+          <ApplianceBenchtop
+            material={benchtop}
+            globalDimensions={globalDimensions}
+            widthM={widthM}
+            depthM={depthM}
+            topY={heightM / 2}
+          />
         </group>
         );
       })()}

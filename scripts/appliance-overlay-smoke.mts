@@ -18,11 +18,13 @@ import { compileSpec } from '../src/lib/layout/compileSpec';
 import {
   synthesiseApplianceOverlays,
   filterCatalogToCooking,
+  filterApplianceProducts,
   excludedCategories,
   APPLIANCE_CATEGORY_ORDER,
 } from '../src/pages/homeowner/applianceSelection';
 import type { ApplianceCategory } from '../src/pages/homeowner/applianceSelection';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '../src/constants';
+import { isIntegratedDishwasherAppliance } from '../src/components/3d/applianceClassification';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -63,6 +65,7 @@ const PRODUCTS = [
   product({ id: '11111111-1111-4111-8111-111111111111', name: 'Single Bowl Undermount Sink', category: 'sink', width_mm: 440, height_mm: 200, depth_mm: 440, finish: 'Stainless Steel' }),
   product({ id: '22222222-2222-4222-8222-222222222222', name: '60cm Induction Cooktop', category: 'cooktop', width_mm: 590, height_mm: 60, depth_mm: 520, finish: 'Black Glass' }),
   product({ id: '33333333-3333-4333-8333-333333333333', name: 'Kitchen Mixer Tap', category: 'tap', finish: 'Matte Black' }),
+  product({ id: '44444444-4444-4444-8444-444444444444', name: '60cm Built-in Oven', category: 'oven', width_mm: 595, height_mm: 595, depth_mm: 570, finish: 'Stainless Steel' }),
 ];
 
 const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 3600, roomDepth: 3000, layoutStyle: 'standard' } as never);
@@ -144,6 +147,52 @@ check('overlays are not in compiled.items, so neither pricing path sees them',
 check('overlays sit off the floor, so the rules engine (y === 0 only) ignores them',
   overlays.every(o => o.y > 0), overlays.map(o => `${o.instanceId}@${o.y}`).join(', '));
 
+check('integrated dishwasher openings use a joinery front',
+  isIntegratedDishwasherAppliance({
+    definitionId: 'dishwasher_opening',
+    applianceSnapshot: { name: 'Fully Integrated Dishwasher', finish: 'Panel ready' },
+  } as never, null),
+  'integrated dishwasher was classified as freestanding');
+check('freestanding dishwashers retain their appliance front',
+  !isIntegratedDishwasherAppliance({
+    // The compiled placeholder id remains even after the product snapshot is
+    // enriched, so the selected product must take priority over this id.
+    definitionId: 'dishwasher_opening',
+    applianceSnapshot: { name: 'Freestanding Dishwasher', finish: 'Stainless Steel' },
+  } as never, null),
+  'freestanding dishwasher was classified as integrated');
+
+// An oven without a tower falls back beneath the cooktop. Its appliance face
+// must replace that cabinet's doors; otherwise the intact doors cover the oven
+// and only its proud handle survives as a floating horizontal bar.
+{
+  const underbenchRoles = { ...compiled.rolePositions };
+  delete (underbenchRoles as Record<string, unknown>)['oven-tower'];
+  const underbench = synthesiseApplianceOverlays(
+    { rolePositions: underbenchRoles },
+    { oven: '44444444-4444-4444-8444-444444444444' },
+    PRODUCTS,
+  ).find(o => o.instanceId === 'appl-oven');
+  const cooktopHost = compiled.rolePositions.cooktop?.item;
+  check('an under-bench oven identifies the cabinet front it replaces',
+    !!underbench && !!cooktopHost && underbench.applianceHostInstanceId === cooktopHost.instanceId,
+    `${underbench?.applianceHostInstanceId ?? 'none'} vs ${cooktopHost?.instanceId ?? 'no host'}`);
+
+  const tower = synthesiseApplianceOverlays(
+    {
+      rolePositions: {
+        ...underbenchRoles,
+        'oven-tower': compiled.rolePositions.cooktop!,
+      },
+    },
+    { oven: '44444444-4444-4444-8444-444444444444' },
+    PRODUCTS,
+  ).find(o => o.instanceId === 'appl-oven');
+  check('a tower oven does not suppress the whole tower cabinet front',
+    !!tower && !tower.applianceHostInstanceId,
+    tower?.applianceHostInstanceId ?? 'none');
+}
+
 // Nothing chosen must stay a no-op.
 check('no chosen products yields no overlays',
   synthesiseApplianceOverlays(compiled, {}, PRODUCTS).length === 0, 'produced overlays from an empty selection');
@@ -211,7 +260,59 @@ const ids = (rows: unknown[]) => (rows as { id: string }[]).map(r => r.id).sort(
     'an unanswered Cooking step still filtered the catalogue');
 }
 
+/* ── Supplier catalogue search ─────────────────────────────────────────────
+ *
+ * The full Häfele category is now searchable from the appliance step. Article
+ * codes, supplier fields and plain-English bowl aliases must all work because
+ * customers use each of those when looking for a sink.
+ */
+{
+  const sinks = [
+    product({
+      id: 'search-single',
+      item_code: '567.33.130',
+      name: 'Single bowl',
+      brand: 'Häfele',
+      category: 'sink',
+      installation: 'Undermount',
+      bowl_count: 1,
+      width_mm: 445,
+    }),
+    product({
+      id: 'search-double',
+      item_code: '567.33.366',
+      name: 'Squareline double bowl with drainer',
+      brand: 'Häfele',
+      category: 'sink',
+      installation: 'Surface mount',
+      bowl_count: 2,
+      width_mm: 1200,
+    }),
+    product({
+      id: 'search-three-quarter',
+      item_code: 'P-01921564',
+      name: 'Squareline',
+      brand: 'Häfele',
+      category: 'sink',
+      bowl_count: 1.75,
+    }),
+  ] as never[];
+
+  check('catalogue search finds an exact Häfele article code',
+    ids(filterApplianceProducts(sinks, '567.33.130')) === 'search-single');
+  check('catalogue search matches bowl aliases and installation',
+    ids(filterApplianceProducts(sinks, 'single undermount')) === 'search-single');
+  check('catalogue search matches 1 3/4 bowl terminology',
+    ids(filterApplianceProducts(sinks, '1 3/4 bowl')) === 'search-three-quarter');
+  check('catalogue search combines product features',
+    ids(filterApplianceProducts(sinks, 'double drainer 1200')) === 'search-double');
+  check('catalogue search tolerates common Häfele spellings',
+    filterApplianceProducts(sinks, 'haffle').length === sinks.length);
+  check('clearing catalogue search restores the full range',
+    filterApplianceProducts(sinks, '  ').length === sinks.length);
+}
+
 console.log(failures === 0
-  ? '\nAPPLIANCE OVERLAYS + COOKING FILTER: all assertions pass'
+  ? '\nAPPLIANCE OVERLAYS + COOKING FILTER + CATALOGUE SEARCH: all assertions pass'
   : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

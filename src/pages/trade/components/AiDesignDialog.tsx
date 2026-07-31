@@ -281,7 +281,9 @@ export default function AiDesignDialog({ room, open, onOpenChange, onApply }: Pr
                     ${opt.priceBand.lowAud.toLocaleString()} – ${opt.priceBand.highAud.toLocaleString()}
                   </p>
                   {optionWarns.length > 0 && (
-                    <p className="text-[11px] text-amber-600">{optionWarns.length} thing(s) to know</p>
+                    <p className="text-[11px] text-amber-600">
+                      {optionWarns.length} {optionWarns.length === 1 ? 'thing' : 'things'} to know
+                    </p>
                   )}
                   {optionErrors.length > 0 ? (
                     <p className="text-[11px] font-medium text-red-700">Unavailable: {optionErrors[0].message}</p>

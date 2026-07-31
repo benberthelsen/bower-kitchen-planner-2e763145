@@ -71,6 +71,23 @@ export function isDishwasherAppliance(item: PlacedItem, def: MaybeDef): boolean 
   return (item.definitionId ?? '').includes('dishwasher');
 }
 
+/** Fully integrated / opening-only dishwashers receive a joinery panel in the
+ * selected cabinet finish instead of a generic stainless pull and fascia. */
+export function isIntegratedDishwasherAppliance(item: PlacedItem, def: MaybeDef): boolean {
+  if (!isDishwasherAppliance(item, def)) return false;
+  // A chosen product snapshot outranks the compiled layout placeholder. The
+  // layout item can keep definitionId="dishwasher_opening" after a customer
+  // selects a freestanding model, and treating that stale id as authoritative
+  // would incorrectly hide the selected appliance behind joinery.
+  if (item.applianceSnapshot) {
+    const selectedProduct = `${item.applianceSnapshot.name} ${item.applianceSnapshot.finish ?? ''}`.toLowerCase();
+    return /integrated|panel.?ready/.test(selectedProduct);
+  }
+  const name = (def?.name ?? '').toLowerCase();
+  return /integrated|panel.?ready|dishwasher opening/.test(name)
+    || (item.definitionId ?? '').includes('dishwasher_opening');
+}
+
 /**
  * Fridges. The layout engine emits a `fridge_opening` for every kitchen and
  * almost none of them carry a chosen product — the catalogue holds exactly one

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { PlacedItem, MaterialOption, GlobalDimensions, HandleDefinition } from '../../types';
@@ -22,84 +22,7 @@ import {
 } from './cabinet-parts';
 import FoldingDoor from './cabinet-parts/FoldingDoor';
 import CornerBiFold from './cabinet-parts/CornerBiFold';
-import { setPhysicalTextureSize, type PhysicalTextureSizeMm } from './materials/physicalTexture';
-
-/**
- * Loads a supplier swatch/texture image as a THREE texture for the cabinet finish.
- * Safe + optional: returns null (so the renderer keeps its base colour) when the
- * URL is empty or fails to load, and never throws/suspends.
- */
-interface OptionalTextureEntry {
-  texture: THREE.Texture | null;
-  loading: boolean;
-  retired: boolean;
-  refs: number;
-  listeners: Set<(texture: THREE.Texture | null) => void>;
-}
-
-const optionalTextureCache = new Map<string, OptionalTextureEntry>();
-
-function useOptionalTexture(
-  url?: string | null,
-  physicalSizeMm?: PhysicalTextureSizeMm | null,
-): THREE.Texture | null {
-  const [tex, setTex] = useState<THREE.Texture | null>(null);
-  useEffect(() => {
-    if (!url) { setTex(null); return; }
-    let active = true;
-    setTex(null);
-    const cacheKey = `${url}|${physicalSizeMm?.width ?? 0}x${physicalSizeMm?.height ?? 0}`;
-    let entry = optionalTextureCache.get(cacheKey);
-    if (!entry) {
-      entry = { texture: null, loading: true, retired: false, refs: 0, listeners: new Set() };
-      optionalTextureCache.set(cacheKey, entry);
-      const loadingEntry = entry;
-      const loader = new THREE.TextureLoader();
-      loader.setCrossOrigin('anonymous');
-      loader.load(
-        url,
-        (texture) => {
-          texture.wrapS = THREE.RepeatWrapping;
-          texture.wrapT = THREE.RepeatWrapping;
-          texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
-          texture.anisotropy = 4;
-          setPhysicalTextureSize(texture, physicalSizeMm);
-          loadingEntry.loading = false;
-          if (loadingEntry.retired || loadingEntry.refs === 0) {
-            texture.dispose();
-            return;
-          }
-          loadingEntry.texture = texture;
-          loadingEntry.listeners.forEach(listener => listener(texture));
-        },
-        undefined,
-        () => {
-          loadingEntry.loading = false;
-          loadingEntry.listeners.forEach(listener => listener(null));
-        },
-      );
-    }
-
-    entry.refs += 1;
-    const listener = (texture: THREE.Texture | null) => {
-      if (active) setTex(texture);
-    };
-    entry.listeners.add(listener);
-    if (entry.texture) setTex(entry.texture);
-
-    return () => {
-      active = false;
-      entry!.listeners.delete(listener);
-      entry!.refs -= 1;
-      if (entry!.refs <= 0) {
-        entry!.retired = true;
-        entry!.texture?.dispose();
-        optionalTextureCache.delete(cacheKey);
-      }
-    };
-  }, [url, physicalSizeMm?.width, physicalSizeMm?.height]);
-  return tex;
-}
+import { useOptionalTexture } from './materials/useOptionalTexture';
 import { 
   ConstructionRecipe, 
   getConstructionRecipe, 
@@ -147,6 +70,8 @@ interface CabinetAssemblerProps {
   hovered: boolean;
   /** When true, all doors and drawers animate to open position */
   doorsOpen?: boolean;
+  /** An appliance face occupies the opening; retain the cabinet body but omit its fronts. */
+  suppressFronts?: boolean;
 }
 
 /**
@@ -166,6 +91,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   isDragged,
   hovered,
   doorsOpen,
+  suppressFronts,
 }) => {
   const hasValidMaterials = Boolean(materials?.gable);
 
@@ -592,6 +518,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Uses physical shadow gap and 32mm system handle positioning
   // FIXED: Proper door height calculation based on opening, not arbitrary reductions
   const renderDoors = () => {
+    if (suppressFronts) return null;
     // Corner cabinets always render their own door set (pie-cut / diagonal / blind),
     // independent of door_count which is frequently 0 in the catalog for corners.
     if (isCornerCabinet) {
@@ -857,6 +784,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Uses physical shadow gap and reveals
   // FIXED: Proper drawer positioning that fills the opening correctly
   const renderDrawers = () => {
+    if (suppressFronts) return null;
     if (config.drawerCount === 0) return null;
     // Sink cabinets never have drawers — the sink bowl occupies the top opening
     if (config.isSink) return null;
@@ -969,6 +897,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Render false front for sink cabinets (ONLY if hasFalseFront is true)
   const renderFalseFront = () => {
+    if (suppressFronts) return null;
     if (!config.isSink || !config.hasFalseFront) return null;
     
     const falseFrontHeight = 0.08; // 80mm false front

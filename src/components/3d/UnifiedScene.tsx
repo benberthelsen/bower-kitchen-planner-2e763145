@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, PerspectiveCamera, OrthographicCamera, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
@@ -740,6 +740,14 @@ export function UnifiedScene({
   const controlsRef = useRef<any>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const applianceFrontHosts = useMemo(
+    () => new Set(
+      items
+        .map(item => item.applianceHostInstanceId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+    [items],
+  );
   // Set synchronously on cabinet press so the (always-on) drag listener can
   // move on the very first pointermove — no waiting for a React re-render.
   const draggedIdSyncRef = useRef<string | null>(null);
@@ -1080,6 +1088,7 @@ export function UnifiedScene({
                 item={item}
                 globalDimensions={globalDimensions}
                 benchtop={sceneBenchtop}
+                cabinetFinish={sceneFinish}
                 {...commonProps}
               />
             );
@@ -1113,6 +1122,7 @@ export function UnifiedScene({
               selectedKick={sceneKick}
               hardwareOptions={itemHandle}
               doorsOpen={doorsOpen}
+              suppressFronts={applianceFrontHosts.has(item.instanceId)}
               onEdit={onItemEdit}
               {...commonProps}
             />

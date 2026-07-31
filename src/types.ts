@@ -90,6 +90,10 @@ export interface PlacedItem {
   // -- Appliance catalog (Stage 1) ------------------------------------------
   /** appliance_products.id when this placed item came from the catalog */
   applianceProductId?: string;
+  /** Cabinet whose visible fronts are replaced by this appliance overlay.
+   * Used by under-bench ovens so their face does not z-fight with intact
+   * cooktop-cabinet doors and leave a floating handle bar. */
+  applianceHostInstanceId?: string;
   /** Frozen snapshot at placement time — quote stays stable if catalog changes */
   applianceSnapshot?: {
     itemCode?: string | null;

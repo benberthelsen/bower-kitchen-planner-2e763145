@@ -75,6 +75,63 @@ export function applianceDisplayPrice(p: ApplianceProductRecord): number {
   return Number(p.installed_price ?? p.sell_price ?? p.rrp ?? 0) || 0;
 }
 
+function bowlSearchTerms(count: number | null | undefined): string {
+  if (count === 1) return 'single one bowl 1 bowl';
+  if (count === 1.5) return 'one and a half 1 1/2 bowl';
+  if (count === 1.75) return 'one and three quarter 1 3/4 bowl';
+  if (count === 2) return 'double two bowl 2 bowl';
+  return count ? `${count} bowl` : '';
+}
+
+function normaliseApplianceSearch(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[×x]/g, ' ')
+    .replace(/[^a-z0-9./]+/g, ' ');
+}
+
+/**
+ * Search a supplier category without hiding useful catalogue fields. Customers
+ * often arrive with a Häfele article/family code rather than a product name,
+ * while others search for "double bowl", "undermount", a finish or a size.
+ */
+export function filterApplianceProducts(
+  products: ApplianceProductRecord[],
+  query: string,
+): ApplianceProductRecord[] {
+  const terms = normaliseApplianceSearch(query)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (terms.length === 0) return products;
+
+  return products.filter(product => {
+    const haystack = normaliseApplianceSearch(
+      [
+        product.item_code,
+        product.brand,
+        product.brand?.toLowerCase().includes('fele') ? 'hafele haefele haffle' : null,
+        product.name,
+        product.subcategory,
+        product.description,
+        product.finish,
+        product.installation,
+        bowlSearchTerms(product.bowl_count),
+        ...(product.bowl_sizes ?? []),
+        product.width_mm,
+        product.height_mm,
+        product.depth_mm,
+      ]
+        .filter(value => value !== null && value !== undefined)
+        .join(' '),
+    );
+
+    return terms.every(term => haystack.includes(term));
+  });
+}
+
 /** Group active products by wizard category, dropping ones with no category. */
 export function groupAppliancesByCategory(
   products: ApplianceProductRecord[] | undefined,
@@ -394,6 +451,9 @@ export function synthesiseApplianceOverlays(
       height,
       depth,
       applianceProductId: product.id,
+      ...(slot.category === 'oven' && !inTower
+        ? { applianceHostInstanceId: cab.instanceId }
+        : {}),
       applianceSnapshot: snapshotFromProduct(product),
       supplyWithOrder: true,
       ...(slot.category === 'sink' && tapId ? { tapId } : {}),
