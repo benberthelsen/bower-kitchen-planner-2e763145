@@ -26,7 +26,9 @@
 
 import type { PlacedItem } from '@/types';
 import { rangeForWall } from './briefConstraints';
-import { dist, itemRect, rectsOverlap, wallPointWorld, WALL_ROTATION } from './geometry';
+import {
+  dist, itemRect, rectsOverlap, sharedCornerAt, wallLength, wallPointWorld, WALL_ROTATION,
+} from './geometry';
 import type { CompiledDesign } from './compileSpec';
 import type { DesignBrief, RoomSpec, Wall } from './types';
 
@@ -71,6 +73,7 @@ const LEG_MIN = 1200;
 const LEG_MAX = 2700;
 const SINK_DRAIN_MAX = 1500;
 const GAS_MAX = 600;
+const COOKING_APPLIANCE_CORNER_CLEARANCE = 600;
 
 function finding(ruleId: string, tier: RuleTier, message: string, itemIds?: string[]): RuleFinding {
   return { ruleId, tier, message, ...(itemIds ? { itemIds } : {}) };
@@ -334,6 +337,58 @@ export const RULES: Rule[] = [
       item.definitionId.includes('corner') && !item.blindSide
         ? [finding('corner-integrity', 'safety', `${item.definitionId} is a corner cabinet with no blind side set`, [item.instanceId])]
         : []),
+  },
+  {
+    id: 'cooking-appliance-corner-clearance', tier: 'hard', scope: 'spatial',
+    title: 'Cooking appliances clear inside corners',
+    why: `An oven or cooktop needs at least ${COOKING_APPLIANCE_CORNER_CLEARANCE}mm between it and an adjoining cabinet run so its door, handles and landing space remain usable.`,
+    evaluate: ({ design, room, brief }) => {
+      const cookingRoles = [
+        ['cooktop', design.rolePositions.cooktop],
+        ['oven-tower', design.rolePositions['oven-tower']],
+      ] as const;
+      const rangeFor = (wall: Wall) => design.runRanges.find(range => range.wall === wall);
+      const touches = (wall: Wall, end: 'start' | 'end') => {
+        const range = rangeFor(wall);
+        if (!range) return false;
+        return end === 'start'
+          ? range.startMm <= 25
+          : range.endMm >= wallLength(wall, room) - 25;
+      };
+
+      return cookingRoles.flatMap(([role, position]) => {
+        if (!position || position.wall === 'island') return [];
+        const length = wallLength(position.wall, room);
+        for (const adjacentWall of design.runWalls) {
+          if (adjacentWall === position.wall) continue;
+          const applianceCorner = sharedCornerAt(position.wall, adjacentWall);
+          const adjacentCorner = sharedCornerAt(adjacentWall, position.wall);
+          if (!applianceCorner || !adjacentCorner
+            || !touches(position.wall, applianceCorner)
+            || !touches(adjacentWall, adjacentCorner)) {
+            continue;
+          }
+          const clearance = applianceCorner === 'start'
+            ? position.startMm
+            : length - position.startMm - position.widthMm;
+          if (clearance >= COOKING_APPLIANCE_CORNER_CLEARANCE) continue;
+
+          const isUnderbenchOven = role === 'cooktop'
+            && brief?.appliances.oven !== undefined
+            && !design.rolePositions['oven-tower'];
+          const label = role === 'oven-tower'
+            ? 'Oven tower'
+            : isUnderbenchOven ? 'Under-bench oven and cooktop' : 'Cooktop';
+          return [finding(
+            'cooking-appliance-corner-clearance',
+            'hard',
+            `${label} is only ${Math.max(0, Math.round(clearance))}mm from an inside corner (minimum ${COOKING_APPLIANCE_CORNER_CLEARANCE}mm)`,
+            [position.item.instanceId],
+          )];
+        }
+        return [];
+      });
+    },
   },
   {
     id: 'appliance-gap-fit', tier: 'safety', scope: 'relational',

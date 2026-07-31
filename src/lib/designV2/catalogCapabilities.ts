@@ -14,6 +14,7 @@ const ROLE_MAP: Record<SegmentRole, CatalogCapabilityV2['designerRoles'][number]
   'oven-tower': 'oven-tower',
   'fridge-gap': 'fridge-opening',
   corner: 'corner-base',
+  'corner-buffer': 'door-base',
 };
 
 const MOUNTING_MAP: Record<SegmentRole, CatalogCapabilityV2['mountingClass']> = {
@@ -26,6 +27,7 @@ const MOUNTING_MAP: Record<SegmentRole, CatalogCapabilityV2['mountingClass']> = 
   'oven-tower': 'tall',
   'fridge-gap': 'opening',
   corner: 'base',
+  'corner-buffer': 'base',
 };
 
 /**

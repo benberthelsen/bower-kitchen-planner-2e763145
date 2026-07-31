@@ -76,6 +76,11 @@ export interface PlacedItem {
    *  `dishwasher`, `fridge-gap`, …). Downstream code must read this rather
    *  than pattern-matching the definitionId SKU string. */
   layoutRole?: string;
+  /** Source coordinates in KitchenSpec for homeowner cabinet editing.
+   * Auto-filled cupboards, upper cabinets and appliance overlays omit these
+   * fields because they are derived rather than directly editable units. */
+  layoutRunIndex?: number;
+  layoutSegmentIndex?: number;
 
 
   // Corner cabinet configuration (Phase 3)
@@ -86,6 +91,10 @@ export interface PlacedItem {
   // -- Appliance catalog (Stage 1) ------------------------------------------
   /** appliance_products.id when this placed item came from the catalog */
   applianceProductId?: string;
+  /** Cabinet whose visible fronts are replaced by this appliance overlay.
+   * Used by under-bench ovens so their face does not z-fight with intact
+   * cooktop-cabinet doors and leave a floating handle bar. */
+  applianceHostInstanceId?: string;
   /** Frozen snapshot at placement time — quote stays stable if catalog changes */
   applianceSnapshot?: {
     itemCode?: string | null;

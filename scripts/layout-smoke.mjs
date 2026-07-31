@@ -87,6 +87,79 @@ check('sink lands on the drain wall (l-shape)', () => {
 });
 
 // ── re-plumb warning when sink far from drain ──
+check('standard U layout keeps the oven and cooktop clear of inside corners', () => {
+  const brief = briefFromWizard({
+    layoutPreference: 'u-shape',
+    roomWidth: 3600,
+    roomDepth: 3000,
+    layoutStyle: 'standard',
+  });
+  brief.appliances = {
+    ...brief.appliances,
+    oven: '600',
+    cooktop: 'gas',
+  };
+  const spec = defaultSpecFor(brief, 'u-shape');
+  const design = compileSpec(spec, brief.room);
+  const cooktop = design.rolePositions.cooktop;
+  const ovenTower = design.rolePositions['oven-tower'];
+  const cornerBuffer = design.rolePositions['corner-buffer'];
+  assert.ok(cooktop, 'cooktop was not placed');
+  assert.ok(ovenTower, 'oven tower was not placed');
+  assert.ok(cornerBuffer, 'protected corner clearance cupboard was not placed');
+  assert.ok(
+    brief.room.width - cooktop.startMm - cooktop.widthMm >= 600,
+    `cooktop is only ${brief.room.width - cooktop.startMm - cooktop.widthMm}mm from the inside corner`,
+  );
+  assert.ok(
+    ovenTower.startMm >= 600,
+    `oven tower is only ${ovenTower.startMm}mm from the inside corner`,
+  );
+  const errors = validate(design, brief.room, brief).filter(x => x.severity === 'error');
+  assert.deepEqual(errors.map(error => error.code), []);
+});
+
+check('validator blocks an oven or cooktop cabinet trapped in an inside corner', () => {
+  const brief = briefFromWizard({
+    layoutPreference: 'u-shape',
+    roomWidth: 3600,
+    roomDepth: 3000,
+    layoutStyle: 'standard',
+  });
+  brief.appliances = {
+    ...brief.appliances,
+    oven: '600',
+    cooktop: 'gas',
+  };
+  const unsafe = defaultSpecFor(brief, 'u-shape');
+  const mainRun = unsafe.runs.find(run => run.wall === 'N');
+  assert.ok(mainRun, 'standard U layout has no back-wall run');
+  const cooktopIndex = mainRun.segments.findIndex(
+    segment => segment.kind === 'cabinet' && segment.role === 'cooktop',
+  );
+  const drawerIndex = mainRun.segments.findIndex(
+    segment => segment.kind === 'cabinet' && segment.role === 'drawers',
+  );
+  const bufferIndex = mainRun.segments.findIndex(
+    segment => segment.kind === 'cabinet' && segment.role === 'corner-buffer',
+  );
+  assert.ok(
+    cooktopIndex >= 0 && drawerIndex >= 0 && bufferIndex >= 0,
+    'standard U layout is missing its cooking segments',
+  );
+  mainRun.segments.splice(bufferIndex, 1);
+  [mainRun.segments[cooktopIndex], mainRun.segments[drawerIndex]] = [
+    mainRun.segments[drawerIndex],
+    mainRun.segments[cooktopIndex],
+  ];
+  const errors = validate(compileSpec(unsafe, brief.room), brief.room, brief)
+    .filter(x => x.severity === 'error');
+  assert.ok(
+    errors.some(error => error.code === 'cooking-appliance-corner-clearance'),
+    `expected corner-clearance error, got ${errors.map(error => error.code).join(', ') || 'none'}`,
+  );
+});
+
 check('re-plumb warning fires when drain is far away', () => {
   const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4800, roomDepth: 3000, layoutStyle: 'standard' });
   brief.room.services.push({ id: 's1', wall: 'S', type: 'drain', offsetMm: 200 });

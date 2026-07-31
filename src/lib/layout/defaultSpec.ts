@@ -81,6 +81,18 @@ function bridgeWall(walls: Wall[]): Wall {
     ?? walls[0];
 }
 
+function withProtectedCookingEnd(
+  segments: Segment[],
+  brief: DesignBrief,
+  primary: Wall,
+  adjoiningWalls: Wall[],
+): Segment[] {
+  const protectsEnd = adjoiningWalls.some(wall =>
+    reachesSharedCorner(brief, primary, wall)
+    && sharedCornerAt(primary, wall) === 'end');
+  return protectsEnd ? [...segments, seg('corner-buffer', 600)] : segments;
+}
+
 export function defaultSpecFor(
   brief: DesignBrief,
   shape: LayoutShape,
@@ -105,8 +117,12 @@ export function defaultSpecFor(
       if (dw) segments.push(seg('dishwasher'));
     }
     if (withCooktop) {
-      segments.push(seg('drawers'));
       segments.push(seg('cooktop'));
+      // Keep a real base cabinet between the cooking appliance and the
+      // shared inside corner. If an oven tower is squeezed out, the selected
+      // oven falls back under this cooktop; putting the cooktop last could
+      // therefore leave the oven door trapped against the adjoining run.
+      segments.push(seg('drawers'));
     }
     return segments;
   };
@@ -146,8 +162,14 @@ export function defaultSpecFor(
       ];
       if (dw) sinkSegments.push(seg('dishwasher'));
       sinkSegments.push(seg('drawers'));
+      const primarySegments = withProtectedCookingEnd(
+        mkPrimary(primary, false, true),
+        brief,
+        primary,
+        hasCorner ? [sinkSide] : [],
+      );
       runs = [
-        withSelectedRange({ wall: primary, segments: mkPrimary(primary, false, true), wallCabinets: true }, brief),
+        withSelectedRange({ wall: primary, segments: primarySegments, wallCabinets: true }, brief),
         withSelectedRange({
           wall: sinkSide,
           segments: sinkSegments,
@@ -173,8 +195,14 @@ export function defaultSpecFor(
         seg('drawers'),
         seg('doors'),
       ];
+      const primarySegments = withProtectedCookingEnd(
+        mkPrimary(primary, false, true),
+        brief,
+        primary,
+        sides,
+      );
       runs = [
-        withSelectedRange({ wall: primary, segments: mkPrimary(primary, false, true), wallCabinets: true }, brief),
+        withSelectedRange({ wall: primary, segments: primarySegments, wallCabinets: true }, brief),
         withSelectedRange({
           wall: sinkSide,
           segments: sinkSegments,

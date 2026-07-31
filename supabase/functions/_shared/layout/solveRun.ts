@@ -31,6 +31,7 @@ const ROLE_NAMES: Record<SegmentRole, string> = {
   sink: 'the sink', cooktop: 'the cooktop', dishwasher: 'the dishwasher',
   drawers: 'a drawer bank', doors: 'a cupboard', pantry: 'the pantry',
   'oven-tower': 'the oven tower', 'fridge-gap': 'the fridge space', corner: 'the corner unit',
+  'corner-buffer': 'the corner clearance cabinet',
 };
 
 export interface SolvedRun {
@@ -174,7 +175,9 @@ export function solveRun(
   // ── essential rescue: if an essential (sink/cooktop/dishwasher/fridge/corner) was
   // squeezed out by wall fragmentation, retry the whole run with one fewer
   // nice-to-have segment instead of losing the essential. ──
-  const ESSENTIALS: SegmentRole[] = ['sink', 'cooktop', 'dishwasher', 'fridge-gap', 'corner'];
+  const ESSENTIALS: SegmentRole[] = [
+    'sink', 'cooktop', 'dishwasher', 'fridge-gap', 'corner', 'corner-buffer',
+  ];
   const droppedEssential = run.segments.some(seg =>
     seg.kind === 'cabinet' && ESSENTIALS.includes(seg.role)
     && !resolved.some(rs => rs.segment === seg));

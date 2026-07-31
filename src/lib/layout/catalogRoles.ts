@@ -26,6 +26,7 @@ export const ROLE_PRODUCTS: Record<SegmentRole, RoleProduct> = {
   'oven-tower':{ definitionId: 'tall_oven',           widths: [600],           kind: 'tall',      priceWeight: 980 },
   'fridge-gap':{ definitionId: 'fridge_opening',      widths: [940, 920, 860], kind: 'appliance', priceWeight: 220 },
   corner:      { definitionId: 'base_corner_blind_left', widths: [900, 1000],  kind: 'base',      priceWeight: 950 },
+  'corner-buffer': { definitionId: 'base_1_door',     widths: [600],           kind: 'base',      priceWeight: 520 },
 };
 
 /** Single-door variant when a narrow width is used. */
@@ -51,4 +52,4 @@ export const RANGEHOOD_ID = 'wall_rangehood';
 export const FRIDGE_TOP_ID = 'fridge_top_cabinet';
 
 /** Fixed appliance/role widths that must not be resized to fit. */
-export const FIXED_WIDTH_ROLES: SegmentRole[] = ['dishwasher', 'oven-tower'];
+export const FIXED_WIDTH_ROLES: SegmentRole[] = ['dishwasher', 'oven-tower', 'corner-buffer'];

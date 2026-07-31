@@ -111,7 +111,7 @@ export const designBriefSchema = z.object({
 
 export const segmentRoleSchema = z.enum([
   'sink', 'cooktop', 'dishwasher', 'drawers', 'doors',
-  'pantry', 'oven-tower', 'fridge-gap', 'corner',
+  'pantry', 'oven-tower', 'fridge-gap', 'corner', 'corner-buffer',
 ]);
 
 export const segmentSchema = z.discriminatedUnion('kind', [

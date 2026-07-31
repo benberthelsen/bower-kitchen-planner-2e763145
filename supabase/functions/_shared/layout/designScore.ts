@@ -23,7 +23,9 @@ export interface DesignScore {
   parts: DesignScoreParts;
 }
 
-const BASE_ROLES: SegmentRole[] = ['sink', 'cooktop', 'drawers', 'doors', 'dishwasher'];
+const BASE_ROLES: SegmentRole[] = [
+  'sink', 'cooktop', 'drawers', 'doors', 'dishwasher', 'corner-buffer',
+];
 
 function rolesOf(spec: KitchenSpec): SegmentRole[] {
   return spec.runs.flatMap(run =>

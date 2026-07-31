@@ -10,6 +10,7 @@ import {
   resolveV1Capability,
   selectRegulatoryProfile,
   sinkRequirementV2Schema,
+  unmappedRuleIds,
   V1_CATALOG_CAPABILITIES,
 } from '../.tmp-snap-test/design-v2.mjs';
 
@@ -25,6 +26,10 @@ const check = async (name, fn) => {
 };
 
 console.log('designer V2 contract smoke tests');
+
+await check('every live layout rule has an explicit policy mapping', () => {
+  assert.deepEqual(unmappedRuleIds(), []);
+});
 
 await check('exact catalogue identity requires namespace, version and item ID', () => {
   assert.equal(catalogItemIdentityV2Schema.safeParse({ itemId: 'finish-1' }).success, false);

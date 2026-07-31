@@ -28,6 +28,7 @@ export const KITCHEN_ROLE_LABELS: Record<SegmentRole, string> = {
   'oven-tower': 'Oven tower',
   'fridge-gap': 'Fridge space',
   corner: 'Corner cabinet',
+  'corner-buffer': 'Corner clearance cupboard',
 };
 
 export function cloneKitchenSpec(spec: KitchenSpec): KitchenSpec {

@@ -84,7 +84,8 @@ export type SegmentRole =
   | 'pantry'
   | 'oven-tower'
   | 'fridge-gap'
-  | 'corner';
+  | 'corner'
+  | 'corner-buffer';
 
 export type Segment =
   | { kind: 'cabinet'; role: SegmentRole; widthMm?: number }
