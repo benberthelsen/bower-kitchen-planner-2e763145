@@ -111,6 +111,7 @@ export function compileSpec(
       }
 
       const role = rs.segment.kind === 'cabinet' ? rs.segment.role : null;
+      const sourceSegmentIndex = run.segments.indexOf(rs.segment);
       const isTall = role !== null && TALL_ROLES.includes(role);
       const height = isTall ? dims.tallHeight : dims.baseHeight;
       const depth = isTall ? dims.tallDepth : dims.baseDepth;
@@ -130,6 +131,9 @@ export function compileSpec(
         // Explicit role tag so downstream consumers (appliance enrichment,
         // build notes) never have to reverse-engineer intent from the SKU.
         ...(role ? { layoutRole: role } : {}),
+        ...(sourceSegmentIndex >= 0
+          ? { layoutRunIndex: runIdx, layoutSegmentIndex: sourceSegmentIndex }
+          : {}),
         ...(blindSide ? { blindSide } : {}),
         ...(pendingFillerLeft > 0 ? { fillerLeft: pendingFillerLeft } : {}),
       });

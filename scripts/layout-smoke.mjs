@@ -46,6 +46,23 @@ check('small single-wall (2400mm) compiles without errors', () => {
   assert.deepEqual(errors.map(e => e.code), []);
 });
 
+check('compiled cabinets retain their editable KitchenSpec source coordinates', () => {
+  const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4200, roomDepth: 3000, layoutStyle: 'standard' });
+  const spec = defaultSpecFor(brief, 'single-wall');
+  const design = compileSpec(spec, brief.room);
+  const sourceItems = design.items.filter(item =>
+    item.layoutRunIndex !== undefined && item.layoutSegmentIndex !== undefined);
+  assert.equal(
+    sourceItems.length,
+    spec.runs[0].segments.filter(segment => segment.kind === 'cabinet').length,
+  );
+  for (const item of sourceItems) {
+    const segment = spec.runs[item.layoutRunIndex].segments[item.layoutSegmentIndex];
+    assert.equal(segment.kind, 'cabinet');
+    assert.equal(item.layoutRole, segment.role);
+  }
+});
+
 // ── openings: cabinets avoid a doorway ──
 check('door opening blocks base cabinets', () => {
   const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 4200, roomDepth: 3000, layoutStyle: 'standard' });
