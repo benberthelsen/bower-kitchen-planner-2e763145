@@ -11,6 +11,7 @@
 
 import React, { useState, Suspense, useCallback, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import * as SliderPrimitive from '@radix-ui/react-slider';
 import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff } from '@/hooks/usePlannerHandoff';
 import { handoffToStyleWords } from '@/lib/handoffBrief';
 import {
@@ -22,6 +23,7 @@ import {
 } from '@/lib/roomScan/contract';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
+  GripVertical,
 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -658,6 +660,24 @@ function WallPicker({
     }
     onChange(value, nextRanges);
   };
+  const updateRange = (wall: Wall, rawStartMm: number, rawEndMm: number) => {
+    const length = wallLengthForRoom(wall, widthMm, depthMm);
+    const startMm = Math.max(
+      0,
+      Math.min(length - MIN_WALL_RUN_MM, Math.round(rawStartMm)),
+    );
+    const endMm = Math.max(
+      startMm + MIN_WALL_RUN_MM,
+      Math.min(length, Math.round(rawEndMm)),
+    );
+    const nextRanges = { ...ranges };
+    if (startMm === 0 && endMm === length) {
+      delete nextRanges[wall];
+    } else {
+      nextRanges[wall] = { startMm, endMm };
+    }
+    onChange(value, nextRanges);
+  };
   const wallBtn = (w: Wall, label: string, cls: string) => {
     const on = value.includes(w);
     return (
@@ -715,10 +735,8 @@ function WallPicker({
             const range = ranges[wall] ?? { startMm: 0, endMm: length };
             const leftClearance = Math.max(0, Math.min(length, range.startMm));
             const rightClearance = Math.max(0, Math.min(length, length - range.endMm));
-            const startPct = length > 0 ? (leftClearance / length) * 100 : 0;
-            const widthPct = length > 0
-              ? ((length - leftClearance - rightClearance) / length) * 100
-              : 100;
+            const endMm = length - rightClearance;
+            const instructionId = `wall-${wall}-range-instructions`;
             return (
               <div key={wall} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -727,14 +745,45 @@ function WallPicker({
                     {Math.round(length - leftClearance - rightClearance)} mm of {length} mm
                   </p>
                 </div>
-                <div className="relative mt-2 h-3 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-                  <div
-                    className="absolute inset-y-0 rounded-full bg-emerald-500"
-                    style={{ left: `${startPct}%`, width: `${widthPct}%` }}
-                  />
-                </div>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  Facing this wall from inside the room, enter any clear space to leave at each end.
+                <SliderPrimitive.Root
+                  className="relative mx-4 mt-1 flex h-12 w-[calc(100%-2rem)] touch-none select-none items-center"
+                  value={[leftClearance, endMm]}
+                  min={0}
+                  max={length}
+                  step={50}
+                  minStepsBetweenThumbs={Math.ceil(MIN_WALL_RUN_MM / 50)}
+                  onValueChange={([start, end]) => updateRange(wall, start, end)}
+                  aria-describedby={instructionId}
+                  data-wall-run-slider={wall}
+                >
+                  <SliderPrimitive.Track className="relative h-3 w-full grow overflow-hidden rounded-full bg-slate-200">
+                    <SliderPrimitive.Range className="absolute h-full rounded-full bg-emerald-500" />
+                  </SliderPrimitive.Track>
+                  <SliderPrimitive.Thumb
+                    aria-label={`${WALL_LABELS[wall]} cabinet run start`}
+                    aria-valuetext={`${Math.round(leftClearance)} millimetres clear at left`}
+                    className="group relative block h-px w-px rounded-full focus-visible:outline-none"
+                  >
+                    <span className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-emerald-600 bg-white text-emerald-700 shadow-md transition-transform group-active:scale-110 group-focus-visible:ring-2 group-focus-visible:ring-emerald-600 group-focus-visible:ring-offset-2">
+                        <GripVertical className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                    </span>
+                  </SliderPrimitive.Thumb>
+                  <SliderPrimitive.Thumb
+                    aria-label={`${WALL_LABELS[wall]} cabinet run finish`}
+                    aria-valuetext={`${Math.round(rightClearance)} millimetres clear at right`}
+                    className="group relative block h-px w-px rounded-full focus-visible:outline-none"
+                  >
+                    <span className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-emerald-600 bg-white text-emerald-700 shadow-md transition-transform group-active:scale-110 group-focus-visible:ring-2 group-focus-visible:ring-emerald-600 group-focus-visible:ring-offset-2">
+                        <GripVertical className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                    </span>
+                  </SliderPrimitive.Thumb>
+                </SliderPrimitive.Root>
+                <p id={instructionId} className="text-[11px] text-slate-500">
+                  Drag either handle to set where cabinets start and finish. Use the fields for exact measurements.
                 </p>
                 <div className="mt-2 grid grid-cols-2 gap-3">
                   <div>
