@@ -17,7 +17,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Camera, Check, CircleDot, DoorOpen, Info, Redo2, Ruler, ScanLine, Upload,
+  AppWindow, ArrowLeft, Camera, Check, CircleDot, DoorOpen, Info, Plus, Redo2, Ruler,
+  ScanLine, Trash2, Upload,
 } from 'lucide-react';
 import * as THREE from 'three';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,14 @@ import {
   dominantLine, intersectDetectedWallLines, snapToPlanes, type PlaneSnap, type WallLine,
 } from '@/lib/roomScan/webxrFit';
 import { importRoomPlanFileText } from '@/lib/roomScan/roomplanImport';
+import {
+  MANUAL_WALL_OPTIONS,
+  manualWallLabel,
+  validateManualOpeningDrafts,
+  type ManualOpeningDraft,
+  type ManualOpeningInput,
+  type ManualOpeningType,
+} from '@/lib/roomScan/manualEntry';
 
 export const PENDING_SCAN_KEY = 'bower.pendingScan';
 
@@ -688,23 +697,21 @@ export default function ScanRoom() {
   }, [previewScan, storeAndGo]);
 
   // Build a valid UnconfirmedRoomScanV1 from a plain rectangle + optional openings.
-  const buildManualScan = useCallback((input: {
-    widthMm: number; depthMm: number; heightMm: number;
-    doorWall?: 'N' | 'E' | 'S' | 'W'; doorOffsetMm?: number; doorWidthMm?: number;
-    windowWall?: 'N' | 'E' | 'S' | 'W'; windowOffsetMm?: number; windowWidthMm?: number;
-  }): import('@/lib/roomScan/contract').UnconfirmedRoomScanV1 => {
-    const openings: import('@/lib/roomScan/contract').OpeningV1[] = [];
-    if (input.doorWall && input.doorWidthMm && input.doorWidthMm > 0) {
-      openings.push({ id: 'door-1', wall: input.doorWall, type: 'door',
-        offsetMm: input.doorOffsetMm ?? 0, widthMm: input.doorWidthMm,
-        heightMm: Math.min(2040, input.heightMm) });
-    }
-    if (input.windowWall && input.windowWidthMm && input.windowWidthMm > 0) {
+  const buildManualScan = useCallback((input: ManualInput): import('@/lib/roomScan/contract').UnconfirmedRoomScanV1 => {
+    const openings: import('@/lib/roomScan/contract').OpeningV1[] = input.openings.map((opening) => {
+      if (opening.type === 'door') {
+        return {
+          ...opening,
+          heightMm: Math.min(2040, input.heightMm),
+        };
+      }
       const sillHeightMm = Math.min(900, Math.max(0, input.heightMm - 1200));
-      openings.push({ id: 'window-1', wall: input.windowWall, type: 'window',
-        offsetMm: input.windowOffsetMm ?? 0, widthMm: input.windowWidthMm,
-        heightMm: Math.min(1200, input.heightMm - sillHeightMm), sillHeightMm });
-    }
+      return {
+        ...opening,
+        heightMm: Math.min(1200, input.heightMm - sillHeightMm),
+        sillHeightMm,
+      };
+    });
     return {
       state: 'unconfirmed',
       schemaVersion: 1,
@@ -1291,8 +1298,7 @@ export default function ScanRoom() {
 // same UnconfirmedRoomScanV1 the two scan lanes do.
 type ManualInput = {
   widthMm: number; depthMm: number; heightMm: number;
-  doorWall?: 'N' | 'E' | 'S' | 'W'; doorOffsetMm?: number; doorWidthMm?: number;
-  windowWall?: 'N' | 'E' | 'S' | 'W'; windowOffsetMm?: number; windowWidthMm?: number;
+  openings: ManualOpeningInput[];
 };
 
 function ManualEntryDialog({
@@ -1302,15 +1308,17 @@ function ManualEntryDialog({
   const [widthM, setWidthM] = useState('3.6');
   const [depthM, setDepthM] = useState('3.0');
   const [heightM, setHeightM] = useState('2.4');
-  const [doorWall, setDoorWall] = useState<'N' | 'E' | 'S' | 'W' | ''>('');
-  const [doorOffsetMm, setDoorOffsetMm] = useState('0');
-  const [doorWidthMm, setDoorWidthMm] = useState('820');
-  const [windowWall, setWindowWall] = useState<'N' | 'E' | 'S' | 'W' | ''>('');
-  const [windowOffsetMm, setWindowOffsetMm] = useState('600');
-  const [windowWidthMm, setWindowWidthMm] = useState('1200');
+  const [openingDrafts, setOpeningDrafts] = useState<ManualOpeningDraft[]>([]);
+  const nextOpeningId = useRef(1);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (open) { setStep(1); setError(null); } }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    setStep(1);
+    setOpeningDrafts([]);
+    nextOpeningId.current = 1;
+    setError(null);
+  }, [open]);
 
   const num = (s: string) => { const n = Number(s); return Number.isFinite(n) ? n : NaN; };
   const readDimensions = (): Pick<ManualInput, 'widthMm' | 'depthMm' | 'heightMm'> | null => {
@@ -1340,62 +1348,92 @@ function ManualEntryDialog({
     const dimensions = readDimensions();
     if (!dimensions) { setStep(2); return; }
 
-    const validateOpening = (
-      label: string,
-      wall: 'N' | 'E' | 'S' | 'W' | '',
-      offsetText: string,
-      widthText: string,
-    ): { offsetMm: number; widthMm: number } | null => {
-      if (!wall) return { offsetMm: 0, widthMm: 0 };
-      const offsetMm = Math.round(num(offsetText));
-      const widthMm = Math.round(num(widthText));
-      if (!Number.isFinite(offsetMm) || !Number.isFinite(widthMm) || offsetMm < 0 || widthMm < 300 || widthMm > 3000) {
-        setError(`${label} offset must be 0 or more, and width must be 300–3000 mm.`);
-        return null;
-      }
-      const wallLengthMm = wall === 'N' || wall === 'S' ? dimensions.widthMm : dimensions.depthMm;
-      if (offsetMm + widthMm > wallLengthMm) {
-        setError(`${label} extends past wall ${wall}. Its offset plus width must fit within ${wallLengthMm} mm.`);
-        return null;
-      }
-      return { offsetMm, widthMm };
-    };
+    const result = validateManualOpeningDrafts(openingDrafts, dimensions);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
 
-    const door = validateOpening('Door', doorWall, doorOffsetMm, doorWidthMm);
-    if (!door) return;
-    const windowOpening = validateOpening('Window', windowWall, windowOffsetMm, windowWidthMm);
-    if (!windowOpening) return;
-
-    onSubmit({
-      ...dimensions,
-      ...(doorWall ? { doorWall, doorOffsetMm: door.offsetMm, doorWidthMm: door.widthMm } : {}),
-      ...(windowWall
-        ? { windowWall, windowOffsetMm: windowOpening.offsetMm, windowWidthMm: windowOpening.widthMm }
-        : {}),
-    });
+    onSubmit({ ...dimensions, openings: result.openings });
   };
 
-  const WallPicker = ({ value, onChange }: { value: 'N' | 'E' | 'S' | 'W' | ''; onChange: (v: 'N' | 'E' | 'S' | 'W' | '') => void }) => (
-    <div className="flex gap-2 flex-wrap">
-      {(['', 'N', 'E', 'S', 'W'] as const).map((w) => (
-        <button key={w || 'none'} type="button" onClick={() => onChange(w)}
-          className={cn('h-9 px-3 rounded-md border text-sm',
-            value === w ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300')}>
-          {w === '' ? 'None' : `Wall ${w}`}
-        </button>
-      ))}
-    </div>
+  const addOpening = (type: ManualOpeningType) => {
+    const sequence = nextOpeningId.current++;
+    setOpeningDrafts((current) => [
+      ...current,
+      {
+        id: `manual-${type}-${sequence}`,
+        type,
+        wall: '',
+        offsetMm: type === 'door' ? '0' : '600',
+        widthMm: type === 'door' ? '820' : '1200',
+      },
+    ]);
+    setError(null);
+  };
+
+  const updateOpening = (
+    id: string,
+    patch: Partial<Pick<ManualOpeningDraft, 'wall' | 'offsetMm' | 'widthMm'>>,
+  ) => {
+    setOpeningDrafts((current) =>
+      current.map((opening) => opening.id === id ? { ...opening, ...patch } : opening));
+    setError(null);
+  };
+
+  const removeOpening = (id: string) => {
+    setOpeningDrafts((current) => current.filter((opening) => opening.id !== id));
+    setError(null);
+  };
+
+  const openingLabel = (opening: ManualOpeningDraft, index: number) => {
+    const sameTypeCount = openingDrafts.filter((candidate) => candidate.type === opening.type).length;
+    const number = openingDrafts.slice(0, index + 1)
+      .filter((candidate) => candidate.type === opening.type).length;
+    const typeLabel = opening.type === 'door' ? 'Door' : 'Window';
+    return sameTypeCount > 1 ? `${typeLabel} ${number}` : typeLabel;
+  };
+
+  const WallPicker = ({ opening }: { opening: ManualOpeningDraft }) => (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-medium text-slate-800">Which wall is it on?</legend>
+      <div className="grid grid-cols-2 gap-2">
+        {MANUAL_WALL_OPTIONS.map((option) => {
+          const selected = opening.wall === option.value;
+          const length = option.dimension === 'width' ? widthM : depthM;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => updateOpening(opening.id, { wall: option.value })}
+              className={cn(
+                'min-h-14 rounded-lg border px-3 py-2 text-left transition-colors',
+                selected
+                  ? 'border-slate-900 bg-slate-900 text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500',
+              )}
+            >
+              <span className="block text-sm font-medium">{option.label}</span>
+              <span className={cn('block text-xs', selected ? 'text-slate-300' : 'text-slate-500')}>
+                {length} m
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[92dvh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Enter your room · step {step} of 3</DialogTitle>
           <DialogDescription>
             {step === 1 ? 'Which shape is your room?'
               : step === 2 ? 'Room size and ceiling height.'
-              : 'Doors and windows (optional).'}
+              : 'Add any doors or windows, or skip this for now.'}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 text-sm">
@@ -1433,39 +1471,137 @@ function ManualEntryDialog({
           )}
           {step === 3 && (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <p className="font-medium text-slate-800">Door (optional)</p>
-                <WallPicker value={doorWall} onChange={setDoorWall} />
-                {doorWall && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="block"><span className="block text-slate-600 mb-1">Offset (mm)</span>
-                      <input inputMode="numeric" value={doorOffsetMm} onChange={(e) => setDoorOffsetMm(e.target.value)}
-                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
-                    <label className="block"><span className="block text-slate-600 mb-1">Width (mm)</span>
-                      <input inputMode="numeric" value={doorWidthMm} onChange={(e) => setDoorWidthMm(e.target.value)}
-                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
-                  </div>
-                )}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+                Use the <span className="font-medium text-slate-800">main wall</span> from the previous step as your reference.
+                Add as many openings as you need. You can also adjust them later on the room plan.
               </div>
-              <div className="space-y-2">
-                <p className="font-medium text-slate-800">Window (optional)</p>
-                <WallPicker value={windowWall} onChange={setWindowWall} />
-                {windowWall && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="block"><span className="block text-slate-600 mb-1">Offset (mm)</span>
-                      <input inputMode="numeric" value={windowOffsetMm} onChange={(e) => setWindowOffsetMm(e.target.value)}
-                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
-                    <label className="block"><span className="block text-slate-600 mb-1">Width (mm)</span>
-                      <input inputMode="numeric" value={windowWidthMm} onChange={(e) => setWindowWidthMm(e.target.value)}
-                        className="w-full h-10 px-3 rounded-md border border-slate-300" /></label>
-                  </div>
-                )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 justify-center border-slate-300"
+                  onClick={() => addOpening('door')}
+                >
+                  <DoorOpen className="mr-2 h-4 w-4" />
+                  Add a door
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 justify-center border-slate-300"
+                  onClick={() => addOpening('window')}
+                >
+                  <AppWindow className="mr-2 h-4 w-4" />
+                  Add a window
+                </Button>
               </div>
-              {error && <p role="alert" className="text-red-600">{error}</p>}
-              <div className="flex gap-2">
+
+              {openingDrafts.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center">
+                  <p className="font-medium text-slate-800">No openings added</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    That is okay—save the room now if you are unsure.
+                  </p>
+                </div>
+              )}
+
+              {openingDrafts.map((opening, index) => {
+                const label = openingLabel(opening, index);
+                const OpeningIcon = opening.type === 'door' ? DoorOpen : AppWindow;
+                return (
+                  <section
+                    key={opening.id}
+                    aria-labelledby={`${opening.id}-title`}
+                    className="space-y-3 rounded-xl border border-slate-300 bg-white p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-700">
+                          <OpeningIcon className="h-4 w-4" />
+                        </span>
+                        <p id={`${opening.id}-title`} className="font-semibold text-slate-900">{label}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        aria-label={`Remove ${label}`}
+                        onClick={() => removeOpening(opening.id)}
+                      >
+                        <Trash2 className="mr-1 h-4 w-4" />
+                        Remove
+                      </Button>
+                    </div>
+
+                    <WallPicker opening={opening} />
+
+                    {opening.wall && (
+                      <>
+                        <p className="rounded-md bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-900">
+                          Stand inside the room facing the {manualWallLabel(opening.wall).toLowerCase()}.
+                          Measure from its left corner to the left edge of the opening.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block">
+                            <span className="mb-1 block text-slate-600">From left corner (mm)</span>
+                            <input
+                              inputMode="numeric"
+                              value={opening.offsetMm}
+                              onChange={(event) => updateOpening(opening.id, { offsetMm: event.target.value })}
+                              className="h-10 w-full rounded-md border border-slate-300 px-3"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1 block text-slate-600">Opening width (mm)</span>
+                            <input
+                              inputMode="numeric"
+                              value={opening.widthMm}
+                              onChange={(event) => updateOpening(opening.id, { widthMm: event.target.value })}
+                              className="h-10 w-full rounded-md border border-slate-300 px-3"
+                            />
+                          </label>
+                        </div>
+                      </>
+                    )}
+                  </section>
+                );
+              })}
+
+              {openingDrafts.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="border border-dashed border-slate-300 text-slate-600"
+                    onClick={() => addOpening('door')}
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    Another door
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="border border-dashed border-slate-300 text-slate-600"
+                    onClick={() => addOpening('window')}
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    Another window
+                  </Button>
+                </div>
+              )}
+
+              {error && (
+                <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-red-700">
+                  {error}
+                </p>
+              )}
+              <div className="flex gap-2 border-t border-slate-200 pt-3">
                 <Button variant="outline" onClick={() => setStep(2)}>Back</Button>
                 <Button className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500" onClick={submit}>
-                  <Check className="w-4 h-4 mr-1" /> Save room
+                  <Check className="mr-1 h-4 w-4" />
+                  Save room
                 </Button>
               </div>
             </div>

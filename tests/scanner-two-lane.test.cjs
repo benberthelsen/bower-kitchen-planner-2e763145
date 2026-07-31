@@ -176,10 +176,15 @@ ok('hidden corner: derived corner feeds the normal fit', withHidden.ok && Math.a
 // endings, manual openings must be bounded, and every new scan must return the
 // wizard to the room-confirmation step instead of reusing a stale design.
 const scanRoomSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'homeowner', 'ScanRoom.tsx'), 'utf8');
+const manualEntrySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'lib', 'roomScan', 'manualEntry.ts'), 'utf8');
 const wizardSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'pages', 'homeowner', 'Wizard.tsx'), 'utf8');
 ok('scanner UI: central session cleanup is wired', scanRoomSource.includes("session.addEventListener('end'") && scanRoomSource.includes('cleanupSessionResources();'));
 ok('scanner UI: imports are size bounded', scanRoomSource.includes('MAX_ROOMPLAN_FILE_BYTES') && scanRoomSource.includes('file.size > MAX_ROOMPLAN_FILE_BYTES'));
-ok('scanner UI: manual openings cannot exceed a wall', scanRoomSource.includes('offsetMm + widthMm > wallLengthMm'));
+ok(
+  'scanner UI: manual openings cannot exceed a wall',
+  scanRoomSource.includes('validateManualOpeningDrafts')
+    && manualEntrySource.includes('offsetMm + widthMm > lengthMm'),
+);
 ok(
   'scanner UI: assisted wall lock keeps a manual fallback',
   scanRoomSource.includes('Smart wall lock')
