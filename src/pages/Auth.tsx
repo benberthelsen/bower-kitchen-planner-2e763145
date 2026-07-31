@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { z } from 'zod';
 
 const emailSchema = z.string().email('Invalid email address');
@@ -59,7 +59,7 @@ export default function Auth() {
       }
     } else {
       toast.success('Logged in successfully');
-      navigate('/');
+      navigate('/trade/dashboard');
     }
   };
 
@@ -105,11 +105,20 @@ export default function Auth() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen bg-slate-50 p-4">
+      <div className="mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-md flex-col justify-center">
+        <Link
+          to="/wizard"
+          className="mb-4 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to kitchen planner
+        </Link>
+        <Card className="w-full border-slate-200 shadow-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Bower Kitchen Planner</CardTitle>
-          <CardDescription>Sign in to save and manage your kitchen designs</CardDescription>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Bower Cabinets</p>
+          <CardTitle className="text-2xl font-bold text-slate-900">Trade Portal</CardTitle>
+          <CardDescription>Sign in to manage repeat customers, jobs, plans and quotes</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
@@ -203,6 +212,7 @@ export default function Auth() {
           </Tabs>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

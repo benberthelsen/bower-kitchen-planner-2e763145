@@ -2181,7 +2181,13 @@ export default function HomeownerWizard() {
               <RotateCcw className="w-3.5 h-3.5" /> Start new design
             </button>
           )}
-          <span className="text-xs sm:text-sm text-slate-400">Kitchen Planner</span>
+          <span className="hidden text-xs text-slate-400 sm:inline sm:text-sm">Kitchen Planner</span>
+          <Link
+            to="/trade-planner"
+            className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 sm:px-3 sm:text-sm"
+          >
+            Trade login
+          </Link>
         </div>
       </header>
 
@@ -2239,6 +2245,7 @@ export default function HomeownerWizard() {
             chosenAppliances={state.chosenAppliances}
             onDesignChange={d => onChange({ design: d })}
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
+            onReturnToRoom={() => onChange({ step: 1 })}
           />
         )}
         {state.step === 6 && <Step4Review state={state} onChange={onChange} />}

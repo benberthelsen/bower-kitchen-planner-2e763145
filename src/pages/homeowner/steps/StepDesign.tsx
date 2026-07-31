@@ -32,6 +32,7 @@ import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
 import { featureFlags, isIosDevice } from '@/lib/featureFlags';
 import KitchenUnitEditor from '@/components/homeowner/KitchenUnitEditor';
+import { createPlannerAlternatives } from '@/lib/homeowner/plannerAlternatives';
 
 interface Props {
   brief: DesignBrief;
@@ -41,6 +42,7 @@ interface Props {
   chosenAppliances: Record<string, string>;
   onDesignChange: (design: WizardDesign) => void;
   onRoomPatchProposed: (patch: ProposedRoomPatch) => void;
+  onReturnToRoom: () => void;
 }
 
 interface ChatEntry { role: 'user' | 'assistant'; content: string }
@@ -98,7 +100,16 @@ function OptionPlanPreview({
   );
 }
 
-export default function StepDesign({ brief, shape, style, design, chosenAppliances, onDesignChange, onRoomPatchProposed }: Props) {
+export default function StepDesign({
+  brief,
+  shape,
+  style,
+  design,
+  chosenAppliances,
+  onDesignChange,
+  onRoomPatchProposed,
+  onReturnToRoom,
+}: Props) {
   const navigate = useNavigate();
   const { generate, refine, loading, error, lastError, hasActiveSession } = useAiDesigner();
   const [options, setOptions] = useState<AiDesignOption[] | null>(null);
@@ -107,6 +118,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
   const [undoStack, setUndoStack] = useState<WizardDesign[]>([]);
   const [loadingLine, setLoadingLine] = useState(0);
   const [cabinetEditorOpen, setCabinetEditorOpen] = useState(false);
+  const [usingPlannerFallback, setUsingPlannerFallback] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Always have a design: seed the deterministic default on entry.
@@ -181,10 +193,22 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     trackEvent('ai_generate_requested', { shape });
     const res = await generate(brief, shape);
     if (!res || res.options.length === 0) {
-      trackEvent('ai_generate_failed');
-      toast.error('The AI designer is unavailable right now — you can keep going with the standard layout.');
+      const plannerOptions = createPlannerAlternatives({ brief, shape, style });
+      if (plannerOptions.length > 0) {
+        setUsingPlannerFallback(true);
+        setOptions(plannerOptions);
+        trackEvent('ai_generate_fallback_succeeded', {
+          count: plannerOptions.length,
+          reason: lastError() ?? 'empty_result',
+        });
+        toast.success('The online designer is offline, so planner-checked alternatives are shown instead.');
+        return;
+      }
+      trackEvent('ai_generate_failed', { reason: lastError() ?? 'no_valid_alternatives' });
+      toast.error('No valid alternative fits the selected cabinet run. Adjust the walls or run length to make more room.');
       return;
     }
+    setUsingPlannerFallback(false);
     trackEvent('ai_generate_succeeded', { count: res.options.length });
     setOptions(res.options);
   };
@@ -197,7 +221,13 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     }
     trackEvent('ai_option_selected', { name: opt.name });
     setUndoStack(design ? [...undoStack.slice(-9), design] : undoStack);
-    onDesignChange(createWizardDesign({ name: opt.name, spec: opt.spec, aiGenerated: true, proposalId: opt.proposalId, priceBand: opt.priceBand }));
+    onDesignChange(createWizardDesign({
+      name: opt.name,
+      spec: opt.spec,
+      aiGenerated: opt.source !== 'planner',
+      proposalId: opt.proposalId,
+      priceBand: opt.priceBand,
+    }));
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
   };
 
@@ -329,16 +359,53 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Design your kitchen</h2>
         <p className="text-sm text-slate-500">
-          Your buildable starter layout is ready below. Compare AI alternatives if you want
-          a different balance of storage, bench space, or entertaining.
+          {blockingErrors.length > 0
+            ? 'Your room and style choices are safe. The selected cabinet run just needs more space before the layout can be priced.'
+            : 'Your buildable starter layout is ready below. Compare alternatives if you want a different balance of storage, bench space, or entertaining.'}
         </p>
       </div>
+
+      {blockingErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2" role="alert">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-red-800">This layout needs more cabinet run space</p>
+            {brief.allowedWalls?.length ? (
+              <p className="text-xs text-red-700">
+                Your selected walls and run lengths do not leave enough room for every required appliance.
+                Extend a run or add another cabinet wall; your wall choices will stay authoritative.
+              </p>
+            ) : null}
+          </div>
+          {blockingErrors.map(error => (
+            <p key={`${error.code}-${error.message}`} className="text-xs text-red-700">{error.message}</p>
+          ))}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-1 border-red-300 bg-white text-red-800 hover:bg-red-100"
+            onClick={() => {
+              trackEvent('design_returned_to_wall_selection', { errorCount: blockingErrors.length });
+              onReturnToRoom();
+            }}
+          >
+            <PencilRuler className="mr-1.5 h-3.5 w-3.5" />
+            Adjust walls &amp; run length
+          </Button>
+        </div>
+      )}
 
       {/* AI generate / options */}
       {!options && featureFlags.aiDesigner && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-sm font-semibold text-slate-900">Starter layout ready</p>
-          <p className="mt-0.5 text-xs text-slate-500">It already follows your room, appliance, and clearance rules.</p>
+          <p className="text-sm font-semibold text-slate-900">
+            {blockingErrors.length > 0 ? 'Try another checked arrangement' : 'Starter layout ready'}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {blockingErrors.length > 0
+              ? 'The designer will keep your wall choices fixed. If nothing valid fits, return to the room step and extend the run.'
+              : 'It already follows your room, appliance, and clearance rules.'}
+          </p>
           <Button
             onClick={handleGenerate}
             disabled={loading}
@@ -353,8 +420,14 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
 
       {!featureFlags.aiDesigner && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-sm font-medium text-slate-800">Your standard kitchen concept is ready below.</p>
-          <p className="mt-1 text-xs text-slate-500">AI alternatives are temporarily unavailable, but the normal planner and quote journey still work.</p>
+          <p className="text-sm font-medium text-slate-800">
+            {blockingErrors.length > 0 ? 'Adjust the selected cabinet run to continue.' : 'Your standard kitchen concept is ready below.'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {blockingErrors.length > 0
+              ? 'The planner has kept your wall choices and shown exactly what needs more space.'
+              : 'AI alternatives are temporarily unavailable, but the normal planner and quote journey still work.'}
+          </p>
         </div>
       )}
 
@@ -362,11 +435,15 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
         <div className="space-y-2">
           <div>
             <p className="text-sm font-semibold text-slate-900">Choose an alternative</p>
-            <p className="text-xs text-slate-500">Each option passed the same room and clearance checks.</p>
+            <p className="text-xs text-slate-500">
+              {usingPlannerFallback
+                ? 'The online AI is offline, so these were created and checked by the built-in Bower layout engine.'
+                : 'Each option passed the same room and clearance checks.'}
+            </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {options.map((opt, index) => {
-            const active = design?.aiGenerated === true && design.proposalId === opt.proposalId;
+            const active = design?.proposalId === opt.proposalId;
             const optionErrors = opt.violations.filter(v => v.severity === 'error');
             return (
               <button
@@ -409,7 +486,13 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
 
       {error && !loading && (
         <div className="text-center space-y-0.5">
-          <p className="text-xs text-slate-400">AI designer unavailable — showing the standard layout instead.</p>
+          <p className="text-xs text-slate-500">
+            {usingPlannerFallback
+              ? 'Online AI unavailable — the planner-generated alternatives remain fully usable and editable.'
+              : blockingErrors.length > 0
+                ? 'Online AI unavailable — adjust the selected walls or run length to make a valid layout.'
+                : 'Online AI unavailable — the checked standard layout remains available below.'}
+          </p>
         </div>
       )}
 
@@ -589,17 +672,10 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
           <p className="text-[11px] text-amber-600 pt-0.5">
             {canRefine
               ? 'These are trade-offs, not mistakes — you can leave them and Ben will talk them through with you.'
-              : 'Tap “Compare AI layout alternatives” above and the designer can work on these for you.'}
+              : options
+                ? 'Choose another checked alternative or edit the cabinets below; these are trade-offs, not blocking errors.'
+                : 'Tap “Compare AI layout alternatives” above and the designer can work on these for you.'}
           </p>
-        </div>
-      )}
-
-      {blockingErrors.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1" role="alert">
-          <p className="text-xs font-semibold text-red-800">This layout needs repair before you continue</p>
-          {blockingErrors.map(error => (
-            <p key={`${error.code}-${error.message}`} className="text-xs text-red-700">{error.message}</p>
-          ))}
         </div>
       )}
 
