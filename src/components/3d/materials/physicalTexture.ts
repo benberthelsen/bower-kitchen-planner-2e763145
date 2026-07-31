@@ -62,3 +62,14 @@ export function cloneTextureForSurface(
     return null;
   }
 }
+
+/**
+ * Keep a procedural material visible while its supplier texture is loading,
+ * then replace only the map. Appliance openings and cabinets use this same
+ * rule so a continuous benchtop never falls back to two different colours.
+ */
+export function withOptionalSurfaceTexture<
+  T extends { map: THREE.Texture | null },
+>(material: T, supplierTexture: THREE.Texture | null): T {
+  return supplierTexture ? { ...material, map: supplierTexture } : material;
+}

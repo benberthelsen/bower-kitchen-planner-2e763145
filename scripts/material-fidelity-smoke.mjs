@@ -4,6 +4,7 @@ import {
   cloneTextureForSurface,
   getPhysicalTextureSize,
   setPhysicalTextureSize,
+  withOptionalSurfaceTexture,
 } from '../.tmp-snap-test/physical-texture.mjs';
 
 const source = new THREE.Texture();
@@ -28,4 +29,18 @@ assert.ok(fallback);
 assert.equal(fallback.repeat.x, 1);
 assert.equal(Number(fallback.repeat.y.toFixed(1)), 1.2);
 
-console.log('material fidelity: physical scale, grain orientation, and fallback passed');
+const proceduralMaterial = { color: '#c5aa82', roughness: 0.58, map: procedural };
+const whileLoading = withOptionalSurfaceTexture(proceduralMaterial, null);
+assert.equal(
+  whileLoading.map,
+  procedural,
+  'dishwasher slab must retain the same procedural benchtop while supplier texture loads',
+);
+
+const supplier = new THREE.Texture();
+const afterLoading = withOptionalSurfaceTexture(proceduralMaterial, supplier);
+assert.equal(afterLoading.map, supplier);
+assert.equal(afterLoading.color, proceduralMaterial.color);
+assert.equal(afterLoading.roughness, proceduralMaterial.roughness);
+
+console.log('material fidelity: physical scale, grain orientation, and shared appliance fallback passed');

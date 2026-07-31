@@ -23,6 +23,7 @@ import {
 import FoldingDoor from './cabinet-parts/FoldingDoor';
 import CornerBiFold from './cabinet-parts/CornerBiFold';
 import { useOptionalTexture } from './materials/useOptionalTexture';
+import { withOptionalSurfaceTexture } from './materials/physicalTexture';
 import { 
   ConstructionRecipe, 
   getConstructionRecipe, 
@@ -207,7 +208,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const shelfMat = applyTex(shelfRaw, carcaseTex);
   const bottomMat = applyTex(bottomRaw, carcaseTex);
   const kickMat = kickRaw;
-  const benchMat = applyTex(benchRaw, benchTex);
+  const benchMat = withOptionalSurfaceTexture(benchRaw, benchTex);
   const endPanelMat = applyTex(endPanelRaw, doorTex);
   const falseFrontMat = applyTex(falseFrontRaw, doorTex);
   
