@@ -25,6 +25,9 @@ export interface AiDesignOption {
   priceBand: { lowAud: number; highAud: number };
   violations: Violation[];
   rationale: string;
+  /** Present for deterministic client-side alternatives used when the online
+   * AI explanation/ranking service is unavailable. */
+  source?: 'ai' | 'planner';
 }
 
 export interface AiDesignResult {
