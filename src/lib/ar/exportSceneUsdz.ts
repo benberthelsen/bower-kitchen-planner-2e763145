@@ -143,7 +143,7 @@ export async function exportSceneUsdz(
   const exporter = new USDZExporter();
   try {
     const arr = await exporter.parse(scene, { quickLookCompatible: true, maxTextureSize: 1024 });
-    return new Blob([arr], { type: 'model/vnd.usdz+zip' });
+    return new Blob([arr as unknown as BlobPart], { type: 'model/vnd.usdz+zip' });
   } finally {
     scene.traverse((object) => {
       const mesh = object as ThreeMesh;
