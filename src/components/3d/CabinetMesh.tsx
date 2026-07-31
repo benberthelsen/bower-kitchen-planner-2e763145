@@ -8,6 +8,7 @@ import { useCabinetMaterials } from '../../hooks/useCabinetMaterials';
 import CabinetAssembler from './CabinetAssembler';
 import { handleItemPointerDown } from './selectionGesture';
 import { CabinetRenderConfig } from '../../types/cabinetConfig';
+import { isConcealedRangehoodAppliance } from './applianceClassification';
 
 interface CabinetMeshProps {
   item: PlacedItem;
@@ -26,6 +27,56 @@ interface CabinetMeshProps {
   onEdit?: (id: string) => void;
   /** An appliance overlay replaces these cabinet fronts (under-bench oven). */
   suppressFronts?: boolean;
+}
+
+/**
+ * The only exposed part of a built-in rangehood: a shallow stainless insert
+ * and its grease filters on the underside of the matching upper cabinet.
+ */
+function ConcealedRangehoodInsert({
+  widthM,
+  heightM,
+  depthM,
+}: {
+  widthM: number;
+  heightM: number;
+  depthM: number;
+}) {
+  const insertW = Math.max(0.32, widthM - 0.05);
+  const insertD = Math.min(0.29, depthM * 0.82);
+  const undersideY = -heightM / 2 - 0.008;
+  const insertZ = depthM / 2 - insertD / 2 - 0.015;
+  const filterCount = insertW >= 0.75 ? 2 : 1;
+  const filterGap = 0.012;
+  const filterW = (insertW - 0.035 - filterGap * (filterCount - 1)) / filterCount;
+
+  return (
+    <group position={[0, undersideY, insertZ]}>
+      <mesh>
+        <boxGeometry args={[insertW, 0.018, insertD]} />
+        <meshStandardMaterial color="#aeb4ba" metalness={0.72} roughness={0.34} />
+      </mesh>
+      {Array.from({ length: filterCount }, (_, index) => {
+        const x = filterCount === 1
+          ? 0
+          : (index === 0 ? -1 : 1) * (filterW + filterGap) / 2;
+        return (
+          <group key={index} position={[x, -0.0105, 0]}>
+            <mesh>
+              <boxGeometry args={[filterW, 0.003, insertD - 0.035]} />
+              <meshStandardMaterial color="#747b82" metalness={0.65} roughness={0.46} />
+            </mesh>
+            {[-0.3, -0.15, 0, 0.15, 0.3].map(slot => (
+              <mesh key={slot} position={[filterW * slot, -0.002, 0]}>
+                <boxGeometry args={[0.006, 0.002, insertD - 0.055]} />
+                <meshStandardMaterial color="#3f454a" metalness={0.45} roughness={0.55} />
+              </mesh>
+            ))}
+          </group>
+        );
+      })}
+    </group>
+  );
 }
 
 /**
@@ -69,6 +120,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
   
   // Get catalog item with render config
   const catalogItem = useCatalogItem(item.definitionId);
+  const concealedRangehood = isConcealedRangehoodAppliance(item, catalogItem);
   const [hovered, setHovered] = useState(false);
 
   // Resolve the handle: real catalog handles (hardware_pricing row ids,
@@ -229,6 +281,13 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
         doorsOpen={doorsOpen}
         suppressFronts={suppressFronts}
       />
+      {concealedRangehood && (
+        <ConcealedRangehoodInsert
+          widthM={widthM}
+          heightM={heightM}
+          depthM={depthM}
+        />
+      )}
     </group>
   );
 };

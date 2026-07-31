@@ -1,6 +1,7 @@
 import React, { Component, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { isStaleDeploymentError, loadLatestDeployment } from '@/lib/deploymentRecovery';
 
 interface Props {
   children: ReactNode;
@@ -30,9 +31,16 @@ class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     this.props.onError?.(error, errorInfo);
+    // React.lazy can surface the rejected import directly without a usable
+    // preload event. Cover that path and recover automatically once.
+    if (isStaleDeploymentError(error)) loadLatestDeployment();
   }
 
   handleRetry = () => {
+    if (isStaleDeploymentError(this.state.error)) {
+      loadLatestDeployment(true);
+      return;
+    }
     this.setState({ hasError: false, error: null });
   };
 
@@ -42,6 +50,8 @@ class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
 
+      const staleDeployment = isStaleDeploymentError(this.state.error);
+
       return (
         <div className="flex flex-col items-center justify-center p-8 bg-muted/50 rounded-lg border border-border">
           <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
@@ -49,11 +59,13 @@ class ErrorBoundary extends Component<Props, State> {
             Something went wrong
           </h2>
           <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
-            {this.state.error?.message || 'An unexpected error occurred'}
+            {staleDeployment
+              ? 'The planner was updated while this tab was open. Load the latest version to continue.'
+              : this.state.error?.message || 'An unexpected error occurred'}
           </p>
           <Button onClick={this.handleRetry} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
-            Try Again
+            {staleDeployment ? 'Load latest version' : 'Try Again'}
           </Button>
         </div>
       );

@@ -25,6 +25,7 @@ import { handleItemPointerDown } from './selectionGesture';
 import { resolveApplianceModelUrl } from './applianceModelUrl';
 import {
   isBenchtopInsetAppliance,
+  isConcealedRangehoodAppliance,
   isDishwasherAppliance,
   isIntegratedDishwasherAppliance,
 } from './applianceClassification';
@@ -171,6 +172,9 @@ const ApplianceModel: React.FC<Props> = (props) => {
   // A fully integrated dishwasher's visible face is the selected joinery panel.
   // A vendor GLB would reintroduce its generic appliance front.
   if (isIntegratedDishwasherAppliance(item, def)) return fallback;
+  // Built-in rangehoods are housed behind the selected upper-cabinet fronts.
+  // An appliance GLB would incorrectly replace that joinery with an exposed hood.
+  if (isConcealedRangehoodAppliance(item, def)) return fallback;
   if (!url) return fallback;
   // If we have a resolved GLB URL and the item's own dimensions, render it
   // even when the catalog definition is still loading — the model doesn't

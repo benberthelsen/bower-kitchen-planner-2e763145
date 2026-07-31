@@ -18,6 +18,7 @@
  */
 import type { PlacedItem } from '../../types';
 import type { ExtendedCatalogItem } from '../../hooks/useCatalog';
+import { rangehoodPresentationFromText } from '../../lib/appliances/rangehoodStyle';
 
 type MaybeDef = ExtendedCatalogItem | null | undefined;
 
@@ -58,6 +59,29 @@ export function isRangehoodAppliance(item: PlacedItem, def: MaybeDef): boolean {
   const name = (def?.name ?? item.applianceSnapshot?.name ?? '').toLowerCase();
   if (/rangehood|range hood|extractor|canopy/.test(name)) return true;
   return (item.definitionId ?? '').includes('rangehood');
+}
+
+/**
+ * Built-in rangehoods are joinery, visually: the motor and filters sit inside
+ * a wall cabinet with the same door finish as the neighbouring uppers.
+ * A chosen product snapshot outranks the generic `wall_rangehood` definition,
+ * which cannot distinguish an undermount model from a canopy.
+ */
+export function isConcealedRangehoodAppliance(item: PlacedItem, def: MaybeDef): boolean {
+  if (!isRangehoodAppliance(item, def)) return false;
+
+  if (item.applianceSnapshot) {
+    return rangehoodPresentationFromText(item.applianceSnapshot.name) === 'concealed';
+  }
+
+  const product = def?.applianceProduct;
+  return rangehoodPresentationFromText(
+    product?.name,
+    product?.subcategory,
+    product?.installation,
+    product?.description,
+    def?.name,
+  ) === 'concealed';
 }
 
 /** Dishwashers — used to decide who draws the benchtop over the opening. */

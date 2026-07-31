@@ -10,6 +10,9 @@ const wizardSource = readFileSync('src/pages/homeowner/Wizard.tsx', 'utf8');
 const designStepSource = readFileSync('src/pages/homeowner/steps/StepDesign.tsx', 'utf8');
 const appSource = readFileSync('src/App.tsx', 'utf8');
 const authSource = readFileSync('src/pages/Auth.tsx', 'utf8');
+const mainSource = readFileSync('src/main.tsx', 'utf8');
+const errorBoundarySource = readFileSync('src/components/ErrorBoundary.tsx', 'utf8');
+const deploymentRecoverySource = readFileSync('src/lib/deploymentRecovery.ts', 'utf8');
 const leadsSource = readFileSync('src/pages/admin/Leads.tsx', 'utf8');
 const analyticsSource = readFileSync('src/pages/admin/Analytics.tsx', 'utf8');
 const supabaseConfig = readFileSync('supabase/config.toml', 'utf8');
@@ -58,6 +61,16 @@ assert.match(
   officeAdminMigration,
   /info@bowercabinets\.com[\s\S]*'admin'::public\.app_role/,
   'the Bower office account must retain its database admin grant',
+);
+assert.ok(
+  mainSource.includes('handleVitePreloadError')
+    && deploymentRecoverySource.includes("searchParams.set(RELEASE_QUERY_KEY"),
+  'stale deployment chunks must reload through a cache-busted document URL',
+);
+assert.ok(
+  errorBoundarySource.includes('Load latest version')
+    && errorBoundarySource.includes('isStaleDeploymentError'),
+  'the app error boundary must recover React.lazy chunk failures',
 );
 assert.ok(wizardSource.includes('maxLength={254}'), 'lead email must be length bounded');
 assert.ok(wizardSource.includes('contactPhoneValid'), 'optional phone must be validated when supplied');

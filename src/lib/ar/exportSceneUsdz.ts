@@ -15,7 +15,10 @@ import type { PlacedItem } from '@/types';
 import type { Mesh as ThreeMesh, MeshStandardMaterial as ThreeMeshStandardMaterial, Object3D } from 'three';
 import { itemRect } from '@/lib/layout';
 import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
-import { isBenchtopInsetAppliance } from '@/components/3d/applianceClassification';
+import {
+  isBenchtopInsetAppliance,
+  isConcealedRangehoodAppliance,
+} from '@/components/3d/applianceClassification';
 import {
   createArSurfaceMaterial,
   disposeArMaterial,
@@ -72,7 +75,8 @@ export async function exportSceneUsdz(
     const h = Math.max(0.02, item.height / 1000);
     const cx = (r.minX + r.maxX) / 2000;
     const cz = (r.minZ + r.maxZ) / 2000;
-    const isAppliance = item.itemType === 'Appliance';
+    const isAppliance =
+      item.itemType === 'Appliance' && !isConcealedRangehoodAppliance(item, null);
     const modelUrl = isAppliance ? item.applianceSnapshot?.modelUrl ?? null : null;
 
     if (modelUrl) {

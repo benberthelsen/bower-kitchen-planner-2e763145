@@ -9,6 +9,7 @@ import {
   isSinkAppliance,
   isCooktopAppliance,
   isRangehoodAppliance,
+  isConcealedRangehoodAppliance,
   isDishwasherAppliance,
   isIntegratedDishwasherAppliance,
   isFridgeAppliance,
@@ -18,6 +19,7 @@ import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
 import ApplianceBenchtop from './ApplianceBenchtop';
 import IntegratedDishwasherFront from './IntegratedDishwasherFront';
 import { resolveHandleDefinition } from '../../lib/handleStyles';
+import CabinetMesh from './CabinetMesh';
 
 /** THREE box face order is +x, -x, +y, -y, +z, -z. */
 const FACE_TOP = 2;
@@ -211,6 +213,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   // box with a recessed front and a handle, which reads as a fridge hanging
   // over the hotplates.
   const isRangehood = isRangehoodAppliance(item, def);
+  const isConcealedRangehood = isConcealedRangehoodAppliance(item, def);
   const isFridge = isFridgeAppliance(item, def);
   const isOven = applianceName.includes('oven');
   const isFrontLoader = !isDishwasher && (applianceName.includes('wash') || applianceName.includes('dryer'));
@@ -240,6 +243,29 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const cabinetHandle = resolveHandleDefinition(item.handleType)
     ?? HANDLE_OPTIONS.find(option => option.id === item.handleType)
     ?? HANDLE_OPTIONS[0];
+
+  if (isConcealedRangehood) {
+    return (
+      <CabinetMesh
+        item={{
+          ...item,
+          definitionId: 'wall_rangehood',
+          itemType: 'Cabinet',
+          shelfCount: 0,
+        }}
+        selectedFinish={cabinetFinish}
+        selectedBenchtop={benchtop}
+        globalDimensions={globalDimensions}
+        hardwareOptions={item.handleType
+          ? { handleId: item.handleType, handleColor: item.handleColor }
+          : undefined}
+        isSelected={isSelected}
+        isDragged={isDragged}
+        onSelect={onSelect}
+        onDragStart={onDragStart}
+      />
+    );
+  }
 
   let posY = (item.y / 1000) + (heightM / 2);
   if (isSink || isCooktop) posY = item.y / 1000;

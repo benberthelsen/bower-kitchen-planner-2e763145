@@ -24,6 +24,7 @@ import type {
   ApplianceLineItem,
   ApplianceProductRecord,
 } from '@/lib/pricing/types';
+import { isConcealedRangehoodProduct } from '@/lib/appliances/rangehoodStyle';
 
 /** Category keys used by the wizard's chosen-appliance map. */
 export const APPLIANCE_CATEGORY_ORDER = [
@@ -209,8 +210,15 @@ export function enrichItemsWithChosenAppliances(
     if (!cat) return it;
     const product = chosenByCat[cat];
     if (!product) return it;
+    const concealedRangehood = cat === 'rangehood' && isConcealedRangehoodProduct(product);
     return {
       ...it,
+      // A built-in/undermount/slide-out rangehood is housed behind matching
+      // upper-cabinet doors. Keeping it as an Appliance dispatches the exposed
+      // canopy renderer and makes the customer's chosen product look wrong.
+      ...(concealedRangehood
+        ? { itemType: 'Cabinet' as const, shelfCount: 0 }
+        : {}),
       applianceProductId: product.id,
       applianceSnapshot: snapshotFromProduct(product),
       supplyWithOrder: it.supplyWithOrder ?? true,

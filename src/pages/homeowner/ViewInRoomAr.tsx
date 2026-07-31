@@ -23,7 +23,10 @@ import type { GlobalDimensions, PlacedItem, RoomConfig } from '@/types';
 import { getApplianceMaterial, resolveFinishKey } from '@/components/3d/materials/applianceMaterials';
 import { configureApplianceGltfLoader } from '@/components/3d/ApplianceModel';
 import { resolveApplianceModelUrl } from '@/components/3d/applianceModelUrl';
-import { isBenchtopInsetAppliance } from '@/components/3d/applianceClassification';
+import {
+  isBenchtopInsetAppliance,
+  isConcealedRangehoodAppliance,
+} from '@/components/3d/applianceClassification';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { trackEvent } from '@/lib/analytics';
 import {
@@ -204,7 +207,10 @@ export default function ViewInRoomAr() {
       for (const item of payload.items) {
         const r = itemRect(item);
         const w = (r.maxX - r.minX) / 1000, d = (r.maxZ - r.minZ) / 1000, h = item.height / 1000;
-        const isAppliance = item.itemType === 'Appliance';
+        // Concealed rangehoods read as joinery in AR too: a matching upper
+        // cabinet, not a stainless appliance box or exposed GLB.
+        const isAppliance =
+          item.itemType === 'Appliance' && !isConcealedRangehoodAppliance(item, null);
         const cx = (r.minX + r.maxX) / 2000;
         const cy = item.y / 1000 + h / 2;
         const cz = (r.minZ + r.maxZ) / 2000;

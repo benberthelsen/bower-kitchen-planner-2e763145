@@ -16,6 +16,7 @@ import { briefFromWizard } from '../src/lib/layout/wizardAdapter';
 import { defaultSpecFor } from '../src/lib/layout/defaultSpec';
 import { compileSpec } from '../src/lib/layout/compileSpec';
 import {
+  enrichItemsWithChosenAppliances,
   synthesiseApplianceOverlays,
   filterCatalogToCooking,
   filterApplianceProducts,
@@ -24,7 +25,10 @@ import {
 } from '../src/pages/homeowner/applianceSelection';
 import type { ApplianceCategory } from '../src/pages/homeowner/applianceSelection';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '../src/constants';
-import { isIntegratedDishwasherAppliance } from '../src/components/3d/applianceClassification';
+import {
+  isConcealedRangehoodAppliance,
+  isIntegratedDishwasherAppliance,
+} from '../src/components/3d/applianceClassification';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -66,6 +70,24 @@ const PRODUCTS = [
   product({ id: '22222222-2222-4222-8222-222222222222', name: '60cm Induction Cooktop', category: 'cooktop', width_mm: 590, height_mm: 60, depth_mm: 520, finish: 'Black Glass' }),
   product({ id: '33333333-3333-4333-8333-333333333333', name: 'Kitchen Mixer Tap', category: 'tap', finish: 'Matte Black' }),
   product({ id: '44444444-4444-4444-8444-444444444444', name: '60cm Built-in Oven', category: 'oven', width_mm: 595, height_mm: 595, depth_mm: 570, finish: 'Stainless Steel' }),
+];
+
+const RANGEHOODS = [
+  product({
+    id: '55555555-5555-4555-8555-555555555555',
+    name: '60cm Undermount rangehood',
+    category: 'rangehood',
+    width_mm: 600,
+    height_mm: 248,
+    depth_mm: 284,
+  }),
+  product({
+    id: '66666666-6666-4666-8666-666666666666',
+    name: '60cm Canopy rangehood',
+    category: 'rangehood',
+    width_mm: 600,
+    depth_mm: 500,
+  }),
 ];
 
 const brief = briefFromWizard({ layoutPreference: 'single-wall', roomWidth: 3600, roomDepth: 3000, layoutStyle: 'standard' } as never);
@@ -161,6 +183,35 @@ check('freestanding dishwashers retain their appliance front',
     applianceSnapshot: { name: 'Freestanding Dishwasher', finish: 'Stainless Steel' },
   } as never, null),
   'freestanding dishwasher was classified as integrated');
+
+{
+  const concealedItems = enrichItemsWithChosenAppliances(
+    compiled.items,
+    { rangehood: '55555555-5555-4555-8555-555555555555' },
+    RANGEHOODS,
+  );
+  const concealed = concealedItems.find(item => item.layoutRole === 'rangehood');
+  check('a selected built-in rangehood becomes a matching upper cabinet',
+    concealed?.itemType === 'Cabinet' && concealed.shelfCount === 0,
+    `${concealed?.itemType ?? 'missing'} / shelves ${concealed?.shelfCount ?? 'unset'}`);
+  check('the built-in rangehood still carries its chosen product and quote identity',
+    concealed?.applianceProductId === '55555555-5555-4555-8555-555555555555'
+      && !!concealed.applianceSnapshot,
+    JSON.stringify(concealed?.applianceSnapshot));
+  check('the renderer recognises the chosen undermount product as concealed',
+    !!concealed && isConcealedRangehoodAppliance(concealed, null),
+    concealed?.applianceSnapshot?.name ?? 'missing');
+
+  const canopyItems = enrichItemsWithChosenAppliances(
+    compiled.items,
+    { rangehood: '66666666-6666-4666-8666-666666666666' },
+    RANGEHOODS,
+  );
+  const canopy = canopyItems.find(item => item.layoutRole === 'rangehood');
+  check('a selected canopy rangehood remains an exposed appliance',
+    canopy?.itemType === 'Appliance' && !isConcealedRangehoodAppliance(canopy, null),
+    `${canopy?.itemType ?? 'missing'} / ${canopy?.applianceSnapshot?.name ?? 'no snapshot'}`);
+}
 
 // An oven without a tower falls back beneath the cooktop. Its appliance face
 // must replace that cabinet's doors; otherwise the intact doors cover the oven
