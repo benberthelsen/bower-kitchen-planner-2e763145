@@ -72,6 +72,8 @@ interface CabinetAssemblerProps {
   doorsOpen?: boolean;
   /** An appliance face occupies the opening; retain the cabinet body but omit its fronts. */
   suppressFronts?: boolean;
+  /** Real opening required by the selected sink hosted by this cabinet. */
+  sinkCutout?: { widthM: number; depthM: number };
 }
 
 /**
@@ -92,6 +94,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   hovered,
   doorsOpen,
   suppressFronts,
+  sinkCutout,
 }) => {
   const hasValidMaterials = Boolean(materials?.gable);
 
@@ -981,7 +984,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         overhang={btOverhang}
         leftOverhang={fillerLeftM}
         rightOverhang={fillerRightM}
-        hasSinkCutout={config.isSink}
+        hasSinkCutout={config.isSink || Boolean(sinkCutout)}
+        sinkCutoutWidth={sinkCutout?.widthM}
+        sinkCutoutDepth={sinkCutout?.depthM}
         isCorner={isCornerCabinet}
         cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
         leftArmDepth={leftArmDepthM}

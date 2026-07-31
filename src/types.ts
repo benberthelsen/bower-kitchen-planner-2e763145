@@ -107,6 +107,10 @@ export interface PlacedItem {
     modelIosUrl?: string | null;
     /** Stage 2 — surface finish hint for procedural fallback (e.g. 'stainless'). */
     finish?: string | null;
+    /** Manufacturer cut-out dimensions used for real benchtop openings. */
+    cutoutWidthMm?: number | null;
+    cutoutHeightMm?: number | null;
+    cutoutDepthMm?: number | null;
     /** Supplier product elevation, mapped onto the face you actually look at.
      *  Häfele's `ppic-` images are straight-on shots of the appliance filling
      *  the frame — see materials/applianceImage.ts. `dimd-`/`mont-` drawings

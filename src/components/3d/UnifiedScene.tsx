@@ -18,6 +18,7 @@ import SnapDebugOverlay from './SnapDebugOverlay';
 import SmartDimensions from './SmartDimensions';
 import InteractionHandles from './InteractionHandles';
 import PlacementGhost from './PlacementGhost';
+import { sinkOpeningDimensions } from './appliances/sinkDimensions';
 
 // Drag threshold in mm - must move at least this much before dragging starts
 const DRAG_THRESHOLD = 20;
@@ -743,11 +744,20 @@ export function UnifiedScene({
   const applianceFrontHosts = useMemo(
     () => new Set(
       items
+        .filter(item => item.instanceId === 'appl-oven')
         .map(item => item.applianceHostInstanceId)
         .filter((id): id is string => Boolean(id)),
     ),
     [items],
   );
+  const sinkCutoutsByHost = useMemo(() => {
+    const cutouts = new Map<string, { widthM: number; depthM: number }>();
+    items.forEach(item => {
+      if (item.instanceId !== 'appl-sink' || !item.applianceHostInstanceId) return;
+      cutouts.set(item.applianceHostInstanceId, sinkOpeningDimensions(item));
+    });
+    return cutouts;
+  }, [items]);
   // Set synchronously on cabinet press so the (always-on) drag listener can
   // move on the very first pointermove — no waiting for a React re-render.
   const draggedIdSyncRef = useRef<string | null>(null);
@@ -1123,6 +1133,7 @@ export function UnifiedScene({
               hardwareOptions={itemHandle}
               doorsOpen={doorsOpen}
               suppressFronts={applianceFrontHosts.has(item.instanceId)}
+              sinkCutout={sinkCutoutsByHost.get(item.instanceId)}
               onEdit={onItemEdit}
               {...commonProps}
             />

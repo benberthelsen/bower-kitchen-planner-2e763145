@@ -20,6 +20,7 @@ import ApplianceBenchtop from './ApplianceBenchtop';
 import IntegratedDishwasherFront from './IntegratedDishwasherFront';
 import { resolveHandleDefinition } from '../../lib/handleStyles';
 import CabinetMesh from './CabinetMesh';
+import { SINK_RIM_WIDTH_M, sinkOpeningDimensions } from './appliances/sinkDimensions';
 
 /** THREE box face order is +x, -x, +y, -y, +z, -z. */
 const FACE_TOP = 2;
@@ -299,7 +300,9 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         // stainless brick. This is an open bowl you can actually see into.
         const topY = heightM / 2;
         const wallT = 0.012;
-        const rimW = 0.022;
+        const rimW = SINK_RIM_WIDTH_M;
+        const rimT = 0.006;
+        const rimY = topY + rimT / 2 - 0.001;
         const bowlDepth = Math.max(0.12, heightM - 0.01);
         // Bowl count comes from the supplier now — "1 bowl", "1.75 bowl",
         // "2.0 bowl" — instead of the old guess that anything wider than
@@ -307,8 +310,9 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         // which is what it actually is; drawing it as two equal bowls, or as
         // one long trough, is the sort of thing a cabinetmaker spots at once.
         const bowlCount = item.applianceSnapshot?.bowlCount ?? null;
-        const usableW = widthM * 0.88;
-        const bowlD = depthM * 0.74;
+        const opening = sinkOpeningDimensions(item);
+        const usableW = opening.widthM;
+        const bowlD = opening.depthM;
         let bowls: { cx: number; w: number }[];
         if (bowlCount !== null && bowlCount >= 1.5 && bowlCount < 2) {
           // 1 & 3/4: main bowl about 60% of the run, half-bowl the rest.
@@ -324,53 +328,96 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         } else {
           bowls = [{ cx: 0, w: usableW }];
         }
-        const doubleBowl = bowls.length > 1;
+        const dividerXs = bowls.slice(0, -1).map((bowl, index) => {
+          const next = bowls[index + 1];
+          return (
+            bowl.cx + bowl.w / 2
+            + next.cx - next.w / 2
+          ) / 2;
+        });
 
         return (
           <group>
             {bowls.map(({ cx, w: bowlW }, i) => (
               <group key={i} position={[cx, 0, 0]}>
-                {/* Four walls and a floor, open at the top. */}
-                <mesh position={[-(bowlW / 2 - wallT / 2), topY - bowlDepth / 2, 0]} material={bodyMat}>
-                  <boxGeometry args={[wallT, bowlDepth, bowlD]} />
-                </mesh>
-                <mesh position={[bowlW / 2 - wallT / 2, topY - bowlDepth / 2, 0]} material={bodyMat}>
-                  <boxGeometry args={[wallT, bowlDepth, bowlD]} />
-                </mesh>
-                <mesh position={[0, topY - bowlDepth / 2, -(bowlD / 2 - wallT / 2)]} material={bodyMat}>
-                  <boxGeometry args={[bowlW, bowlDepth, wallT]} />
-                </mesh>
-                <mesh position={[0, topY - bowlDepth / 2, bowlD / 2 - wallT / 2]} material={bodyMat}>
-                  <boxGeometry args={[bowlW, bowlDepth, wallT]} />
-                </mesh>
-                <mesh position={[0, topY - bowlDepth + wallT / 2, 0]} material={bodyMat}>
-                  <boxGeometry args={[bowlW, wallT, bowlD]} />
-                </mesh>
+                {(() => {
+                  // Real pressed-steel bowls taper toward the waste. Sloping
+                  // the sides and reducing the floor removes the old box/tray
+                  // appearance while keeping this light enough for mobile 3D.
+                  const taper = Math.min(0.04, bowlW * 0.12, bowlD * 0.12);
+                  const verticalRun = Math.max(0.06, bowlDepth - wallT);
+                  const sideSlope = Math.atan2(taper, verticalRun);
+                  const sideLength = Math.hypot(verticalRun, taper);
+                  const bottomW = Math.max(0.08, bowlW - taper * 2);
+                  const bottomD = Math.max(0.08, bowlD - taper * 2);
+                  const wallY = topY - bowlDepth / 2;
+
+                  return (
+                    <>
+                      {/* Four tapered walls, open at the top. */}
+                      <mesh
+                        position={[-bowlW / 2 + taper / 2, wallY, 0]}
+                        rotation={[0, 0, sideSlope]}
+                        material={bodyMat}
+                      >
+                        <boxGeometry args={[wallT, sideLength, bowlD]} />
+                      </mesh>
+                      <mesh
+                        position={[bowlW / 2 - taper / 2, wallY, 0]}
+                        rotation={[0, 0, -sideSlope]}
+                        material={bodyMat}
+                      >
+                        <boxGeometry args={[wallT, sideLength, bowlD]} />
+                      </mesh>
+                      <mesh
+                        position={[0, wallY, -bowlD / 2 + taper / 2]}
+                        rotation={[-sideSlope, 0, 0]}
+                        material={bodyMat}
+                      >
+                        <boxGeometry args={[bowlW, sideLength, wallT]} />
+                      </mesh>
+                      <mesh
+                        position={[0, wallY, bowlD / 2 - taper / 2]}
+                        rotation={[sideSlope, 0, 0]}
+                        material={bodyMat}
+                      >
+                        <boxGeometry args={[bowlW, sideLength, wallT]} />
+                      </mesh>
+                      <mesh position={[0, topY - bowlDepth + wallT / 2, 0]} material={bodyMat}>
+                        <boxGeometry args={[bottomW, wallT, bottomD]} />
+                      </mesh>
+                    </>
+                  );
+                })()}
                 {/* Waste outlet. */}
                 <mesh position={[0, topY - bowlDepth + wallT, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <cylinderGeometry args={[0.042, 0.042, 0.004, 20]} />
+                  <cylinderGeometry args={[0.042, 0.042, 0.004, 32]} />
                   <meshStandardMaterial color="#2f3336" metalness={0.6} roughness={0.4} />
+                </mesh>
+                <mesh position={[0, topY - bowlDepth + wallT + 0.0025, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[0.025, 0.038, 32]} />
+                  <meshStandardMaterial color="#aeb4b8" metalness={0.9} roughness={0.2} side={THREE.DoubleSide} />
                 </mesh>
               </group>
             ))}
             {/* Flange around the cutout, sitting flush on the stone. */}
-            <mesh position={[0, topY - 0.005, -(bowlD / 2 + rimW / 2)]} material={bodyMat}>
-              <boxGeometry args={[usableW + rimW * 2, 0.01, rimW]} />
+            <mesh position={[0, rimY, -(bowlD / 2 + rimW / 2)]} material={bodyMat}>
+              <boxGeometry args={[usableW + rimW * 2, rimT, rimW]} />
             </mesh>
-            <mesh position={[0, topY - 0.005, bowlD / 2 + rimW / 2]} material={bodyMat}>
-              <boxGeometry args={[usableW + rimW * 2, 0.01, rimW]} />
+            <mesh position={[0, rimY, bowlD / 2 + rimW / 2]} material={bodyMat}>
+              <boxGeometry args={[usableW + rimW * 2, rimT, rimW]} />
             </mesh>
-            <mesh position={[-(usableW / 2 + rimW / 2), topY - 0.005, 0]} material={bodyMat}>
-              <boxGeometry args={[rimW, 0.01, bowlD]} />
+            <mesh position={[-(usableW / 2 + rimW / 2), rimY, 0]} material={bodyMat}>
+              <boxGeometry args={[rimW, rimT, bowlD]} />
             </mesh>
-            <mesh position={[usableW / 2 + rimW / 2, topY - 0.005, 0]} material={bodyMat}>
-              <boxGeometry args={[rimW, 0.01, bowlD]} />
+            <mesh position={[usableW / 2 + rimW / 2, rimY, 0]} material={bodyMat}>
+              <boxGeometry args={[rimW, rimT, bowlD]} />
             </mesh>
-            {doubleBowl && (
-              <mesh position={[0, topY - 0.005, 0]} material={bodyMat}>
-                <boxGeometry args={[rimW, 0.01, bowlD]} />
+            {dividerXs.map(x => (
+              <mesh key={x} position={[x, rimY, 0]} material={bodyMat}>
+                <boxGeometry args={[rimW, rimT, bowlD]} />
               </mesh>
-            )}
+            ))}
             {/* Gooseneck tap, rising from the benchtop behind the bowl.
                 Local +z faces into the room, so -z is the wall side. */}
             <group position={[0, topY, -(bowlD / 2 + rimW + 0.03)]}>

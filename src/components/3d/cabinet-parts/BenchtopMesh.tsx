@@ -1,6 +1,7 @@
 import React from 'react';
 import * as THREE from 'three';
 import { cloneTextureForSurface } from '../materials/physicalTexture';
+import { rectangularCutoutSegments } from './benchtopCutout';
 
 interface BenchtopMeshProps {
   width: number;      // Width in meters
@@ -110,26 +111,26 @@ const BenchtopMesh: React.FC<BenchtopMeshProps> = ({
   const zOffset = overhang / 2;
 
   if (hasSinkCutout) {
-    // Create benchtop with sink cutout using shape geometry
+    // The slab group shifts for its overhangs, while the appliance remains
+    // centred on the cabinet. Express the opening in the shifted local space
+    // so unequal fillers do not move the sink cut-out away from its bowl.
+    const cutoutSegments = rectangularCutoutSegments(
+      totalWidth,
+      totalDepth,
+      sinkCutoutWidth,
+      sinkCutoutDepth,
+      -xOffset,
+      -zOffset,
+    );
+
     return (
       <group position={[position[0] + xOffset, position[1], position[2] + zOffset]}>
-        {/* Main benchtop body */}
-        <mesh>
-          <boxGeometry args={[totalWidth, thickness, totalDepth]} />
-          <meshStandardMaterial {...materialProps} />
-        </mesh>
-        
-        {/* Sink cutout (dark void) */}
-        <mesh position={[0, 0.001, 0]}>
-          <boxGeometry args={[sinkCutoutWidth, thickness + 0.002, sinkCutoutDepth]} />
-          <meshStandardMaterial color="#1a1a1a" roughness={0.9} />
-        </mesh>
-        
-        {/* Sink rim (stainless indication) */}
-        <mesh position={[0, thickness / 2 + 0.001, 0]}>
-          <boxGeometry args={[sinkCutoutWidth + 0.02, 0.003, sinkCutoutDepth + 0.02]} />
-          <meshStandardMaterial color="#c0c0c0" metalness={0.8} roughness={0.3} />
-        </mesh>
+        {cutoutSegments.map((segment, index) => (
+          <mesh key={index} position={[segment.x, 0, segment.z]}>
+            <boxGeometry args={[segment.width, thickness, segment.depth]} />
+            <meshStandardMaterial {...materialProps} />
+          </mesh>
+        ))}
       </group>
     );
   }

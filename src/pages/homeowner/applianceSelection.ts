@@ -174,6 +174,9 @@ export function snapshotFromProduct(p: ApplianceProductRecord): NonNullable<Plac
     modelUrl: p.model_url ?? null,
     modelIosUrl: p.model_ios_url ?? null,
     finish: p.finish ?? null,
+    cutoutWidthMm: p.cutout_width_mm ?? null,
+    cutoutHeightMm: p.cutout_height_mm ?? null,
+    cutoutDepthMm: p.cutout_depth_mm ?? null,
     // The supplier elevation, so the 3D preview shows the customer's actual
     // appliance rather than a correctly-sized grey box. Dimension and mounting
     // drawings are screened out at the renderer — see applianceImage.ts.
@@ -459,7 +462,7 @@ export function synthesiseApplianceOverlays(
       height,
       depth,
       applianceProductId: product.id,
-      ...(slot.category === 'oven' && !inTower
+      ...((slot.category === 'oven' && !inTower) || slot.category === 'sink'
         ? { applianceHostInstanceId: cab.instanceId }
         : {}),
       applianceSnapshot: snapshotFromProduct(product),

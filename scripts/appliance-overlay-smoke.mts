@@ -29,6 +29,8 @@ import {
   isConcealedRangehoodAppliance,
   isIntegratedDishwasherAppliance,
 } from '../src/components/3d/applianceClassification';
+import { rectangularCutoutSegments } from '../src/components/3d/cabinet-parts/benchtopCutout';
+import { sinkOpeningDimensions } from '../src/components/3d/appliances/sinkDimensions';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -66,7 +68,17 @@ const product = (over: Record<string, unknown>) => ({
 }) as never;
 
 const PRODUCTS = [
-  product({ id: '11111111-1111-4111-8111-111111111111', name: 'Single Bowl Undermount Sink', category: 'sink', width_mm: 440, height_mm: 200, depth_mm: 440, finish: 'Stainless Steel' }),
+  product({
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Single Bowl Undermount Sink',
+    category: 'sink',
+    width_mm: 440,
+    height_mm: 200,
+    depth_mm: 440,
+    cutout_width_mm: 410,
+    cutout_depth_mm: 380,
+    finish: 'Stainless Steel',
+  }),
   product({ id: '22222222-2222-4222-8222-222222222222', name: '60cm Induction Cooktop', category: 'cooktop', width_mm: 590, height_mm: 60, depth_mm: 520, finish: 'Black Glass' }),
   product({ id: '33333333-3333-4333-8333-333333333333', name: 'Kitchen Mixer Tap', category: 'tap', finish: 'Matte Black' }),
   product({ id: '44444444-4444-4444-8444-444444444444', name: '60cm Built-in Oven', category: 'oven', width_mm: 595, height_mm: 595, depth_mm: 570, finish: 'Stainless Steel' }),
@@ -146,6 +158,10 @@ if (sink && cooktop) {
     sink.x === hostSink.x && sink.z === hostSink.z && sink.rotation === hostSink.rotation,
     `${sink.x},${sink.z}@${sink.rotation} vs ${hostSink.x},${hostSink.z}@${hostSink.rotation}`);
 
+  check('the sink identifies the cabinet whose benchtop must be cut',
+    sink.applianceHostInstanceId === hostSink.instanceId,
+    `${sink.applianceHostInstanceId} vs ${hostSink.instanceId}`);
+
   // The tap has no item of its own — it rides on the sink.
   check('the chosen matte black tap reaches the sink item',
     sink.tapId === 'tap-goose-bk', String(sink.tapId));
@@ -153,7 +169,44 @@ if (sink && cooktop) {
   check('the product snapshot travels with the item, for AR and the quote',
     sink.applianceProductId === chosen.sink && !!sink.applianceSnapshot,
     JSON.stringify(sink.applianceSnapshot));
+
+  check('manufacturer cut-out dimensions travel with the sink',
+    sink.applianceSnapshot?.cutoutWidthMm === 410
+      && sink.applianceSnapshot?.cutoutDepthMm === 380,
+    JSON.stringify(sink.applianceSnapshot));
+
+  const opening = sinkOpeningDimensions(sink);
+  check('the rendered bowl and benchtop use the same supplier-sized opening',
+    opening.widthM === 0.41 && opening.depthM === 0.38,
+    JSON.stringify(opening));
 }
+
+const cutoutCenter = { x: -0.025, z: -0.015 };
+const cutoutSegments = rectangularCutoutSegments(
+  0.65,
+  0.59,
+  0.41,
+  0.38,
+  cutoutCenter.x,
+  cutoutCenter.z,
+);
+const slabArea = cutoutSegments.reduce(
+  (area, segment) => area + segment.width * segment.depth,
+  0,
+);
+const centerCovered = cutoutSegments.some(segment =>
+  Math.abs(cutoutCenter.x - segment.x) < segment.width / 2
+  && Math.abs(cutoutCenter.z - segment.z) < segment.depth / 2);
+
+check('the benchtop is split into four solid pieces around the sink',
+  cutoutSegments.length === 4,
+  JSON.stringify(cutoutSegments));
+check('the split slab has the expected opening area',
+  Math.abs(slabArea - (0.65 * 0.59 - 0.41 * 0.38)) < 0.000001,
+  String(slabArea));
+check('no benchtop segment covers the centre of the sink',
+  !centerCovered,
+  JSON.stringify(cutoutSegments));
 
 // These two are the load-bearing invariants. rules.ts detects islands via an
 // `ai-` prefix, and both pricing paths read compiled.items — an overlay that
