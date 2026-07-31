@@ -214,8 +214,18 @@ export default function StepDesign({
   };
 
   const selectOption = (opt: AiDesignOption) => {
-    const hardErrors = opt.violations.filter(v => v.severity === 'error');
-    if (hardErrors.length > 0) {
+    // Re-run the current client rule pack before accepting a server proposal.
+    // This is deliberate defence in depth: a just-deployed browser rule must
+    // still protect customers if the Edge Function is on an older version or
+    // its deployment is temporarily delayed.
+    const localCheck = evaluateDesign(
+      compileSpec(opt.spec, brief.room),
+      brief.room,
+      brief,
+      opt.spec,
+    );
+    const serverHasHardErrors = opt.violations.some(v => v.severity === 'error');
+    if (serverHasHardErrors || localCheck.conceptBlocker) {
       toast.error('This option has a blocking layout problem and cannot be selected.');
       return;
     }
