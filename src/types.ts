@@ -75,6 +75,11 @@ export interface PlacedItem {
    *  `dishwasher`, `fridge-gap`, …). Downstream code must read this rather
    *  than pattern-matching the definitionId SKU string. */
   layoutRole?: string;
+  /** Source coordinates in KitchenSpec for homeowner cabinet editing.
+   * Auto-filled cupboards, upper cabinets and appliance overlays omit these
+   * fields because they are derived rather than directly editable units. */
+  layoutRunIndex?: number;
+  layoutSegmentIndex?: number;
 
 
   // Corner cabinet configuration (Phase 3)

@@ -10,7 +10,7 @@
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, CornerUpLeft, Loader2, Send, Sparkles } from 'lucide-react';
+import { Check, CornerUpLeft, Loader2, PencilRuler, Send, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,7 @@ import { createWizardDesign, type WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
 import { featureFlags, isIosDevice } from '@/lib/featureFlags';
+import KitchenUnitEditor from '@/components/homeowner/KitchenUnitEditor';
 
 interface Props {
   brief: DesignBrief;
@@ -105,6 +106,7 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
   const [chatInput, setChatInput] = useState('');
   const [undoStack, setUndoStack] = useState<WizardDesign[]>([]);
   const [loadingLine, setLoadingLine] = useState(0);
+  const [cabinetEditorOpen, setCabinetEditorOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Always have a design: seed the deterministic default on entry.
@@ -302,6 +304,26 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
     setChatLog(log => [...log, { role: 'assistant', content: 'Reverted to the previous design.' }]);
   };
 
+  const handleSaveCabinetEdits = (nextSpec: KitchenSpec, changeCount: number) => {
+    if (!design) return;
+    setUndoStack(stack => [...stack.slice(-9), design]);
+    const editedName = design.name.endsWith(' (edited)')
+      ? design.name
+      : `${design.name} (edited)`;
+    onDesignChange(createWizardDesign({
+      name: editedName,
+      spec: { ...nextSpec, style },
+      aiGenerated: design.aiGenerated,
+    }));
+    setCabinetEditorOpen(false);
+    setChatLog(log => [...log, {
+      role: 'assistant',
+      content: `Saved ${changeCount} manual cabinet ${changeCount === 1 ? 'change' : 'changes'}. The 3D preview, AR view and review step now use your edited kitchen.`,
+    }]);
+    trackEvent('homeowner_cabinet_editor_saved', { changeCount });
+    toast.success('Kitchen edits saved');
+  };
+
   return (
     <div className="space-y-5 sm:space-y-6">
       <div>
@@ -461,6 +483,36 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
         </div>
       )}
 
+      {compiled && design && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 w-full border-slate-300 text-slate-800"
+            onClick={() => {
+              trackEvent('homeowner_cabinet_editor_opened', {
+                aiGenerated: design.aiGenerated,
+              });
+              setCabinetEditorOpen(true);
+            }}
+          >
+            <PencilRuler className="mr-2 h-4 w-4" />
+            Edit cabinets
+          </Button>
+          {cabinetEditorOpen && (
+            <KitchenUnitEditor
+              open={cabinetEditorOpen}
+              designName={design.name}
+              spec={activeSpec ?? design.spec}
+              brief={brief}
+              chosenAppliances={chosenAppliances}
+              onOpenChange={setCabinetEditorOpen}
+              onSave={handleSaveCabinetEdits}
+            />
+          )}
+        </>
+      )}
+
       {compiled && arEnabled && (
         <Button
           variant="outline"
@@ -569,22 +621,34 @@ export default function StepDesign({ brief, shape, style, design, chosenApplianc
               <div ref={chatEndRef} />
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder='Try “move the sink under the window” or “more drawers”'
-              value={chatInput}
-              disabled={loading}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleRefine(); }}
-              className="text-sm"
-            />
-            <Button size="icon" variant="outline" onClick={handleUndo} disabled={undoStack.length === 0 || loading} title="Undo last change" aria-label="Undo last design change">
-              <CornerUpLeft className="w-4 h-4" />
-            </Button>
-            <Button size="icon" onClick={handleRefine} disabled={loading || !chatInput.trim()} aria-label="Send design request" className="bg-slate-900 hover:bg-slate-800 text-white">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </Button>
-          </div>
+          {canRefine ? (
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder='Try “move the sink under the window” or “more drawers”'
+                value={chatInput}
+                disabled={loading}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleRefine(); }}
+                className="text-sm"
+              />
+              <Button size="icon" variant="outline" onClick={handleUndo} disabled={undoStack.length === 0 || loading} title="Undo last change" aria-label="Undo last design change">
+                <CornerUpLeft className="w-4 h-4" />
+              </Button>
+              <Button size="icon" onClick={handleRefine} disabled={loading || !chatInput.trim()} aria-label="Send design request" className="bg-slate-900 hover:bg-slate-800 text-white">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+          ) : design?.aiGenerated ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-600">
+                Manual cabinet edits are protected from AI changes. Undo the manual edit if you want to continue the earlier AI conversation.
+              </p>
+              <Button size="sm" variant="outline" onClick={handleUndo} disabled={undoStack.length === 0}>
+                <CornerUpLeft className="mr-1 h-3.5 w-3.5" />
+                Undo
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
