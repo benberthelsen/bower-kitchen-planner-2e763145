@@ -105,6 +105,21 @@ const check = (name, cond, detail = '') => {
 };
 const finite = (n) => typeof n === 'number' && Number.isFinite(n);
 
+// Legacy jobs stored a display label rather than the material UUID. The
+// resolver must tolerate status words and supplier description suffixes
+// without falling through to an unrelated cheapest board.
+const legacyMaterialCab = {
+  ...cab('base_1_door', 600, 870, 575, 991),
+  carcaseMaterialId: 'White Carcase Available - 16.5mm Shop Materials HMR PB',
+  exteriorMaterialId: 'White Carcase Available - 16.5mm Shop Materials HMR PB',
+};
+const legacyMaterialBom = generateCabinetBOM(legacyMaterialCab, dims, hw, pricingData);
+check(
+  'material aliases: verbose legacy carcase resolves to priced White Carcase',
+  !legacyMaterialBom.warnings?.some(w => /material .*not found/i.test(w)),
+  (legacyMaterialBom.warnings ?? []).join(' | '),
+);
+
 // 1. Every cabinet family produces a sane BOM
 const families = [
   ['base_1_door', 600, 870, 575],
@@ -337,6 +352,15 @@ for (const [id, w, h, d] of families) {
   const qWall2 = generateQuoteBOM(wallOnly2, dims, hw, pdStone);
   check('benchtop: wall-only job -> 0 runs', qWall2.benchtops.length === 0, String(qWall2.benchtops.length));
 
+  const dishwasherRun = [
+    cabR('base_2_door', 600, 870, 575, 0, 21),
+    { ...cabR('dishwasher_opening', 600, 870, 575, 0, 22), itemType: 'Appliance', layoutRole: 'dishwasher' },
+  ];
+  const qDishwasherRun = generateQuoteBOM(dishwasherRun, dims, hw, pdStone);
+  check('benchtop: dishwasher opening remains inside the continuous run',
+    qDishwasherRun.benchtops[0]?.runLengthMm === 1200,
+    String(qDishwasherRun.benchtops[0]?.runLengthMm));
+
   // 9d. No benchtop material -> empty
   const qNoBenchtop = generateQuoteBOM(wallA, dims, hw, pricingData);
   check('benchtop: no material record -> empty array', qNoBenchtop.benchtops.length === 0, String(qNoBenchtop.benchtops.length));
@@ -392,6 +416,20 @@ for (const [id, w, h, d] of families) {
   const btMeg2 = qMeg2.benchtops[0];
   check('meganite: 4000mm run = 2 sheets', btMeg2?.sheetsRequired === 2, String(btMeg2?.sheetsRequired));
   check('meganite: supplyCost = 2 x $493 = $986', Math.abs((btMeg2?.supplyCost ?? 0) - 986) < 0.01, String(btMeg2?.supplyCost));
+
+  // Two separate walls share the same physical sheet when their cuts fit.
+  // This guards against the old one-sheet-per-wall overcharge.
+  const megTwoWalls = [
+    cabR('base_2_door', 1600, 870, 575, 0, 11),
+    cabR('base_2_door', 1600, 870, 575, 90, 12),
+  ];
+  const qMegPacked = generateQuoteBOM(megTwoWalls, dims, hw, pdMeg);
+  check('meganite: two 1600mm wall cuts nest on one 3660mm sheet',
+    qMegPacked.benchtops.every(bt => bt.jobSheetsRequired === 1),
+    qMegPacked.benchtops.map(bt => bt.jobSheetsRequired).join(','));
+  check('meganite: shared sheet charged once across both walls',
+    Math.abs(qMegPacked.grandTotal.benchtopSupply - 493) < 0.01,
+    String(qMegPacked.grandTotal.benchtopSupply));
 
   // 9h: per_lm pricing (Egger laminate worktops)
   const egger = {

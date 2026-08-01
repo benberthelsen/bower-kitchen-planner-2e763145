@@ -127,16 +127,70 @@ export function generateCabinetBOM(
 /** Parts that take the exterior/door finish rather than carcase board. */
 const EXTERIOR_PART = /door|drawer front|false front|appliance panel|end panel|fascia/i;
 
-/** Match a user material selection (id, item_code, or name fragment) to a material id. */
+/**
+ * Normalise the verbose labels stored by older jobs into the same vocabulary
+ * used by the imported pricing catalogue.  Historic room defaults contain
+ * presentation words (for example `Available`) and punctuation that are not
+ * part of the supplier row, so a literal substring comparison incorrectly
+ * fell through to the cheapest material.
+ */
+function materialLookupTokens(value: unknown): string[] {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/carcass/g, 'carcase')
+    .replace(/\b(?:available|unavailable|sheet|board)\b/g, ' ')
+    .replace(/(\d+(?:\.\d+)?)\s*mm\b/g, '$1')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(token => token.length > 1);
+}
+
+/** Match a user material selection (id, item_code, or supplier description). */
 function resolveMaterialId(
   selection: string | undefined,
   materials: PricingData['materials']
 ): string | undefined {
   if (!selection) return undefined;
-  const sel = String(selection).toLowerCase();
-  const m = materials.find(x =>
-    x.id === selection || x.item_code === selection || (x.name ?? '').toLowerCase().includes(sel));
-  return m?.id;
+  const exact = materials.find(x => x.id === selection || x.item_code === selection);
+  if (exact) return exact.id;
+
+  const selectedTokens = materialLookupTokens(selection);
+  if (selectedTokens.length === 0) return undefined;
+  const selectedSet = new Set(selectedTokens);
+
+  const scored = materials.map(material => {
+    const searchable = [
+      material.name,
+      material.item_code,
+      material.brand,
+      material.finish,
+      material.substrate,
+      material.material_type,
+      material.description,
+      material.supplier_variant_code,
+      material.supplier_finish_code,
+      material.supplier_range,
+      material.thickness != null ? `${material.thickness}mm` : null,
+    ].filter(Boolean).join(' ');
+    const candidateTokens = materialLookupTokens(searchable);
+    const candidateSet = new Set(candidateTokens);
+    const intersection = selectedTokens.filter(token => candidateSet.has(token)).length;
+    const union = new Set([...selectedSet, ...candidateSet]).size || 1;
+    const score = intersection / union;
+    const coverage = intersection / selectedTokens.length;
+    return { material, intersection, score, coverage };
+  }).sort((a, b) => b.coverage - a.coverage || b.score - a.score || b.intersection - a.intersection);
+
+  const best = scored[0];
+  // Require multiple meaningful agreements so a colour word such as "White"
+  // cannot resolve to an unrelated board. Short catalogue labels may match on
+  // two tokens; verbose legacy labels must agree on at least three.
+  const minimumIntersection = selectedTokens.length <= 3 ? 2 : 3;
+  return best && best.intersection >= minimumIntersection && best.coverage >= 0.4
+    ? best.material.id
+    : undefined;
 }
 
 function calculatePartDimensions(

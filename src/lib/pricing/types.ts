@@ -395,6 +395,10 @@ export interface BenchtopMaterialRecord {
   install_per_lm: number | null;
   /** Install cost per sqm (legacy stone path) */
   install_supply_per_sqm: number;
+  /** Extra stock allowance used by whole-sheet planning (0.05 = 5%). */
+  waste_factor?: number | null;
+  /** Smallest whole-sheet order when this material is used. */
+  minimum_sheet_quantity?: number | null;
 }
 
 /** @deprecated Use BenchtopMaterialRecord */
@@ -422,6 +426,17 @@ export interface BenchtopAllocation {
   pricingMethod: string;    // 'per_sheet' | 'per_lm' | 'per_sqm'
   /** Sheets needed (per_sheet materials -- Meganite) */
   sheetsRequired?: number;
+  /** Whole sheets ordered for all runs of this material in the room/job. */
+  jobSheetsRequired?: number;
+  /** Number of rectangular cut pieces produced for this run. */
+  cutPieces?: number;
+  /** Stock dimensions used by the whole-sheet nesting calculation. */
+  stockLengthMm?: number;
+  stockDepthMm?: number;
+  /** Actual benchtop area / total ordered sheet area, expressed 0..1. */
+  sheetUtilisation?: number;
+  /** Allowance included in the minimum sheet calculation, expressed 0..1. */
+  wasteFactor?: number;
   /** Run length in linear metres (per_lm materials -- Egger) */
   linearMetres?: number;
   /** Unit price used: per sheet, per LM, or per sqm */

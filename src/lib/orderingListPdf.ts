@@ -46,7 +46,11 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
     `${sh.sheetLength} × ${sh.sheetWidth}`,
     sh.sheetsRequired.toString(),
     `${fmt2(sh.totalPartArea)} m²`,
-    `${fmt2(sh.totalPartArea / sh.sheetArea * 100)}%`,
+    `${fmt2(
+      sh.sheetsRequired > 0
+        ? Math.min(1, sh.totalPartArea / (sh.sheetArea * sh.sheetsRequired)) * 100
+        : 0,
+    )}%`,
     AUD(sh.totalMaterialCost),
   ]);
 
@@ -56,7 +60,7 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
 
   autoTable(doc, {
     startY: y,
-    head: [['Material', 'Item Code', 'Sheet Size (mm)', 'Sheets', 'Net Area', 'Yield Used', 'Cost']],
+    head: [['Material', 'Item Code', 'Sheet Size (mm)', 'Sheets', 'Net Area', 'Sheet Use', 'Cost']],
     body: sheetRows,
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [30, 41, 82], textColor: 255 },
@@ -177,19 +181,33 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('Benchtops', 14, y);
-    y += 2;
+    y += 5;
+
+    const sheetPlan = benchtops.find(bt => bt.pricingMethod === 'per_sheet');
+    if (sheetPlan) {
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      const wastePct = Math.round((sheetPlan.wasteFactor ?? 0) * 100);
+      const usePct = Math.round((sheetPlan.sheetUtilisation ?? 0) * 100);
+      doc.text(
+        `Whole-sheet plan: ${sheetPlan.jobSheetsRequired ?? sheetPlan.sheetsRequired ?? 0} x ${sheetPlan.stockLengthMm ?? 0} x ${sheetPlan.stockDepthMm ?? 0} mm  |  ${usePct}% sheet use  |  ${wastePct}% allowance`,
+        14,
+        y,
+      );
+      y += 4;
+    }
 
     const btRows = benchtops.map((bt) => {
       const qtyLabel =
         bt.pricingMethod === 'per_sheet'
-          ? `${bt.sheetsRequired ?? 1} sheet${(bt.sheetsRequired ?? 1) !== 1 ? 's' : ''}`
+          ? `${bt.cutPieces ?? 1} cut${(bt.cutPieces ?? 1) !== 1 ? 's' : ''}`
           : bt.pricingMethod === 'per_lm'
           ? `${(bt.linearMetres ?? bt.runLengthMm / 1000).toFixed(2)} LM`
           : `${fmt2(bt.areaSqm)} m²`;
 
       const unitLabel =
         bt.pricingMethod === 'per_sheet'
-          ? `${AUD(bt.pricePerUnit)}/sht`
+          ? `${AUD(bt.pricePerUnit)}/sheet plan`
           : bt.pricingMethod === 'per_lm'
           ? `${AUD(bt.pricePerUnit)}/LM`
           : `${AUD(bt.pricePerUnit)}/m²`;
