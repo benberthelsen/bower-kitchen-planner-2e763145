@@ -1,4 +1,7 @@
 import type { QuoteSnapshot } from '@/types/trade';
+import { normalizePricingTotals, roundMoney } from '@/lib/pricing/money';
+
+export { normalizePricingTotals, roundMoney } from '@/lib/pricing/money';
 
 export interface PersistedPricingTotals {
   subtotal?: number;
@@ -33,6 +36,7 @@ export function mergePersistedPricingState(
   snapshot: QuoteSnapshot,
   totals: PricingTotalsInput,
 ): PersistedPricingState {
+  const normalized = normalizePricingTotals(totals);
   return {
     quoteSnapshot: snapshot,
     quoteSnapshotsByRoom: {
@@ -40,9 +44,9 @@ export function mergePersistedPricingState(
       [snapshot.roomId]: snapshot,
     },
     jobTotals: {
-      subtotal: totals.subtotal,
-      tax: totals.tax,
-      total: totals.total,
+      subtotal: normalized.subtotal,
+      tax: normalized.tax,
+      total: normalized.total,
       updatedAt: totals.updatedAt ?? new Date().toISOString(),
     },
   };
@@ -77,7 +81,7 @@ export function allocateQuotedTotal(
       ? targetCents - allocatedCents
       : Math.round(targetCents * (weight / weightTotal));
     allocatedCents += cents;
-    result[id] = cents / 100;
+    result[id] = roundMoney(cents / 100);
     return result;
   }, {});
 }

@@ -46,6 +46,17 @@ const CONSTRUCTION_CONSUMABLES: ConsumableRule[] = [
   { stage: 'install', name: '70mm Screws (wall fixing)', match: '70mm screw', qtyPerCabinet: 2, fallbackUnitCost: 0.07 },
 ];
 
+function resolvePositiveUnitCost(
+  pricing: HardwarePricingRecord | undefined,
+  fallback: number,
+): { unitCost: number; isFallbackPrice: boolean } {
+  const hasCatalogPrice = Number.isFinite(pricing?.unit_cost) && (pricing?.unit_cost ?? 0) > 0;
+  return {
+    unitCost: hasCatalogPrice ? pricing!.unit_cost : fallback,
+    isFallbackPrice: !hasCatalogPrice,
+  };
+}
+
 /**
  * Calculate hardware requirements for a cabinet
  */
@@ -73,18 +84,20 @@ export function calculateHardware(
       (h.name.toLowerCase().includes(hardwareOptions.hingeType.toLowerCase()) ||
        h.item_code === hardwareOptions.hingeType)
     );
+    const hingeCost = resolvePositiveUnitCost(hingePricing, 8);
     
     items.push({
       itemCode: hingePricing?.item_code ?? hardwareOptions.hingeType,
       name: hingePricing?.name ?? hardwareOptions.hingeType,
       hardwareType: 'hinge',
       quantity: hingeCount,
-      unitCost: hingePricing?.unit_cost ?? 8,
+      unitCost: hingeCost.unitCost,
       machiningCost: (hingePricing?.machining_cost ?? 0) * hingeCount,
       assemblyCost: (hingePricing?.assembly_cost ?? 0) * hingeCount,
-      totalCost: (hingePricing?.unit_cost ?? 8) * hingeCount + 
+      totalCost: hingeCost.unitCost * hingeCount +
                  (hingePricing?.machining_cost ?? 0) * hingeCount +
-                 (hingePricing?.assembly_cost ?? 0) * hingeCount
+                 (hingePricing?.assembly_cost ?? 0) * hingeCount,
+      isFallbackPrice: hingeCost.isFallbackPrice,
     });
 
     // === HINGE PLATES (separate item — plate type varies by hinge type) ===
@@ -92,18 +105,20 @@ export function calculateHardware(
       /plate/i.test(`${h.hardware_type} ${h.name}`) &&
       (!hingePricing?.series || h.series === hingePricing.series)
     ) ?? hardwarePricing.find(h => /plate/i.test(`${h.hardware_type} ${h.name}`));
+    const plateCost = resolvePositiveUnitCost(platePricing, 2.5);
 
     items.push({
       itemCode: platePricing?.item_code ?? 'hinge-plate',
       name: platePricing?.name ?? 'Hinge Plate',
       hardwareType: 'hinge-plate',
       quantity: hingeCount,
-      unitCost: platePricing?.unit_cost ?? 2.5,
+      unitCost: plateCost.unitCost,
       machiningCost: (platePricing?.machining_cost ?? 0) * hingeCount,
       assemblyCost: (platePricing?.assembly_cost ?? 0) * hingeCount,
-      totalCost: (platePricing?.unit_cost ?? 2.5) * hingeCount +
+      totalCost: plateCost.unitCost * hingeCount +
         (platePricing?.machining_cost ?? 0) * hingeCount +
         (platePricing?.assembly_cost ?? 0) * hingeCount,
+      isFallbackPrice: plateCost.isFallbackPrice,
     });
   }
   
@@ -118,18 +133,20 @@ export function calculateHardware(
       (h.name.toLowerCase().includes(hardwareOptions.drawerType.toLowerCase()) ||
        h.item_code === hardwareOptions.drawerType)
     );
+    const runnerCost = resolvePositiveUnitCost(runnerPricing, 45);
     
     items.push({
       itemCode: runnerPricing?.item_code ?? hardwareOptions.drawerType,
       name: runnerPricing?.name ?? hardwareOptions.drawerType,
       hardwareType: 'runner',
       quantity: runnerCount,
-      unitCost: runnerPricing?.unit_cost ?? 45,
+      unitCost: runnerCost.unitCost,
       machiningCost: (runnerPricing?.machining_cost ?? 0) * runnerCount,
       assemblyCost: (runnerPricing?.assembly_cost ?? 0) * runnerCount,
-      totalCost: (runnerPricing?.unit_cost ?? 45) * runnerCount +
+      totalCost: runnerCost.unitCost * runnerCount +
                  (runnerPricing?.machining_cost ?? 0) * runnerCount +
-                 (runnerPricing?.assembly_cost ?? 0) * runnerCount
+                 (runnerPricing?.assembly_cost ?? 0) * runnerCount,
+      isFallbackPrice: runnerCost.isFallbackPrice,
     });
   }
   
@@ -141,19 +158,21 @@ export function calculateHardware(
     if (handleCount > 0) {
       const handlePricing = hardwarePricing.find(h => 
         h.hardware_type === 'handle' && 
-        (h.item_code === hardwareOptions.handleId)
+        (h.id === hardwareOptions.handleId || h.item_code === hardwareOptions.handleId)
       );
+      const handleCost = resolvePositiveUnitCost(handlePricing, 15);
       
       items.push({
         itemCode: hardwareOptions.handleId,
         name: handlePricing?.name ?? 'Handle',
         hardwareType: 'handle',
         quantity: handleCount,
-        unitCost: handlePricing?.unit_cost ?? 15,
+        unitCost: handleCost.unitCost,
         machiningCost: 0,
         assemblyCost: (handlePricing?.assembly_cost ?? 0) * handleCount,
-        totalCost: (handlePricing?.unit_cost ?? 15) * handleCount +
-                   (handlePricing?.assembly_cost ?? 0) * handleCount
+        totalCost: handleCost.unitCost * handleCount +
+                   (handlePricing?.assembly_cost ?? 0) * handleCount,
+        isFallbackPrice: handleCost.isFallbackPrice,
       });
     }
   }
@@ -161,16 +180,18 @@ export function calculateHardware(
   // === ADJUSTABLE LEGS ===
   if (hardwareOptions.adjustableLegs) {
     const legPricing = hardwarePricing.find(h => h.hardware_type === 'leg');
+    const legCost = resolvePositiveUnitCost(legPricing, 3);
     
     items.push({
       itemCode: legPricing?.item_code ?? 'LEG-ADJ',
       name: legPricing?.name ?? 'Adjustable Leg',
       hardwareType: 'leg',
       quantity: rules.legsPerCabinet,
-      unitCost: legPricing?.unit_cost ?? 3,
+      unitCost: legCost.unitCost,
       machiningCost: 0,
       assemblyCost: 0,
-      totalCost: (legPricing?.unit_cost ?? 3) * rules.legsPerCabinet
+      totalCost: legCost.unitCost * rules.legsPerCabinet,
+      isFallbackPrice: legCost.isFallbackPrice,
     });
   }
   
@@ -178,16 +199,18 @@ export function calculateHardware(
   if (config.numShelves > 0) {
     const pinCount = config.numShelves * rules.shelfPinsPerShelf;
     const pinPricing = hardwarePricing.find(h => h.hardware_type === 'shelf_pin');
+    const pinCost = resolvePositiveUnitCost(pinPricing, 0.20);
     
     items.push({
       itemCode: pinPricing?.item_code ?? 'PIN-SHELF',
       name: pinPricing?.name ?? 'Shelf Pin',
       hardwareType: 'shelf_pin',
       quantity: pinCount,
-      unitCost: pinPricing?.unit_cost ?? 0.20,
+      unitCost: pinCost.unitCost,
       machiningCost: 0,
       assemblyCost: 0,
-      totalCost: (pinPricing?.unit_cost ?? 0.20) * pinCount
+      totalCost: pinCost.unitCost * pinCount,
+      isFallbackPrice: pinCost.isFallbackPrice,
     });
   }
   
@@ -196,16 +219,17 @@ export function calculateHardware(
     const pricing = hardwarePricing.find(h =>
       h.name.toLowerCase().includes(rule.match) || h.item_code?.toLowerCase?.() === rule.match
     );
-    const unitCost = pricing?.unit_cost ?? rule.fallbackUnitCost;
+    const resolvedCost = resolvePositiveUnitCost(pricing, rule.fallbackUnitCost);
     items.push({
       itemCode: pricing?.item_code ?? rule.match.replace(/\s+/g, '-'),
       name: pricing?.name ?? rule.name,
       hardwareType: `consumable-${rule.stage}`,
       quantity: rule.qtyPerCabinet,
-      unitCost,
+      unitCost: resolvedCost.unitCost,
       machiningCost: 0,
       assemblyCost: 0,
-      totalCost: unitCost * rule.qtyPerCabinet,
+      totalCost: resolvedCost.unitCost * rule.qtyPerCabinet,
+      isFallbackPrice: resolvedCost.isFallbackPrice,
     });
   }
 
@@ -245,7 +269,8 @@ export function consolidateHardware(
       unitCost: template.unitCost,
       machiningCost: totalMachiningCost,
       assemblyCost: totalAssemblyCost,
-      totalCost: (template.unitCost * totalQuantity) + totalMachiningCost + totalAssemblyCost
+      totalCost: (template.unitCost * totalQuantity) + totalMachiningCost + totalAssemblyCost,
+      isFallbackPrice: items.some(i => i.isFallbackPrice),
     });
   }
   

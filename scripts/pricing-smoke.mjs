@@ -205,6 +205,10 @@ for (const [id, w, h, d] of families) {
   if (tape) {
     check('edge tape: rolls = ceil(LM/25)', tape.rollsRequired === Math.ceil(tape.linearMeters / 25),
       `${tape.linearMeters}m → ${tape.rollsRequired} rolls`);
+    const orderedTapeCost = tape.rollsRequired * 25 * tape.costPerMeter;
+    check('edge tape: material charge covers whole ordered rolls',
+      tape.totalCost >= orderedTapeCost,
+      `${tape.totalCost} vs minimum ${orderedTapeCost}`);
   } else {
     check('edge tape: consolidation produced tape', false, 'no tape rows');
   }
@@ -555,6 +559,102 @@ for (const [id, w, h, d] of families) {
   // grandTotal.labor must still equal sum of cabinet labor (P5 must not touch labor)
   check('p5: grandTotal.labor unchanged by reconciliation',
     Math.abs(job3.grandTotal.labor - job3.cabinets.reduce((s, c) => s + c.subtotals.labor, 0)) < 0.01);
+}
+
+// 4a. Per-part area rates shown in Admin Pricing are additive to flat rates.
+{
+  const areaRatedPricing = {
+    ...pricingData,
+    parts: pricingData.parts.map((part) => ({
+      ...part,
+      area_handling_cost: 10,
+      area_machining_cost: 12,
+      area_assembly_cost: 14,
+    })),
+  };
+  const bom = generateCabinetBOM(cab('base_1_door', 600, 870, 575), dims, hw, areaRatedPricing);
+  const part = bom.parts[0];
+  check('part pricing: area handling rate is applied',
+    Math.abs(part.handlingCost - (1.5 + part.area * 10)) < 0.001,
+    JSON.stringify(part));
+  check('part pricing: area machining rate is applied',
+    Math.abs(part.machiningCost - (1.2 + part.area * 12)) < 0.001,
+    JSON.stringify(part));
+  check('part pricing: area assembly rate is applied',
+    Math.abs(part.assemblyCost - (2 + part.area * 14)) < 0.001,
+    JSON.stringify(part));
+}
+
+// 11. Pricing integrity: every cost category reaches the quote authority.
+{
+  const quote = generateQuoteBOM(
+    [cab('base_2_door', 900, 870, 575, 71)],
+    dims,
+    { ...hw, adjustableLegs: true },
+    pricingData,
+  );
+  const g = quote.grandTotal;
+  const completeCost = g.materials + g.edging + g.hardware + g.handling
+    + g.machining + g.assembly + g.labor + g.benchtop + g.appliances;
+  check('integrity: quote cost includes every category including kick board',
+    Math.abs(g.cost - completeCost) < 0.001,
+    `cost=${g.cost} categories=${completeCost}`);
+  check('integrity: commercial totals are normalized to cents',
+    g.subtotalExGst === Math.round(g.subtotalExGst * 100) / 100
+      && g.gst === Math.round(g.gst * 100) / 100
+      && g.total === Math.round(g.total * 100) / 100,
+    JSON.stringify({ subtotal: g.subtotalExGst, gst: g.gst, total: g.total }));
+  check('integrity: displayed subtotal + GST equals displayed total exactly',
+    Math.round((g.subtotalExGst + g.gst) * 100) === Math.round(g.total * 100));
+}
+
+// 12. Catalogue guards: material minimums/yields and fallback prices survive
+// job consolidation and remain visible as warnings.
+{
+  const minAreaPricing = {
+    ...pricingData,
+    materials: pricingData.materials.map(m => ({ ...m, minimum_job_area: 6 })),
+  };
+  const minAreaQuote = generateQuoteBOM(
+    [cab('base_1_door', 300, 870, 575, 72)],
+    dims,
+    { ...hw, adjustableLegs: false },
+    minAreaPricing,
+  );
+  check('integrity: material minimum job area survives consolidation',
+    minAreaQuote.consolidatedSheets[0]?.sheetsRequired === 3,
+    JSON.stringify(minAreaQuote.consolidatedSheets[0]));
+
+  const badYieldPricing = {
+    ...pricingData,
+    materials: pricingData.materials.map(m => ({ ...m, expected_yield_factor: 5 })),
+  };
+  const badYieldQuote = generateQuoteBOM(
+    [cab('base_1_door', 600, 870, 575, 73)],
+    dims,
+    { ...hw, adjustableLegs: false },
+    badYieldPricing,
+  );
+  check('integrity: invalid material yield uses safe 85%',
+    badYieldQuote.consolidatedSheets[0]?.yieldFactor === 0.85
+      && badYieldQuote.consolidatedSheets[0]?.usedDefaultYield === true,
+    JSON.stringify(badYieldQuote.consolidatedSheets[0]));
+  check('integrity: invalid material yield is surfaced as a pricing warning',
+    badYieldQuote.warnings.some(w => /invalid yield/i.test(w)),
+    badYieldQuote.warnings.join(' | '));
+
+  const fallbackQuote = generateQuoteBOM(
+    [cab('base_2_door', 900, 870, 575, 74)],
+    dims,
+    hw,
+    { ...pricingData, edges: [], hardware: [] },
+  );
+  check('integrity: fallback hardware is explicitly warned',
+    fallbackQuote.warnings.some(w => /Hardware .*fallback/i.test(w)),
+    fallbackQuote.warnings.join(' | '));
+  check('integrity: fallback edge price is explicitly warned',
+    fallbackQuote.warnings.some(w => /Edge tape .*fallback/i.test(w)),
+    fallbackQuote.warnings.join(' | '));
 }
 
 console.log(failures === 0 ? '\nAll pricing smoke tests passed.' : '\n' + failures + ' FAULT(S) FOUND.');

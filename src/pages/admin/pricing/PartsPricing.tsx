@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Search, Save } from "lucide-react";
+import { fetchAllPricingRows } from "@/lib/pricing/fetchAllPricingRows";
 
 
 interface PartPricing {
@@ -38,18 +39,15 @@ export default function PartsPricing() {
   }, []);
 
   const loadParts = async () => {
-    const { data, error } = await supabase
-      .from("parts_pricing")
-      .select("*")
-      .order("name");
-
-    if (error) {
+    try {
+      const data = await fetchAllPricingRows<PartPricing>("parts_pricing");
+      setParts(data.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
       toast.error("Failed to load parts pricing");
       console.error(error);
-    } else {
-      setParts(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

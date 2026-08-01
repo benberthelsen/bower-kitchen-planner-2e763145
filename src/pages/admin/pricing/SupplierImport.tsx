@@ -6,6 +6,7 @@
 
 import React, { useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -395,13 +396,9 @@ export default function SupplierImport() {
       }
 
       // Fetch existing rows from DB
-      const { data: dbRows, error } = await (supabase as any)
-        .from(tableKey)
-        .select('*');
+      const dbRows = await fetchAllPricingRows<DbRow>(tableKey);
 
-      if (error) throw error;
-
-      const d = computeDiff(rows, dbRows as DbRow[], config);
+      const d = computeDiff(rows, dbRows, config);
       setCsvRows(rows);
       setDiff(d);
       setPhase('preview');

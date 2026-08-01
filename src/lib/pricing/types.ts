@@ -55,6 +55,12 @@ export interface SheetAllocation {
   totalPartArea: number;
   wasteArea: number;
   yieldFactor: number;
+  /** Minimum chargeable area configured for this material across the whole job. */
+  minimumJobArea?: number;
+  /** Area used to determine whole-sheet quantity after yield and minimums. */
+  chargeableArea?: number;
+  /** The catalogue yield was invalid and the safe 85% default was used. */
+  usedDefaultYield?: boolean;
   areaCostPerSqm: number;
   totalMaterialCost: number;
   /** true when the material id had no priced match at all — board priced at $0 (WS2 guard) */
@@ -70,6 +76,8 @@ export interface EdgeTapeAllocation {
   handlingCost: number;
   applicationCost: number;
   totalCost: number;
+  /** True when no positive catalogue price matched and a calibrated fallback was used. */
+  isFallbackPrice?: boolean;
   /** consolidated ordering: 25m roll multiples */
   rollsRequired?: number;
   rollLengthM?: number;
@@ -84,6 +92,8 @@ export interface HardwareItem {
   machiningCost: number;
   assemblyCost: number;
   totalCost: number;
+  /** True when no positive catalogue price matched and a calibrated fallback was used. */
+  isFallbackPrice?: boolean;
 }
 
 export interface BuildHours {

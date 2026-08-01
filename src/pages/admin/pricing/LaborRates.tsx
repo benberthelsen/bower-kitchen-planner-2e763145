@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Save, Plus, Trash2 } from "lucide-react";
+import { fetchAllPricingRows } from "@/lib/pricing/fetchAllPricingRows";
 
 
 interface LaborRate {
@@ -30,18 +31,15 @@ export default function LaborRates() {
   }, []);
 
   const loadRates = async () => {
-    const { data, error } = await supabase
-      .from("labor_rates")
-      .select("*")
-      .order("name");
-
-    if (error) {
+    try {
+      const data = await fetchAllPricingRows<LaborRate>("labor_rates");
+      setRates(data.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
       toast.error("Failed to load labor rates");
       console.error(error);
-    } else {
-      setRates(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const startEdit = (item: LaborRate) => {

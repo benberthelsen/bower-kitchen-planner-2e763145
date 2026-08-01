@@ -3,6 +3,7 @@ import {
   allocateQuotedTotal,
   getPersistedRoomTotal,
   mergePersistedPricingState,
+  normalizePricingTotals,
 } from '../src/lib/trade/pricingPersistence';
 
 const previousRoom = {
@@ -62,5 +63,16 @@ assert.equal(
   'cabinet quoted totals reconcile exactly to the room grand total',
 );
 assert.deepEqual(allocateQuotedTotal({}, 6186.97), {});
+
+assert.deepEqual(
+  normalizePricingTotals({ total: 6186.97 }),
+  { subtotal: 5624.52, tax: 562.45, total: 6186.97 },
+  'a legacy total-only quote derives subtotal/GST without adding GST twice',
+);
+assert.deepEqual(
+  normalizePricingTotals({ subtotal: 5624.52, tax: 562.44, total: 6186.97 }),
+  { subtotal: 5624.52, tax: 562.45, total: 6186.97 },
+  'the approved total is authoritative and GST balances to it exactly',
+);
 
 console.log('Trade pricing persistence smoke checks passed');

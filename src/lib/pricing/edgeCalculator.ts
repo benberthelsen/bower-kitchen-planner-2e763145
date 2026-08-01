@@ -61,7 +61,8 @@ export function calculateEdgeTape(
       : edgePricing.find(e => e.edge_type === edgeType || e.item_code === edgeType);
 
     const linearMeters = lengthMm / 1000;
-    const costPerMeter = pricing?.length_cost ?? 2.50; // Default cost/m
+    const hasCatalogPrice = Number.isFinite(pricing?.length_cost) && (pricing?.length_cost ?? 0) > 0;
+    const costPerMeter = hasCatalogPrice ? pricing!.length_cost : 2.50; // calibrated fallback cost/m
     const handlingCost = pricing?.handling_cost ?? 0;
     const applicationCost = (pricing?.application_cost ?? 0) * linearMeters;
     
@@ -73,7 +74,8 @@ export function calculateEdgeTape(
       costPerMeter,
       handlingCost,
       applicationCost,
-      totalCost: (linearMeters * costPerMeter) + handlingCost + applicationCost
+      totalCost: (linearMeters * costPerMeter) + handlingCost + applicationCost,
+      isFallbackPrice: !hasCatalogPrice,
     });
   }
   
@@ -119,7 +121,12 @@ export function consolidateEdgeTape(
       costPerMeter: template.costPerMeter,
       handlingCost: totalHandlingCost,
       applicationCost: totalApplicationCost,
-      totalCost: (totalLinearMeters * template.costPerMeter) + totalHandlingCost + totalApplicationCost
+      // Tape is purchased in whole rolls. Application is charged only on the
+      // metres actually edged, but material cost must cover every ordered roll.
+      totalCost: (rollsRequired * ROLL_LENGTH_M * template.costPerMeter)
+        + totalHandlingCost
+        + totalApplicationCost,
+      isFallbackPrice: allocations.some(a => a.isFallbackPrice),
     });
   }
   

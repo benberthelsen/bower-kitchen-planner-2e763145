@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { registerHandleRows } from '@/lib/handleStyles';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 
 /**
  * Loads the real materials / edges / hardware lists from the pricing tables
@@ -87,13 +87,13 @@ export function useMaterialsCatalog() {
         }
       } catch { /* fall through to Supabase */ }
       // Fallback: Supabase material_pricing.
-      const { data, error } = await supabase
-        .from('material_pricing')
-        .select('*')
-        .eq('visibility_status', 'Available')
-        .order('name', { ascending: true });
-      if (error) throw error;
-      return (data ?? []).map((r) => mapRow(r as Record<string, unknown>));
+      const data = await fetchAllPricingRows<Record<string, unknown>>(
+        'material_pricing',
+        { visibility_status: 'Available' },
+      );
+      return data
+        .map(mapRow)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -101,14 +101,11 @@ export function useMaterialsCatalog() {
   const edgesQuery = useQuery({
     queryKey: ['wizard-edge-pricing'],
     queryFn: async (): Promise<EdgeOptionRow[]> => {
-      const { data, error } = await supabase
-        .from('edge_pricing')
-        .select('*')
-        .eq('visibility_status', 'Available')
-        .order('name', { ascending: true });
-      if (error) throw error;
-      return (data ?? []).map((r) => {
-        const row = r as Record<string, unknown>;
+      const data = await fetchAllPricingRows<Record<string, unknown>>(
+        'edge_pricing',
+        { visibility_status: 'Available' },
+      );
+      return data.map((row) => {
         return {
           id: row.id as string,
           name: row.name as string,
@@ -116,7 +113,7 @@ export function useMaterialsCatalog() {
           applicationCost: (row.application_cost as number) ?? null,
           handlingCost: (row.handling_cost as number) ?? null,
         };
-      });
+      }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -132,14 +129,11 @@ export function useMaterialsCatalog() {
         if (res.ok) images = await res.json();
       } catch { /* photos are optional */ }
 
-      const { data, error } = await supabase
-        .from('hardware_pricing')
-        .select('*')
-        .eq('visibility_status', 'Available')
-        .order('name', { ascending: true });
-      if (error) throw error;
-      return (data ?? []).map((r) => {
-        const row = r as Record<string, unknown>;
+      const data = await fetchAllPricingRows<Record<string, unknown>>(
+        'hardware_pricing',
+        { visibility_status: 'Available' },
+      );
+      return data.map((row) => {
         const itemCode = (row.item_code as string) ?? null;
         return {
           id: row.id as string,
@@ -152,7 +146,7 @@ export function useMaterialsCatalog() {
           handlingCost: (row.handling_cost as number) ?? null,
           imageUrl: (itemCode && images[itemCode]) || null,
         };
-      });
+      }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -160,9 +154,7 @@ export function useMaterialsCatalog() {
   const laborQuery = useQuery({
     queryKey: ['wizard-labor-rates'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('labor_rates').select('*');
-      if (error) throw error;
-      return (data ?? []) as Record<string, unknown>[];
+      return fetchAllPricingRows<Record<string, unknown>>('labor_rates');
     },
     staleTime: 5 * 60 * 1000,
   });

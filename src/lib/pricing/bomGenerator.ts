@@ -11,6 +11,7 @@ import { calculateBuildHours } from './timeModel';
 import { calculateBenchtops } from './benchtopCalculator';
 import { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 import { distributeDrawerHeights, drawerBoxHeightFromFace } from '@/lib/drawerHeights';
+import { roundMoney } from './money';
 
 /**
  * Generate BOM for a single cabinet
@@ -85,6 +86,25 @@ export function generateCabinetBOM(
   
   // Calculate hardware
   const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware);
+
+  edgeTape
+    .filter(edge => edge.isFallbackPrice)
+    .forEach(edge => warnings.push(
+      `Edge tape "${edge.edgeName}" has no positive catalogue price — using fallback $${edge.costPerMeter.toFixed(2)}/m`,
+    ));
+  hardware
+    .filter(item => item.isFallbackPrice)
+    .forEach(item => warnings.push(
+      `Hardware "${item.name}" has no positive catalogue price — using fallback $${item.unitCost.toFixed(2)} each`,
+    ));
+  sheets
+    .filter(sheet => sheet.usedDefaultYield)
+    .forEach(sheet => warnings.push(
+      `Material "${sheet.materialName}" has an invalid yield — using the safe 85% yield`,
+    ));
+  if (pricingData.labor.length === 0) {
+    warnings.push('No labour-rate catalogue rows loaded — using calibrated labour defaults');
+  }
 
   // Labor (calibrated against real MV cost reports; tunable via labor_rates)
   const isTall = cabinet.height >= 1500 || /tall|pantry|broom|linen/i.test(cabinet.definitionId ?? '');
@@ -245,9 +265,9 @@ function calculatePartDimensions(
       materialRole: isExterior ? 'exterior' : 'carcase',
       edging: parseEdgingSpec(pricing?.edging ?? null),
       quantity,
-      handlingCost: pricing?.handling_cost ?? 0,
-      machiningCost: pricing?.machining_cost ?? 0,
-      assemblyCost: pricing?.assembly_cost ?? 0,
+      handlingCost: (pricing?.handling_cost ?? 0) + area * (pricing?.area_handling_cost ?? 0),
+      machiningCost: (pricing?.machining_cost ?? 0) + area * (pricing?.area_machining_cost ?? 0),
+      assemblyCost: (pricing?.assembly_cost ?? 0) + area * (pricing?.area_assembly_cost ?? 0),
     });
   };
 
@@ -321,6 +341,7 @@ export function generateQuoteBOM(
   const consolidatedSheets = consolidateSheetRequirements(cabinets.map(c => c.sheets));
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
+  const jobLevelWarnings: string[] = [];
 
   // -- P5 Reconciliation -------------------------------------------------------
   // Redistribute the consolidated sheet cost back to each cabinet as an
@@ -365,13 +386,17 @@ export function generateQuoteBOM(
       const pieces = Math.ceil(totalKickMm / KICK_STOCK_MM);
       // Resolve kick material: same carcase material as first cabinet, or first available
       const firstCab = items.find(i => i.itemType === 'Cabinet');
+      const resolvedKickMaterialId = resolveMaterialId(firstCab?.carcaseMaterialId, pricingData.materials);
       const kickMat =
-        pricingData.materials.find(m =>
-          firstCab?.carcaseMaterialId &&
-          (m.id === firstCab.carcaseMaterialId || m.item_code === firstCab.carcaseMaterialId)
-        ) ??
+        pricingData.materials.find(m => m.id === resolvedKickMaterialId) ??
         pricingData.materials.find(m => (m.area_cost ?? 0) > 0) ??
         pricingData.materials[0];
+
+      if (firstCab?.carcaseMaterialId && !resolvedKickMaterialId) {
+        jobLevelWarnings.push(
+          `Kick material "${firstCab.carcaseMaterialId}" has no catalogue match — using ${kickMat?.name ?? 'an unpriced fallback'}`,
+        );
+      }
 
       if (kickMat) {
         const areaPer = (KICK_STOCK_MM / 1000) * (kickHeightMm / 1000); // m² per piece
@@ -404,7 +429,8 @@ export function generateQuoteBOM(
   // -- Appliances (Stage 1, additive) ----------------------------------------
   // Purely additive: when no items are opted in, applianceItems is [] and the
   // total is 0 -- byte-identical with pre-Stage-1 outputs.
-  const applianceItems = buildApplianceLineItems(items, pricingData, commercial);
+  const applianceResult = buildApplianceLineItems(items, pricingData, commercial);
+  const applianceItems = applianceResult.items;
   const appliancesTotal = applianceItems.reduce((s, a) => s + a.lineTotal, 0);
   const hasPlaceholderAppliancePrices = applianceItems.some(a => a.isPlaceholderPrice);
 
@@ -418,8 +444,11 @@ export function generateQuoteBOM(
   const laborTotal = cabinets.reduce((s, c) => s + c.subtotals.labor, 0);
 
   // Cost -> commercial layers -> sell price. Defaults are pass-through.
-  const cabinetCost = cabinets.reduce((s, c) => s + c.totalCost, 0);
-  const cost = cabinetCost + benchtopTotal + appliancesTotal;
+  // The complete category sum is the cost authority. Cabinet totals do not
+  // contain job-level kick sheets, so summing cabinets previously omitted kick
+  // board from the quote while still charging it in the ordering list.
+  const cost = matTotal + edgeTotal + hwTotal + handlingTotal + machiningTotal
+    + assemblyTotal + laborTotal + benchtopTotal + appliancesTotal;
   const marginPct = commercial.marginPct ?? 0;
   const designFeePct = commercial.designFeePct ?? 0;
   const deliveryFlat = commercial.deliveryFlat ?? 0;
@@ -441,12 +470,15 @@ export function generateQuoteBOM(
       + deliveryFlat * (cm.delivery ?? 0)
       + benchtopTotal * (cm.stone ?? 0)
     : afterDelivery * clientMarkupPct;
-  const subtotalExGst = afterDelivery + clientMarkup;
-  const gst = subtotalExGst * gstPct;
+  const subtotalExGst = roundMoney(afterDelivery + clientMarkup);
+  const gst = roundMoney(subtotalExGst * gstPct);
+  const total = roundMoney(subtotalExGst + gst);
 
   // WS2 guard: roll up deduped pricing-trust warnings for the whole quote.
   const warnings = Array.from(new Set([
     ...cabinets.flatMap(c => c.warnings ?? []),
+    ...jobLevelWarnings,
+    ...applianceResult.warnings,
     ...consolidatedSheets
       .filter(s => s.unresolved)
       .map(s => `Material "${s.materialId}" has no priced match — board line priced at $0`),
@@ -482,7 +514,7 @@ export function generateQuoteBOM(
       clientMarkup,
       subtotalExGst,
       gst,
-      total: subtotalExGst + gst
+      total
     },
     buildHours: {
       cut: cabinets.reduce((s, c) => s + c.buildHours.cut, 0),
@@ -503,9 +535,10 @@ function buildApplianceLineItems(
   items: PlacedItem[],
   pricingData: PricingData,
   commercial: CommercialOptions,
-): ApplianceLineItem[] {
+): { items: ApplianceLineItem[]; warnings: string[] } {
   const applianceMargin = 1 + (commercial.applianceMarginPct ?? 0);
   const byProduct = new Map<string, ApplianceLineItem>();
+  const warnings: string[] = [];
   for (const item of items) {
     if (!item.applianceProductId) continue;
     if (item.supplyWithOrder === false) continue;
@@ -513,17 +546,23 @@ function buildApplianceLineItems(
     const dbRow = pricingData.appliances?.find(a => a.id === item.applianceProductId);
     // Snapshot wins for stability. Fall back to live catalog row.
     const name = snapshot?.name ?? dbRow?.name;
-    if (!name) continue;
+    if (!name) {
+      warnings.push(`Appliance "${item.applianceProductId}" was selected but is missing from the catalogue — not priced`);
+      continue;
+    }
     const unitPriceRaw = snapshot?.unitPrice
       ?? dbRow?.installed_price ?? dbRow?.sell_price ?? dbRow?.rrp ?? 0;
-    if (unitPriceRaw <= 0) continue;
-    const unitPrice = unitPriceRaw * applianceMargin;
+    if (unitPriceRaw <= 0) {
+      warnings.push(`Appliance "${name}" has no positive catalogue price — not included in the quote`);
+      continue;
+    }
+    const unitPrice = roundMoney(unitPriceRaw * applianceMargin);
     const isPlaceholder = snapshot?.isPlaceholderPrice ?? dbRow?.price_is_placeholder ?? true;
     const key = item.applianceProductId;
     const existing = byProduct.get(key);
     if (existing) {
       existing.quantity += 1;
-      existing.lineTotal = existing.quantity * existing.unitPrice;
+      existing.lineTotal = roundMoney(existing.quantity * existing.unitPrice);
     } else {
       byProduct.set(key, {
         productId: item.applianceProductId,
@@ -537,6 +576,6 @@ function buildApplianceLineItems(
       });
     }
   }
-  return Array.from(byProduct.values());
+  return { items: Array.from(byProduct.values()), warnings };
 }
   

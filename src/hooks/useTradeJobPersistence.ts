@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
 import { generateTradeQuotePDF } from '@/lib/pdfQuoteGenerator';
-import { allocateQuotedTotal, getPersistedRoomTotal, mergePersistedPricingState } from '@/lib/trade/pricingPersistence';
+import { allocateQuotedTotal, getPersistedRoomTotal, mergePersistedPricingState, normalizePricingTotals } from '@/lib/trade/pricingPersistence';
 
 interface PersistedTradeDesignData {
   tradeRooms: TradeRoom[];
@@ -262,6 +262,7 @@ export function useTradeJobPersistence(jobId?: string) {
     const current = getCurrentJob(input.jobId);
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
+    const normalizedTotals = normalizePricingTotals(input);
 
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
@@ -271,14 +272,14 @@ export function useTradeJobPersistence(jobId?: string) {
       existingDesignData,
       designDataPatch: {
         jobTotals: {
-          subtotal: input.subtotal,
-          tax: input.tax,
-          total: input.total,
+          subtotal: normalizedTotals.subtotal,
+          tax: normalizedTotals.tax,
+          total: normalizedTotals.total,
           updatedAt: new Date().toISOString(),
         },
       },
-      costExclTax: input.subtotal,
-      costInclTax: input.total,
+      costExclTax: normalizedTotals.subtotal,
+      costInclTax: normalizedTotals.total,
     });
   }, [getCurrentJob, upsertJobMutation]);
 
@@ -294,6 +295,7 @@ export function useTradeJobPersistence(jobId?: string) {
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
     const updatedAt = new Date().toISOString();
+    const normalizedTotals = normalizePricingTotals(input);
 
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
@@ -304,14 +306,14 @@ export function useTradeJobPersistence(jobId?: string) {
         latestDesignData,
         input.snapshot,
         {
-          subtotal: input.subtotal,
-          tax: input.tax,
-          total: input.total,
+          subtotal: normalizedTotals.subtotal,
+          tax: normalizedTotals.tax,
+          total: normalizedTotals.total,
           updatedAt,
         },
       ),
-      costExclTax: input.subtotal,
-      costInclTax: input.total,
+      costExclTax: normalizedTotals.subtotal,
+      costInclTax: normalizedTotals.total,
     });
   }, [getCurrentJob, upsertJobMutation]);
 
@@ -341,9 +343,22 @@ export function useTradeJobPersistence(jobId?: string) {
 
     const quoteSnapshot = data.quoteSnapshot;
     const quoteSnapshotsByRoom = data.quoteSnapshotsByRoom || {};
-    const singleRoomJobTotal = rooms.length === 1 && (data.jobTotals?.total ?? 0) > 0
-      ? data.jobTotals?.total
-      : null;
+    const normalizedJobTotals = normalizePricingTotals(data.jobTotals);
+    const snapshotsByRoom = Object.fromEntries(rooms.map((room) => {
+      const snapshot = quoteSnapshotsByRoom[room.id]
+        ?? (quoteSnapshot?.roomId === room.id ? quoteSnapshot : undefined);
+      return [room.id, snapshot];
+    })) as Record<string, QuoteSnapshot | undefined>;
+    const roomWeights = Object.fromEntries(rooms.flatMap((room) => {
+      const roomTotal = getPersistedRoomTotal(snapshotsByRoom[room.id]);
+      return roomTotal && roomTotal > 0 ? [[room.id, roomTotal]] : [];
+    }));
+    const allocatedRoomTotals = normalizedJobTotals.total > 0
+      ? allocateQuotedTotal(roomWeights, normalizedJobTotals.total)
+      : {};
+    if (rooms.length === 1 && normalizedJobTotals.total > 0 && !allocatedRoomTotals[rooms[0].id]) {
+      allocatedRoomTotals[rooms[0].id] = normalizedJobTotals.total;
+    }
 
     generateTradeQuotePDF({
       job: {
@@ -353,9 +368,8 @@ export function useTradeJobPersistence(jobId?: string) {
         updatedAt: jobQuery.data.updated_at,
       },
       rooms: rooms.map((room) => {
-        const snapshot = quoteSnapshotsByRoom[room.id]
-          ?? (quoteSnapshot?.roomId === room.id ? quoteSnapshot : undefined);
-        const roomQuotedTotal = singleRoomJobTotal ?? getPersistedRoomTotal(snapshot) ?? 0;
+        const snapshot = snapshotsByRoom[room.id];
+        const roomQuotedTotal = allocatedRoomTotals[room.id] ?? getPersistedRoomTotal(snapshot) ?? 0;
         const allocatedSell = allocateQuotedTotal(snapshot?.perCabinetTotals ?? {}, roomQuotedTotal);
 
         return {
@@ -380,7 +394,7 @@ export function useTradeJobPersistence(jobId?: string) {
         })),
         };
       }),
-      totals: data.jobTotals,
+      totals: normalizedJobTotals,
     });
   }, [jobQuery.data]);
 

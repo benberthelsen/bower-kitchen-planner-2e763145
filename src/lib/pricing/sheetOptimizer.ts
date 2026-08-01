@@ -110,9 +110,12 @@ function calculateMaterialSheets(
     totalPartArea += part.area * part.quantity;
   }
   
-  // Apply yield factor (accounts for offcuts, grain direction, etc.)
-  // yieldFactor of 0.85 means we can use 85% of each sheet
-  const adjustedArea = yieldFactor > 0 ? totalPartArea / yieldFactor : totalPartArea;
+  // Apply yield factor (accounts for offcuts, grain direction, etc.). Invalid
+  // imported values must never turn into a free/negative board calculation.
+  const usedDefaultYield = !Number.isFinite(yieldFactor) || yieldFactor <= 0 || yieldFactor > 1;
+  const effectiveYield = usedDefaultYield ? 0.85 : yieldFactor;
+  // yieldFactor of 0.85 means we can use 85% of each sheet.
+  const adjustedArea = totalPartArea / effectiveYield;
   
   // Apply minimum job area if specified
   const chargeableArea = Math.max(adjustedArea, minimumJobArea);
@@ -139,7 +142,10 @@ function calculateMaterialSheets(
     sheetsRequired,
     totalPartArea,
     wasteArea,
-    yieldFactor,
+    yieldFactor: effectiveYield,
+    minimumJobArea: Math.max(0, minimumJobArea),
+    chargeableArea,
+    ...(usedDefaultYield ? { usedDefaultYield: true } : {}),
     areaCostPerSqm,
     totalMaterialCost
   };
@@ -172,11 +178,13 @@ export function consolidateSheetRequirements(
     
     // Use the first allocation's properties as template
     const template = allocations[0];
-    const adjustedArea = template.yieldFactor > 0 
-      ? totalPartArea / template.yieldFactor 
-      : totalPartArea;
+    const adjustedArea = totalPartArea / template.yieldFactor;
+    // minimum_job_area is a per-material, per-job rule. It was previously
+    // applied to each cabinet, then accidentally dropped during consolidation.
+    const minimumJobArea = Math.max(0, ...allocations.map(a => a.minimumJobArea ?? 0));
+    const chargeableArea = Math.max(adjustedArea, minimumJobArea);
     
-    const sheetsRequired = Math.ceil(adjustedArea / template.sheetArea);
+    const sheetsRequired = Math.ceil(chargeableArea / template.sheetArea);
     const totalSheetArea = sheetsRequired * template.sheetArea;
     
     consolidated.push({
@@ -190,6 +198,9 @@ export function consolidateSheetRequirements(
       totalPartArea,
       wasteArea: totalSheetArea - totalPartArea,
       yieldFactor: template.yieldFactor,
+      minimumJobArea,
+      chargeableArea,
+      ...(allocations.some(a => a.usedDefaultYield) ? { usedDefaultYield: true } : {}),
       areaCostPerSqm: template.areaCostPerSqm,
       totalMaterialCost: totalSheetArea * template.areaCostPerSqm,
       ...(template.unresolved ? { unresolved: true } : {})

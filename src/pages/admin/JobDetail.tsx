@@ -17,6 +17,7 @@ import { JobNotes, addSystemNote } from '@/components/shared/JobNotes';
 import { CANONICAL_TRADE_JOB_STATUSES, TRADE_JOB_STATUS_LABELS, TradeJobStatus, isTradeJobStatus } from '@/types/trade';
 import { useQuery } from '@tanstack/react-query';
 import { generateQuoteBOM, PricingData } from '@/lib/pricing';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 import { exportOrderingListPdf } from '@/lib/orderingListPdf';
 import { exportPackingListPdf } from '@/lib/packingListPdf';
 import { exportCutSummaryPdf } from '@/lib/cutSummaryPdf';
@@ -58,23 +59,25 @@ const AUD = (n: number) =>
 
 /** Load all pricing tables needed to re-run the BOM engine. */
 async function fetchPricingData(): Promise<PricingData> {
-  const [parts, materials, edges, hardware, labor, doorDrawer, benchtop] = await Promise.all([
-    supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('material_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('edge_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('hardware_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('labor_rates').select('*'),
-    supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
-    (supabase as any).from('benchtop_pricing').select('*'),
+  const [parts, materials, edges, hardware, labor, doorDrawer, benchtop, appliances] = await Promise.all([
+    fetchAllPricingRows<PricingData['parts'][number]>('parts_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['materials'][number]>('material_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['edges'][number]>('edge_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['hardware'][number]>('hardware_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['labor'][number]>('labor_rates'),
+    fetchAllPricingRows<PricingData['doorDrawer'][number]>('door_drawer_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['benchtop'][number]>('benchtop_pricing'),
+    fetchAllPricingRows<NonNullable<PricingData['appliances']>[number]>('appliance_products', { is_active: true }),
   ]);
   return {
-    parts: (parts.data ?? []) as PricingData['parts'],
-    materials: (materials.data ?? []) as PricingData['materials'],
-    edges: (edges.data ?? []) as PricingData['edges'],
-    hardware: (hardware.data ?? []) as PricingData['hardware'],
-    labor: (labor.data ?? []) as PricingData['labor'],
-    doorDrawer: (doorDrawer.data ?? []) as PricingData['doorDrawer'],
-    benchtop: (benchtop.data ?? []) as PricingData['benchtop'],
+    parts,
+    materials,
+    edges,
+    hardware,
+    labor,
+    doorDrawer,
+    benchtop,
+    appliances,
   };
 }
 

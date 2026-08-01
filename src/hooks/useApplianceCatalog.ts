@@ -11,20 +11,22 @@
  */
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import type { ApplianceProductRecord } from '@/lib/pricing/types';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 
 const APPLIANCE_QUERY_KEY = ['appliance-products'] as const;
 
 async function fetchAppliances(activeOnly: boolean): Promise<ApplianceProductRecord[]> {
-  let query = (supabase as any)
-    .from('appliance_products')
-    .select('*')
-    .order('sort_order', { ascending: true, nullsFirst: false })
-    .order('name', { ascending: true });
-  if (activeOnly) query = query.eq('is_active', true);
-  const { data, error } = await query;
-  if (error) {
+  try {
+    const data = await fetchAllPricingRows<ApplianceProductRecord>(
+      'appliance_products',
+      activeOnly ? { is_active: true } : {},
+    );
+    return data.sort((a, b) =>
+      ((a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER))
+      || a.name.localeCompare(b.name),
+    );
+  } catch (error) {
     // Surface the real PostgREST failure so misconfigured RLS/grants/columns
     // are diagnosable instead of hidden behind a generic "couldn't load"
     // message in the wizard.
@@ -38,7 +40,6 @@ async function fetchAppliances(activeOnly: boolean): Promise<ApplianceProductRec
     });
     throw error;
   }
-  return (data ?? []) as ApplianceProductRecord[];
 }
 
 export function useApplianceCatalog(options: { activeOnly?: boolean } = {}) {

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Upload, Search, Save, Plus } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 
 interface BenchtopRecord {
   id: string;
@@ -76,17 +77,15 @@ export default function BenchtopPricing() {
   useEffect(() => { loadRecords(); }, []);
 
   const loadRecords = async () => {
-    const { data, error } = await (supabase as any)
-      .from('benchtop_pricing')
-      .select('*')
-      .order('brand');
-    if (error) {
+    try {
+      const data = await fetchAllPricingRows<BenchtopRecord>('benchtop_pricing');
+      setRecords(data.sort((a, b) => a.brand.localeCompare(b.brand)));
+    } catch (error) {
       toast.error('Failed to load benchtop pricing');
       console.error(error);
-    } else {
-      setRecords((data ?? []) as BenchtopRecord[]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

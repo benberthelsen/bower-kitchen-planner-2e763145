@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, RoomHardwareDefaults, RoomMaterialDefaults } from '@/contexts/TradeRoomContext';
 import { GlobalDimensions, HardwareOptions, PlacedItem } from '@/types';
 import { generateQuoteBOM, PricingData, QuoteBOM } from '@/lib/pricing';
@@ -12,6 +11,7 @@ import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 // (release blocker 6.1).
 import { toPlacedItems } from '@/lib/trade/cabinetPlacedItem';
 import { allocateQuotedTotal } from '@/lib/trade/pricingPersistence';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 
 export interface TradeRoomPricingInput {
   cabinets: ConfiguredCabinet[];
@@ -51,14 +51,14 @@ async function fetchBundleMaterials(): Promise<unknown[] | null> {
 export async function fetchPricingData(): Promise<PricingData> {
   const bundleMaterials = await fetchBundleMaterials();
   const [parts, materials, edges, hardware, labor, doorDrawer, benchtop, appliances] = await Promise.all([
-    supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('material_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('edge_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('hardware_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('labor_rates').select('*'),
-    supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
-    (supabase as any).from('benchtop_pricing').select('*'),
-    (supabase as any).from('appliance_products').select('*').eq('is_active', true),
+    fetchAllPricingRows<PricingData['parts'][number]>('parts_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['materials'][number]>('material_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['edges'][number]>('edge_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['hardware'][number]>('hardware_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['labor'][number]>('labor_rates'),
+    fetchAllPricingRows<PricingData['doorDrawer'][number]>('door_drawer_pricing', { visibility_status: 'Available' }),
+    fetchAllPricingRows<PricingData['benchtop'][number]>('benchtop_pricing'),
+    fetchAllPricingRows<NonNullable<PricingData['appliances']>[number]>('appliance_products', { is_active: true }),
   ]);
 
   // The public bundle is the source of material IDENTITY (names, images,
@@ -67,7 +67,7 @@ export async function fetchPricingData(): Promise<PricingData> {
   // (material_pricing, RLS = authenticated-only). Overlay DB cost onto each
   // bundle row (matched by id or item_code); DB-only rows are appended so
   // "Shop Materials" carcase boards still resolve.
-  const dbMaterials = (materials.data ?? []) as PricingData['materials'];
+  const dbMaterials = materials as PricingData['materials'];
   // Cost/spec fields that come from the DB, never the public bundle.
   const COST_FIELDS: (keyof PricingData['materials'][number])[] = [
     'area_cost', 'area_handling_cost', 'area_assembly_cost',
@@ -95,14 +95,14 @@ export async function fetchPricingData(): Promise<PricingData> {
   }
 
   return {
-    parts: (parts.data ?? []) as PricingData['parts'],
+    parts: parts as PricingData['parts'],
     materials: mergedMaterials,
-    edges: (edges.data ?? []) as PricingData['edges'],
-    hardware: (hardware.data ?? []) as PricingData['hardware'],
-    labor: (labor.data ?? []) as PricingData['labor'],
-    doorDrawer: (doorDrawer.data ?? []) as PricingData['doorDrawer'],
-    benchtop: (benchtop.data ?? []) as PricingData['benchtop'],
-    appliances: ((appliances as any)?.data ?? []) as PricingData['appliances'],
+    edges: edges as PricingData['edges'],
+    hardware: hardware as PricingData['hardware'],
+    labor: labor as PricingData['labor'],
+    doorDrawer: doorDrawer as PricingData['doorDrawer'],
+    benchtop: benchtop as PricingData['benchtop'],
+    appliances: appliances as PricingData['appliances'],
   };
 }
 

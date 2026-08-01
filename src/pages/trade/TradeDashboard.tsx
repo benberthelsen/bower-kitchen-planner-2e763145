@@ -65,7 +65,7 @@ function JobsTable({ jobs, title }: { jobs: TradeJob[]; title: string }) {
           <TableRow className="hover:bg-transparent border-trade-border">
             <TableHead className="text-trade-muted font-medium">Job #</TableHead>
             <TableHead className="text-trade-muted font-medium">Job Name</TableHead>
-            <TableHead className="text-trade-muted font-medium text-right">Cost (incl. Tax)</TableHead>
+            <TableHead className="text-trade-muted font-medium text-right">Quoted total (inc. GST)</TableHead>
             <TableHead className="text-trade-muted font-medium">Last Updated</TableHead>
             <TableHead className="text-trade-muted font-medium">Status</TableHead>
             <TableHead className="text-trade-muted font-medium w-12"></TableHead>
@@ -300,7 +300,7 @@ export default function TradeDashboard() {
           <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} />
         </div>
         <div className="mb-8">
-          <StatCard icon={TrendingUp} label="Total Value" value={`$${stats.totalValue.toLocaleString('en-AU', { maximumFractionDigits: 0 })}`} />
+          <StatCard icon={TrendingUp} label="Total quoted value (inc. GST)" value={`$${stats.totalValue.toLocaleString('en-AU', { maximumFractionDigits: 0 })}`} />
         </div>
 
         {loading && <div className="text-sm text-muted-foreground">Loading jobs…</div>}

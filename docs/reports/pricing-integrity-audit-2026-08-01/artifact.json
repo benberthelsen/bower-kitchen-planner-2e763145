@@ -1,0 +1,214 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Bower Planner Pricing Integrity Audit",
+    "description": "End-to-end pricing audit covering calculation, catalogue loading, persistence, quote exports, ordering outputs, and displayed totals.",
+    "generatedAt": "2026-08-01T05:00:00Z",
+    "cards": [
+      {
+        "id": "audit_totals",
+        "description": "Audit coverage and outcomes.",
+        "dataset": "audit_summary",
+        "sourceId": "audit_evidence",
+        "metrics": [
+          { "label": "Confirmed defects fixed", "field": "fixed", "format": "number" },
+          { "label": "Structural gaps", "field": "open", "format": "number" },
+          { "label": "Pricing identities", "field": "identities", "format": "number" },
+          { "label": "Job #397 reconciled", "field": "job397", "format": "currency" }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "catalog_coverage_chart",
+        "title": "Pricing catalogue coverage",
+        "subtitle": "Rows or public pricing identities confirmed during the audit; hardware is a pre-fix lower bound because the old loader stopped at 1,000 rows.",
+        "type": "bar",
+        "dataset": "catalog_coverage",
+        "sourceId": "live_catalogue",
+        "valueFormat": "number",
+        "encodings": {
+          "x": { "field": "category", "type": "nominal", "label": "Pricing category" },
+          "y": { "field": "records", "type": "quantitative", "label": "Records" },
+          "tooltip": [
+            { "field": "quality_note", "type": "nominal", "label": "Audit note" }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "surface_reconciliation_table",
+        "title": "Known-job total reconciliation",
+        "subtitle": "Approved Job #397 was checked across the customer-facing and trade surfaces before the broader pricing correction.",
+        "dataset": "surface_reconciliation",
+        "sourceId": "live_job_397",
+        "columns": [
+          { "field": "surface", "label": "Surface", "type": "text" },
+          { "field": "total", "label": "Total inc. GST", "format": "currency" },
+          { "field": "status", "label": "Result", "type": "text" }
+        ]
+      },
+      {
+        "id": "catalog_quality_table",
+        "title": "Catalogue quality profile",
+        "subtitle": "Counts describe the live data observed during the audit, including places where the pre-fix interface exposed only the first 1,000 rows.",
+        "dataset": "catalog_quality",
+        "sourceId": "live_catalogue",
+        "columns": [
+          { "field": "category", "label": "Category", "type": "text" },
+          { "field": "records", "label": "Records", "format": "number" },
+          { "field": "issue_count", "label": "Observed issues", "format": "number" }
+        ]
+      },
+      {
+        "id": "findings_table",
+        "title": "Pricing integrity findings",
+        "subtitle": "Fixed defects are separated from remaining model or business-rule decisions.",
+        "dataset": "findings",
+        "sourceId": "audit_evidence",
+        "defaultSort": { "field": "priority", "direction": "asc" },
+        "columns": [
+          { "field": "priority", "label": "#", "format": "number" },
+          { "field": "severity", "label": "Severity", "type": "text" },
+          { "field": "status", "label": "Status", "type": "text" },
+          { "field": "finding", "label": "Finding", "type": "text" }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "audit_evidence",
+        "label": "Pricing engine, persistence, export, and invariant tests",
+        "path": "src/lib/pricing; src/lib/trade; scripts/pricing-smoke.mjs; scripts/trade-pricing-persistence-smoke.mts"
+      },
+      {
+        "id": "live_catalogue",
+        "label": "Authenticated live pricing administration pages and bundled catalogue identities",
+        "path": "https://planner.bowercabinets.com/admin/pricing"
+      },
+      {
+        "id": "live_job_397",
+        "label": "Authenticated live Job #397 pricing surfaces",
+        "path": "https://planner.bowercabinets.com"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Bower Planner Pricing Integrity Audit\n\n**Audit date:** 1 August 2026  \n**Scope:** trade planner, homeowner quote hand-off, catalogue pricing, calculation engine, saved totals, dashboard, quote PDF, ordering list, and admin exports."
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\nThe audit found **calculation-path inconsistencies, silent catalogue truncation, and output allocation problems**. These defects explain why the planning screen, quote, dashboard, and ordering outputs could disagree even when pricing data existed. Fourteen safe, deterministic defects were corrected and protected by reconciliation tests.\n\nThe most important correction is removal of the hidden **1,000-row database ceiling**. The planner's material identity bundle contains 2,207 entries, so loading only 1,000 live price rows could make a valid selected product look unpriced or force a fallback. Kick-board cost, area-based part rates, full-roll edge purchases, cents/GST normalization, locked-total allocation, and missing-price warnings were also aligned.\n\nSeveral remaining gaps require an explicit product/pricing decision before code can safely charge them. They are listed as structural gaps rather than silently guessed."
+      },
+      { "id": "metrics", "type": "metric-strip", "cardIds": ["audit_totals"] },
+      { "id": "surface_reconciliation", "type": "table", "tableId": "surface_reconciliation_table" },
+      { "id": "catalog_chart", "type": "chart", "chartId": "catalog_coverage_chart" },
+      { "id": "catalog_quality", "type": "table", "tableId": "catalog_quality_table" },
+      { "id": "findings", "type": "table", "tableId": "findings_table" },
+      {
+        "id": "open_decisions",
+        "type": "markdown",
+        "body": "## Decisions still needed\n\n1. **Door and drawer pricing:** the six configured records and markup are currently not consumed by the quote engine. Four records also contain at least one zero cost field. The cabinet component model needs to say which door/drawer record applies before these charges are enabled.\n2. **Benchtop selection and nesting:** the engine currently takes the first benchtop price row instead of a selected row. The 40 live rows mix four per-linear-metre and 36 per-sheet methods. Exact connected runs, sheet nesting, minimum sheet usage, waste, joins and corner treatment need a single rule set.\n3. **Material surcharges:** area handling, area assembly, minimum-usage rollover, double-sided cost and horizontal-grain surcharge exist in data/admin but are not applied. Enabling them without definitions risks double charging.\n4. **Special products:** filler, end panel, dishwasher opening and some appliance housings intentionally return no cabinet BOM price. These need construction-aware price mappings.\n5. **Service labour:** delivery, installation and some assembly records exist but are not part of the current supply quote. Confirm which are optional, excluded, or chargeable."
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## Method and controls\n\nThe audit traced each price from live catalogue loading through BOM generation, markups, GST, saved job totals, dashboard summaries, PDF exports and ordering outputs. It added automated invariants for category completeness (including kick boards), exact-cent totals, minimum job area, invalid yield handling, fallback warnings, full-roll edge charging, area-based part rates, approved-total preservation and multi-surface total derivation.\n\nApproved or locked jobs deliberately retain their persisted commercial total. New calculation rules apply to new or editable drafts; they do not silently reprice an accepted job. Ordering lists remain procurement-cost views, not customer sell-price quotes."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-01T05:00:00Z",
+    "status": "ready",
+    "datasets": {
+      "audit_summary": [
+        { "fixed": 14, "open": 7, "identities": 2207, "job397": 6186.97 }
+      ],
+      "surface_reconciliation": [
+        { "surface": "Planner / saved job", "total": 6186.97, "status": "Matched" },
+        { "surface": "Trade quote", "total": 6186.97, "status": "Matched" },
+        { "surface": "Dashboard", "total": 6186.97, "status": "Matched" },
+        { "surface": "Quote PDF", "total": 6186.97, "status": "Matched" }
+      ],
+      "catalog_coverage": [
+        { "category": "Materials", "records": 2207, "quality_note": "Public identity bundle; old live price loader stopped at 1,000 rows" },
+        { "category": "Hardware*", "records": 1000, "quality_note": "At least 1,000 live rows; old interface was capped" },
+        { "category": "Edges", "records": 888, "quality_note": "Six zero-priced records in the first 50 reviewed" },
+        { "category": "Parts", "records": 288, "quality_note": "67 rows have all handling, machining and assembly rates at zero" },
+        { "category": "Appliances", "records": 86, "quality_note": "All active records are placeholder-priced; 16 lack a dimension" },
+        { "category": "Benchtops", "records": 40, "quality_note": "Four per-LM and 36 per-sheet; selection is not linked to pricing" },
+        { "category": "Labour", "records": 10, "quality_note": "Five core rates consumed; other service rates require scope decisions" },
+        { "category": "Doors", "records": 6, "quality_note": "Not consumed by the calculation engine; four have a zero cost field" }
+      ],
+      "catalog_quality": [
+        { "category": "Materials", "records": 2207, "issue_count": 26, "quality_note": "First 50 live rows contained 26 zero area costs / Needs Review; former UI cap prevented a complete live count" },
+        { "category": "Hardware", "records": 1000, "issue_count": 0, "quality_note": "Lower bound only before loader fix; first 50 had no zero unit costs, with 29 available and 21 hidden" },
+        { "category": "Edge tape", "records": 888, "issue_count": 6, "quality_note": "Six zero-priced records in first 50; engine now warns instead of silently hiding fallback use" },
+        { "category": "Parts", "records": 288, "issue_count": 67, "quality_note": "All handling, machining and assembly fields are zero on 67 rows" },
+        { "category": "Appliances", "records": 86, "issue_count": 86, "quality_note": "Every active appliance price is marked placeholder; 16 records also miss a dimension" },
+        { "category": "Benchtops", "records": 40, "issue_count": 40, "quality_note": "Rows are numerically priced, but the chosen product is not connected to a pricing row" },
+        { "category": "Labour", "records": 10, "issue_count": 5, "quality_note": "Five additional service rates are not consumed by the current supply-price path" },
+        { "category": "Doors / drawers", "records": 6, "issue_count": 4, "quality_note": "Entire table is unused; four rows have one or more zero cost fields" }
+      ],
+      "findings": [
+        { "priority": 1, "severity": "Critical", "status": "Fixed", "finding": "Pricing queries silently stopped at 1,000 rows", "impact": "Valid products beyond row 1,000 appeared missing or fell back to an unrelated price", "action": "All planner and admin pricing readers now page deterministically through the complete table" },
+        { "priority": 2, "severity": "High", "status": "Fixed", "finding": "Kick-board material cost was omitted from quote base cost", "impact": "Customer quote understated a production item visible in the ordering list", "action": "Kick-board subtotal is now included in the commercial quote invariant" },
+        { "priority": 3, "severity": "High", "status": "Fixed", "finding": "Area handling, machining and assembly rates were displayed but ignored", "impact": "Part processing was underpriced when only area rates were configured", "action": "Part pricing now applies flat plus area-based rates" },
+        { "priority": 4, "severity": "High", "status": "Fixed", "finding": "Edge tape displayed whole rolls but charged fractional material", "impact": "Procurement output and cost total disagreed", "action": "Material is charged per required 25 m roll; application remains per used metre" },
+        { "priority": 5, "severity": "High", "status": "Fixed", "finding": "Saved, calculated and PDF totals used different rounding/GST derivations", "impact": "Planner, dashboard and quote could differ by cents or add GST twice", "action": "A shared exact-cent normalizer now derives subtotal, GST and total" },
+        { "priority": 6, "severity": "High", "status": "Fixed", "finding": "Multi-room PDF allocation could diverge from the locked total", "impact": "Line allocations could fail to sum to an approved job total", "action": "Locked job total is now allocated once across rooms and cabinets with a final balancing line" },
+        { "priority": 7, "severity": "Medium", "status": "Fixed", "finding": "Fallback edge and hardware prices were silent", "impact": "Quote looked authoritative while using hard-coded substitute costs", "action": "Positive-price validation and explicit fallback warnings were added" },
+        { "priority": 8, "severity": "Medium", "status": "Fixed", "finding": "Minimum job area was dropped during sheet consolidation", "impact": "Small jobs could be charged below their configured minimum", "action": "Minimum chargeable area persists through consolidation and is test-covered" },
+        { "priority": 9, "severity": "Medium", "status": "Fixed", "finding": "Invalid material yield produced nonsensical utilization", "impact": "Ordering list showed values such as 825% yield used", "action": "Invalid yields use a safe default with a warning; displayed sheet utilization is capped at 100%" },
+        { "priority": 10, "severity": "Medium", "status": "Fixed", "finding": "Kick material matched only one exact identifier", "impact": "Equivalent item code or identity could fail and use the wrong material", "action": "Resolver now supports id and item-code identities consistently" },
+        { "priority": 11, "severity": "Medium", "status": "Fixed", "finding": "Missing supplied appliance prices were omitted silently", "impact": "A selected appliance could add no cost without alerting the estimator", "action": "Missing or zero appliance sell price now produces a pricing warning" },
+        { "priority": 12, "severity": "Medium", "status": "Fixed", "finding": "Admin export and supplier diff were subject to the same 1,000-row cap", "impact": "Backups and import comparisons could be incomplete", "action": "Exports and supplier-import comparisons now page the complete datasets, including appliances" },
+        { "priority": 13, "severity": "Low", "status": "Fixed", "finding": "Dashboard total semantics were ambiguous", "impact": "Users could compare ex-GST and inc-GST values as if they were the same", "action": "Dashboard explicitly labels quoted totals as including GST" },
+        { "priority": 14, "severity": "Low", "status": "Fixed", "finding": "Trade PDF total-only fallback could add GST twice", "impact": "Legacy saved totals could export higher than the persisted total", "action": "Total-only persistence path is normalized before PDF generation" },
+        { "priority": 15, "severity": "High", "status": "Open — model", "finding": "Door/drawer pricing and markup are configured but unused", "impact": "Front construction pricing is not traceable to the six admin price records", "action": "Connect cabinet fronts to a selected door/drawer price identity before enabling charges" },
+        { "priority": 16, "severity": "High", "status": "Open — model", "finding": "Selected benchtop is not linked to a pricing row", "impact": "Engine uses the first live row, so material/method can be wrong", "action": "Persist benchtop pricing identity and implement connected-run sheet nesting rules" },
+        { "priority": 17, "severity": "High", "status": "Open — mapping", "finding": "Filler, end panel and special opening products have no BOM price", "impact": "Configured products can be present but commercially unpriced", "action": "Add construction-aware product-to-BOM mappings and regression examples" },
+        { "priority": 18, "severity": "Medium", "status": "Open — data", "finding": "All 86 active appliance prices are placeholders", "impact": "Appliance-inclusive estimates are indicative, not dependable sell prices", "action": "Import supplier catalogue costs, sell prices, dimensions and effective dates" },
+        { "priority": 19, "severity": "Medium", "status": "Open — rules", "finding": "Material surcharges are stored but unused", "impact": "Double-sided, horizontal grain and minimum-usage work may be omitted", "action": "Define non-overlapping charging rules before enabling fields" },
+        { "priority": 20, "severity": "Medium", "status": "Open — rules", "finding": "Additional labour records are outside the quote path", "impact": "Delivery, installation or special assembly may not be reflected", "action": "Confirm supply-only exclusions and model optional services explicitly" },
+        { "priority": 21, "severity": "Medium", "status": "Open — attribution", "finding": "PDF spreads job-level costs across cabinet lines", "impact": "Grand total is correct but appliance/benchtop line attribution can be misleading", "action": "Export dedicated job-level lines for benchtops, kicks and appliances" }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "audit_evidence",
+      "query": {
+        "engine": "snapshot",
+        "sql": "SELECT 14 AS fixed, 7 AS open, 2207 AS identities, 6186.97 AS job397",
+        "description": "Reproduces the reviewed audit summary stored in this report snapshot.",
+        "executed_at": "2026-08-01T05:00:00Z"
+      }
+    },
+    {
+      "id": "live_catalogue",
+      "query": {
+        "engine": "snapshot",
+        "sql": "SELECT category, records, quality_note FROM pricing_catalogue_audit_snapshot",
+        "description": "Reviewed live catalogue counts captured from authenticated admin pages and the public identity bundle.",
+        "executed_at": "2026-08-01T05:00:00Z"
+      }
+    },
+    {
+      "id": "live_job_397",
+      "query": {
+        "engine": "snapshot",
+        "sql": "SELECT surface, total, status FROM job_397_reconciliation_snapshot",
+        "description": "Reviewed totals captured from the authenticated Job #397 planner, quote, dashboard and PDF.",
+        "executed_at": "2026-08-01T05:00:00Z"
+      }
+    }
+  ]
+}

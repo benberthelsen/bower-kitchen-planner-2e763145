@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Loader2, Plus, Search, Upload, Trash2 } from 'lucide-react';
 import type { ApplianceProductRecord } from '@/lib/pricing/types';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 
 const CATEGORIES = ['oven', 'cooktop', 'rangehood', 'dishwasher', 'sink', 'tap', 'microwave', 'fridge', 'washing_machine', 'other'] as const;
 const BUCKET = 'appliance-assets';
@@ -56,15 +57,18 @@ export default function ApplianceCatalogAdmin() {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await (supabase as any)
-      .from('appliance_products')
-      .select('*')
-      .order('category')
-      .order('sort_order', { ascending: true, nullsFirst: false })
-      .order('name');
-    if (error) toast.error(error.message);
-    setRows(((data as ApplianceProductRecord[]) ?? []));
-    setLoading(false);
+    try {
+      const data = await fetchAllPricingRows<ApplianceProductRecord>('appliance_products');
+      setRows(data.sort((a, b) => (
+        a.category.localeCompare(b.category)
+        || (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER)
+        || a.name.localeCompare(b.name)
+      )));
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Failed to load appliance pricing');
+    } finally {
+      setLoading(false);
+    }
   }
 
   const filtered = useMemo(() => {

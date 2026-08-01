@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
 
 const STORAGE_KEY = 'trade.hardware.selectedSku';
 
@@ -18,27 +18,29 @@ export function useHardwareDefaults() {
 
   const loadHardware = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('hardware_pricing')
-      .select('id, item_code, name, hardware_type, unit_cost, visibility_status')
-      .eq('visibility_status', 'Available')
-      .order('name', { ascending: true });
+    try {
+      const data = await fetchAllPricingRows<{
+        id: string;
+        item_code: string;
+        name: string;
+        hardware_type: string | null;
+        unit_cost: number | null;
+      }>('hardware_pricing', { visibility_status: 'Available' });
 
-    if (error) {
+      setHardware(
+        data
+          .map((row) => ({
+            id: row.id,
+            sku: row.item_code,
+            name: row.name,
+            type: row.hardware_type ?? 'General',
+            unitCost: row.unit_cost ?? 0,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    } catch {
       setHardware([]);
-      setLoading(false);
-      return;
     }
-
-    setHardware(
-      (data ?? []).map((row) => ({
-        id: row.id,
-        sku: row.item_code,
-        name: row.name,
-        type: row.hardware_type ?? 'General',
-        unitCost: row.unit_cost ?? 0,
-      })),
-    );
     setLoading(false);
   }, []);
 

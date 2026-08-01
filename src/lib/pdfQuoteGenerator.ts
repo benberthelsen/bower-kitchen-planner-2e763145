@@ -10,6 +10,7 @@ import type {
   RoomHardwareDefaults,
   RoomMaterialDefaults,
 } from '@/types/trade';
+import { normalizePricingTotals } from '@/lib/pricing/money';
 
 interface QuoteData {
   quoteBOM: QuoteBOM;
@@ -136,18 +137,24 @@ export function generateQuotePDF(data: QuoteData): void {
   
   yPos += 5;
   
-  const sheetData = quoteBOM.consolidatedSheets.map(sheet => [
-    sheet.materialName,
-    `${sheet.sheetsRequired} sheets`,
-    `${(sheet.sheetLength / 1000).toFixed(1)}m x ${(sheet.sheetWidth / 1000).toFixed(1)}m`,
-    `${((1 - sheet.wasteArea / (sheet.sheetsRequired * sheet.sheetArea)) * 100).toFixed(0)}%`,
-    money(sheet.totalMaterialCost)
-  ]);
+  const sheetData = quoteBOM.consolidatedSheets.map(sheet => {
+    const orderedArea = sheet.sheetsRequired * sheet.sheetArea;
+    const sheetUse = orderedArea > 0
+      ? Math.min(1, Math.max(0, sheet.totalPartArea / orderedArea)) * 100
+      : 0;
+    return [
+      sheet.materialName,
+      `${sheet.sheetsRequired} sheets`,
+      `${(sheet.sheetLength / 1000).toFixed(1)}m x ${(sheet.sheetWidth / 1000).toFixed(1)}m`,
+      `${sheetUse.toFixed(0)}%`,
+      money(sheet.totalMaterialCost),
+    ];
+  });
   
   if (sheetData.length > 0) {
     autoTable(doc, {
       startY: yPos,
-      head: [['Material', 'Qty', 'Sheet Size', 'Yield', 'Cost']],
+      head: [['Material', 'Qty', 'Sheet Size', 'Sheet Use', 'Cost']],
       body: sheetData,
       theme: 'striped',
       headStyles: { 
@@ -511,10 +518,7 @@ export function generateTradeQuotePDF(payload: TradeQuotePayload): void {
     finalY = (doc as any).lastAutoTable?.finalY ?? finalY + 30;
   });
 
-  const totals = payload.totals || {};
-  const subtotal = totals.subtotal ?? totals.total ?? 0;
-  const tax = totals.tax ?? subtotal * 0.1;
-  const total = totals.total ?? subtotal + tax;
+  const { subtotal, tax, total } = normalizePricingTotals(payload.totals);
 
   if (finalY > doc.internal.pageSize.getHeight() - 55) {
     doc.addPage();

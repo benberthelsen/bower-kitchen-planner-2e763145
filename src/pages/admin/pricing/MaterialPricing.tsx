@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Search, Save, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { fetchAllPricingRows } from "@/lib/pricing/fetchAllPricingRows";
 
 
 interface MaterialPricing {
@@ -47,18 +48,15 @@ export default function MaterialPricing() {
   }, []);
 
   const loadMaterials = async () => {
-    const { data, error } = await supabase
-      .from("material_pricing")
-      .select("*")
-      .order("name");
-
-    if (error) {
+    try {
+      const data = await fetchAllPricingRows<MaterialPricing>("material_pricing");
+      setMaterials(data.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
       toast.error("Failed to load material pricing");
       console.error(error);
-    } else {
-      setMaterials((data || []) as any);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

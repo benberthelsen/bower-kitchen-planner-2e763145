@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Search, Save } from "lucide-react";
+import { fetchAllPricingRows } from "@/lib/pricing/fetchAllPricingRows";
 
 
 interface DoorDrawerPricing {
@@ -37,18 +38,15 @@ export default function DoorDrawerPricing() {
   }, []);
 
   const loadItems = async () => {
-    const { data, error } = await supabase
-      .from("door_drawer_pricing")
-      .select("*")
-      .order("name");
-
-    if (error) {
+    try {
+      const data = await fetchAllPricingRows<DoorDrawerPricing>("door_drawer_pricing");
+      setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
       toast.error("Failed to load door/drawer pricing");
       console.error(error);
-    } else {
-      setItems(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
