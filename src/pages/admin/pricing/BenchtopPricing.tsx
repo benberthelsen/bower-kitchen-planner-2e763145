@@ -23,6 +23,32 @@ interface BenchtopRecord {
   trade_supply_per_sqm: number;
   install_per_lm: number | null;
   install_supply_per_sqm: number;
+  supplier: string | null;
+  item_code: string | null;
+  catalog_finish_id: string | null;
+  supply_pathway: 'stock_preformed' | 'stock_sheet_fabricated' | 'supplier_custom' | 'made_to_order';
+  profile_type: string;
+  thickness_mm: number | null;
+  minimum_order_length_mm: number;
+  minimum_charge: number;
+  waste_factor: number;
+  minimum_sheet_quantity: number;
+  cut_to_length_cost: number;
+  cnc_setup_cost: number;
+  cnc_cut_per_lm: number;
+  join_cost: number;
+  sanding_polishing_per_lm: number;
+  edge_finish_per_lm: number;
+  finished_end_cost: number;
+  sink_cutout_cost: number;
+  cooktop_cutout_cost: number;
+  tap_hole_cost: number;
+  supplier_order_fee: number;
+  freight_cost: number;
+  is_default: boolean;
+  is_active: boolean;
+  price_status: 'base_only' | 'confirmed' | 'needs_review';
+  notes: string | null;
 }
 
 const BLANK: Omit<BenchtopRecord, 'id'> = {
@@ -37,6 +63,32 @@ const BLANK: Omit<BenchtopRecord, 'id'> = {
   trade_supply_per_sqm: 0,
   install_per_lm: null,
   install_supply_per_sqm: 0,
+  supplier: '',
+  item_code: '',
+  catalog_finish_id: '',
+  supply_pathway: 'stock_sheet_fabricated',
+  profile_type: 'square_edge',
+  thickness_mm: 12,
+  minimum_order_length_mm: 0,
+  minimum_charge: 0,
+  waste_factor: 0.05,
+  minimum_sheet_quantity: 1,
+  cut_to_length_cost: 0,
+  cnc_setup_cost: 0,
+  cnc_cut_per_lm: 0,
+  join_cost: 0,
+  sanding_polishing_per_lm: 0,
+  edge_finish_per_lm: 0,
+  finished_end_cost: 0,
+  sink_cutout_cost: 0,
+  cooktop_cutout_cost: 0,
+  tap_hole_cost: 0,
+  supplier_order_fee: 0,
+  freight_cost: 0,
+  is_default: false,
+  is_active: true,
+  price_status: 'base_only',
+  notes: '',
 };
 
 const MATERIAL_TYPE_LABELS: Record<string, string> = {
@@ -50,6 +102,97 @@ const PRICING_METHOD_LABELS: Record<string, string> = {
   per_lm: 'Per LM',
   per_sqm: 'Per m²',
 };
+
+const PATHWAY_LABELS: Record<BenchtopRecord['supply_pathway'], string> = {
+  stock_preformed: 'Stock pre-formed top',
+  stock_sheet_fabricated: 'Sheet + in-house fabrication',
+  supplier_custom: 'Supplier custom order',
+  made_to_order: 'Made-to-order press/postformed',
+};
+
+const MATRIX_FIELDS: Array<{ key: keyof BenchtopRecord; label: string; suffix: string; step?: string }> = [
+  { key: 'minimum_charge', label: 'Minimum completed top', suffix: '$' },
+  { key: 'cut_to_length_cost', label: 'Cut to length', suffix: '$/run' },
+  { key: 'cnc_setup_cost', label: 'CNC / fabrication setup', suffix: '$/job' },
+  { key: 'cnc_cut_per_lm', label: 'CNC cutting', suffix: '$/LM' },
+  { key: 'sanding_polishing_per_lm', label: 'Sand + polish', suffix: '$/LM' },
+  { key: 'edge_finish_per_lm', label: 'Finished edge', suffix: '$/LM' },
+  { key: 'join_cost', label: 'Join', suffix: '$/join' },
+  { key: 'finished_end_cost', label: 'Finished end', suffix: '$/end' },
+  { key: 'sink_cutout_cost', label: 'Sink cut-out', suffix: '$/each' },
+  { key: 'cooktop_cutout_cost', label: 'Cooktop cut-out', suffix: '$/each' },
+  { key: 'tap_hole_cost', label: 'Tap hole', suffix: '$/each' },
+  { key: 'supplier_order_fee', label: 'Supplier order fee', suffix: '$/job' },
+  { key: 'freight_cost', label: 'Freight', suffix: '$/job' },
+];
+
+function MatrixInputs({
+  value,
+  onChange,
+}: {
+  value: Partial<BenchtopRecord>;
+  onChange: (patch: Partial<BenchtopRecord>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <div>
+          <p className="mb-1 text-xs font-medium">Supply pathway</p>
+          <Select value={value.supply_pathway ?? 'supplier_custom'} onValueChange={(v) => onChange({ supply_pathway: v as BenchtopRecord['supply_pathway'] })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(PATHWAY_LABELS).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div><p className="mb-1 text-xs font-medium">Supplier</p><Input value={value.supplier ?? ''} onChange={(e) => onChange({ supplier: e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Supplier item code</p><Input value={value.item_code ?? ''} onChange={(e) => onChange({ item_code: e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Profile</p><Input value={value.profile_type ?? ''} onChange={(e) => onChange({ profile_type: e.target.value })} placeholder="postformed / square edge" /></div>
+        <div><p className="mb-1 text-xs font-medium">Thickness (mm)</p><Input type="number" value={value.thickness_mm ?? ''} onChange={(e) => onChange({ thickness_mm: e.target.value ? +e.target.value : null })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Minimum order length (mm)</p><Input type="number" value={value.minimum_order_length_mm ?? 0} onChange={(e) => onChange({ minimum_order_length_mm: +e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Sheet waste allowance</p><Input type="number" min="0" max="0.25" step="0.01" value={value.waste_factor ?? 0.05} onChange={(e) => onChange({ waste_factor: +e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Minimum sheets</p><Input type="number" min="1" step="1" value={value.minimum_sheet_quantity ?? 1} onChange={(e) => onChange({ minimum_sheet_quantity: +e.target.value })} /></div>
+        <div>
+          <p className="mb-1 text-xs font-medium">Price completeness</p>
+          <Select value={value.price_status ?? 'base_only'} onValueChange={(v) => onChange({ price_status: v as BenchtopRecord['price_status'] })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="base_only">Supplier/base only</SelectItem>
+              <SelectItem value="needs_review">Needs review</SelectItem>
+              <SelectItem value="confirmed">Complete + confirmed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium">Availability</p>
+          <Select value={value.is_active === false ? 'inactive' : 'active'} onValueChange={(v) => onChange({ is_active: v === 'active' })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium">Room fallback</p>
+          <Select value={value.is_default ? 'default' : 'standard'} onValueChange={(v) => onChange({ is_default: v === 'default' })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="standard">Normal option</SelectItem><SelectItem value="default">Default for legacy rooms</SelectItem></SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fabrication and order charges (ex GST)</p>
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+          {MATRIX_FIELDS.map((field) => (
+            <div key={field.key}>
+              <p className="mb-1 text-xs font-medium">{field.label} <span className="text-muted-foreground">{field.suffix}</span></p>
+              <Input type="number" min="0" step="0.01" value={(value[field.key] as number | null | undefined) ?? 0} onChange={(e) => onChange({ [field.key]: +e.target.value })} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div><p className="mb-1 text-xs font-medium">Pricing notes</p><Input value={value.notes ?? ''} onChange={(e) => onChange({ notes: e.target.value })} placeholder="Source list, lead time, exclusions, fabrication assumptions" /></div>
+    </div>
+  );
+}
 
 function methodBadgeVariant(method: string): "default" | "secondary" | "outline" {
   if (method === 'per_sheet') return 'default';
@@ -129,6 +272,9 @@ export default function BenchtopPricing() {
 
   const saveEdit = async () => {
     if (!editingId) return;
+    if (editValues.is_default) {
+      await (supabase as any).from('benchtop_pricing').update({ is_default: false }).neq('id', editingId);
+    }
     const { error } = await (supabase as any)
       .from('benchtop_pricing')
       .update(editValues)
@@ -141,6 +287,9 @@ export default function BenchtopPricing() {
 
   const addRecord = async () => {
     if (!newRecord.brand) { toast.error('Brand is required'); return; }
+    if (newRecord.is_default) {
+      await (supabase as any).from('benchtop_pricing').update({ is_default: false }).neq('id', '00000000-0000-0000-0000-000000000000');
+    }
     const { error } = await (supabase as any).from('benchtop_pricing').insert(newRecord);
     if (error) { toast.error('Failed to add record'); return; }
     toast.success('Record added');
@@ -152,7 +301,10 @@ export default function BenchtopPricing() {
   const filtered = records.filter(r =>
     r.brand.toLowerCase().includes(search.toLowerCase()) ||
     r.range_tier?.toLowerCase().includes(search.toLowerCase()) ||
-    r.material_type?.toLowerCase().includes(search.toLowerCase())
+    r.material_type?.toLowerCase().includes(search.toLowerCase()) ||
+    r.supply_pathway?.toLowerCase().includes(search.toLowerCase()) ||
+    r.supplier?.toLowerCase().includes(search.toLowerCase()) ||
+    r.item_code?.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -232,9 +384,30 @@ export default function BenchtopPricing() {
                 </>
               )}
             </div>
+            <div className="mb-4 rounded-lg border bg-muted/20 p-4">
+              <MatrixInputs value={newRecord} onChange={(patch) => setNewRecord({ ...newRecord, ...patch })} />
+            </div>
             <div className="flex gap-2">
               <Button onClick={addRecord}>Save</Button>
               <Button variant="outline" onClick={() => { setShowAdd(false); setNewRecord(BLANK); }}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {editingId && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <div>
+              <h2 className="font-semibold">Finished-top matrix</h2>
+              <p className="text-sm text-muted-foreground">Supplier product plus CNC, fabrication, finishing, cut-out, order and freight charges.</p>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <MatrixInputs value={editValues} onChange={(patch) => setEditValues({ ...editValues, ...patch })} />
+            <div className="flex gap-2">
+              <Button onClick={saveEdit}><Save className="mr-2 h-4 w-4" />Save complete matrix</Button>
+              <Button variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
             </div>
           </CardContent>
         </Card>
@@ -260,6 +433,7 @@ export default function BenchtopPricing() {
                   <TableHead>Range / Tier</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Method</TableHead>
+                  <TableHead>Pathway</TableHead>
                   <TableHead>Stock (L × D mm)</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead />
@@ -275,6 +449,12 @@ export default function BenchtopPricing() {
                           <Input value={editValues.range_tier ?? ''}
                             onChange={e => setEditValues({ ...editValues, range_tier: e.target.value })}
                             className="w-36" />
+                        </TableCell>
+                        <TableCell className="min-w-48">
+                          <Select value={editValues.supply_pathway ?? 'supplier_custom'} onValueChange={(v) => setEditValues({ ...editValues, supply_pathway: v as BenchtopRecord['supply_pathway'] })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>{Object.entries(PATHWAY_LABELS).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent>
+                          </Select>
                         </TableCell>
                         <TableCell>
                           <Select value={editValues.material_type ?? 'solid_surface'}
@@ -350,6 +530,7 @@ export default function BenchtopPricing() {
                             {PRICING_METHOD_LABELS[item.pricing_method] ?? item.pricing_method}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-xs">{PATHWAY_LABELS[item.supply_pathway] ?? item.supply_pathway}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {item.stock_length_mm} × {item.stock_depth_mm}
                         </TableCell>

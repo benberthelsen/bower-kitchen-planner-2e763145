@@ -218,7 +218,9 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
         `${bt.runLengthMm} mm run`,
         qtyLabel,
         unitLabel,
-        AUD(bt.supplyCost),
+        (bt.fabricationCost ?? 0) > 0
+          ? `${AUD(bt.baseMaterialCost ?? 0)} + ${AUD(bt.fabricationCost ?? 0)} fab`
+          : AUD(bt.supplyCost),
         AUD(bt.installCost),
         AUD(bt.totalCost),
       ];
@@ -229,7 +231,7 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
 
     autoTable(doc, {
       startY: y,
-      head: [['Wall', 'Material', 'Run Length', 'Quantity', 'Rate', 'Supply', 'Install', 'Total']],
+      head: [['Wall', 'Material', 'Run Length', 'Quantity', 'Rate', 'Material + fabrication', 'Install', 'Total']],
       body: btRows,
       styles: { fontSize: 9, cellPadding: 2 },
       headStyles: { fillColor: [30, 41, 82], textColor: 255 },
@@ -250,7 +252,22 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
       },
     });
 
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    const tableFinalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+    const operationLines = benchtops.flatMap(bt => bt.fabricationBreakdown ?? []);
+    if (operationLines.length > 0) {
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4;
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(
+        `Fabrication: ${operationLines.map(line => `${line.label} ${line.quantity.toFixed(line.unit === 'lm' ? 2 : 0)} ${line.unit} @ ${AUD(line.unitPrice)}`).join('  |  ')}`,
+        14,
+        y,
+        { maxWidth: 182 },
+      );
+      y += 12;
+    } else {
+      y = tableFinalY + 10;
+    }
   }
 
   // ── Grand summary ─────────────────────────────────────────────────────────

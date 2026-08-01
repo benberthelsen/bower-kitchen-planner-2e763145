@@ -379,6 +379,7 @@ export default function JobEditor() {
           drawerGap: config.drawerGap,
         },
         materialDefaults: {
+          ...editingRoom.materialDefaults,
           exteriorFinish: config.exteriorMaterial,
           carcaseFinish: config.carcaseMaterial,
           doorStyle: config.doorStyle,

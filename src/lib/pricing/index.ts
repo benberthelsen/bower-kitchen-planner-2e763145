@@ -6,3 +6,4 @@ export * from './sheetOptimizer';
 export * from './edgeCalculator';
 export * from './hardwareCalculator';
 export * from './bomGenerator';
+export * from './benchtopCalculator';

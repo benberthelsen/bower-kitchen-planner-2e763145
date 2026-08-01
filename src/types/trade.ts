@@ -108,6 +108,10 @@ export interface RoomMaterialDefaults {
   carcaseFinish: string;
   doorStyle: string;
   edgeBanding: string;
+  /** Authoritative benchtop_pricing row used by the shared quote engine. */
+  benchtopPricingId?: string;
+  /** Optional visual finish id retained from homeowner/AI style selections. */
+  benchtopFinishId?: string;
 }
 
 export interface RoomHardwareDefaults {

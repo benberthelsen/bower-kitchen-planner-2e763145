@@ -58,6 +58,10 @@ function generateCabinetNumber(existingCabinets: ConfiguredCabinet[]): string {
 function normalizeRoomsForHydration(rooms: TradeRoom[]): TradeRoom[] {
   return rooms.map((room) => ({
     ...room,
+    materialDefaults: {
+      ...defaultMaterialDefaults,
+      ...room.materialDefaults,
+    },
     createdAt: new Date(room.createdAt),
     updatedAt: new Date(room.updatedAt),
     cabinets: room.cabinets.map((cab) => ({

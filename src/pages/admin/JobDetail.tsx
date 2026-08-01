@@ -336,7 +336,11 @@ export default function AdminJobDetail() {
     };
 
     try {
-      return generateQuoteBOM(placedItems, dims, hardwareOptions, pricingData);
+      const materialDefaults = firstRoom?.materialDefaults as Record<string, string> | undefined;
+      return generateQuoteBOM(placedItems, dims, hardwareOptions, pricingData, {}, {
+        benchtopPricingId: materialDefaults?.benchtopPricingId,
+        benchtopFinishId: materialDefaults?.benchtopFinishId,
+      });
     } catch {
       return null;
     }
@@ -556,7 +560,12 @@ export default function AdminJobDetail() {
                               </span>
                             </div>
                             <div className="text-right">
-                              <span className="font-medium">{AUD(bt.supplyCost)}</span>
+                              <span className="font-medium">{AUD(bt.totalCost)}</span>
+                              {(bt.fabricationCost ?? 0) > 0 && (
+                                <span className="text-gray-400 text-xs ml-1">
+                                  ({AUD(bt.baseMaterialCost ?? 0)} material + {AUD(bt.fabricationCost ?? 0)} fabrication)
+                                </span>
+                              )}
                               {bt.installCost > 0 && (
                                 <span className="text-gray-400 text-xs ml-1">+{AUD(bt.installCost)} inst</span>
                               )}

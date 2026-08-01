@@ -13,6 +13,7 @@ import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { UnifiedCatalog } from '@/components/shared/UnifiedCatalog';
 import { CabinetListPanel } from '@/components/trade/planner/CabinetListPanel';
 import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog';
+import { BenchtopMatrixDialog } from '@/components/trade/planner/BenchtopMatrixDialog';
 import { useCatalog } from '@/hooks/useCatalog';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { useTradeRoomPricing } from '@/hooks/useTradeRoomPricing';
@@ -64,6 +65,7 @@ export default function RoomPlanner() {
     getSelectedCabinet,
     getCabinetsByRoom,
     hydrateRooms,
+    updateRoom,
   } = useTradeRoom();
 
   const {
@@ -84,6 +86,7 @@ export default function RoomPlanner() {
   const [is3D, setIs3D] = useState(false);
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [benchtopDialogOpen, setBenchtopDialogOpen] = useState(false);
   const [editDialogCabinet, setEditDialogCabinet] = useState<ConfiguredCabinet | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -128,6 +131,7 @@ export default function RoomPlanner() {
     roomTotal,
     pricingVersion,
     pricingHash,
+    benchtopOptions,
     isLoading: isPricingLoading,
   } = useTradeRoomPricing({
     cabinets,
@@ -135,6 +139,13 @@ export default function RoomPlanner() {
     materialDefaults: currentRoom?.materialDefaults,
     hardwareDefaults: currentRoom?.hardwareDefaults || defaultHardwareDefaults,
   });
+
+  const selectedBenchtop = useMemo(() => {
+    return benchtopOptions.find(option => option.id === currentRoom?.materialDefaults.benchtopPricingId)
+      ?? benchtopOptions.find(option => option.catalog_finish_id === currentRoom?.materialDefaults.benchtopFinishId)
+      ?? benchtopOptions.find(option => option.is_default)
+      ?? benchtopOptions[0];
+  }, [benchtopOptions, currentRoom?.materialDefaults.benchtopFinishId, currentRoom?.materialDefaults.benchtopPricingId]);
 
   const jobStatus = jobQuery.data?.status;
   const isPriceLocked = Boolean(jobStatus && jobStatus !== 'draft');
@@ -795,6 +806,10 @@ export default function RoomPlanner() {
               </div>
             </div>
 
+            <Button variant="outline" size="sm" onClick={() => setBenchtopDialogOpen(true)} title="Select supplier product and fabrication pathway">
+              <span className="max-w-36 truncate">{selectedBenchtop ? `${selectedBenchtop.brand} · ${selectedBenchtop.range_tier ?? 'Benchtop'}` : 'Benchtop'}</span>
+            </Button>
+
             <div className="flex items-center gap-1 border rounded-md p-1 mr-2">
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomIn()}><ZoomIn className="w-4 h-4" /></Button>
               <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!cameraControls} onClick={() => cameraControls?.zoomOut()}><ZoomOut className="w-4 h-4" /></Button>
@@ -969,6 +984,24 @@ export default function RoomPlanner() {
           onOpenChange={handleDialogOpenChange}
           onOpenFullEditor={handleOpenFullEditor}
           onCabinetPatch={handleCabinetPatch}
+        />
+        <BenchtopMatrixDialog
+          open={benchtopDialogOpen}
+          onOpenChange={setBenchtopDialogOpen}
+          options={benchtopOptions}
+          selectedId={selectedBenchtop?.id}
+          onSelect={(option) => {
+            updateRoom(currentRoom.id, {
+              materialDefaults: {
+                ...currentRoom.materialDefaults,
+                benchtopPricingId: option.id,
+                benchtopFinishId: option.catalog_finish_id ?? currentRoom.materialDefaults.benchtopFinishId,
+              },
+            });
+            setDirty(true);
+            setBenchtopDialogOpen(false);
+            toast.success(`Benchtop set to ${option.brand} — ${option.range_tier ?? 'Standard'}`);
+          }}
         />
       </div>
     </TradeLayout>

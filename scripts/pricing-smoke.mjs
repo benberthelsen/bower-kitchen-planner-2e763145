@@ -495,6 +495,54 @@ for (const [id, w, h, d] of families) {
   const qEggInst = generateQuoteBOM(eggWallA, dims, hw, pdEggInst);
   const btEggInst = qEggInst.benchtops[0];
   check('egger: installCost with install_per_lm', Math.abs((btEggInst?.installCost ?? 0) - 1.2 * 25) < 0.01, String(btEggInst?.installCost));
+
+  // 9i: explicit product selection + finished-top fabrication matrix.
+  const meganiteFabricated = {
+    ...meganite,
+    supply_pathway: 'stock_sheet_fabricated',
+    price_status: 'confirmed',
+    cut_to_length_cost: 25,
+    cnc_setup_cost: 100,
+    cnc_cut_per_lm: 20,
+    sanding_polishing_per_lm: 30,
+    edge_finish_per_lm: 10,
+    sink_cutout_cost: 150,
+    cooktop_cutout_cost: 120,
+  };
+  const fabricatedRun = [
+    cabR('sink_base_2_door', 600, 870, 575, 0, 61),
+    cabR('base_2_door', 1200, 870, 575, 0, 62),
+    cabR('base_2_door', 1200, 870, 575, 0, 63),
+    {
+      ...cabR('cooktop_appliance', 600, 50, 500, 0, 64),
+      itemType: 'Appliance',
+      layoutRole: 'cooktop',
+    },
+  ];
+  const qFabricated = generateQuoteBOM(
+    fabricatedRun,
+    dims,
+    hw,
+    { ...pricingData, benchtop: [egger, meganiteFabricated] },
+    {},
+    { benchtopPricingId: meganiteFabricated.id },
+  );
+  const btFabricated = qFabricated.benchtops[0];
+  check('benchtop matrix: explicit room selection wins over catalogue order', btFabricated?.materialId === meganiteFabricated.id, btFabricated?.materialId);
+  check('benchtop matrix: Meganite sheet material remains itemised', Math.abs((btFabricated?.baseMaterialCost ?? 0) - 493) < 0.01, String(btFabricated?.baseMaterialCost));
+  check('benchtop matrix: Meganite CNC/cut/sand/edge/cut-outs total is itemised', Math.abs((btFabricated?.fabricationCost ?? 0) - 575) < 0.01, String(btFabricated?.fabricationCost));
+  check('benchtop matrix: finished top includes material + fabrication', Math.abs((btFabricated?.supplyCost ?? 0) - 1068) < 0.01, String(btFabricated?.supplyCost));
+  check('benchtop matrix: sink and cooktop cut-outs are both present',
+    ['sink_cutouts', 'cooktop_cutouts'].every(code => btFabricated?.fabricationBreakdown?.some(line => line.code === code)),
+    JSON.stringify(btFabricated?.fabricationBreakdown));
+
+  const qMinimumLm = generateQuoteBOM(
+    [cabR('base_2_door', 600, 870, 575, 0, 65)],
+    dims,
+    hw,
+    { ...pricingData, benchtop: [{ ...egger, minimum_order_length_mm: 1200 }] },
+  );
+  check('benchtop matrix: LM supplier minimum length is enforced', Math.abs((qMinimumLm.benchtops[0]?.supplyCost ?? 0) - 1.2 * 76.70) < 0.01, String(qMinimumLm.benchtops[0]?.supplyCost));
 }
 
 // 10. P5 Reconciliation: per-cabinet material cost = area-share of consolidated sheets

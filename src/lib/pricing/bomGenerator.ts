@@ -8,7 +8,7 @@ import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
 import { calculateLaborCost, resolveLaborRates } from './laborCalculator';
 import { calculateBuildHours } from './timeModel';
-import { calculateBenchtops } from './benchtopCalculator';
+import { calculateBenchtops, BenchtopPricingSelection } from './benchtopCalculator';
 import { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 import { distributeDrawerHeights, drawerBoxHeightFromFace } from '@/lib/drawerHeights';
 import { roundMoney } from './money';
@@ -332,7 +332,8 @@ export function generateQuoteBOM(
   globalDims: GlobalDimensions,
   hardwareOptions: HardwareOptions,
   pricingData: PricingData,
-  commercial: CommercialOptions = {}
+  commercial: CommercialOptions = {},
+  pricingSelection: BenchtopPricingSelection = {},
 ): QuoteBOM {
   const cabinets = items
     .filter(i => i.itemType === 'Cabinet')
@@ -421,7 +422,7 @@ export function generateQuoteBOM(
 
   // -- Benchtops --------------------------------------------------------------
   // Group base/corner/sink/pie cabs by wall (rotation) and price by material.
-  const benchtops = calculateBenchtops(items, globalDims, pricingData);
+  const benchtops = calculateBenchtops(items, globalDims, pricingData, pricingSelection);
   const benchtopSupply = benchtops.reduce((s, b) => s + b.supplyCost, 0);
   const benchtopInstall = benchtops.reduce((s, b) => s + b.installCost, 0);
   const benchtopTotal = benchtopSupply + benchtopInstall;
@@ -478,6 +479,7 @@ export function generateQuoteBOM(
   const warnings = Array.from(new Set([
     ...cabinets.flatMap(c => c.warnings ?? []),
     ...jobLevelWarnings,
+    ...benchtops.flatMap(benchtop => benchtop.warnings ?? []),
     ...applianceResult.warnings,
     ...consolidatedSheets
       .filter(s => s.unresolved)

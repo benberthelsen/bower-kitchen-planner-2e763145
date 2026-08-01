@@ -31,6 +31,8 @@ export interface TradeRoomPricingResult {
   roomTotal: number;
   pricingVersion: string | null;
   pricingHash: string | null;
+  /** Active matrix rows available for explicit room selection. */
+  benchtopOptions: PricingData['benchtop'];
   isLoading: boolean;
 }
 
@@ -199,7 +201,10 @@ export function useTradeRoomPricing({
     const items = toPlacedItems(cabinets, materialDefaults);
     const hardwareOptions = toHardwareOptions(hardwareDefaults);
 
-    return generateQuoteBOM(items, dimensions, hardwareOptions, pricingData, commercial);
+    return generateQuoteBOM(items, dimensions, hardwareOptions, pricingData, commercial, {
+      benchtopPricingId: materialDefaults?.benchtopPricingId,
+      benchtopFinishId: materialDefaults?.benchtopFinishId,
+    });
   }, [cabinets, dimensions, hardwareDefaults, materialDefaults, pricingData, commercial]);
 
   const perCabinetTotals = useMemo(() => {
@@ -245,6 +250,7 @@ export function useTradeRoomPricing({
     roomTotal: quoteBOM?.grandTotal.total ?? 0,
     pricingVersion: pricingVersionData.pricingVersion,
     pricingHash: pricingVersionData.pricingHash,
+    benchtopOptions: pricingData?.benchtop.filter(option => option.is_active !== false) ?? [],
     isLoading,
   };
 }

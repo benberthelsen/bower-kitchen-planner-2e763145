@@ -409,6 +409,36 @@ export interface BenchtopMaterialRecord {
   waste_factor?: number | null;
   /** Smallest whole-sheet order when this material is used. */
   minimum_sheet_quantity?: number | null;
+  /** Supplier/manufacturer and ordering identity. */
+  supplier?: string | null;
+  item_code?: string | null;
+  /** Optional visual/style catalogue id used to link a selected finish. */
+  catalog_finish_id?: string | null;
+  /** Procurement/fabrication route for the finished top. */
+  supply_pathway?: 'stock_preformed' | 'stock_sheet_fabricated' | 'supplier_custom' | 'made_to_order';
+  profile_type?: string | null;
+  thickness_mm?: number | null;
+  /** Minimum billable length for LM-priced products. */
+  minimum_order_length_mm?: number | null;
+  /** Minimum completed-benchtop charge after material + operations. */
+  minimum_charge?: number | null;
+  /** Fabrication/order matrix, all ex GST. */
+  cut_to_length_cost?: number | null;
+  cnc_setup_cost?: number | null;
+  cnc_cut_per_lm?: number | null;
+  join_cost?: number | null;
+  sanding_polishing_per_lm?: number | null;
+  edge_finish_per_lm?: number | null;
+  finished_end_cost?: number | null;
+  sink_cutout_cost?: number | null;
+  cooktop_cutout_cost?: number | null;
+  tap_hole_cost?: number | null;
+  supplier_order_fee?: number | null;
+  freight_cost?: number | null;
+  is_default?: boolean | null;
+  is_active?: boolean | null;
+  price_status?: 'base_only' | 'confirmed' | 'needs_review' | null;
+  notes?: string | null;
 }
 
 /** @deprecated Use BenchtopMaterialRecord */
@@ -434,6 +464,8 @@ export interface BenchtopAllocation {
   materialName: string;
   materialType: string;     // 'solid_surface' | 'laminate' | 'stone'
   pricingMethod: string;    // 'per_sheet' | 'per_lm' | 'per_sqm'
+  supplyPathway?: string;
+  profileType?: string;
   /** Sheets needed (per_sheet materials -- Meganite) */
   sheetsRequired?: number;
   /** Whole sheets ordered for all runs of this material in the room/job. */
@@ -449,6 +481,8 @@ export interface BenchtopAllocation {
   wasteFactor?: number;
   /** Run length in linear metres (per_lm materials -- Egger) */
   linearMetres?: number;
+  /** Quantity charged after supplier minimum-order rules. */
+  billableLinearMetres?: number;
   /** Unit price used: per sheet, per LM, or per sqm */
   pricePerUnit: number;
   /** Computed $/m² equivalent (for display) */
@@ -457,6 +491,20 @@ export interface BenchtopAllocation {
   installSupplyPerSqm: number;
   /** areaSqm x tradeSupplyPerSqm (or equivalent from sheet/LM calc) */
   supplyCost: number;
+  /** Fabrication/order component within supplyCost. */
+  fabricationCost?: number;
+  /** Material-only component before fabrication/order operations. */
+  baseMaterialCost?: number;
+  /** Itemised operations applied to this run/job allocation. */
+  fabricationBreakdown?: Array<{
+    code: string;
+    label: string;
+    quantity: number;
+    unit: 'each' | 'lm' | 'job' | 'adjustment';
+    unitPrice: number;
+    total: number;
+  }>;
+  warnings?: string[];
   /** Install cost component */
   installCost: number;
   /** supplyCost + installCost */
