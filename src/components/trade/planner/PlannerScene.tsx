@@ -27,11 +27,28 @@ const getDefaultFinish = () => FINISH_OPTIONS[0];
 const getDefaultBenchtop = () => BENCHTOP_OPTIONS[0];
 const getDefaultKick = () => KICK_OPTIONS[0];
 
+function cabinetIdsUnderPointer(intersections: readonly { object: THREE.Object3D }[]): string[] {
+  const ids: string[] = [];
+  for (const intersection of intersections) {
+    let object: THREE.Object3D | null = intersection.object;
+    while (object) {
+      const id = object.userData.tradeCabinetId;
+      if (typeof id === 'string' && !ids.includes(id)) {
+        ids.push(id);
+        break;
+      }
+      object = object.parent;
+    }
+  }
+  return ids;
+}
+
 // Full cabinet mesh for trade planner with proper rendering and snapping
 function TradeCabinetMesh({
   cabinet,
   isSelected,
   onSelect,
+  onSelectCandidates,
   onDragEnd,
   handleId,
   materialDefaults,
@@ -40,6 +57,7 @@ function TradeCabinetMesh({
   cabinet: ConfiguredCabinet;
   isSelected: boolean;
   onSelect: () => void;
+  onSelectCandidates: (instanceIds: string[]) => void;
   onDragEnd: (position: { x: number; z: number }) => void;
   handleId?: string;
   materialDefaults?: RoomMaterialDefaults;
@@ -51,6 +69,14 @@ function TradeCabinetMesh({
   const dragOffset = useRef({ x: 0, z: 0 });
   const dragPlane = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
   const dragPoint = useRef(new THREE.Vector3());
+  const pointerGesture = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    candidates: string[];
+    wasSelectedAtStart: boolean;
+    dragging: boolean;
+  } | null>(null);
 
   // Get catalog item for render config
   const catalogItem = useCatalogItem(cabinet.definitionId);
@@ -210,7 +236,7 @@ function TradeCabinetMesh({
       ref={groupRef}
       position={initialPosition}
       rotation={initialRotation}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      userData={{ tradeCabinetId: cabinet.instanceId }}
       onPointerOver={() => {
         setHovered(true);
         document.body.style.cursor = isDragging ? 'grabbing' : 'grab';
@@ -221,13 +247,60 @@ function TradeCabinetMesh({
       }}
       onPointerDown={(e) => {
         e.stopPropagation();
-        onSelect();
+        if (e.button === 0) {
+          pointerGesture.current = {
+            pointerId: e.pointerId,
+            startX: e.clientX,
+            startY: e.clientY,
+            candidates: cabinetIdsUnderPointer(e.intersections),
+            wasSelectedAtStart: isSelected,
+            dragging: false,
+          };
+          (e.currentTarget as unknown as Element).setPointerCapture(e.pointerId);
+        }
+      }}
+      onPointerUp={(e) => {
+        const gesture = pointerGesture.current;
+        if (!gesture || gesture.pointerId !== e.pointerId) return;
 
-        if (e.button === 0 && groupRef.current) {
+        if (gesture.dragging && groupRef.current) {
+          setIsDragging(false);
+          onInteractionChange(false);
+          document.body.style.cursor = hovered ? 'grab' : 'default';
+
+          const pos = groupRef.current.position;
+          onDragEnd({ x: pos.x * 1000, z: pos.z * 1000 });
+        } else if (gesture.wasSelectedAtStart && gesture.candidates.length > 1) {
+          onSelectCandidates(gesture.candidates);
+        } else {
+          onSelect();
+        }
+
+        pointerGesture.current = null;
+        (e.currentTarget as unknown as Element).releasePointerCapture(e.pointerId);
+      }}
+      onPointerCancel={() => {
+        if (pointerGesture.current?.dragging) {
+          setIsDragging(false);
+          onInteractionChange(false);
+        }
+        pointerGesture.current = null;
+        document.body.style.cursor = 'default';
+      }}
+      onPointerMove={(e) => {
+        const gesture = pointerGesture.current;
+        if (!gesture || gesture.pointerId !== e.pointerId || !groupRef.current) return;
+
+        e.stopPropagation();
+        if (!gesture.dragging) {
+          const moved = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY);
+          if (moved < 5) return;
+
+          gesture.dragging = true;
           setIsDragging(true);
+          onSelect();
           onInteractionChange(true);
           document.body.style.cursor = 'grabbing';
-
           dragPlane.current = new THREE.Plane(new THREE.Vector3(0, 1, 0), -groupRef.current.position.y);
           if (e.ray.intersectPlane(dragPlane.current, dragPoint.current)) {
             dragOffset.current = {
@@ -235,28 +308,11 @@ function TradeCabinetMesh({
               z: dragPoint.current.z - groupRef.current.position.z,
             };
           }
-
-          (e.currentTarget as unknown as Element).setPointerCapture(e.pointerId);
         }
-      }}
-      onPointerUp={(e) => {
-        if (isDragging && groupRef.current) {
-          setIsDragging(false);
-          onInteractionChange(false);
-          document.body.style.cursor = hovered ? 'grab' : 'default';
 
-          const pos = groupRef.current.position;
-          onDragEnd({ x: pos.x * 1000, z: pos.z * 1000 });
-          (e.currentTarget as unknown as Element).releasePointerCapture(e.pointerId);
-        }
-      }}
-      onPointerMove={(e) => {
-        if (isDragging && groupRef.current) {
-          e.stopPropagation();
-          if (e.ray.intersectPlane(dragPlane.current, dragPoint.current)) {
-            groupRef.current.position.x = dragPoint.current.x - dragOffset.current.x;
-            groupRef.current.position.z = dragPoint.current.z - dragOffset.current.z;
-          }
+        if (e.ray.intersectPlane(dragPlane.current, dragPoint.current)) {
+          groupRef.current.position.x = dragPoint.current.x - dragOffset.current.x;
+          groupRef.current.position.z = dragPoint.current.z - dragOffset.current.z;
         }
       }}
     >
@@ -533,6 +589,11 @@ export function PlannerScene({
               cabinet={cabinet}
               isSelected={selectedCabinetId === cabinet.instanceId}
               onSelect={() => onCabinetSelect(cabinet.instanceId)}
+              onSelectCandidates={(candidateIds) => {
+                const selectedIndex = selectedCabinetId ? candidateIds.indexOf(selectedCabinetId) : -1;
+                const nextIndex = selectedIndex >= 0 ? (selectedIndex + 1) % candidateIds.length : 0;
+                onCabinetSelect(candidateIds[nextIndex] ?? cabinet.instanceId);
+              }}
               onDragEnd={(pos) => handleCabinetDragEnd(cabinet.instanceId, pos)}
               handleId={room.hardwareDefaults.handleType}
               materialDefaults={room.materialDefaults}
