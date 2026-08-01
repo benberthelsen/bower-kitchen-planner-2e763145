@@ -22,7 +22,7 @@ interface DrawerFrontProps {
   forceOpen?: boolean;
   /** Handle mounted ON the drawer front so it slides WITH the drawer when open
    *  (instead of floating at the closed position). */
-  handle?: { type: HandleType; color: string; length?: number };
+  handle?: { type: HandleType; color: string; length?: number; y?: number };
 }
 
 /**
@@ -123,7 +123,7 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
             position={[
               0,
               // Profile rails sit along the top edge; other handles centre vertically.
-              handle.type === 'Profile' ? actualHeight / 2 - 0.018 : 0,
+              handle.y ?? (handle.type === 'Profile' ? actualHeight / 2 - 0.018 : 0),
               thickness / 2 + 0.015,
             ]}
             rotation={Math.PI / 2}

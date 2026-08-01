@@ -148,6 +148,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const widthM = safeWidth / 1000;
   const heightM = safeHeight / 1000;
   const depthM = safeDepth / 1000;
+  const productIdentity = `${config.productId} ${config.productName}`;
+  const isTallOvenTower = config.category === 'Tall' && config.isOven;
+  const isOvenMicrowaveTower = isTallOvenTower && /microwave/i.test(productIdentity);
+  const isIntegratedBinPullout = /bin.*pullout|pullout.*bin/i.test(productIdentity);
   
   // Use recipe construction values or fall back to standards
   const gableThickness = (recipe?.carcass.gableThickness || CONSTRUCTION_STANDARDS.gableThickness) / 1000;
@@ -428,6 +432,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Render adjustable shelves based on recipe
   const renderShelves = () => {
+    // Appliance towers have purpose-built dividers around the oven and
+    // microwave openings. Generic evenly spaced pantry shelves would pass
+    // straight through those appliances.
+    if (isTallOvenTower) return null;
     // L-shape (pie-cut) corners get L-shaped shelves spanning both arms.
     // Blind corners are a plain box inside — they fall through to the standard
     // shelf path (honouring the cabinet's shelf count). Diagonal corners keep
@@ -552,6 +560,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // FIXED: Proper door height calculation based on opening, not arbitrary reductions
   const renderDoors = () => {
     if (suppressFronts) return null;
+    if (isTallOvenTower) return null;
     // Corner cabinets always render their own door set (pie-cut / diagonal / blind),
     // independent of door_count which is frequently 0 in the catalog for corners.
     if (isCornerCabinet) {
@@ -587,6 +596,32 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       : carcassYOffset - falseFrontH / 2;  // Shifted down if false front present
     
     const doorY = openingCenterY;
+
+    // A pull-out bin is fixed to its front and travels like a drawer. It is
+    // not a hinged cupboard door; the pull therefore belongs horizontally at
+    // the top centre of the integrated front.
+    if (isIntegratedBinPullout) {
+      return (
+        <DrawerFront
+          width={widthM - sideReveal * 2}
+          height={effectiveDoorHeight}
+          thickness={doorThickness}
+          position={[0, doorY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={0}
+          showBox={false}
+          forceOpen={doorsOpen}
+          handle={{
+            type: handle.type,
+            color: handle.hex,
+            length: Math.min(0.22, widthM - 0.12),
+            y: effectiveDoorHeight / 2 - 0.075,
+          }}
+        />
+      );
+    }
 
     // Folding (bi-fold) door cabinets: one concertina leaf pair that folds to
     // one side, instead of independent swing doors.
@@ -828,6 +863,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // FIXED: Proper drawer positioning that fills the opening correctly
   const renderDrawers = () => {
     if (suppressFronts) return null;
+    if (isTallOvenTower) return null;
     if (config.drawerCount === 0) return null;
     // Sink cabinets never have drawers — the sink bowl occupies the top opening
     if (config.isSink) return null;
@@ -1103,15 +1139,100 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     return fillers;
   };
 
-  // Render oven cavity for appliance cabinets
-  const renderOvenCavity = () => {
-    if (!config.isOven) return null;
-    
+  // A real oven tower is a stack of joinery and appliance openings: lower
+  // drawer, elevated oven, optional microwave/opening, then upper storage.
+  // The previous renderer painted one tall black block behind two pantry
+  // doors, so neither catalogue previews nor placed towers matched the name.
+  const renderOvenTowerFront = () => {
+    if (!isTallOvenTower) return null;
+
+    const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
+    const innerW = widthM - sideReveal * 2;
+    const gap = 0.004;
+    const lowerDrawerH = Math.min(0.24, carcassHeight * 0.15);
+    const ovenH = Math.min(0.6, carcassHeight * 0.34);
+    const microwaveH = isOvenMicrowaveTower ? Math.min(0.38, carcassHeight * 0.22) : 0;
+    const upperH = Math.max(0.22, carcassHeight - lowerDrawerH - ovenH - microwaveH - gap * 3);
+    const bottomY = carcassYOffset - carcassHeight / 2;
+    const drawerY = bottomY + lowerDrawerH / 2;
+    const ovenY = bottomY + lowerDrawerH + gap + ovenH / 2;
+    const microwaveY = bottomY + lowerDrawerH + ovenH + gap * 2 + microwaveH / 2;
+    const upperY = carcassYOffset + carcassHeight / 2 - upperH / 2;
+    const upperDoorW = (innerW - doorGap) / 2;
+    const upperHandleY = -upperH / 2 + 0.096;
+
+    const divider = (key: string, y: number) => (
+      <DividerPanel
+        key={key}
+        width={interiorWidth}
+        depth={depthM - backPanelThickness}
+        thickness={shelfThickness}
+        position={[0, y, backPanelThickness / 2]}
+        color={gableMat.color}
+        roughness={gableMat.roughness}
+        map={gableMat.map}
+      />
+    );
+
     return (
-      <mesh position={[0, carcassYOffset + 0.1, 0.01]}>
-        <boxGeometry args={[widthM - 0.04, carcassHeight * 0.6, depthM - 0.04]} />
-        <meshStandardMaterial color="#1a1a1a" metalness={0.3} roughness={0.5} />
-      </mesh>
+      <>
+        <DrawerFront
+          width={innerW}
+          height={lowerDrawerH - gap}
+          thickness={doorThickness}
+          position={[0, drawerY, frontZ]}
+          color={drawerMat.color}
+          roughness={drawerMat.roughness}
+          map={drawerMat.map}
+          gap={0}
+          forceOpen={doorsOpen}
+          handle={{ type: handle.type, color: handle.hex }}
+        />
+
+        <group position={[0, ovenY, frontZ]}>
+          <mesh><boxGeometry args={[innerW, ovenH - gap, doorThickness + 0.008]} /><meshStandardMaterial color="#30343a" metalness={0.62} roughness={0.28} /></mesh>
+          <mesh position={[0, -0.015, 0.014]}><boxGeometry args={[innerW - 0.075, ovenH - 0.115, 0.006]} /><meshStandardMaterial color="#090d13" metalness={0.2} roughness={0.18} /></mesh>
+          <mesh position={[0, ovenH / 2 - 0.045, 0.022]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.006, 0.006, innerW - 0.12, 12]} /><meshStandardMaterial color="#b8bec5" metalness={0.9} roughness={0.18} /></mesh>
+        </group>
+
+        {isOvenMicrowaveTower && (
+          <group position={[0, microwaveY, frontZ]}>
+            <mesh><boxGeometry args={[innerW, microwaveH - gap, doorThickness + 0.006]} /><meshStandardMaterial color="#252a31" metalness={0.55} roughness={0.3} /></mesh>
+            <mesh position={[-0.018, 0, 0.013]}><boxGeometry args={[innerW - 0.11, microwaveH - 0.085, 0.005]} /><meshStandardMaterial color="#080c12" metalness={0.18} roughness={0.2} /></mesh>
+          </group>
+        )}
+
+        <DoorFront
+          width={upperDoorW}
+          height={upperH - gap}
+          thickness={doorThickness}
+          position={[-upperDoorW / 2 - doorGap / 2, upperY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={0}
+          hingeLeft
+          forceOpen={doorsOpen}
+          handle={{ type: handle.type, color: handle.hex, x: upperDoorW / 2 - 0.032, y: upperHandleY }}
+        />
+        <DoorFront
+          width={upperDoorW}
+          height={upperH - gap}
+          thickness={doorThickness}
+          position={[upperDoorW / 2 + doorGap / 2, upperY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={0}
+          hingeLeft={false}
+          forceOpen={doorsOpen}
+          handle={{ type: handle.type, color: handle.hex, x: -upperDoorW / 2 + 0.032, y: upperHandleY }}
+        />
+
+        {divider('tower-divider-drawer', bottomY + lowerDrawerH)}
+        {divider('tower-divider-oven', bottomY + lowerDrawerH + ovenH + gap)}
+        {isOvenMicrowaveTower && divider('tower-divider-microwave', bottomY + lowerDrawerH + ovenH + microwaveH + gap * 2)}
+      </>
     );
   };
 
@@ -1161,7 +1282,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       {renderBenchtop()}
       
       {/* Special cabinet features */}
-      {renderOvenCavity()}
+      {renderOvenTowerFront()}
       {renderFridgeSpace()}
       
       {/* Selected-cabinet details now live in the side panel (CabinetListPanel)
