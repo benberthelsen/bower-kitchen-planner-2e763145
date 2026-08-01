@@ -39,6 +39,7 @@ import {
 } from '@/constants/catalogGroups';
 import { CatalogItemDefinition } from '@/types';
 import Product3DThumbnail from '@/components/3d/ProductThumbnail3D';
+import { matchesCatalogSearch } from '@/lib/search/catalogSearch';
 
 // Hidden categories that shouldn't appear in the catalog
 const HIDDEN_SPEC_GROUPS = ['Props', 'Parts'];
@@ -255,14 +256,26 @@ export function UnifiedCatalog({
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groupedProducts;
     
-    const query = searchQuery.toLowerCase();
     return Object.entries(groupedProducts).reduce((acc, [group, products]) => {
-      const filtered = products.filter(p => 
-        p.name.toLowerCase().includes(query) ||
-        p.sku.toLowerCase().includes(query) ||
-        p.homeownerPurpose?.toLowerCase().includes(query) ||
-        p.homeownerTags?.some(tag => tag.toLowerCase().includes(query))
-      );
+      const filtered = products.filter(p => matchesCatalogSearch(searchQuery, [
+        p.name,
+        p.sku,
+        group,
+        p.category,
+        p.itemType,
+        p.homeownerPurpose,
+        ...(p.homeownerTags ?? []),
+        p.applianceProduct?.brand,
+        p.applianceProduct?.category,
+        p.applianceProduct?.subcategory,
+        p.applianceProduct?.description,
+        p.renderConfig?.productType,
+        p.renderConfig?.isSink ? 'sink cabinet' : '',
+        p.renderConfig?.isCorner ? 'corner cabinet' : '',
+        p.renderConfig?.isRangehood ? 'rangehood cabinet extractor canopy undermount ducted' : '',
+        p.renderConfig?.isDishwasher ? 'dishwasher opening' : '',
+        p.renderConfig?.isFridge ? 'fridge housing fridge opening' : '',
+      ]));
       if (filtered.length > 0) acc[group] = filtered;
       return acc;
     }, {} as Record<string, ExtendedCatalogItem[]>);
@@ -443,7 +456,7 @@ export function UnifiedCatalog({
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder={isTrade ? 'Search products...' : 'Search by purpose...'}
+            placeholder={isTrade ? 'Search name, use or SKU...' : 'Search by purpose...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 h-8 text-sm"
@@ -469,6 +482,11 @@ export function UnifiedCatalog({
         <p className="text-[10px] text-muted-foreground">
           Click to add or drag into scene
         </p>
+        {isTrade && (
+          <p className="text-[10px] text-muted-foreground">
+            Spelling variants and trade names are accepted.
+          </p>
+        )}
         {!isTrade && (
           <p className="text-[10px] text-muted-foreground">
             Choose by purpose. Width and door details can be adjusted after placement.
