@@ -240,7 +240,10 @@ function inferStaticMetadata(item: StaticCatalogTemplate) {
       ? ('panel' as const)
       : ('cabinet' as const);
 
-  const itemType: ItemType = item.specGroup === 'Appliance Openings' || isDishwasher || isRangehood
+  // A wall rangehood product is the CABINET that encloses an undermount,
+  // ducted or slide-out hood. It must render like the surrounding uppers;
+  // only rows from the appliance catalogue render as a canopy appliance.
+  const itemType: ItemType = item.specGroup === 'Appliance Openings' || isDishwasher
     ? 'Appliance'
     : item.specGroup === 'Panels' || item.specGroup === 'Fillers' || item.specGroup === 'Kicks and Trim'
       ? 'Structure'

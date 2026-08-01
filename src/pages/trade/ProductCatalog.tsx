@@ -531,8 +531,8 @@ function CabinetThumbnailSvg({ item }: { item: ExtendedCatalogItem }) {
             rx="1"
           />
           {/* Handles */}
-          <rect x="44" y={isWall ? "46" : "44"} width="3" height="10" fill="hsl(var(--trade-amber))" rx="1" />
-          <rect x="53" y={isWall ? "46" : "44"} width="3" height="10" fill="hsl(var(--trade-amber))" rx="1" />
+          <rect x="44" y={isWall ? "64" : "44"} width="3" height="10" fill="hsl(var(--trade-amber))" rx="1" />
+          <rect x="53" y={isWall ? "64" : "44"} width="3" height="10" fill="hsl(var(--trade-amber))" rx="1" />
         </>
       ) : (
         // Single door
@@ -548,7 +548,7 @@ function CabinetThumbnailSvg({ item }: { item: ExtendedCatalogItem }) {
             rx="1"
           />
           {/* Handle */}
-          <rect x="78" y={isWall ? "46" : "44"} width="3" height="10" fill="hsl(var(--trade-amber))" rx="1" />
+          <rect x="78" y={isWall ? "64" : "44"} width="3" height="10" fill="hsl(var(--trade-amber))" rx="1" />
         </>
       )}
       

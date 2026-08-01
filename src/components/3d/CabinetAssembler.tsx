@@ -580,7 +580,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     
     // Center doors vertically in their opening
     const openingCenterY = hasBothDoorsAndDrawers
-      ? carcassYOffset - carcassHeight / 2 + doorSectionHeight / 2  // Center of door section
+      ? config.isPantry
+        // Pantry drawers belong at the bottom, with the door storage above.
+        ? carcassYOffset - carcassHeight / 2 + drawerSectionHeight + shelfThickness + doorSectionHeight / 2
+        : carcassYOffset - carcassHeight / 2 + doorSectionHeight / 2  // Base combos keep drawers above doors.
       : carcassYOffset - falseFrontH / 2;  // Shifted down if false front present
     
     const doorY = openingCenterY;
@@ -683,6 +686,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const renderCornerDoors = () => {
     const doorHeight = carcassHeight - topReveal - bottomReveal;
     const doorY = carcassYOffset;
+    const cornerHandleY = config.category === 'Wall'
+      ? -doorHeight / 2 + 0.096
+      : config.category === 'Tall'
+        ? -doorHeight / 2 + Math.min(0.9, doorHeight * 0.43)
+        : doorHeight / 2 - 0.096;
 
     // For L-shape (pie-cut) corner: one linked BI-FOLD pair across the notch.
     // Closed, the two leaves sit at 90° — one on each notch face. Open, the
@@ -715,6 +723,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             dir={1}
             yaw={Math.PI / 2}
             handle={{ type: handle.type, color: handle.hex }}
+            handleY={cornerHandleY}
             forceOpen={doorsOpen}
           />
         );
@@ -733,6 +742,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           dir={-1}
           yaw={0}
           handle={{ type: handle.type, color: handle.hex }}
+          handleY={cornerHandleY}
           forceOpen={doorsOpen}
         />
       );
@@ -759,7 +769,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
               type: handle.type,
               color: handle.hex,
               x: diagonalDoorWidth / 2 - 0.06,
-              y: doorHeight / 2 - 0.08,
+              y: config.category === 'Wall' ? -doorHeight / 2 + 0.08 : cornerHandleY,
             }}
           />
         </group>
@@ -806,7 +816,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             type: handle.type,
             color: handle.hex,
             x: blindIsLeft ? -(doorWidth / 2 - 0.04) : doorWidth / 2 - 0.04,
-            y: doorHeight / 2 - 0.096,
+            y: cornerHandleY,
           }}
         />
       </>
@@ -839,7 +849,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     // Starting Y position - top of usable area
     // For combo: from top of carcass down to divider
     // For drawer-only: from top of carcass down
-    const topOfDrawers = carcassYOffset + carcassHeight / 2 - topReveal;
+    const topOfDrawers = hasBothDoorsAndDrawers && config.isPantry
+      ? carcassYOffset - carcassHeight / 2 + drawerSectionHeight - topReveal
+      : carcassYOffset + carcassHeight / 2 - topReveal;
     
     let currentY = topOfDrawers;
     
@@ -877,7 +889,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const renderDivider = () => {
     if (!hasBothDoorsAndDrawers) return null;
     
-    const dividerY = carcassYOffset + carcassHeight / 2 - drawerSectionHeight - shelfThickness / 2;
+    const dividerY = config.isPantry
+      ? carcassYOffset - carcassHeight / 2 + drawerSectionHeight + shelfThickness / 2
+      : carcassYOffset + carcassHeight / 2 - drawerSectionHeight - shelfThickness / 2;
     
     return (
       <DividerPanel
