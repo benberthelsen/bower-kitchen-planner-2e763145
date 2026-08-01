@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
 import { generateTradeQuotePDF } from '@/lib/pdfQuoteGenerator';
-import { mergePersistedPricingState } from '@/lib/trade/pricingPersistence';
+import { allocateQuotedTotal, getPersistedRoomTotal, mergePersistedPricingState } from '@/lib/trade/pricingPersistence';
 
 interface PersistedTradeDesignData {
   tradeRooms: TradeRoom[];
@@ -341,6 +341,9 @@ export function useTradeJobPersistence(jobId?: string) {
 
     const quoteSnapshot = data.quoteSnapshot;
     const quoteSnapshotsByRoom = data.quoteSnapshotsByRoom || {};
+    const singleRoomJobTotal = rooms.length === 1 && (data.jobTotals?.total ?? 0) > 0
+      ? data.jobTotals?.total
+      : null;
 
     generateTradeQuotePDF({
       job: {
@@ -349,14 +352,20 @@ export function useTradeJobPersistence(jobId?: string) {
         status: jobQuery.data.status || 'draft',
         updatedAt: jobQuery.data.updated_at,
       },
-      rooms: rooms.map((room) => ({
-        id: room.id,
-        name: room.name,
-        description: room.description,
-        materialDefaults: room.materialDefaults,
-        hardwareDefaults: room.hardwareDefaults,
-        toeKickHeight: room.dimensions.toeKickHeight,
-        cabinets: room.cabinets.map((cab) => ({
+      rooms: rooms.map((room) => {
+        const snapshot = quoteSnapshotsByRoom[room.id]
+          ?? (quoteSnapshot?.roomId === room.id ? quoteSnapshot : undefined);
+        const roomQuotedTotal = singleRoomJobTotal ?? getPersistedRoomTotal(snapshot) ?? 0;
+        const allocatedSell = allocateQuotedTotal(snapshot?.perCabinetTotals ?? {}, roomQuotedTotal);
+
+        return {
+          id: room.id,
+          name: room.name,
+          description: room.description,
+          materialDefaults: room.materialDefaults,
+          hardwareDefaults: room.hardwareDefaults,
+          toeKickHeight: room.dimensions.toeKickHeight,
+          cabinets: room.cabinets.map((cab) => ({
           cabinetNumber: cab.cabinetNumber,
           productName: cab.productName,
           category: cab.category,
@@ -365,9 +374,12 @@ export function useTradeJobPersistence(jobId?: string) {
           hardware: cab.hardware,
           accessories: cab.accessories,
           construction: cab.construction,
-          estimatedTotal: quoteSnapshotsByRoom[room.id]?.perCabinetTotals?.[cab.instanceId] ?? quoteSnapshot?.perCabinetTotals?.[cab.instanceId],
+          estimatedTotal: allocatedSell[cab.instanceId]
+            ?? snapshot?.perCabinetSell?.[cab.instanceId]
+            ?? snapshot?.perCabinetTotals?.[cab.instanceId],
         })),
-      })),
+        };
+      }),
       totals: data.jobTotals,
     });
   }, [jobQuery.data]);

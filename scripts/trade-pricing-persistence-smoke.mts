@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  allocateQuotedTotal,
   getPersistedRoomTotal,
   mergePersistedPricingState,
 } from '../src/lib/trade/pricingPersistence';
@@ -53,5 +54,13 @@ assert.deepEqual(merged.jobTotals, {
 assert.equal(getPersistedRoomTotal(currentRoom), 6186.97, 'locked planner reads the persisted grand total');
 assert.equal(getPersistedRoomTotal({ ...currentRoom, bomSummary: null, roomTotal: 1234.56 }), 1234.56, 'legacy snapshots fall back to roomTotal');
 assert.equal(getPersistedRoomTotal(null), null);
+
+const allocated = allocateQuotedTotal({ c01: 767.72, c02: 519.08, c03: 655.38, c04: 611.41, c05: 782.35 }, 6186.97);
+assert.equal(
+  Math.round(Object.values(allocated).reduce((sum, value) => sum + value, 0) * 100),
+  618697,
+  'cabinet quoted totals reconcile exactly to the room grand total',
+);
+assert.deepEqual(allocateQuotedTotal({}, 6186.97), {});
 
 console.log('Trade pricing persistence smoke checks passed');

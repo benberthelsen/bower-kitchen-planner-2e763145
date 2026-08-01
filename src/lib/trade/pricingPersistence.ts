@@ -59,3 +59,25 @@ export function getPersistedRoomTotal(snapshot?: QuoteSnapshot | null): number |
 
   return Number.isFinite(snapshot.roomTotal) ? snapshot.roomTotal : null;
 }
+
+/** Allocate a quoted total across cabinet cost weights and reconcile cents. */
+export function allocateQuotedTotal(
+  weights: Record<string, number>,
+  quotedTotal: number,
+): Record<string, number> {
+  const entries = Object.entries(weights).filter(([, value]) => Number.isFinite(value) && value > 0);
+  const weightTotal = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (entries.length === 0 || weightTotal <= 0 || quotedTotal <= 0) return {};
+
+  const targetCents = Math.round(quotedTotal * 100);
+  let allocatedCents = 0;
+
+  return entries.reduce<Record<string, number>>((result, [id, weight], index) => {
+    const cents = index === entries.length - 1
+      ? targetCents - allocatedCents
+      : Math.round(targetCents * (weight / weightTotal));
+    allocatedCents += cents;
+    result[id] = cents / 100;
+    return result;
+  }, {});
+}

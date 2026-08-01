@@ -452,7 +452,7 @@ export function generateTradeQuotePDF(payload: TradeQuotePayload): void {
 
   autoTable(doc, {
     startY: 46,
-    head: [['Room', 'Cab #', 'Cabinet', 'Dimensions (mm)', 'Total']],
+    head: [['Room', 'Cab #', 'Cabinet', 'Dimensions (mm)', 'Quoted total (inc GST)']],
     body: rows.length ? rows : [['-', '-', 'No cabinets configured', '-', money(0)]],
     theme: 'striped',
     headStyles: { fillColor: [59, 130, 246], fontSize: 9, fontStyle: 'bold' },

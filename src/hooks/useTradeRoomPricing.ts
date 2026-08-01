@@ -11,6 +11,7 @@ import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 // import is a `Cannot find name` typecheck error + runtime ReferenceError
 // (release blocker 6.1).
 import { toPlacedItems } from '@/lib/trade/cabinetPlacedItem';
+import { allocateQuotedTotal } from '@/lib/trade/pricingPersistence';
 
 export interface TradeRoomPricingInput {
   cabinets: ConfiguredCabinet[];
@@ -216,13 +217,11 @@ export function useTradeRoomPricing({
   // trustworthy "Sell Price" for both the planner list and the admin table.
   const perCabinetSell = useMemo(() => {
     if (!quoteBOM) return {};
-    const roomTotal = quoteBOM.grandTotal.total;
-    const costSum = quoteBOM.cabinets.reduce((s, c) => s + c.totalCost, 0);
-    const factor = costSum > 0 && roomTotal > 0 ? roomTotal / costSum : 1;
-    return quoteBOM.cabinets.reduce<Record<string, number>>((acc, c) => {
-      acc[c.cabinetId] = Math.round(c.totalCost * factor * 100) / 100;
+    const costWeights = quoteBOM.cabinets.reduce<Record<string, number>>((acc, cabinet) => {
+      acc[cabinet.cabinetId] = cabinet.totalCost;
       return acc;
     }, {});
+    return allocateQuotedTotal(costWeights, quoteBOM.grandTotal.total);
   }, [quoteBOM]);
 
   const pricingVersionData = useMemo(() => {
