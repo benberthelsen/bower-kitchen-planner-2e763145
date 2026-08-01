@@ -224,12 +224,15 @@ export default function JobEditor() {
         .flatMap((snap) => snap?.bomSummary?.warnings ?? [])
     ));
 
-    // Snapshot-derived totals are the source of truth (same BOM engine as the
-    // planner toolbar). Persisted jobTotals only cover rooms with no snapshot.
-    const useLive = live.total > 0;
-    const subtotal = useLive ? live.subtotal : persisted?.subtotal ?? 0;
-    const tax = useLive ? live.tax : persisted?.tax ?? 0;
-    const total = useLive ? live.total : persisted?.total ?? 0;
+    // Submitted/approved jobs are frozen to the persisted job total used by
+    // both the dashboard cost columns and the PDF. Drafts use current room
+    // snapshots. This also reconciles legacy rows where the old parallel
+    // snapshot/totals writes left different generations in design_data.
+    const useLockedJobTotal = jobStatus !== 'draft' && (persisted?.total ?? 0) > 0;
+    const useLive = !useLockedJobTotal && live.total > 0;
+    const subtotal = useLockedJobTotal ? persisted?.subtotal ?? 0 : useLive ? live.subtotal : persisted?.subtotal ?? 0;
+    const tax = useLockedJobTotal ? persisted?.tax ?? 0 : useLive ? live.tax : persisted?.tax ?? 0;
+    const total = useLockedJobTotal ? persisted?.total ?? 0 : useLive ? live.total : persisted?.total ?? 0;
 
     return {
       subtotal,
@@ -242,7 +245,7 @@ export default function JobEditor() {
       roomCount: displayRooms.length,
       cabinetCount: Object.keys(live.perCabinetTotals).length,
     };
-  }, [displayRooms, persistedJobTotals, persistedQuoteSnapshot, persistedQuoteSnapshotsByRoom]);
+  }, [displayRooms, jobStatus, persistedJobTotals, persistedQuoteSnapshot, persistedQuoteSnapshotsByRoom]);
 
 
   const computeJobTotals = useCallback(() => {

@@ -16,6 +16,7 @@ import { CabinetEditDialog } from '@/components/trade/planner/CabinetEditDialog'
 import { useCatalog } from '@/hooks/useCatalog';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { useTradeRoomPricing } from '@/hooks/useTradeRoomPricing';
+import { getPersistedRoomTotal } from '@/lib/trade/pricingPersistence';
 import { useAuth } from '@/hooks/useAuth';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { getCategoryFromSpecGroup } from '@/constants/catalogGroups';
@@ -65,7 +66,18 @@ export default function RoomPlanner() {
     hydrateRooms,
   } = useTradeRoom();
 
-  const { jobQuery, roomsFromServer, upsertCabinet, replaceRoomInJob, removeCabinetFromJob, persistQuoteSnapshot, persistJobTotals, exportJobPdf } = useTradeJobPersistence(jobId);
+  const {
+    jobQuery,
+    roomsFromServer,
+    persistedJobTotals,
+    persistedQuoteSnapshot,
+    persistedQuoteSnapshotsByRoom,
+    upsertCabinet,
+    replaceRoomInJob,
+    removeCabinetFromJob,
+    persistPricingState,
+    exportJobPdf,
+  } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
   // Open in 2D top-down for layout (drag maps 1:1 to the cursor); 3D is for viewing.
@@ -116,12 +128,29 @@ export default function RoomPlanner() {
     roomTotal,
     pricingVersion,
     pricingHash,
+    isLoading: isPricingLoading,
   } = useTradeRoomPricing({
     cabinets,
     dimensions: currentRoom?.dimensions || DEFAULT_GLOBAL_DIMENSIONS,
     materialDefaults: currentRoom?.materialDefaults,
     hardwareDefaults: currentRoom?.hardwareDefaults || defaultHardwareDefaults,
   });
+
+  const jobStatus = jobQuery.data?.status;
+  const isPriceLocked = Boolean(jobStatus && jobStatus !== 'draft');
+  const persistedRoomSnapshot = currentRoom
+    ? persistedQuoteSnapshotsByRoom[currentRoom.id]
+      ?? (persistedQuoteSnapshot?.roomId === currentRoom.id ? persistedQuoteSnapshot : undefined)
+    : undefined;
+  // jobs.cost_* and design_data.jobTotals drive both the dashboard and PDF.
+  // For a one-room locked job, prefer that approved job total over a legacy
+  // room snapshot that may have survived an older split-write race.
+  const persistedRoomTotal = isPriceLocked && roomsFromServer.length === 1 && (persistedJobTotals?.total ?? 0) > 0
+    ? persistedJobTotals!.total!
+    : getPersistedRoomTotal(persistedRoomSnapshot);
+  const displayedRoomTotal = isPriceLocked && persistedRoomTotal != null
+    ? persistedRoomTotal
+    : roomTotal;
 
   // Convert ConfiguredCabinets to PlacedItems for UnifiedScene
   const { materials: pricedMaterials } = useMaterialsCatalog();
@@ -203,7 +232,7 @@ export default function RoomPlanner() {
   }, []);
 
   const saveRoomToServer = useCallback(async () => {
-    if (!jobId || jobId === 'new' || !currentRoom) return;
+    if (!jobId || jobId === 'new' || !currentRoom || isPriceLocked) return;
     try {
       setSaveState('saving');
       await replaceRoomInJob({ jobId, room: currentRoom });
@@ -213,7 +242,7 @@ export default function RoomPlanner() {
       setSaveState('error');
       toast.error('Failed to save room');
     }
-  }, [currentRoom, jobId, replaceRoomInJob]);
+  }, [currentRoom, isPriceLocked, jobId, replaceRoomInJob]);
 
   useEffect(() => {
     if (!dirty || !jobId || jobId === 'new' || !currentRoom) return;
@@ -235,7 +264,21 @@ export default function RoomPlanner() {
     return costSum > 0 && roomTotal > 0 ? roomTotal / costSum : 1;
   }, [perCabinetTotals, roomTotal]);
 
+  const persistedSellFactor = useMemo(() => {
+    if (!persistedRoomSnapshot || persistedRoomTotal == null) return 1;
+    const costSum = Object.values(persistedRoomSnapshot.perCabinetTotals ?? {})
+      .reduce((sum, value) => sum + (value || 0), 0);
+    return costSum > 0 ? persistedRoomTotal / costSum : 1;
+  }, [persistedRoomSnapshot, persistedRoomTotal]);
+
   const getCabinetPrice = useCallback((cabinet: ConfiguredCabinet) => {
+    if (isPriceLocked && persistedRoomSnapshot) {
+      const savedSell = persistedRoomSnapshot.perCabinetSell?.[cabinet.instanceId];
+      if (typeof savedSell === 'number' && savedSell > 0) return savedSell;
+      const savedCost = persistedRoomSnapshot.perCabinetTotals?.[cabinet.instanceId];
+      if (typeof savedCost === 'number' && savedCost > 0) return savedCost * persistedSellFactor;
+    }
+
     // Prefer the real piece-level BOM price for this cabinet; fall back to the
     // catalog estimate only when the BOM hasn't priced it yet.
     const bom = perCabinetTotals[cabinet.instanceId];
@@ -245,7 +288,7 @@ export default function RoomPlanner() {
     const basePrice = catalogItem.price ?? 0;
     const widthScale = cabinet.dimensions.width / (catalogItem.defaultWidth || cabinet.dimensions.width || 1);
     return Math.max(0, basePrice * widthScale);
-  }, [catalogById, perCabinetTotals, sellFactor]);
+  }, [catalogById, isPriceLocked, perCabinetTotals, persistedRoomSnapshot, persistedSellFactor, sellFactor]);
 
   // Calculate smart default position for new cabinets
   const calculateDefaultPosition = useCallback((
@@ -593,7 +636,7 @@ export default function RoomPlanner() {
 
 
   useEffect(() => {
-    if (!jobId || jobId === 'new' || !currentRoom) return;
+    if (!jobId || jobId === 'new' || !currentRoom || !jobQuery.data || isPriceLocked) return;
     if (!quoteBOM) return;
 
     const snapshot = {
@@ -628,14 +671,14 @@ export default function RoomPlanner() {
 
     const flush = () => {
       lastPersistedQuoteRef.current = quoteFingerprint;
-      void persistQuoteSnapshot({ jobId, snapshot, rooms });
-      void persistJobTotals({
+      void persistPricingState({
         jobId,
+        snapshot,
         subtotal: quoteBOM.grandTotal.subtotalExGst,
         tax: quoteBOM.grandTotal.gst,
         total: quoteBOM.grandTotal.total,
         rooms,
-      });
+      }).catch(() => toast.error('Could not save the latest quote total.'));
     };
     quotePersistRef.current = setTimeout(flush, 500);
 
@@ -651,7 +694,7 @@ export default function RoomPlanner() {
     // `rooms` and `perCabinetSell` are read inside the effect (persisted into
     // the snapshot) — list them so a stale closure can't persist old room state
     // or a mismatched sell map (review #5).
-  }, [currentRoom, jobId, rooms, perCabinetTotals, perCabinetSell, persistJobTotals, persistQuoteSnapshot, pricingHash, pricingVersion, quoteBOM, roomTotal]);
+  }, [currentRoom, isPriceLocked, jobId, jobQuery.data, rooms, perCabinetTotals, perCabinetSell, persistPricingState, pricingHash, pricingVersion, quoteBOM, roomTotal]);
 
   // Sync dialog cabinet with latest state when cabinet updates
   useEffect(() => {
@@ -742,9 +785,13 @@ export default function RoomPlanner() {
             )}
             {/* Live room pricing (BOM-based) */}
             <div className="mr-2 text-right">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground leading-none">Est. Total</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground leading-none">
+                {isPriceLocked ? 'Approved total' : 'Est. Total'}
+              </div>
               <div className="text-base font-semibold text-trade-navy leading-tight">
-                {new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(roomTotal || 0)}
+                {jobQuery.isLoading || (isPricingLoading && !isPriceLocked)
+                  ? 'Calculatingâ€¦'
+                  : new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(displayedRoomTotal || 0)}
               </div>
             </div>
 

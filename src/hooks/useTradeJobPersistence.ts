@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ConfiguredCabinet, TradeRoom, TradeJobStatus, isTradeJobStatus, QuoteSnapshot } from '@/types/trade';
 import { generateTradeQuotePDF } from '@/lib/pdfQuoteGenerator';
+import { mergePersistedPricingState } from '@/lib/trade/pricingPersistence';
 
 interface PersistedTradeDesignData {
   tradeRooms: TradeRoom[];
@@ -22,11 +23,27 @@ interface PersistJobInput {
   name: string;
   status?: TradeJobStatus;
   rooms: TradeRoom[];
-  designDataPatch?: Partial<PersistedTradeDesignData>;
+  designDataPatch?: Partial<PersistedTradeDesignData> | ((existing: Partial<PersistedTradeDesignData>) => Partial<PersistedTradeDesignData>);
   existingDesignData?: Partial<PersistedTradeDesignData>;
   /** When provided, also persisted to the jobs cost columns (admin lists read these). */
   costExclTax?: number;
   costInclTax?: number;
+}
+
+const jobWriteQueues = new Map<string, Promise<void>>();
+
+/** Serialize jobs-table design_data writes across hook instances in this tab. */
+async function enqueueJobWrite<T>(jobId: string, write: () => Promise<T>): Promise<T> {
+  const previous = jobWriteQueues.get(jobId) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(write);
+  const tail = result.then(() => undefined, () => undefined);
+  jobWriteQueues.set(jobId, tail);
+
+  try {
+    return await result;
+  } finally {
+    if (jobWriteQueues.get(jobId) === tail) jobWriteQueues.delete(jobId);
+  }
 }
 
 const jobQueryKey = (jobId?: string) => ['trade-job', jobId];
@@ -89,11 +106,30 @@ export function useTradeJobPersistence(jobId?: string) {
   }, [jobQuery.data?.design_data]);
 
   const upsertJobMutation = useMutation({
-    mutationFn: async (input: PersistJobInput) => {
+    mutationFn: async (input: PersistJobInput) => enqueueJobWrite(input.id, async () => {
+      // Read immediately before the queued write. Cached design_data can be a
+      // generation behind another autosave, which is how quote snapshots and
+      // dashboard totals previously overwrote one another.
+      const { data: latest, error: latestError } = await supabase
+        .from('jobs')
+        .select('id, name, status, design_data')
+        .eq('id', input.id)
+        .maybeSingle();
+
+      if (latestError) throw latestError;
+
+      const existingDesignData = (
+        latest?.design_data
+        ?? input.existingDesignData
+        ?? {}
+      ) as Partial<PersistedTradeDesignData>;
+      const designDataPatch = typeof input.designDataPatch === 'function'
+        ? input.designDataPatch(existingDesignData)
+        : input.designDataPatch;
       const mergedDesignData = {
-        ...(input.existingDesignData || {}),
+        ...existingDesignData,
         tradeRooms: serializeRooms(input.rooms),
-        ...(input.designDataPatch || {}),
+        ...(designDataPatch || {}),
         lastSyncedAt: new Date().toISOString(),
       } as PersistedTradeDesignData;
 
@@ -103,8 +139,8 @@ export function useTradeJobPersistence(jobId?: string) {
 
       const payload = {
         id: input.id,
-        name: input.name,
-        status: input.status ?? 'draft',
+        name: input.name || latest?.name || `Job ${input.id.slice(0, 8)}`,
+        status: input.status ?? normalizeStatus(latest?.status),
         design_data: mergedDesignData as unknown as PersistedTradeDesignData,
         ...(typeof input.costExclTax === 'number' ? { cost_excl_tax: input.costExclTax } : {}),
         ...(typeof input.costInclTax === 'number' ? { cost_incl_tax: input.costInclTax } : {}),
@@ -119,7 +155,7 @@ export function useTradeJobPersistence(jobId?: string) {
 
       if (error) throw error;
       return data;
-    },
+    }),
     onSuccess: (data) => {
       queryClient.setQueryData(jobQueryKey(data.id), data);
     },
@@ -132,7 +168,6 @@ export function useTradeJobPersistence(jobId?: string) {
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
-      status: normalizeStatus(current?.status),
       rooms: input.rooms,
       existingDesignData,
     });
@@ -206,23 +241,20 @@ export function useTradeJobPersistence(jobId?: string) {
     const current = getCurrentJob(input.jobId);
     const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
     const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
-    const quoteSnapshotsByRoom = {
-      ...(existingDesignData.quoteSnapshotsByRoom || {}),
-      [input.snapshot.roomId]: input.snapshot,
-    };
-
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
-      status: normalizeStatus(current?.status),
       // Prefer the caller's live rooms; fall back to cache only if not provided.
       // (Writing the stale cached rooms here was dropping newly-added cabinets.)
       rooms: input.rooms ?? normalizeRooms(existing),
       existingDesignData,
-      designDataPatch: {
+      designDataPatch: (latestDesignData) => ({
         quoteSnapshot: input.snapshot,
-        quoteSnapshotsByRoom,
-      },
+        quoteSnapshotsByRoom: {
+          ...(latestDesignData.quoteSnapshotsByRoom || {}),
+          [input.snapshot.roomId]: input.snapshot,
+        },
+      }),
     });
   }, [getCurrentJob, upsertJobMutation]);
 
@@ -234,7 +266,6 @@ export function useTradeJobPersistence(jobId?: string) {
     return upsertJobMutation.mutateAsync({
       id: input.jobId,
       name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
-      status: normalizeStatus(current?.status),
       // Prefer caller's live rooms; cache fallback dropped newly-added cabinets.
       rooms: input.rooms ?? normalizeRooms(existing),
       existingDesignData,
@@ -246,6 +277,39 @@ export function useTradeJobPersistence(jobId?: string) {
           updatedAt: new Date().toISOString(),
         },
       },
+      costExclTax: input.subtotal,
+      costInclTax: input.total,
+    });
+  }, [getCurrentJob, upsertJobMutation]);
+
+  const persistPricingState = useCallback(async (input: {
+    jobId: string;
+    snapshot: QuoteSnapshot;
+    subtotal?: number;
+    tax?: number;
+    total?: number;
+    rooms?: TradeRoom[];
+  }) => {
+    const current = getCurrentJob(input.jobId);
+    const existing = ((current?.design_data as PersistedTradeDesignData | null)?.tradeRooms || []) as TradeRoom[];
+    const existingDesignData = (current?.design_data || {}) as Partial<PersistedTradeDesignData>;
+    const updatedAt = new Date().toISOString();
+
+    return upsertJobMutation.mutateAsync({
+      id: input.jobId,
+      name: current?.name || `Job ${input.jobId.slice(0, 8)}`,
+      rooms: input.rooms ?? normalizeRooms(existing),
+      existingDesignData,
+      designDataPatch: (latestDesignData) => mergePersistedPricingState(
+        latestDesignData,
+        input.snapshot,
+        {
+          subtotal: input.subtotal,
+          tax: input.tax,
+          total: input.total,
+          updatedAt,
+        },
+      ),
       costExclTax: input.subtotal,
       costInclTax: input.total,
     });
@@ -333,6 +397,7 @@ export function useTradeJobPersistence(jobId?: string) {
     removeCabinetFromJob,
     persistQuoteSnapshot,
     persistJobTotals,
+    persistPricingState,
     updateJobStatus,
     exportJobJson,
     exportJobPdf,
