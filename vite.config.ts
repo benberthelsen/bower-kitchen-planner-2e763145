@@ -56,14 +56,12 @@ export default defineConfig(({ mode }) => ({
     chunkSizeWarningLimit: 750,
     rollupOptions: {
       output: {
-        // Route names such as "TradeDashboard" can be mistaken for tracker
-        // scripts by privacy extensions and blocked with ERR_BLOCKED_BY_CLIENT.
-        // Neutral, content-hashed URLs keep lazy routes loadable without
-        // weakening the user's browser protections.
-        chunkFileNames: (chunk) =>
-          chunk.name === "Wizard"
-            ? "assets/Wizard-[hash].js"
-            : "assets/chunk-[hash].js",
+        // The customer's browser protection blocks dynamically imported
+        // application modules with ERR_BLOCKED_BY_CLIENT. Keep the production
+        // app self-contained so trade, homeowner and admin routes remain
+        // usable without weakening browser protections or requiring users to
+        // disable an extension for this site.
+        inlineDynamicImports: true,
       },
     },
   },

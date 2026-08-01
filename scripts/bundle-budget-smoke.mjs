@@ -10,27 +10,15 @@ assert.ok(entryMatch, 'production entry chunk was not found in dist/index.html')
 const entryPath = resolve(dist, entryMatch[1]);
 const entryBytes = statSync(entryPath).size;
 assert.ok(
-  entryBytes <= 600_000,
-  `initial application chunk is ${(entryBytes / 1024).toFixed(1)} KiB; budget is 585.9 KiB`,
+  entryBytes <= 4_500_000,
+  `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is 4394.5 KiB`,
 );
 
 const assets = readdirSync(resolve(dist, 'assets'));
-const blockerProneRouteNames = assets.filter((name) =>
-  /(?:Dashboard|Analytics|Trade|Admin|JobEditor|RoomPlanner).*\.js$/i.test(name),
-);
-assert.deepEqual(
-  blockerProneRouteNames,
-  [],
-  `route chunks expose blocker-prone names: ${blockerProneRouteNames.join(', ')}`,
-);
-const wizard = assets.find((name) => /^Wizard-.*\.js$/.test(name));
-assert.ok(wizard, 'homeowner wizard route chunk is missing');
-const wizardBytes = statSync(resolve(dist, 'assets', wizard)).size;
-assert.ok(
-  wizardBytes <= 150_000,
-  `homeowner wizard route chunk is ${(wizardBytes / 1024).toFixed(1)} KiB; budget is 146.5 KiB`,
-);
+const javascriptAssets = assets.filter((name) => name.endsWith('.js'));
+assert.deepEqual(javascriptAssets, [entryMatch[1].replace('assets/', '')],
+  'production must remain a single JavaScript bundle so browser protections cannot block lazy route modules');
 
 console.log(
-  `bundle budget: entry ${(entryBytes / 1024).toFixed(1)} KiB, wizard ${(wizardBytes / 1024).toFixed(1)} KiB`,
+  `bundle budget: self-contained entry ${(entryBytes / 1024).toFixed(1)} KiB`,
 );
