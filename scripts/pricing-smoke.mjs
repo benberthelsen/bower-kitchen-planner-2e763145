@@ -543,6 +543,57 @@ for (const [id, w, h, d] of families) {
     { ...pricingData, benchtop: [{ ...egger, minimum_order_length_mm: 1200 }] },
   );
   check('benchtop matrix: LM supplier minimum length is enforced', Math.abs((qMinimumLm.benchtops[0]?.supplyCost ?? 0) - 1.2 * 76.70) < 0.01, String(qMinimumLm.benchtops[0]?.supplyCost));
+
+  // 9j: Polytec made-to-order rules are depth-banded, rounded to 100mm,
+  // and carry finish/account adjustments independently of the list rate.
+  const polytecTiers = [
+    { min_depth_mm: 250, max_depth_mm: 300, one_edge_price_per_lm: 49.34, two_edge_price_per_lm: 58.81 },
+    { min_depth_mm: 301, max_depth_mm: 450, one_edge_price_per_lm: 74.63, two_edge_price_per_lm: 84.11 },
+    { min_depth_mm: 451, max_depth_mm: 610, one_edge_price_per_lm: 100.57, two_edge_price_per_lm: 109.75 },
+    { min_depth_mm: 611, max_depth_mm: 850, one_edge_price_per_lm: 117.63, two_edge_price_per_lm: 127.14 },
+    { min_depth_mm: 851, max_depth_mm: 900, one_edge_price_per_lm: 134.09, two_edge_price_per_lm: 143.25 },
+    { min_depth_mm: 901, max_depth_mm: 1200, one_edge_price_per_lm: 201.13, two_edge_price_per_lm: 210.31 },
+  ];
+  const polytec = {
+    ...egger,
+    id: 'polytec-hpl',
+    brand: 'Polytec',
+    range_tier: 'Made to order HPL - Woodmatt / Smooth',
+    supply_pathway: 'made_to_order',
+    price_status: 'confirmed',
+    width_price_tiers: polytecTiers,
+    quoted_edge_count: 1,
+    surface_surcharge_pct: 5,
+    account_discount_pct: null,
+    length_rounding_mm: 100,
+    price_per_lm: 100.57,
+    join_cost: 0,
+    finished_end_cost: 0,
+  };
+  const qPolytec600 = generateQuoteBOM(
+    [cabR('base_2_door', 1250, 870, 575, 0, 71)],
+    dims,
+    hw,
+    { ...pricingData, benchtop: [polytec] },
+  );
+  const btPolytec600 = qPolytec600.benchtops[0];
+  check('polytec: 600mm top selects the 451-610mm depth band', btPolytec600?.widthPriceBand === '451-610mm', String(btPolytec600?.widthPriceBand));
+  check('polytec: 1250mm run rounds up to 1.3LM', Math.abs((btPolytec600?.billableLinearMetres ?? 0) - 1.3) < 0.001, String(btPolytec600?.billableLinearMetres));
+  check('polytec: Woodmatt/Smooth 5% surcharge is applied to the width-band rate',
+    Math.abs((btPolytec600?.baseMaterialCost ?? 0) - (1.3 * 100.57 * 1.05)) < 0.01,
+    String(btPolytec600?.baseMaterialCost));
+
+  const qPolytec900 = generateQuoteBOM(
+    [cabR('base_2_door', 1000, 870, 875, 0, 72)],
+    { ...dims, benchtopOverhang: 25 },
+    hw,
+    { ...pricingData, benchtop: [{ ...polytec, surface_surcharge_pct: 0, account_discount_pct: 10 }] },
+  );
+  const btPolytec900 = qPolytec900.benchtops[0];
+  check('polytec: 900mm top selects the 851-900mm depth band', btPolytec900?.widthPriceBand === '851-900mm', String(btPolytec900?.widthPriceBand));
+  check('polytec: confirmed account discount is separate and applies only when populated',
+    Math.abs((btPolytec900?.baseMaterialCost ?? 0) - (134.09 * 0.90)) < 0.01,
+    String(btPolytec900?.baseMaterialCost));
 }
 
 // 10. P5 Reconciliation: per-cabinet material cost = area-share of consolidated sheets

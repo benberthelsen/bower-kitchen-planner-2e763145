@@ -41,6 +41,51 @@ function money(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function resolveLmPricing(
+  material: BenchtopMaterialRecord,
+  depthMm: number,
+  rawLengthMm: number,
+): {
+  unitRate: number;
+  billableLinearMetres: number;
+  widthPriceBand?: string;
+  warning?: string;
+} {
+  const tiers = Array.isArray(material.width_price_tiers)
+    ? material.width_price_tiers.filter(tier =>
+        Number.isFinite(tier.min_depth_mm)
+        && Number.isFinite(tier.max_depth_mm)
+        && Number.isFinite(tier.one_edge_price_per_lm)
+        && Number.isFinite(tier.two_edge_price_per_lm))
+    : [];
+  const exactTier = tiers.find(tier => depthMm >= tier.min_depth_mm && depthMm <= tier.max_depth_mm);
+  const nearestTier = exactTier
+    ?? [...tiers].sort((a, b) =>
+      Math.abs(depthMm - Math.min(Math.max(depthMm, a.min_depth_mm), a.max_depth_mm))
+      - Math.abs(depthMm - Math.min(Math.max(depthMm, b.min_depth_mm), b.max_depth_mm)))[0];
+  const edgeCount = material.quoted_edge_count === 2 ? 2 : 1;
+  const listRate = nearestTier
+    ? (edgeCount === 2 ? nearestTier.two_edge_price_per_lm : nearestTier.one_edge_price_per_lm)
+    : (material.price_per_lm ?? 0);
+  const surchargeFactor = 1 + Math.max(0, material.surface_surcharge_pct ?? 0) / 100;
+  const discountFactor = 1 - Math.min(100, Math.max(0, material.account_discount_pct ?? 0)) / 100;
+  const roundingMm = Math.max(0, material.length_rounding_mm ?? 0);
+  const minimumLengthMm = Math.max(0, material.minimum_order_length_mm ?? 0);
+  const minimumBillableMm = Math.max(rawLengthMm, minimumLengthMm);
+  const billableMm = roundingMm > 0
+    ? Math.ceil(minimumBillableMm / roundingMm) * roundingMm
+    : minimumBillableMm;
+
+  return {
+    unitRate: listRate * surchargeFactor * discountFactor,
+    billableLinearMetres: billableMm / 1000,
+    ...(nearestTier && { widthPriceBand: `${nearestTier.min_depth_mm}-${nearestTier.max_depth_mm}mm` }),
+    ...(!exactTier && tiers.length > 0 && {
+      warning: `Top depth ${depthMm}mm is outside ${material.brand}'s published ${tiers[0].min_depth_mm}-${tiers[tiers.length - 1].max_depth_mm}mm width bands; nearest band used`,
+    }),
+  };
+}
+
 function charge(
   code: string,
   label: string,
@@ -314,6 +359,7 @@ export function calculateBenchtops(
     let pricePerUnit = 0;
     let tradeSupplyPerSqm = 0;
     let installSupplyPerSqm = 0;
+    let resolvedLmDetails: ReturnType<typeof resolveLmPricing> | undefined;
 
     if (method === 'per_sheet') {
       // Whole-sheet stock is allocated across every run after this map. Keeping
@@ -324,16 +370,17 @@ export function calculateBenchtops(
       // -- Egger laminate worktops ----------------------------------------------
       // Priced per linear metre of run length.
       linearMetres = runLengthMm / 1000;
-      const billableLinearMetres = Math.max(
-        linearMetres,
-        Math.max(0, material.minimum_order_length_mm ?? 0) / 1000,
-      );
-      pricePerUnit = material.price_per_lm ?? 0;
+      resolvedLmDetails = resolveLmPricing(material, depthMm, runLengthMm);
+      const billableLinearMetres = resolvedLmDetails.billableLinearMetres;
+      pricePerUnit = resolvedLmDetails.unitRate;
       supplyCost = billableLinearMetres * pricePerUnit;
       const installPerLm = material.install_per_lm ?? 0;
       installCost = linearMetres * installPerLm;
       tradeSupplyPerSqm = areaSqm > 0 ? supplyCost / areaSqm : 0;
       installSupplyPerSqm = areaSqm > 0 ? installCost / areaSqm : 0;
+      if (resolvedLmDetails.warning && !selectionWarnings.includes(resolvedLmDetails.warning)) {
+        selectionWarnings.push(resolvedLmDetails.warning);
+      }
 
     } else {
       // -- Legacy per-sqm (stone) -----------------------------------------------
@@ -357,10 +404,10 @@ export function calculateBenchtops(
       ...(sheetsRequired !== undefined && { sheetsRequired }),
       ...(linearMetres !== undefined && { linearMetres }),
       ...(method === 'per_lm' && {
-        billableLinearMetres: Math.max(
-          linearMetres ?? 0,
-          Math.max(0, material.minimum_order_length_mm ?? 0) / 1000,
-        ),
+        billableLinearMetres: resolvedLmDetails?.billableLinearMetres,
+        widthPriceBand: resolvedLmDetails?.widthPriceBand,
+        surfaceSurchargePct: Math.max(0, material.surface_surcharge_pct ?? 0),
+        accountDiscountPct: Math.max(0, material.account_discount_pct ?? 0),
       }),
       pricePerUnit,
       tradeSupplyPerSqm,

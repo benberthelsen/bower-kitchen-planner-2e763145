@@ -49,6 +49,22 @@ interface BenchtopRecord {
   is_active: boolean;
   price_status: 'base_only' | 'confirmed' | 'needs_review';
   notes: string | null;
+  width_price_tiers: Array<{
+    min_depth_mm: number;
+    max_depth_mm: number;
+    one_edge_price_per_lm: number;
+    two_edge_price_per_lm: number;
+  }> | null;
+  quoted_edge_count: 1 | 2;
+  surface_surcharge_pct: number;
+  circular_surcharge_pct: number;
+  double_sided_surcharge_pct: number;
+  length_rounding_mm: number;
+  account_discount_pct: number | null;
+  operation_rates: Record<string, number> | null;
+  source_document: string | null;
+  source_page: string | null;
+  source_date: string | null;
 }
 
 const BLANK: Omit<BenchtopRecord, 'id'> = {
@@ -89,6 +105,17 @@ const BLANK: Omit<BenchtopRecord, 'id'> = {
   is_active: true,
   price_status: 'base_only',
   notes: '',
+  width_price_tiers: [],
+  quoted_edge_count: 1,
+  surface_surcharge_pct: 0,
+  circular_surcharge_pct: 0,
+  double_sided_surcharge_pct: 0,
+  length_rounding_mm: 0,
+  account_discount_pct: null,
+  operation_rates: {},
+  source_document: '',
+  source_page: '',
+  source_date: null,
 };
 
 const MATERIAL_TYPE_LABELS: Record<string, string> = {
@@ -153,6 +180,19 @@ function MatrixInputs({
         <div><p className="mb-1 text-xs font-medium">Sheet waste allowance</p><Input type="number" min="0" max="0.25" step="0.01" value={value.waste_factor ?? 0.05} onChange={(e) => onChange({ waste_factor: +e.target.value })} /></div>
         <div><p className="mb-1 text-xs font-medium">Minimum sheets</p><Input type="number" min="1" step="1" value={value.minimum_sheet_quantity ?? 1} onChange={(e) => onChange({ minimum_sheet_quantity: +e.target.value })} /></div>
         <div>
+          <p className="mb-1 text-xs font-medium">Supplier-priced edges</p>
+          <Select value={String(value.quoted_edge_count ?? 1)} onValueChange={(v) => onChange({ quoted_edge_count: Number(v) as 1 | 2 })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="1">One edge</SelectItem><SelectItem value="2">Two edges</SelectItem></SelectContent>
+          </Select>
+        </div>
+        <div><p className="mb-1 text-xs font-medium">Finish surcharge (%)</p><Input type="number" min="0" step="0.1" value={value.surface_surcharge_pct ?? 0} onChange={(e) => onChange({ surface_surcharge_pct: +e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Billing increment (mm)</p><Input type="number" min="0" step="10" value={value.length_rounding_mm ?? 0} onChange={(e) => onChange({ length_rounding_mm: +e.target.value })} /></div>
+        <div>
+          <p className="mb-1 text-xs font-medium">Confirmed account discount (%)</p>
+          <Input type="number" min="0" max="100" step="0.1" value={value.account_discount_pct ?? ''} placeholder="Unknown - no discount" onChange={(e) => onChange({ account_discount_pct: e.target.value === '' ? null : +e.target.value })} />
+        </div>
+        <div>
           <p className="mb-1 text-xs font-medium">Price completeness</p>
           <Select value={value.price_status ?? 'base_only'} onValueChange={(v) => onChange({ price_status: v as BenchtopRecord['price_status'] })}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -178,6 +218,19 @@ function MatrixInputs({
           </Select>
         </div>
       </div>
+      {Array.isArray(value.width_price_tiers) && value.width_price_tiers.length > 0 && (
+        <div className="rounded-md border bg-background p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Supplier width-band list rates (ex GST)</p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {value.width_price_tiers.map((tier) => (
+              <div key={`${tier.min_depth_mm}-${tier.max_depth_mm}`} className="rounded border px-3 py-2 text-xs">
+                <span className="font-medium">{tier.min_depth_mm}-{tier.max_depth_mm}mm</span>
+                <span className="ml-2 text-muted-foreground">1 edge ${tier.one_edge_price_per_lm.toFixed(2)}/LM · 2 edges ${tier.two_edge_price_per_lm.toFixed(2)}/LM</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fabrication and order charges (ex GST)</p>
         <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
@@ -188,6 +241,11 @@ function MatrixInputs({
             </div>
           ))}
         </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div><p className="mb-1 text-xs font-medium">Source document</p><Input value={value.source_document ?? ''} onChange={(e) => onChange({ source_document: e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Source page</p><Input value={value.source_page ?? ''} onChange={(e) => onChange({ source_page: e.target.value })} /></div>
+        <div><p className="mb-1 text-xs font-medium">Source date</p><Input type="date" value={value.source_date ?? ''} onChange={(e) => onChange({ source_date: e.target.value || null })} /></div>
       </div>
       <div><p className="mb-1 text-xs font-medium">Pricing notes</p><Input value={value.notes ?? ''} onChange={(e) => onChange({ notes: e.target.value })} placeholder="Source list, lead time, exclusions, fabrication assumptions" /></div>
     </div>
@@ -203,8 +261,13 @@ function methodBadgeVariant(method: string): "default" | "secondary" | "outline"
 function formatPrice(record: BenchtopRecord): string {
   if (record.pricing_method === 'per_sheet' && record.price_per_sheet != null)
     return `$${record.price_per_sheet.toFixed(2)}/sht`;
-  if (record.pricing_method === 'per_lm' && record.price_per_lm != null)
-    return `$${record.price_per_lm.toFixed(2)}/LM`;
+  if (record.pricing_method === 'per_lm' && record.price_per_lm != null) {
+    const rates = record.width_price_tiers?.map(tier => tier.one_edge_price_per_lm) ?? [];
+    const base = rates.length > 0
+      ? `$${Math.min(...rates).toFixed(2)}-$${Math.max(...rates).toFixed(2)}/LM`
+      : `$${record.price_per_lm.toFixed(2)}/LM`;
+    return record.surface_surcharge_pct > 0 ? `${base} +${record.surface_surcharge_pct}%` : base;
+  }
   return `$${record.trade_supply_per_sqm.toFixed(2)}/m²`;
 }
 

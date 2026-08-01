@@ -439,6 +439,28 @@ export interface BenchtopMaterialRecord {
   is_active?: boolean | null;
   price_status?: 'base_only' | 'confirmed' | 'needs_review' | null;
   notes?: string | null;
+  /** Supplier depth bands for made-to-order LM pricing. */
+  width_price_tiers?: Array<{
+    min_depth_mm: number;
+    max_depth_mm: number;
+    one_edge_price_per_lm: number;
+    two_edge_price_per_lm: number;
+  }> | null;
+  /** Edge count included in the supplier LM rate. */
+  quoted_edge_count?: 1 | 2 | null;
+  /** Published finish/shape/lamination surcharges, in percentage points. */
+  surface_surcharge_pct?: number | null;
+  circular_surcharge_pct?: number | null;
+  double_sided_surcharge_pct?: number | null;
+  /** Supplier billing increment for run length, e.g. 100mm. */
+  length_rounding_mm?: number | null;
+  /** Applied only when confirmed; null explicitly means no assumption. */
+  account_discount_pct?: number | null;
+  /** Full source operation schedule retained for audit/future selections. */
+  operation_rates?: Record<string, number> | null;
+  source_document?: string | null;
+  source_page?: string | null;
+  source_date?: string | null;
 }
 
 /** @deprecated Use BenchtopMaterialRecord */
@@ -483,6 +505,10 @@ export interface BenchtopAllocation {
   linearMetres?: number;
   /** Quantity charged after supplier minimum-order rules. */
   billableLinearMetres?: number;
+  /** Supplier width band and adjustments used for this run. */
+  widthPriceBand?: string;
+  surfaceSurchargePct?: number;
+  accountDiscountPct?: number;
   /** Unit price used: per sheet, per LM, or per sqm */
   pricePerUnit: number;
   /** Computed $/m² equivalent (for display) */
