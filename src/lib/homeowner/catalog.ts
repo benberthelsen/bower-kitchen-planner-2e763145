@@ -119,8 +119,8 @@ export const HOMEOWNER_CABINET_FAMILIES: readonly HomeownerCabinetFamily[] = [
   { id: 'oven-microwave-tower', name: 'Oven and microwave tower', purpose: 'Combined built-in appliance housing', category: 'Tall', defaultWidthMm: 600, tags: ['oven', 'microwave', 'appliance'], variants: [
     { definitionId: 'tall_oven_microwave', label: 'Oven and microwave', widthsMm: [600] },
   ] },
-  { id: 'fridge-housing', name: 'Fridge housing', purpose: 'Tall cabinet treatment around the refrigerator', category: 'Tall', defaultWidthMm: 900, tags: ['fridge', 'appliance'], variants: [
-    { definitionId: 'tall_fridge', label: 'Fridge housing', widthsMm: [800, 900, 1000] },
+  { id: 'fridge-housing', name: 'Fridge opening with top cabinet', purpose: 'Clear refrigerator opening with 50 mm side clearances and storage above', category: 'Tall', defaultWidthMm: 900, tags: ['fridge', 'appliance'], variants: [
+    { definitionId: 'tall_fridge', label: 'Fridge opening + cabinet', widthsMm: [800, 900, 1000] },
   ] },
   { id: 'open-tall', name: 'Open tall cabinet', purpose: 'Open display or appliance storage', category: 'Tall', defaultWidthMm: 600, tags: ['open', 'display'], variants: [
     { definitionId: 'open_tall', label: 'Open tall storage', widthsMm: [450, 600, 900] },

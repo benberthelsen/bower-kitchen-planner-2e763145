@@ -368,7 +368,7 @@ const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
   { specGroup: 'Tall Cabinets', id: 'tall_broom', name: 'Tall Broom' },
   { specGroup: 'Tall Cabinets', id: 'tall_oven', name: 'Tall Oven' },
   { specGroup: 'Tall Cabinets', id: 'tall_oven_microwave', name: 'Tall Oven Microwave' },
-  { specGroup: 'Tall Cabinets', id: 'tall_fridge', name: 'Tall Fridge' },
+  { specGroup: 'Tall Cabinets', id: 'tall_fridge', name: 'Fridge Opening With Top Cabinet' },
   { specGroup: 'Tall Cabinets', id: 'tall_coffee', name: 'Tall Coffee' },
   { specGroup: 'Panels', id: 'tall_applied_panel', name: 'Tall Applied Panel' },
   { specGroup: 'Panels', id: 'base_applied_panel', name: 'Base Applied Panel' },

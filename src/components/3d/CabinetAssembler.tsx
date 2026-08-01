@@ -151,6 +151,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const productIdentity = `${config.productId} ${config.productName}`;
   const isTallOvenTower = config.category === 'Tall' && config.isOven;
   const isOvenMicrowaveTower = isTallOvenTower && /microwave/i.test(productIdentity);
+  const isTallFridgeHousing = config.category === 'Tall' && config.isFridge;
   const isIntegratedBinPullout = /bin.*pullout|pullout.*bin/i.test(productIdentity);
   
   // Use recipe construction values or fall back to standards
@@ -167,7 +168,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
 
   // Wall cabinets should never render base/tall toe-kick construction even if recipe data is noisy
   const recipeKickEnabled = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
-  const hasKick = shouldRenderKickboard({
+  const hasKick = !isTallFridgeHousing && shouldRenderKickboard({
     category: config.category,
     productType: config.productType,
     productName: config.productName,
@@ -384,7 +385,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Render bottom panel
   const renderBottom = () => {
     // Corner cabinets render their own L-shaped bottom panels inside CornerCarcass
-    if (isCornerCabinet) return null;
+    if (isCornerCabinet || isTallFridgeHousing) return null;
     return (
       <BottomPanel
         width={interiorWidth}
@@ -402,7 +403,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Render back panel (with 16mm setback for hanging rails)
   const renderBack = () => {
     // Corner cabinets render their own back panel inside CornerCarcass
-    if (isCornerCabinet) return null;
+    if (isCornerCabinet || isTallFridgeHousing) return null;
     // Islands and peninsulas show their back to the room. A 3 mm backing board
     // set 16 mm behind the gables is right for a cabinet against a wall and
     // wrong for one you walk around — that gap and the pale board are exactly
@@ -435,7 +436,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     // Appliance towers have purpose-built dividers around the oven and
     // microwave openings. Generic evenly spaced pantry shelves would pass
     // straight through those appliances.
-    if (isTallOvenTower) return null;
+    if (isTallOvenTower || isTallFridgeHousing) return null;
     // L-shape (pie-cut) corners get L-shaped shelves spanning both arms.
     // Blind corners are a plain box inside — they fall through to the standard
     // shelf path (honouring the cabinet's shelf count). Diagonal corners keep
@@ -560,7 +561,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // FIXED: Proper door height calculation based on opening, not arbitrary reductions
   const renderDoors = () => {
     if (suppressFronts) return null;
-    if (isTallOvenTower) return null;
+    if (isTallOvenTower || isTallFridgeHousing) return null;
     // Corner cabinets always render their own door set (pie-cut / diagonal / blind),
     // independent of door_count which is frequently 0 in the catalog for corners.
     if (isCornerCabinet) {
@@ -1236,15 +1237,70 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     );
   };
 
-  // Render fridge space indicator
+  // Standard fridge housing: clear opening, 50 mm side clearance and an
+  // overhead cabinet. The appliance body stays ghosted until a real model is
+  // selected, so this cannot be mistaken for an integrated two-door pantry.
   const renderFridgeSpace = () => {
-    if (!config.isFridge) return null;
-    
+    if (!isTallFridgeHousing) return null;
+
+    const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
+    const upperH = Math.min(0.48, carcassHeight * 0.26);
+    const openingH = Math.max(0.9, carcassHeight - upperH - shelfThickness);
+    const bodyW = Math.max(0.3, widthM - 0.1);
+    const bodyH = Math.max(0.8, openingH - 0.05);
+    const bodyD = Math.max(0.45, depthM - 0.05);
+    const bodyY = carcassYOffset - carcassHeight / 2 + bodyH / 2;
+    const upperY = carcassYOffset + carcassHeight / 2 - upperH / 2;
+    const upperDoorW = (widthM - sideReveal * 2 - doorGap) / 2;
+    const upperHandleY = -upperH / 2 + 0.096;
+    const dividerY = carcassYOffset + carcassHeight / 2 - upperH - shelfThickness / 2;
+
     return (
-      <mesh position={[0, carcassYOffset, 0]}>
-        <boxGeometry args={[widthM - 0.1, carcassHeight - 0.1, depthM - 0.1]} />
-        <meshStandardMaterial color="#e5e7eb" transparent opacity={0.3} />
-      </mesh>
+      <>
+        <group position={[0, bodyY, 0.01]}>
+          <mesh>
+            <boxGeometry args={[bodyW, bodyH, bodyD]} />
+            <meshStandardMaterial color="#cbd5e1" metalness={0.28} roughness={0.38} transparent opacity={0.16} depthWrite={false} />
+          </mesh>
+          <EdgeOutline width={bodyW} height={bodyH} depth={bodyD} color="#94a3b8" />
+        </group>
+
+        <DividerPanel
+          width={interiorWidth}
+          depth={depthM - backPanelThickness}
+          thickness={shelfThickness}
+          position={[0, dividerY, backPanelThickness / 2]}
+          color={gableMat.color}
+          roughness={gableMat.roughness}
+          map={gableMat.map}
+        />
+        <DoorFront
+          width={upperDoorW}
+          height={upperH - topReveal - bottomReveal}
+          thickness={doorThickness}
+          position={[-upperDoorW / 2 - doorGap / 2, upperY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={0}
+          hingeLeft
+          forceOpen={doorsOpen}
+          handle={{ type: handle.type, color: handle.hex, x: upperDoorW / 2 - 0.032, y: upperHandleY }}
+        />
+        <DoorFront
+          width={upperDoorW}
+          height={upperH - topReveal - bottomReveal}
+          thickness={doorThickness}
+          position={[upperDoorW / 2 + doorGap / 2, upperY, frontZ]}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          gap={0}
+          hingeLeft={false}
+          forceOpen={doorsOpen}
+          handle={{ type: handle.type, color: handle.hex, x: -upperDoorW / 2 + 0.032, y: upperHandleY }}
+        />
+      </>
     );
   };
 
