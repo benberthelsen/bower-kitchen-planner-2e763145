@@ -1,5 +1,9 @@
 import { createRoot } from "react-dom/client";
-import { handleVitePreloadError } from "./lib/deploymentRecovery";
+import {
+  handleDeploymentRejection,
+  handleDeploymentWindowError,
+  handleVitePreloadError,
+} from "./lib/deploymentRecovery";
 import { TradeRoomProvider } from "./contexts/TradeRoomContext";
 import App from "./App.tsx";
 import "./index.css";
@@ -8,6 +12,8 @@ import "./index.css";
 // Fetch the current document with a one-shot cache-busting URL instead of
 // repeatedly retrying the stale module graph.
 window.addEventListener("vite:preloadError", handleVitePreloadError);
+window.addEventListener("unhandledrejection", handleDeploymentRejection);
+window.addEventListener("error", handleDeploymentWindowError);
 
 // Canonical active planner state tree for /trade/*.
 // Legacy PlannerContext is intentionally NOT mounted at app root.

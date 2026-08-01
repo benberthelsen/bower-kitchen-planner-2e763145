@@ -64,8 +64,10 @@ assert.match(
 );
 assert.ok(
   mainSource.includes('handleVitePreloadError')
+    && mainSource.includes('handleDeploymentRejection')
+    && mainSource.includes('handleDeploymentWindowError')
     && deploymentRecoverySource.includes("searchParams.set(RELEASE_QUERY_KEY"),
-  'stale deployment chunks must reload through a cache-busted document URL',
+  'all stale deployment error channels must reload through a cache-busted document URL',
 );
 assert.ok(
   errorBoundarySource.includes('Load latest version')

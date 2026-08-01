@@ -37,3 +37,22 @@ export function loadLatestDeployment(force = false): boolean {
 export function handleVitePreloadError(event: Event): void {
   if (loadLatestDeployment()) event.preventDefault();
 }
+
+/**
+ * Some browsers surface a rejected React.lazy() import only as a global
+ * promise rejection. Recover before React is left showing a dead route.
+ */
+export function handleDeploymentRejection(event: PromiseRejectionEvent): void {
+  if (!isStaleDeploymentError(event.reason)) return;
+  if (loadLatestDeployment()) event.preventDefault();
+}
+
+/**
+ * Safari and a few embedded Android browsers report module failures through
+ * the window error channel rather than Vite's preload event.
+ */
+export function handleDeploymentWindowError(event: ErrorEvent): void {
+  const error = event.error ?? event.message;
+  if (!isStaleDeploymentError(error)) return;
+  if (loadLatestDeployment()) event.preventDefault();
+}
