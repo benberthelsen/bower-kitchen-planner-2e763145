@@ -12,6 +12,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { confirmedRoomScanV1Schema } from '../_shared/roomScan/contract.ts';
 import { fingerprintV1 } from '../_shared/roomScan/fingerprint.ts';
+import { publishBuildFlowLead } from '../_shared/buildFlow/leadIntake.ts';
 import {
   errorResponse,
   gate,
@@ -196,17 +197,55 @@ serve(async (req) => {
     return errorResponse(req, 500, 'submit_failed');
   }
 
+  const result = data as { jobId?: string; idempotentReplay?: boolean } | null;
+  const notes = validJob.notes ?? '';
+  const grab = (label: string) =>
+    notes.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1]?.trim() ?? '';
+  const dd = (validJob.design_data ?? {}) as Record<string, unknown>;
+
+  // Deliver to Build Flow's real lead intake. Replays deliberately retry the
+  // handoff; the remote idempotency key prevents duplicate pipeline cards.
+  if (result?.jobId && !syntheticTest) {
+    const priceBand = typeof dd.priceBand === 'object' && dd.priceBand !== null
+      ? dd.priceBand as Record<string, unknown>
+      : {};
+    const low = typeof priceBand.low === 'number' ? priceBand.low : null;
+    const high = typeof priceBand.high === 'number' ? priceBand.high : null;
+    const budgetRange = low !== null && high !== null
+      ? `$${low.toLocaleString('en-AU')} - $${high.toLocaleString('en-AU')} AUD`
+      : null;
+    const leadResult = await publishBuildFlowLead({
+      idempotencyKey: `planner-lead:${result.jobId}`,
+      name: grab('Contact') || validJob.name,
+      email: grab('Email') || null,
+      phone: grab('Phone') || null,
+      source: '3D Kitchen Designer',
+      jobType: 'Kitchen',
+      budgetRange,
+      notes,
+      plannerJobId: result.jobId,
+      estimateTotal: validJob.cost_incl_tax ?? null,
+    });
+    const { error: deliveryError } = await service.from('jobs').update({
+      buildflow_status: leadResult.ok ? 'published' : 'failed',
+      buildflow_lead_id: leadResult.leadId ?? null,
+      buildflow_published_at: leadResult.ok ? new Date().toISOString() : null,
+      buildflow_error: leadResult.ok ? null : (leadResult.error ?? 'Build Flow lead intake failed').slice(0, 500),
+    }).eq('id', result.jobId);
+    if (deliveryError) {
+      console.error('[submit-planner-enquiry] Build Flow delivery state failed', deliveryError.message);
+    }
+    if (!leadResult.ok) {
+      console.error('[submit-planner-enquiry] Build Flow lead failed', leadResult.error);
+    }
+  }
+
   // Admin new-lead alert, server-initiated with the service role (pre-live
   // audit P1.2: the old client-side call always failed with 401 because
   // anonymous wizard visitors have no user JWT). Never blocks the submission —
   // the lead is already durable in jobs.
-  const result = data as { jobId?: string; idempotentReplay?: boolean } | null;
   if (result?.jobId && !result.idempotentReplay) {
     try {
-      const notes = validJob.notes ?? '';
-      const grab = (label: string) =>
-        notes.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1]?.trim() ?? '';
-      const dd = (validJob.design_data ?? {}) as Record<string, unknown>;
       // Do NOT pass an admin_url derived from the request Origin — a direct
       // caller can forge it into a phishing link inside the staff email
       // (release blocker 6.4). send-email derives the admin link server-side

@@ -13,6 +13,7 @@ import { usePlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
 import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { JobNotes } from '@/components/shared/JobNotes';
+import { supabase } from '@/integrations/supabase/client';
 
 
 /**
@@ -554,7 +555,16 @@ export default function JobEditor() {
                         }
                         await persistFullJob('pending_approval');
                         await updateJobStatus('pending_approval');
-                        toast.success('Job submitted for approval');
+                        const { error: pipelineError } = await supabase.functions.invoke('sync-buildflow-lead', {
+                          body: { jobId },
+                        });
+                        if (pipelineError) {
+                          toast.warning('Job submitted; lead sync needs attention', {
+                            description: 'The planner copy is safe and the Build Flow handoff is marked for retry.',
+                          });
+                        } else {
+                          toast.success('Job submitted for approval and added to the lead pipeline');
+                        }
                       } catch {
                         toast.error('Failed to submit job');
                       }
