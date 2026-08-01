@@ -11,6 +11,7 @@ import { PricingData, BenchtopAllocation } from './types';
 /** Cabinet types that sit under a benchtop (base, corner, sink, pie/blind) */
 const BENCHTOP_CAB_RE = /^(base|corner|sink|pie)/i;
 const BENCHTOP_APPLIANCE_RE = /dishwasher|under[-_ ]?bench[-_ ]?oven|oven_600/i;
+const CORNER_CAB_RE = /corner|pie|blind/i;
 
 /** Labels for each wall group in rotation order */
 const WALL_LABELS = 'ABCDEFGHIJKLMNOP';
@@ -144,7 +145,16 @@ export function calculateBenchtops(
 
   const allocations = sortedWalls.map(([rot, cabs], idx) => {
     const runLengthMm = cabs.reduce((sum, c) => sum + c.width, 0);
-    const maxCabDepthMm = Math.max(...cabs.map(c => c.depth));
+    // A corner cabinet's nominal 900mm depth is its footprint along the
+    // returning wall, not a 900mm-deep rectangular top across this whole run.
+    // Treat its benchtop arm as the standard base depth; otherwise one corner
+    // falsely turns every top on that wall into an oversize two-sheet cut.
+    const maxCabDepthMm = Math.max(
+      globalDims.baseDepth ?? 575,
+      ...cabs.map(c => CORNER_CAB_RE.test(c.definitionId ?? '')
+        ? (globalDims.baseDepth ?? 575)
+        : c.depth),
+    );
     const depthMm = maxCabDepthMm + overhang;
     const areaSqm = (runLengthMm / 1000) * (depthMm / 1000);
 

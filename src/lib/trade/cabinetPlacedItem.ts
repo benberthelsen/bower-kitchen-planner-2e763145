@@ -15,6 +15,7 @@ export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: 
     instanceId: cabinet.instanceId,
     definitionId: cabinet.definitionId,
     itemType: cabinet.category === 'Appliance' ? 'Appliance' : 'Cabinet',
+    productName: cabinet.productName,
     cabinetNumber: cabinet.cabinetNumber,
     x: cabinet.position?.x ?? 0,
     y: cabinet.position?.y ?? 0,

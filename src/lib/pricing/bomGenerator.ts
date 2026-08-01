@@ -316,7 +316,7 @@ export function generateQuoteBOM(
 ): QuoteBOM {
   const cabinets = items
     .filter(i => i.itemType === 'Cabinet')
-    .map(cab => generateCabinetBOM(cab, globalDims, hardwareOptions, pricingData));
+    .map(cab => generateCabinetBOM(cab, globalDims, hardwareOptions, pricingData, cab.productName));
   
   const consolidatedSheets = consolidateSheetRequirements(cabinets.map(c => c.sheets));
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));

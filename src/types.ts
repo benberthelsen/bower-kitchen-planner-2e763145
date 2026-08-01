@@ -21,6 +21,8 @@ export interface PlacedItem {
   instanceId: string;
   definitionId: string;
   itemType: ItemType;
+  /** Human-readable catalogue name retained for quotes and workshop PDFs. */
+  productName?: string;
 
   // Locked cabinet reference (C01, C02...) stored ON the item.
   cabinetNumber?: string;

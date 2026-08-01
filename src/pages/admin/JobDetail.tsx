@@ -300,6 +300,7 @@ export default function AdminJobDetail() {
         instanceId: c.instanceId as string,
         definitionId: c.definitionId as string,
         itemType: 'Cabinet' as const,
+        productName: c.productName as string | undefined,
         cabinetNumber: c.cabinetNumber as string | undefined,
         x: (c.position as Record<string, number> | undefined)?.x ?? 0,
         y: (c.position as Record<string, number> | undefined)?.y ?? 0,

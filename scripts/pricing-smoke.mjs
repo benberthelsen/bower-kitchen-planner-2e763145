@@ -120,6 +120,17 @@ check(
   (legacyMaterialBom.warnings ?? []).join(' | '),
 );
 
+const namedQuoteCabinet = {
+  ...cab('base_1_door', 600, 870, 575, 992),
+  productName: 'Base 1 Door',
+};
+const namedQuote = generateQuoteBOM([namedQuoteCabinet], dims, hw, pricingData);
+check(
+  'workshop documents retain the configured cabinet name',
+  namedQuote.cabinets[0]?.cabinetName === 'Base 1 Door',
+  namedQuote.cabinets[0]?.cabinetName,
+);
+
 // 1. Every cabinet family produces a sane BOM
 const families = [
   ['base_1_door', 600, 870, 575],
@@ -430,6 +441,26 @@ for (const [id, w, h, d] of families) {
   check('meganite: shared sheet charged once across both walls',
     Math.abs(qMegPacked.grandTotal.benchtopSupply - 493) < 0.01,
     String(qMegPacked.grandTotal.benchtopSupply));
+
+  // A 900mm corner cabinet is two standard-depth arms, not a 900mm-deep
+  // rectangle covering the whole wall. This job needs two lengthwise sheets,
+  // not a third sheet caused by the corner footprint depth.
+  const megCornerJob = [
+    cabR('base_corner_pie_cut_2_door', 900, 870, 900, 0, 31),
+    cabR('base_2_door', 1500, 870, 575, 0, 32),
+    cabR('base_corner_pie_cut_2_door', 900, 870, 900, 90, 33),
+    cabR('base_2_door', 700, 870, 575, 90, 34),
+  ];
+  const qMegCorner = generateQuoteBOM(megCornerJob, dims, hw, pdMeg);
+  check('meganite: corner footprint keeps standard 600mm benchtop arm depth',
+    qMegCorner.benchtops.every(bt => bt.depthMm === 600),
+    qMegCorner.benchtops.map(bt => bt.depthMm).join(','));
+  check('meganite: 2400mm + 1600mm corner runs use 2 job sheets, not 3',
+    qMegCorner.benchtops.every(bt => bt.jobSheetsRequired === 2),
+    qMegCorner.benchtops.map(bt => bt.jobSheetsRequired).join(','));
+  check('meganite: corner job charges exactly 2 sheets',
+    Math.abs(qMegCorner.grandTotal.benchtopSupply - 986) < 0.01,
+    String(qMegCorner.grandTotal.benchtopSupply));
 
   // 9h: per_lm pricing (Egger laminate worktops)
   const egger = {
