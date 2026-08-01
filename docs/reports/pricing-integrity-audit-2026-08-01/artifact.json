@@ -15,7 +15,7 @@
         "metrics": [
           { "label": "Confirmed defects fixed", "field": "fixed", "format": "number" },
           { "label": "Structural gaps", "field": "open", "format": "number" },
-          { "label": "Pricing identities", "field": "identities", "format": "number" },
+          { "label": "Material identities", "field": "identities", "format": "number" },
           { "label": "Job #397 reconciled", "field": "job397", "format": "currency" }
         ]
       }
@@ -24,7 +24,7 @@
       {
         "id": "catalog_coverage_chart",
         "title": "Pricing catalogue coverage",
-        "subtitle": "Rows or public pricing identities confirmed during the audit; hardware is a pre-fix lower bound because the old loader stopped at 1,000 rows.",
+        "subtitle": "Rows or public pricing identities confirmed during the audit and post-deployment live verification.",
         "type": "bar",
         "dataset": "catalog_coverage",
         "sourceId": "live_catalogue",
@@ -139,7 +139,7 @@
       ],
       "catalog_coverage": [
         { "category": "Materials", "records": 2207, "quality_note": "Public identity bundle; old live price loader stopped at 1,000 rows" },
-        { "category": "Hardware*", "records": 1000, "quality_note": "At least 1,000 live rows; old interface was capped" },
+        { "category": "Hardware", "records": 2727, "quality_note": "Full live count after the paginated loader was deployed" },
         { "category": "Edges", "records": 888, "quality_note": "Six zero-priced records in the first 50 reviewed" },
         { "category": "Parts", "records": 288, "quality_note": "67 rows have all handling, machining and assembly rates at zero" },
         { "category": "Appliances", "records": 86, "quality_note": "All active records are placeholder-priced; 16 lack a dimension" },
@@ -149,7 +149,7 @@
       ],
       "catalog_quality": [
         { "category": "Materials", "records": 2207, "issue_count": 26, "quality_note": "First 50 live rows contained 26 zero area costs / Needs Review; former UI cap prevented a complete live count" },
-        { "category": "Hardware", "records": 1000, "issue_count": 0, "quality_note": "Lower bound only before loader fix; first 50 had no zero unit costs, with 29 available and 21 hidden" },
+        { "category": "Hardware", "records": 2727, "issue_count": 0, "quality_note": "Full live count after deployment; first 50 had no zero unit costs, with 29 available and 21 hidden" },
         { "category": "Edge tape", "records": 888, "issue_count": 6, "quality_note": "Six zero-priced records in first 50; engine now warns instead of silently hiding fallback use" },
         { "category": "Parts", "records": 288, "issue_count": 67, "quality_note": "All handling, machining and assembly fields are zero on 67 rows" },
         { "category": "Appliances", "records": 86, "issue_count": 86, "quality_note": "Every active appliance price is marked placeholder; 16 records also miss a dimension" },
