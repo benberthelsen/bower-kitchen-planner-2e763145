@@ -94,6 +94,7 @@ const App = () => (
             <Suspense fallback={<LazyFallback />}>
             <Routes>
               <Route path="/" element={<Navigate to="/wizard" replace />} />
+              <Route path="/index" element={<Navigate to="/wizard" replace />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/wizard" element={<HomeownerWizard />} />
               <Route
