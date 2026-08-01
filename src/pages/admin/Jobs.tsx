@@ -8,6 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Search, Download, Eye, RefreshCw } from 'lucide-react';
 import { CANONICAL_TRADE_JOB_STATUSES, TRADE_JOB_STATUS_LABELS, TradeJobStatus, isTradeJobStatus } from '@/types/trade';
+import { getSupabaseFunctionErrorMessage } from '@/lib/supabaseFunctionError';
 
 interface Job {
   id: string;
@@ -113,7 +114,7 @@ export default function AdminJobs() {
       toast.success('XML exported successfully');
     } catch (error) {
       console.error('Error exporting XML:', error);
-      toast.error('Failed to export XML');
+      toast.error(await getSupabaseFunctionErrorMessage(error, 'Failed to export XML'));
     } finally {
       setExportingId(null);
     }

@@ -22,6 +22,7 @@ import { exportPackingListPdf } from '@/lib/packingListPdf';
 import { exportCutSummaryPdf } from '@/lib/cutSummaryPdf';
 import { GlobalDimensions, HardwareOptions } from '@/types';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
+import { getSupabaseFunctionErrorMessage } from '@/lib/supabaseFunctionError';
 
 interface Job {
   id: string;
@@ -35,6 +36,10 @@ interface Job {
   notes: string;
   created_at: string;
   completion_date: string | null;
+  buildflow_status: string | null;
+  buildflow_lead_id: string | null;
+  buildflow_published_at: string | null;
+  buildflow_error: string | null;
   profiles?: {
     full_name: string;
     email: string;
@@ -81,6 +86,7 @@ export default function AdminJobDetail() {
   const [showRequestChanges, setShowRequestChanges] = useState(false);
   const [changeNote, setChangeNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [syncingLead, setSyncingLead] = useState(false);
 
   // Pricing data for shop document generation
   const { data: pricingData } = useQuery({
@@ -236,9 +242,28 @@ export default function AdminJobDetail() {
       toast.success('XML exported');
     } catch (error) {
       console.error('Error exporting XML:', error);
-      toast.error('Failed to export XML');
+      toast.error(await getSupabaseFunctionErrorMessage(error, 'Failed to export XML'));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const syncBuildFlowLead = async () => {
+    if (!job) return;
+    setSyncingLead(true);
+    try {
+      const { error } = await supabase.functions.invoke('sync-buildflow-lead', {
+        body: { jobId: job.id },
+      });
+      if (error) throw error;
+      toast.success('Lead added to the Build Flow pipeline');
+      await loadJob();
+    } catch (error) {
+      console.error('Build Flow lead sync failed:', error);
+      toast.error(await getSupabaseFunctionErrorMessage(error, 'Build Flow lead sync failed'));
+      await loadJob();
+    } finally {
+      setSyncingLead(false);
     }
   };
 
@@ -650,6 +675,30 @@ export default function AdminJobDetail() {
                   ))}
                 </SelectContent>
               </Select>
+            </CardContent>
+          </Card>
+
+          <Card className={job.buildflow_status === 'failed' ? 'border-red-200 bg-red-50/40' : ''}>
+            <CardHeader className="pb-2">
+              <CardTitle>Lead Pipeline</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-gray-600">
+                {job.buildflow_status === 'published'
+                  ? 'This job is visible in Build Flow.'
+                  : job.buildflow_status === 'failed'
+                    ? `Last sync failed${job.buildflow_error ? `: ${job.buildflow_error}` : '.'}`
+                    : 'This job has not been sent to Build Flow yet.'}
+              </p>
+              <Button
+                className="w-full"
+                variant={job.buildflow_status === 'published' ? 'outline' : 'default'}
+                onClick={syncBuildFlowLead}
+                disabled={syncingLead}
+              >
+                {syncingLead && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {job.buildflow_status === 'published' ? 'Verify / resend lead' : 'Send to Build Flow'}
+              </Button>
             </CardContent>
           </Card>
 

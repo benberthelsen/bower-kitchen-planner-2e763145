@@ -12,6 +12,8 @@
  * pure section so it can run without Deno.)
  */
 
+import { readFileSync } from 'node:fs';
+
 function escapeXml(v) {
   return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
@@ -110,6 +112,14 @@ check('corner origin: XOrigin = x + depth/2 (3590)', xml.includes('<XOrigin>3590
 check('corner origin: YOrigin = z - width/2 (10)', xml.includes('<YOrigin>10</YOrigin>'));
 check('base origin: XOrigin = x - width/2 (1000)', xml.includes('<XOrigin>1000</XOrigin>'));
 check('no legacy MicrovellumJob schema', !xml.includes('<MicrovellumJob'));
+
+const edgeFunctionSource = readFileSync('supabase/functions/export-microvellum-xml/index.ts', 'utf8');
+check('planner slugs never query the UUID-only product id column',
+  !edgeFunctionSource.includes(".in('id', definitionIds)"));
+check('product lookup supports Microvellum link IDs',
+  edgeFunctionSource.includes(".in('microvellum_link_id', definitionIds)"));
+check('only UUID-shaped definition IDs query the UUID product id column',
+  edgeFunctionSource.includes(".in('id', uuidDefinitionIds)"));
 
 console.log(failures === 0 ? '\nMV XML structure smoke test passed.' : `\n${failures} check(s) FAILED.`);
 if (failures > 0) { console.log('\n----- generated XML -----\n' + xml); }
