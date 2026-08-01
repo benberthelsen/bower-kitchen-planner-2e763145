@@ -102,13 +102,37 @@ function storageVariant(brief: DesignBrief, strategy: LayoutShape, style?: Style
     priorities: brief.priorities.includes('storage') ? brief.priorities : [...brief.priorities, 'storage'],
   };
   const spec = defaultSpecFor(storageBrief, strategy, style);
-  const runs = spec.runs.map(run => ({ ...run, wallCabinets: true, segments: [...run.segments] }));
-  // Add one drawer bank to the least-loaded run (never before a corner seg).
+  const runs = spec.runs.map(run => ({
+    ...run,
+    wallCabinets: true,
+    // Storage-first should be visibly and functionally different: internal
+    // drawers replace plain shelf cupboards wherever the role is flexible.
+    segments: run.segments.map(segment =>
+      segment.kind === 'cabinet' && segment.role === 'doors'
+        ? seg('drawers', segment.widthMm)
+        : { ...segment }),
+  }));
+  // Add a pantry to the longest practical run when the workflow layout did
+  // not already include one. This may be dropped by the solver when it cannot
+  // fit; compile + validate remain the authority.
+  const hasPantry = runs.some(run => run.segments.some(segment =>
+    segment.kind === 'cabinet' && segment.role === 'pantry'));
+  const longest = runs
+    .map((run, index) => ({ index, length: availableRunLength(brief, run.wall) }))
+    .sort((a, b) => b.length - a.length || a.index - b.index)[0];
+  if (!hasPantry && longest?.length >= 3000) runs[longest.index].segments.push(seg('pantry'));
+
+  // Add one more drawer bank to the least-loaded run.
   const target = runs
     .map((run, index) => ({ index, load: run.segments.length }))
     .sort((a, b) => a.load - b.load || a.index - b.index)[0];
   if (target) runs[target.index].segments.push(seg('drawers', 600));
   return { ...spec, runs, rationale: 'Storage-first layout: maximum drawers, pantry and overhead cabinets.' };
+}
+
+function availableRunLength(brief: DesignBrief, wall: Wall): number {
+  const range = rangeForWall(brief, wall);
+  return range.endMm - range.startMm;
 }
 
 /** Social variant: island with seating where it fits, workflow otherwise. */
@@ -147,6 +171,41 @@ function mirrorSideRuns(spec: KitchenSpec, brief: DesignBrief): KitchenSpec | nu
   return { ...spec, runs, rationale: `${spec.rationale} (mirrored to the opposite side wall.)` };
 }
 
+/**
+ * Swap the sink and cooking zones between two runs while keeping the
+ * dishwasher with the sink. This gives the customer a materially different
+ * workflow to compare without allowing AI to invent unchecked geometry.
+ */
+function swapWorkZones(spec: KitchenSpec): KitchenSpec | null {
+  const sinkRunIndex = spec.runs.findIndex(run => run.segments.some(segment =>
+    segment.kind === 'cabinet' && segment.role === 'sink'));
+  const cooktopRunIndex = spec.runs.findIndex(run => run.segments.some(segment =>
+    segment.kind === 'cabinet' && segment.role === 'cooktop'));
+  if (sinkRunIndex < 0 || cooktopRunIndex < 0 || sinkRunIndex === cooktopRunIndex) return null;
+
+  const hadDishwasher = spec.runs[sinkRunIndex].segments.some(segment =>
+    segment.kind === 'cabinet' && segment.role === 'dishwasher');
+  const runs = spec.runs.map(run => ({ ...run, segments: [...run.segments] }));
+
+  runs[sinkRunIndex].segments = runs[sinkRunIndex].segments.flatMap(segment => {
+    if (segment.kind !== 'cabinet') return [segment];
+    if (segment.role === 'sink') return [seg('cooktop', segment.widthMm)];
+    if (segment.role === 'dishwasher') return [seg('doors', segment.widthMm)];
+    return [segment];
+  });
+
+  runs[cooktopRunIndex].segments = runs[cooktopRunIndex].segments.flatMap(segment => {
+    if (segment.kind !== 'cabinet' || segment.role !== 'cooktop') return [segment];
+    return [seg('sink', segment.widthMm), ...(hadDishwasher ? [seg('dishwasher')] : [])];
+  });
+
+  return {
+    ...spec,
+    runs,
+    rationale: 'Alternative workflow: sink and cooking zones change walls so you can compare plumbing, preparation space and walking distance.',
+  };
+}
+
 interface Attempt {
   candidateId: string;
   strategy: LayoutShape;
@@ -172,6 +231,11 @@ export function generateCandidatePool(input: GenerateCandidatesInput): Candidate
     const mirrored = mirrorSideRuns(workflow, brief);
     if (mirrored) {
       attempts.push({ candidateId: `${strategy}/workflow-mirrored`, strategy, emphasis: 'workflow', spec: mirrored });
+    }
+
+    const swappedZones = swapWorkZones(workflow);
+    if (swappedZones) {
+      attempts.push({ candidateId: `${strategy}/work-zones-swapped`, strategy, emphasis: 'workflow', spec: swappedZones });
     }
 
     attempts.push({

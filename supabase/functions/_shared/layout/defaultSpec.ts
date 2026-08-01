@@ -6,6 +6,7 @@
  */
 
 import { rangeForWall } from './briefConstraints.ts';
+import { fridgeOpeningWidthMm } from './catalogRoles.ts';
 import { sharedCornerAt, wallLength } from './geometry.ts';
 import type { DesignBrief, KitchenSpec, Run, Segment, SegmentRole, StyleSpec, Wall } from './types.ts';
 
@@ -102,7 +103,7 @@ export function defaultSpecFor(
   const wantsStorage = brief.priorities.includes('storage');
   const wantsOvenTower = brief.appliances.oven !== undefined;
   const dw = brief.appliances.dishwasher;
-  const fridgeW = brief.appliances.fridgeWidthMm ?? 940;
+  const fridgeW = fridgeOpeningWidthMm(brief.appliances.fridgeWidthMm ?? 940);
   const selected = selectedWallsFor(brief, shape);
 
   const mkPrimary = (wall: Wall, withSink: boolean, withCooktop: boolean): Segment[] => {

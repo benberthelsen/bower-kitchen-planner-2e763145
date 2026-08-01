@@ -31,7 +31,10 @@ import { createWizardDesign, type WizardDesign } from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
 import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
 import { featureFlags, isIosDevice } from '@/lib/featureFlags';
-import { createPlannerAlternatives } from '@/lib/homeowner/plannerAlternatives';
+import {
+  createPlannerAlternatives,
+  mergeDistinctPlannerAlternatives,
+} from '@/lib/homeowner/plannerAlternatives';
 
 const KitchenUnitEditor = lazy(() => import('@/components/homeowner/KitchenUnitEditor'));
 
@@ -209,9 +212,20 @@ export default function StepDesign({
       toast.error('No valid alternative fits the selected cabinet run. Adjust the walls or run length to make more room.');
       return;
     }
-    setUsingPlannerFallback(false);
-    trackEvent('ai_generate_succeeded', { count: res.options.length });
-    setOptions(res.options);
+    const plannerOptions: AiDesignOption[] = createPlannerAlternatives({ brief, shape, style });
+    const distinctOptions = mergeDistinctPlannerAlternatives<AiDesignOption>(
+      res.options,
+      plannerOptions,
+      3,
+    );
+    const supplementedByPlanner = distinctOptions.some(option => option.source === 'planner');
+    setUsingPlannerFallback(supplementedByPlanner);
+    trackEvent('ai_generate_succeeded', {
+      count: distinctOptions.length,
+      serverCount: res.options.length,
+      supplementedByPlanner,
+    });
+    setOptions(distinctOptions);
   };
 
   const selectOption = (opt: AiDesignOption) => {

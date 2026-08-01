@@ -15,7 +15,12 @@
 import type { GlobalDimensions, PlacedItem } from './core.ts';
 import { DEFAULT_GLOBAL_DIMENSIONS } from './core.ts';
 import { runRange, runTouchesWallEnd } from './briefConstraints.ts';
-import { WALL_CAB, RANGEHOOD_ID, resolveCornerVariant } from './catalogRoles.ts';
+import {
+  fridgeBodyWidthMm,
+  WALL_CAB,
+  RANGEHOOD_ID,
+  resolveCornerVariant,
+} from './catalogRoles.ts';
 import {
   sharedCornerAt, usableIntervals, wallCabBlockedIntervals, wallLength, wallToWorld,
   type Interval,
@@ -129,6 +134,9 @@ export function compileSpec(
         itemType: role === 'dishwasher' || role === 'fridge-gap' ? 'Appliance' : 'Cabinet',
         x: pos.x, y: 0, z: pos.z, rotation: pos.rotation,
         width: rs.widthMm, height, depth,
+        ...(role === 'fridge-gap'
+          ? { applianceBodyWidth: fridgeBodyWidthMm(rs.widthMm) }
+          : {}),
         // Explicit role tag so downstream consumers (appliance enrichment,
         // build notes) never have to reverse-engineer intent from the SKU.
         ...(role ? { layoutRole: role } : {}),
@@ -215,13 +223,25 @@ export function compileSpec(
       }
 
       if (cooktopSeg) {
-        const pos = wallToWorld(run.wall, cooktopSeg.startMm, cooktopSeg.widthMm, dims.wallDepth, room);
+        // A custom cooktop cabinet must not create a made-up rangehood width.
+        // Keep the extraction unit at a buildable 600/900 appliance size and
+        // centre it over the cabinet below.
+        const rangehoodWidth = cooktopSeg.widthMm >= 900 ? 900 : 600;
+        const rangehoodStart = cooktopSeg.startMm
+          + (cooktopSeg.widthMm - rangehoodWidth) / 2;
+        const pos = wallToWorld(
+          run.wall,
+          rangehoodStart,
+          rangehoodWidth,
+          dims.wallDepth,
+          room,
+        );
         push({
           definitionId: RANGEHOOD_ID,
           itemType: 'Appliance',
           layoutRole: 'rangehood',
           x: pos.x, y: dims.wallMountHeight, z: pos.z, rotation: pos.rotation,
-          width: Math.min(cooktopSeg.widthMm, 900), height: dims.wallHeight, depth: dims.wallDepth,
+          width: rangehoodWidth, height: dims.wallHeight, depth: dims.wallDepth,
         });
 
       }

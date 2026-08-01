@@ -20,6 +20,10 @@ export interface PlannerAlternative {
   source: 'planner';
 }
 
+interface SpecBearingAlternative {
+  spec: KitchenSpec;
+}
+
 const EMPHASIS_NAMES: Record<CandidateEmphasis, string> = {
   workflow: 'Easy workflow',
   storage: 'More storage',
@@ -28,7 +32,57 @@ const EMPHASIS_NAMES: Record<CandidateEmphasis, string> = {
 
 function optionName(candidateId: string, emphasis: CandidateEmphasis): string {
   if (candidateId.includes('workflow-mirrored')) return 'Alternative workflow';
+  if (candidateId.includes('work-zones-swapped')) return 'Swapped work zones';
   return EMPHASIS_NAMES[emphasis];
+}
+
+/**
+ * Compare the actual cabinet arrangement, not an AI-generated name or
+ * rationale. This deliberately ignores finishes so two cosmetically different
+ * copies of the same kitchen do not consume two comparison cards.
+ */
+export function plannerAlternativeSignature(option: SpecBearingAlternative): string {
+  const runs = option.spec.runs.map(run => ({
+    wall: run.wall,
+    startMm: run.startMm ?? 0,
+    endMm: run.endMm ?? null,
+    fromEnd: !!run.fromEnd,
+    wallCabinets: run.wallCabinets,
+    segments: run.segments.map(segment => segment.kind === 'cabinet'
+      ? ['cabinet', segment.role, segment.widthMm ?? null]
+      : [segment.kind, segment.widthMm]),
+  }));
+  const island = option.spec.island
+    ? {
+        lengthMm: option.spec.island.lengthMm,
+        depthMm: option.spec.island.depthMm,
+        features: [...option.spec.island.features].sort(),
+      }
+    : null;
+  return JSON.stringify({ runs, island });
+}
+
+/**
+ * Keep server-ranked options first, remove structural duplicates, then fill
+ * empty comparison slots with deterministic rule-checked alternatives. This
+ * protects the homeowner experience when the upstream model returns the same
+ * kitchen three times with slightly different wording.
+ */
+export function mergeDistinctPlannerAlternatives<T extends SpecBearingAlternative>(
+  primary: readonly T[],
+  fallback: readonly T[],
+  maxCandidates = 3,
+): T[] {
+  const merged: T[] = [];
+  const seen = new Set<string>();
+  for (const option of [...primary, ...fallback]) {
+    const signature = plannerAlternativeSignature(option);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    merged.push(option);
+    if (merged.length >= maxCandidates) break;
+  }
+  return merged;
 }
 
 /**

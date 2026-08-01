@@ -27,6 +27,7 @@
 
 import type { PlacedItem } from './core.ts';
 import { rangeForWall } from './briefConstraints.ts';
+import { fridgeOpeningWidthMm } from './catalogRoles.ts';
 import {
   dist, itemRect, rectsOverlap, sharedCornerAt, wallLength, wallPointWorld, WALL_ROTATION,
 } from './geometry.ts';
@@ -399,9 +400,10 @@ export const RULES: Rule[] = [
       const out: RuleFinding[] = [];
       const fridge = design.rolePositions['fridge-gap'];
       const nominated = brief?.appliances.fridgeWidthMm ?? 940;
-      if (fridge && fridge.widthMm + 20 < nominated) {
+      const requiredOpening = fridgeOpeningWidthMm(nominated);
+      if (fridge && fridge.widthMm + 20 < requiredOpening) {
         out.push(finding('appliance-gap-fit', 'safety',
-          `Fridge space is ${fridge.widthMm}mm but the nominated fridge needs ${nominated}mm`,
+          `Fridge space is ${fridge.widthMm}mm but a ${nominated}mm fridge needs ${requiredOpening}mm including 50mm clearance on each side`,
           [fridge.item.instanceId]));
       }
       const dw = design.rolePositions.dishwasher;

@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { createPlannerAlternatives } from '../.tmp-snap-test/planner-alternatives.mjs';
+import {
+  createPlannerAlternatives,
+  mergeDistinctPlannerAlternatives,
+  plannerAlternativeSignature,
+} from '../.tmp-snap-test/planner-alternatives.mjs';
 
 const style = {
   finishId: 'polytec-coastal-oak',
@@ -36,6 +40,34 @@ function brief(width = 4800, depth = 4200) {
 console.log('planner alternatives smoke tests');
 
 {
+  const plannerOptions = createPlannerAlternatives({ brief: brief(), shape: 'l-shape', style });
+  assert.ok(plannerOptions.length >= 2, 'merge test needs distinct local alternatives');
+  const serverOption = {
+    ...plannerOptions[0],
+    proposalId: 'ai:first',
+    source: 'ai',
+  };
+  const duplicateServerOption = {
+    ...serverOption,
+    proposalId: 'ai:duplicate',
+    name: 'Different wording, same kitchen',
+    rationale: 'Cosmetic wording must not disguise a duplicate layout.',
+  };
+  const merged = mergeDistinctPlannerAlternatives(
+    [serverOption, duplicateServerOption],
+    plannerOptions,
+    3,
+  );
+  assert.equal(merged[0].proposalId, 'ai:first', 'server-ranked option should remain first');
+  assert.ok(merged.some(option => option.source === 'planner'), 'duplicate AI slots should be filled locally');
+  assert.equal(
+    new Set(merged.map(plannerAlternativeSignature)).size,
+    merged.length,
+    'merged alternatives must remain structurally distinct',
+  );
+}
+
+{
   const options = createPlannerAlternatives({
     brief: brief(),
     shape: 'l-shape',
@@ -47,6 +79,20 @@ console.log('planner alternatives smoke tests');
   assert.ok(options.every(option => option.proposalId.startsWith('planner:')), 'fallback proposal id is not namespaced');
   assert.ok(options.every(option => option.violations.every(v => v.severity !== 'error')), 'fallback returned a blocked layout');
   assert.ok(options.every(option => option.spec.style.finishId === style.finishId), 'chosen finish was not preserved');
+  assert.equal(
+    new Set(options.map(option => option.spec.runs.map(run =>
+      `${run.wall}:${run.segments.map(segment => segment.kind === 'cabinet' ? segment.role : segment.kind).join(',')}`,
+    ).join('|'))).size,
+    options.length,
+    'alternatives should be structurally distinct',
+  );
+  if (options.length >= 2) {
+    const zoneSignatures = options.map(option => option.spec.runs.map(run => {
+      const roles = run.segments.flatMap(segment => segment.kind === 'cabinet' ? [segment.role] : []);
+      return `${run.wall}:${roles.includes('sink') ? 'sink' : ''}:${roles.includes('cooktop') ? 'cooktop' : ''}`;
+    }).join('|'));
+    assert.ok(new Set(zoneSignatures).size >= 2, 'comparison should include a different work-zone arrangement');
+  }
 }
 
 {

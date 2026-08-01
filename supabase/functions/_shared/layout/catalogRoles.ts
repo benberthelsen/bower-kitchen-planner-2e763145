@@ -17,6 +17,30 @@ export interface RoleProduct {
   priceWeight: number;
 }
 
+/** Standard side ventilation/service clearance for a freestanding fridge. */
+export const FRIDGE_SIDE_CLEARANCE_MM = 50;
+
+/** Cabinet-run width required for the appliance plus both side clearances. */
+export function fridgeOpeningWidthMm(applianceWidthMm: number): number {
+  return applianceWidthMm + FRIDGE_SIDE_CLEARANCE_MM * 2;
+}
+
+/**
+ * Recover the appliance body width from a reserved opening.
+ *
+ * New compiled layouts stamp the explicit body width so adding clearance never
+ * shrinks the appliance. The fallback gives older saved openings safe gaps.
+ */
+export function fridgeBodyWidthMm(
+  openingWidthMm: number,
+  explicitBodyWidthMm?: number,
+): number {
+  const available = Math.max(200, openingWidthMm - FRIDGE_SIDE_CLEARANCE_MM * 2);
+  return explicitBodyWidthMm === undefined
+    ? available
+    : Math.min(Math.max(200, explicitBodyWidthMm), available);
+}
+
 export const ROLE_PRODUCTS: Record<SegmentRole, RoleProduct> = {
   sink:        { definitionId: 'sink_base_2_door',    widths: [900, 800, 600], kind: 'base',      priceWeight: 620 },
   cooktop:     { definitionId: 'base_2_door',         widths: [900, 600],      kind: 'base',      priceWeight: 560 },
@@ -25,7 +49,7 @@ export const ROLE_PRODUCTS: Record<SegmentRole, RoleProduct> = {
   doors:       { definitionId: 'base_2_door',         widths: [900, 600, 450, 300], kind: 'base', priceWeight: 520 },
   pantry:      { definitionId: 'tall_2_door_pantry',  widths: [900, 600, 450], kind: 'tall',      priceWeight: 1150 },
   'oven-tower':{ definitionId: 'tall_oven',           widths: [600],           kind: 'tall',      priceWeight: 980 },
-  'fridge-gap':{ definitionId: 'fridge_opening',      widths: [940, 920, 860], kind: 'appliance', priceWeight: 220 },
+  'fridge-gap':{ definitionId: 'fridge_opening',      widths: [1040, 1020, 960], kind: 'appliance', priceWeight: 220 },
   corner:      { definitionId: 'base_corner_blind_left', widths: [900, 1000],  kind: 'base',      priceWeight: 950 },
   'corner-buffer': { definitionId: 'base_1_door',     widths: [600],           kind: 'base',      priceWeight: 520 },
 };
