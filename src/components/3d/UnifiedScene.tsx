@@ -179,8 +179,22 @@ function ServiceComposite({ s }: { s: ServicePoint }) {
     case 'hood-duct':
       return (
         <group position={[0, y, 0.03]}>
-          <mesh><boxGeometry args={[0.24, 0.18, 0.06]} /><meshStandardMaterial color="#94a3b8" metalness={0.4} roughness={0.4} /></mesh>
-          <mesh position={[0, 0, 0.032]}><boxGeometry args={[0.18, 0.12, 0.006]} /><meshStandardMaterial color="#475569" roughness={0.6} /></mesh>
+          {/* A service-location ghost, not a physical canopy rangehood. */}
+          <mesh renderOrder={2}>
+            <boxGeometry args={[0.24, 0.18, 0.035]} />
+            <meshStandardMaterial
+              color="#7c3aed"
+              emissive="#7c3aed"
+              emissiveIntensity={0.12}
+              transparent
+              opacity={0.16}
+              depthWrite={false}
+            />
+          </mesh>
+          <mesh position={[0, 0, 0.019]} renderOrder={3}>
+            <boxGeometry args={[0.18, 0.12, 0.004]} />
+            <meshBasicMaterial color="#7c3aed" transparent opacity={0.34} wireframe depthWrite={false} />
+          </mesh>
         </group>
       );
     default: {
