@@ -59,3 +59,21 @@ export function handleItemPointerDown({ e, itemId, isSelected, x, z, onSelect, o
   onSelect?.(itemId);
   onDragStart?.(itemId, x, z);
 }
+
+/** A second plain click on the front item cycles to the next cabinet under
+ * the pointer. This gives touch/mouse users the same overlap access as Alt
+ * without requiring a keyboard. */
+export function handleItemClick({
+  e,
+  itemId,
+  isSelected,
+  onSelect,
+}: Pick<PointerDownArgs, 'e' | 'itemId' | 'isSelected' | 'onSelect'>): void {
+  e.stopPropagation();
+  if (!isSelected) return;
+  const stack = itemStackFromEvent(e);
+  const currentIndex = stack.indexOf(itemId);
+  if (stack.length > 1 && currentIndex >= 0) {
+    onSelect?.(stack[(currentIndex + 1) % stack.length]);
+  }
+}

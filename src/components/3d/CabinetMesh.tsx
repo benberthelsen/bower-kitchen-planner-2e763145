@@ -6,7 +6,7 @@ import { resolveHandleDefinition, handleFinishHex } from '../../lib/handleStyles
 import { useCatalogItem, useCatalog } from '../../hooks/useCatalog';
 import { useCabinetMaterials } from '../../hooks/useCabinetMaterials';
 import CabinetAssembler from './CabinetAssembler';
-import { handleItemPointerDown } from './selectionGesture';
+import { handleItemClick, handleItemPointerDown } from './selectionGesture';
 import { CabinetRenderConfig } from '../../types/cabinetConfig';
 import { isConcealedRangehoodAppliance } from './applianceClassification';
 
@@ -265,6 +265,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
       rotation={[0, -THREE.MathUtils.degToRad(item.rotation || 0), 0]}
       userData={{ itemId: item.instanceId }}
       onPointerDown={handlePointerDown}
+      onClick={(e) => handleItemClick({ e, itemId: item.instanceId, isSelected, onSelect: handleSelect })}
       onDoubleClick={(e) => { e.stopPropagation(); onEdit?.(item.instanceId); }}
       onPointerOver={() => setHovered(true)} 
       onPointerOut={() => setHovered(false)}

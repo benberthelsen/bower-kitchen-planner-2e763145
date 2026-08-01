@@ -18,6 +18,11 @@ import { FINISH_OPTIONS, HANDLE_OPTIONS } from '@/constants';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { useCatalogItem } from '@/hooks/useCatalog';
 import { distributeDrawerHeights, DRAWER_BOX_FACE_OFFSET_MM } from '@/lib/drawerHeights';
+import {
+  cabinetWidthGuidance,
+  fillCabinetRunGap,
+  getCabinetRunSpacing,
+} from '@/lib/trade/cabinetRunSpacing';
 import { 
   Ruler, 
   Palette, 
@@ -44,7 +49,7 @@ export function CabinetEditDialog({
   onOpenFullEditor,
   onCabinetPatch,
 }: CabinetEditDialogProps) {
-  const { updateCabinet, getRoomById } = useTradeRoom();
+  const { updateCabinet, getRoomById, getCabinetsByRoom } = useTradeRoom();
   const { hinges, drawerRunners } = useMaterialsCatalog();
   const hingeChoices = hinges.length > 0
     ? hinges.map(h => ({ value: h.id, label: h.name }))
@@ -75,13 +80,17 @@ export function CabinetEditDialog({
     });
   }, [cabinet?.instanceId, cabinet?.dimensions.width, cabinet?.dimensions.height, cabinet?.dimensions.depth]);
 
+  const room = getRoomById(roomId);
+  const runSpacing = cabinet && room
+    ? getCabinetRunSpacing(cabinet, getCabinetsByRoom(roomId), room)
+    : null;
+
   if (!cabinet) return null;
 
   // Cabinets inherit materials/hardware from the room defaults and only store a
   // value when explicitly overridden — so the quick-editor selects must fall back
   // to the room defaults, otherwise they render blank (the full editor already
   // resolves this). Effective = per-cabinet value → room default.
-  const room = getRoomById(roomId);
   const md = room?.materialDefaults;
   const hd = room?.hardwareDefaults;
   const eff = {
@@ -98,6 +107,7 @@ export function CabinetEditDialog({
   const isCornerCabinet = /corner|pie[-_ ]?cut|blind|diagonal/i.test(cabinet.definitionId || '');
   // Dishwasher / appliance openings can carry a benchtop-support top rail.
   const isApplianceOpening = /dishwasher|_opening|appliance/i.test(cabinet.definitionId || '');
+  const widthGuidance = cabinetWidthGuidance(cabinet);
 
   // #20 — per-drawer front heights
   const drawerCount = catalogItem?.renderConfig?.drawerCount ?? 0;
@@ -123,14 +133,33 @@ export function CabinetEditDialog({
   };
 
   const handleUpdateDimensions = (updates: Partial<CabinetDimensions>) => {
+    const requestedWidth = updates.width ?? cabinet.dimensions.width;
+    const minimumWidth = cabinetWidthGuidance({
+      ...cabinet,
+      dimensions: { ...cabinet.dimensions, width: requestedWidth },
+    }).minimumWidthMm;
     const next = {
-      width: Math.max(150, updates.width ?? cabinet.dimensions.width),
+      width: Math.max(minimumWidth, requestedWidth),
       height: Math.max(200, updates.height ?? cabinet.dimensions.height),
       depth: Math.max(200, updates.depth ?? cabinet.dimensions.depth),
     };
 
     updateCabinet(roomId, cabinet.instanceId, { dimensions: next });
     onCabinetPatch?.(cabinet.instanceId, { dimensions: next });
+  };
+
+  const handleFillRunGap = (side: 'before' | 'after') => {
+    if (!runSpacing) return;
+    const filled = fillCabinetRunGap(cabinet, runSpacing, side);
+    if (!filled) return;
+    const nextDimensions = { ...cabinet.dimensions, width: filled.dimensions.width };
+    const updates = {
+      dimensions: nextDimensions,
+      position: { ...filled.position, y: filled.position.y ?? cabinet.position?.y ?? 0 },
+    };
+    updateCabinet(roomId, cabinet.instanceId, updates);
+    onCabinetPatch?.(cabinet.instanceId, updates);
+    setDimDraft((draft) => ({ ...draft, width: String(nextDimensions.width) }));
   };
 
   // Commit a dimension draft field (blur/Enter). Empty/invalid falls back to the
@@ -254,6 +283,55 @@ export function CabinetEditDialog({
                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                 />
               </div>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+              <div>
+                <Label>Cabinet run spacing</Label>
+                <p className="text-xs text-muted-foreground">
+                  {runSpacing
+                    ? `Measured along the ${runSpacing.wall} wall. Fill grows the cabinet and keeps its opposite edge fixed.`
+                    : 'Place this cabinet flush to a wall to measure the gaps beside it.'}
+                </p>
+              </div>
+              {runSpacing && (
+                <div className="grid grid-cols-2 gap-3">
+                  {(['before', 'after'] as const).map((side) => {
+                    const measured = runSpacing[side];
+                    const prospectiveWidth = cabinet.dimensions.width + measured.gapMm;
+                    const oversize = widthGuidance.recommendedMaximumWidthMm !== null && prospectiveWidth > widthGuidance.recommendedMaximumWidthMm;
+                    return (
+                      <div key={side} className="rounded-md border bg-background p-2">
+                        <div className="text-[11px] text-muted-foreground">Gap to {measured.neighbourLabel}</div>
+                        <div className="text-lg font-semibold text-trade-navy">{measured.gapMm} mm</div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-1 h-7 w-full text-xs"
+                          disabled={measured.gapMm <= 0}
+                          onClick={() => handleFillRunGap(side)}
+                        >
+                          {measured.gapMm > 0 ? `Fill to ${prospectiveWidth}mm` : 'Already joined'}
+                        </Button>
+                        {oversize && (
+                          <div className="mt-1 text-[10px] text-amber-700">
+                            Oversize: above the recommended {widthGuidance.recommendedMaximumWidthMm}mm maximum.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {widthGuidance.belowMinimum && (
+                <div className="text-xs text-destructive">Minimum width for this unit is {widthGuidance.minimumWidthMm}mm.</div>
+              )}
+              {widthGuidance.aboveRecommended && (
+                <div className="text-xs text-amber-700">
+                  This {cabinet.dimensions.width}mm unit is above the recommended {widthGuidance.recommendedMaximumWidthMm}mm maximum. Split it into two units where practical.
+                </div>
+              )}
             </div>
 
             {isApplianceOpening && (

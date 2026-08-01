@@ -119,7 +119,10 @@ const Kickboard: React.FC<KickboardProps> = ({
   }
 
   // Standard rectangular kickboard
-  const kickWidth = width - 0.002;
+  // A run is manufactured from continuous plinth lengths. Let adjacent
+  // cabinet segments overlap by 1mm per side so antialiasing and tiny float
+  // errors cannot show a false white break between otherwise joined units.
+  const kickWidth = width + 0.002;
 
   return (
     <group position={position}>

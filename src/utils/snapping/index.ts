@@ -266,10 +266,13 @@ export function calculateSnapPosition(
     const testBounds = getRotatedBounds(testItem);
 
     const candidates = [
-      { x: x - (testBounds.right - otherBounds.left) - 10, z },  // push left
-      { x: x + (otherBounds.right - testBounds.left) + 10, z },  // push right
-      { x, z: z - (testBounds.front - otherBounds.back) - 10 },  // push back
-      { x, z: z + (otherBounds.front - testBounds.back) + 10 },  // push front
+      // Cabinet runs should resolve edge-to-edge. The old extra 10mm push
+      // created visible breaks in the kickboard and benchtop after every
+      // collision correction.
+      { x: x - (testBounds.right - otherBounds.left), z },  // push left
+      { x: x + (otherBounds.right - testBounds.left), z },  // push right
+      { x, z: z - (testBounds.front - otherBounds.back) },  // push back
+      { x, z: z + (otherBounds.front - testBounds.back) },  // push front
     ];
 
     const valid = candidates

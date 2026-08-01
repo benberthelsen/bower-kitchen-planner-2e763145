@@ -50,7 +50,9 @@ const SmartDimensions: React.FC<SmartDimensionsProps> = ({
   const halfD = (isRotatedOdd ? widthM : depthM) / 2;
 
   const leftEdge = xM - halfW;
+  const rightEdge = xM + halfW;
   const backEdge = zM - halfD;
+  const frontEdge = zM + halfD;
 
   const lineY = yM + 0.02;
 
@@ -59,15 +61,35 @@ const SmartDimensions: React.FC<SmartDimensionsProps> = ({
       {leftEdge > 0.1 && (
         <>
           <Line points={[[0, lineY, zM], [leftEdge, lineY, zM]]} color="#ef4444" lineWidth={2} />
-          <DimLabel position={[leftEdge / 2, lineY + 0.1, zM]} text={`${Math.round(leftEdge * 1000)}`} />
+          <DimLabel position={[leftEdge / 2, lineY + 0.1, zM]} text={`${Math.round(leftEdge * 1000)} mm`} />
         </>
       )}
       {backEdge > 0.1 && (
         <>
           <Line points={[[xM, lineY, 0], [xM, lineY, backEdge]]} color="#ef4444" lineWidth={2} />
-          <DimLabel position={[xM, lineY + 0.1, backEdge / 2]} text={`${Math.round(backEdge * 1000)}`} />
+          <DimLabel position={[xM, lineY + 0.1, backEdge / 2]} text={`${Math.round(backEdge * 1000)} mm`} />
         </>
       )}
+      <>
+        <Line
+          points={[[leftEdge, lineY, frontEdge + 0.08], [rightEdge, lineY, frontEdge + 0.08]]}
+          color="#2563eb"
+          lineWidth={2}
+        />
+        <DimLabel
+          position={[xM, lineY + 0.1, frontEdge + 0.08]}
+          text={`${Math.round(halfW * 2000)} mm`}
+        />
+        <Line
+          points={[[rightEdge + 0.08, lineY, backEdge], [rightEdge + 0.08, lineY, frontEdge]]}
+          color="#2563eb"
+          lineWidth={2}
+        />
+        <DimLabel
+          position={[rightEdge + 0.08, lineY + 0.1, zM]}
+          text={`${Math.round(halfD * 2000)} mm`}
+        />
+      </>
     </group>
   );
 };
