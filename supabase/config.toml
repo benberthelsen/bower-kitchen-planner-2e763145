@@ -14,6 +14,9 @@ verify_jwt = false
 [functions.submit-planner-enquiry]
 verify_jwt = false
 
+[functions.sync-buildflow-lead]
+verify_jwt = true
+
 [functions.create-planner-handoff]
 verify_jwt = false
 
