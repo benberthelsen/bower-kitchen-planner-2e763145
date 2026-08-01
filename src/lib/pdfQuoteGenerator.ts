@@ -2,6 +2,14 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { QuoteBOM } from './pricing/types';
 import { ProjectSettings, GlobalDimensions, HardwareOptions } from '@/types';
+import type {
+  CabinetAccessories,
+  CabinetConstruction,
+  CabinetHardware,
+  CabinetMaterials,
+  RoomHardwareDefaults,
+  RoomMaterialDefaults,
+} from '@/types/trade';
 
 interface QuoteData {
   quoteBOM: QuoteBOM;
@@ -392,11 +400,18 @@ interface TradeQuotePayload {
     id: string;
     name: string;
     description?: string;
+    materialDefaults?: RoomMaterialDefaults;
+    hardwareDefaults?: RoomHardwareDefaults;
+    toeKickHeight?: number;
     cabinets: Array<{
       cabinetNumber?: string;
       productName: string;
       category: string;
       dimensions: { width: number; height: number; depth: number };
+      materials?: Partial<CabinetMaterials>;
+      hardware?: Partial<CabinetHardware>;
+      accessories?: Partial<CabinetAccessories>;
+      construction?: CabinetConstruction;
       estimatedTotal?: number;
     }>;
   }>;
@@ -445,12 +460,66 @@ export function generateTradeQuotePDF(payload: TradeQuotePayload): void {
     margin: { left: 14, right: 14 },
   });
 
-  const finalY = (doc as any).lastAutoTable?.finalY ?? 120;
+  let finalY = (doc as any).lastAutoTable?.finalY ?? 120;
+
+  // The price-only schedule was not enough to manufacture or review a job.
+  // Add the selections that define what the cabinet actually is, resolving
+  // per-cabinet overrides over the room defaults.
+  payload.rooms.forEach((room) => {
+    if (finalY > doc.internal.pageSize.getHeight() - 65) {
+      doc.addPage();
+      finalY = 18;
+    }
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${room.name} - selections`, 14, finalY + 8);
+
+    const detailRows = room.cabinets.map((cabinet) => {
+      const materials = { ...(room.materialDefaults || {}), ...(cabinet.materials || {}) };
+      const hardware = { ...(room.hardwareDefaults || {}), ...(cabinet.hardware || {}) };
+      const construction = cabinet.construction || {};
+      const kickHeight = construction.toeKickHeight ?? room.toeKickHeight ?? 135;
+      const endPanels = [construction.endPanelLeft ? 'left' : '', construction.endPanelRight ? 'right' : '']
+        .filter(Boolean)
+        .join(' + ') || 'none';
+      const selections = [
+        `Door/exterior: ${materials.exteriorFinish || 'room default'}`,
+        `Carcase: ${materials.carcaseFinish || 'room default'}`,
+        `Door style: ${materials.doorStyle || 'room default'}`,
+        `Edge: ${materials.edgeBanding || 'room default'}`,
+        `Handle: ${hardware.handleType || 'room default'}${hardware.handleColor ? ` (${hardware.handleColor})` : ''}`,
+        `Hinges: ${hardware.hingeType || 'room default'}`,
+        `Drawers: ${hardware.drawerType || 'room default'}`,
+        `Soft close: ${hardware.softClose === false ? 'no' : 'yes'}`,
+        `Kick: ${kickHeight} mm`,
+        `End panels: ${endPanels}`,
+      ].join('  |  ');
+      return [cabinet.cabinetNumber || '-', selections];
+    });
+
+    autoTable(doc, {
+      startY: finalY + 11,
+      head: [['Cab #', 'Materials, hardware and construction']],
+      body: detailRows.length ? detailRows : [['-', 'No cabinets configured']],
+      theme: 'grid',
+      headStyles: { fillColor: [30, 41, 59], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5, cellPadding: 2.2, overflow: 'linebreak' },
+      columnStyles: { 0: { cellWidth: 18, fontStyle: 'bold' }, 1: { cellWidth: 'auto' } },
+      margin: { left: 14, right: 14 },
+    });
+    finalY = (doc as any).lastAutoTable?.finalY ?? finalY + 30;
+  });
+
   const totals = payload.totals || {};
   const subtotal = totals.subtotal ?? totals.total ?? 0;
   const tax = totals.tax ?? subtotal * 0.1;
   const total = totals.total ?? subtotal + tax;
 
+  if (finalY > doc.internal.pageSize.getHeight() - 55) {
+    doc.addPage();
+    finalY = 18;
+  }
   let y = finalY + 12;
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
