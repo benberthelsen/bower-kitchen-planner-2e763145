@@ -54,5 +54,17 @@ export default defineConfig(({ mode }) => ({
   // should not make an otherwise healthy production build warn.
   build: {
     chunkSizeWarningLimit: 750,
+    rollupOptions: {
+      output: {
+        // Route names such as "TradeDashboard" can be mistaken for tracker
+        // scripts by privacy extensions and blocked with ERR_BLOCKED_BY_CLIENT.
+        // Neutral, content-hashed URLs keep lazy routes loadable without
+        // weakening the user's browser protections.
+        chunkFileNames: (chunk) =>
+          chunk.name === "Wizard"
+            ? "assets/Wizard-[hash].js"
+            : "assets/chunk-[hash].js",
+      },
+    },
   },
 }));

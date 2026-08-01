@@ -35,7 +35,12 @@ export function loadLatestDeployment(force = false): boolean {
 }
 
 export function handleVitePreloadError(event: Event): void {
-  if (loadLatestDeployment()) event.preventDefault();
+  // Do not prevent the Vite error. Vite resolves the failed import as
+  // `undefined` when this event is cancelled, which makes React.lazy throw the
+  // misleading "reading default" error before navigation can complete.
+  // Keeping the rejection intact lets ErrorBoundary identify it correctly.
+  void event;
+  loadLatestDeployment();
 }
 
 /**

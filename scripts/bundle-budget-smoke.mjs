@@ -15,6 +15,14 @@ assert.ok(
 );
 
 const assets = readdirSync(resolve(dist, 'assets'));
+const blockerProneRouteNames = assets.filter((name) =>
+  /(?:Dashboard|Analytics|Trade|Admin|JobEditor|RoomPlanner).*\.js$/i.test(name),
+);
+assert.deepEqual(
+  blockerProneRouteNames,
+  [],
+  `route chunks expose blocker-prone names: ${blockerProneRouteNames.join(', ')}`,
+);
 const wizard = assets.find((name) => /^Wizard-.*\.js$/.test(name));
 assert.ok(wizard, 'homeowner wizard route chunk is missing');
 const wizardBytes = statSync(resolve(dist, 'assets', wizard)).size;
