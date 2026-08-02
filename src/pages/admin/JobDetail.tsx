@@ -308,6 +308,14 @@ export default function AdminJobDetail() {
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
 
+  /** A design can only be sent to Build Flow once it carries a job total. */
+  const designIsPriced = useMemo(() => {
+    const totals = (designData.jobTotals ?? {}) as Record<string, unknown>;
+    const total = typeof totals.total === 'string' ? Number(totals.total) : totals.total;
+    return typeof total === 'number' && Number.isFinite(total);
+  }, [designData]);
+
+
   /** Stored trade cabinets have `category`, not `itemType` — treat rows without
    * an explicit itemType as cabinets unless their category is Appliance. */
   const isCabinetRow = (c: Record<string, unknown> & { roomName: string }) =>
