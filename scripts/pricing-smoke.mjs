@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -754,6 +754,106 @@ for (const [id, w, h, d] of families) {
   check('integrity: fallback edge price is explicitly warned',
     fallbackQuote.warnings.some(w => /Edge tape .*fallback/i.test(w)),
     fallbackQuote.warnings.join(' | '));
+}
+
+// 13. Hafele Impact configured-price structure. These assertions mirror the
+// live Bower-account quote samples retained in migration 20260802194500.
+{
+  const impactMirostoneStandard = {
+    id: 'impact-mirostone-standard',
+    brand: 'Hafele Impact',
+    range_tier: 'Mirostone 20mm - Standard',
+    material_type: 'solid_surface',
+    pricing_method: 'per_lm',
+    stock_length_mm: 3200,
+    stock_depth_mm: 900,
+    price_per_sheet: null,
+    price_per_lm: 326.233333,
+    trade_supply_per_sqm: 0,
+    install_per_lm: 0,
+    install_supply_per_sqm: 0,
+    supply_pathway: 'supplier_custom',
+    is_active: true,
+    price_status: 'confirmed',
+    quoted_edge_count: 1,
+    surface_surcharge_pct: 0,
+    account_discount_pct: 0,
+    length_rounding_mm: 0,
+    minimum_order_length_mm: 0,
+    supplier_order_fee: 1132.88,
+    sink_cutout_cost: 74.55,
+    cooktop_cutout_cost: 74.55,
+    finished_end_cost: 0,
+    finished_end_per_lm: 0,
+    width_price_tiers: [
+      { min_depth_mm: 100, max_depth_mm: 600, one_edge_price_per_lm: 326.233333, two_edge_price_per_lm: 326.233333 },
+      { min_depth_mm: 601, max_depth_mm: 900, one_edge_price_per_lm: 450.383333, two_edge_price_per_lm: 450.383333 },
+    ],
+  };
+  const impactPricing = { ...pricingData, benchtop: [impactMirostoneStandard] };
+  const top900 = calculateBenchtops(
+    [cab('base_2_door', 900, 870, 575, 801)],
+    dims,
+    impactPricing,
+    { benchtopPricingId: impactMirostoneStandard.id },
+  );
+  check('impact: 900x600 Mirostone Standard matches live quote',
+    top900[0]?.supplyCost === 1426.49,
+    JSON.stringify(top900[0]));
+
+  const top1800WithSink = calculateBenchtops(
+    [
+      cab('base_2_door', 900, 870, 575, 802),
+      cab('sink_base_2_door', 900, 870, 575, 803),
+    ],
+    dims,
+    impactPricing,
+    { benchtopPricingId: impactMirostoneStandard.id },
+  );
+  check('impact: configured allowance is charged once per job',
+    top1800WithSink[0]?.fabricationBreakdown?.filter(line => line.code === 'supplier_order').length === 1,
+    JSON.stringify(top1800WithSink[0]?.fabricationBreakdown));
+  check('impact: 1800x600 plus one sink cut-out matches live quote',
+    top1800WithSink[0]?.supplyCost === 1794.65,
+    JSON.stringify(top1800WithSink[0]));
+
+  const islandCabs = [
+    cab('base_2_door', 900, 870, 875, 804),
+    cab('sink_base_2_door', 900, 870, 875, 805),
+  ];
+  const islandTop = calculateBenchtops(
+    islandCabs,
+    dims,
+    impactPricing,
+    { benchtopPricingId: impactMirostoneStandard.id },
+  );
+  check('impact: 900mm island depth selects the island rate band',
+    islandTop[0]?.widthPriceBand === '601-900mm'
+      && islandTop[0]?.supplyCost === 2018.12,
+    JSON.stringify(islandTop[0]));
+
+  const edgeRateMaterial = {
+    ...impactMirostoneStandard,
+    id: 'impact-edge-rate',
+    price_per_lm: 0,
+    width_price_tiers: [
+      { min_depth_mm: 100, max_depth_mm: 900, one_edge_price_per_lm: 0, two_edge_price_per_lm: 0 },
+    ],
+    supplier_order_fee: 0,
+    sink_cutout_cost: 0,
+    cooktop_cutout_cost: 0,
+    finished_end_per_lm: 38.188889,
+  };
+  const edgeTop = calculateBenchtops(
+    [cab('base_2_door', 900, 870, 875, 806)],
+    dims,
+    { ...pricingData, benchtop: [edgeRateMaterial] },
+    { benchtopPricingId: edgeRateMaterial.id },
+  );
+  const edgeLine = edgeTop[0]?.fabricationBreakdown?.find(line => line.code === 'finished_ends');
+  check('impact: depth-based visible side/end edging is priced by LM',
+    edgeLine?.unit === 'lm' && edgeLine.quantity === 1.8 && edgeLine.total === 68.74,
+    JSON.stringify(edgeLine));
 }
 
 console.log(failures === 0 ? '\nAll pricing smoke tests passed.' : '\n' + failures + ' FAULT(S) FOUND.');

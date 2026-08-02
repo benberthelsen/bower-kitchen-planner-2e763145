@@ -40,6 +40,7 @@ interface BenchtopRecord {
   sanding_polishing_per_lm: number;
   edge_finish_per_lm: number;
   finished_end_cost: number;
+  finished_end_per_lm: number;
   sink_cutout_cost: number;
   cooktop_cutout_cost: number;
   tap_hole_cost: number;
@@ -96,6 +97,7 @@ const BLANK: Omit<BenchtopRecord, 'id'> = {
   sanding_polishing_per_lm: 0,
   edge_finish_per_lm: 0,
   finished_end_cost: 0,
+  finished_end_per_lm: 0,
   sink_cutout_cost: 0,
   cooktop_cutout_cost: 0,
   tap_hole_cost: 0,
@@ -146,6 +148,7 @@ const MATRIX_FIELDS: Array<{ key: keyof BenchtopRecord; label: string; suffix: s
   { key: 'edge_finish_per_lm', label: 'Finished edge', suffix: '$/LM' },
   { key: 'join_cost', label: 'Join', suffix: '$/join' },
   { key: 'finished_end_cost', label: 'Finished end', suffix: '$/end' },
+  { key: 'finished_end_per_lm', label: 'Visible side/end edge', suffix: '$/LM' },
   { key: 'sink_cutout_cost', label: 'Sink cut-out', suffix: '$/each' },
   { key: 'cooktop_cutout_cost', label: 'Cooktop cut-out', suffix: '$/each' },
   { key: 'tap_hole_cost', label: 'Tap hole', suffix: '$/each' },

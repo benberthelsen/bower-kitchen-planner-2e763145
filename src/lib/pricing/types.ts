@@ -430,6 +430,8 @@ export interface BenchtopMaterialRecord {
   sanding_polishing_per_lm?: number | null;
   edge_finish_per_lm?: number | null;
   finished_end_cost?: number | null;
+  /** Additional visible side/end edge rate; preferred over fixed finished_end_cost when set. */
+  finished_end_per_lm?: number | null;
   sink_cutout_cost?: number | null;
   cooktop_cutout_cost?: number | null;
   tap_hole_cost?: number | null;

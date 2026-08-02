@@ -110,6 +110,13 @@ function applyFabricationMatrix(
   const cornerCount = items.filter(item => CORNER_CAB_RE.test(item.definitionId ?? '')).length;
   const joinCount = Math.min(Math.max(0, baseAllocations.length - 1), cornerCount);
   const finishedEndCount = Math.max(0, baseAllocations.length * 2 - joinCount * 2);
+  const averageDepthLm = baseAllocations.reduce((sum, run) => sum + run.depthMm / 1000, 0)
+    / Math.max(1, baseAllocations.length);
+  const finishedEndLm = Math.max(
+    0,
+    baseAllocations.reduce((sum, run) => sum + (run.depthMm / 1000) * 2, 0)
+      - joinCount * 2 * averageDepthLm,
+  );
   const sinkCount = items.filter(item =>
     item.layoutRole === 'sink'
     || SINK_RE.test(item.definitionId ?? '')
@@ -129,7 +136,9 @@ function applyFabricationMatrix(
   const jobLines = [
     charge('cnc_setup', 'CNC / fabrication setup', 1, 'job', material.cnc_setup_cost),
     charge('joins', 'Benchtop joints', joinCount, 'each', material.join_cost),
-    charge('finished_ends', 'Finished ends', finishedEndCount, 'each', material.finished_end_cost),
+    (material.finished_end_per_lm ?? 0) > 0
+      ? charge('finished_ends', 'Additional visible side/end edges', finishedEndLm, 'lm', material.finished_end_per_lm)
+      : charge('finished_ends', 'Finished ends', finishedEndCount, 'each', material.finished_end_cost),
     charge('sink_cutouts', 'Sink cut-outs', sinkCount, 'each', material.sink_cutout_cost),
     charge('cooktop_cutouts', 'Cooktop cut-outs', cooktopCount, 'each', material.cooktop_cutout_cost),
     charge('tap_holes', 'Tap holes', tapCount, 'each', material.tap_hole_cost),
