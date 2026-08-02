@@ -747,6 +747,30 @@ export default function AdminJobDetail() {
                 {syncingLead && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {job.buildflow_status === 'published' ? 'Verify / resend lead' : 'Send to Build Flow'}
               </Button>
+
+              <Button
+                className="w-full min-h-11 text-base"
+                variant="outline"
+                onClick={sendBuildFlowDesign}
+                disabled={sendingDesign || !designIsPriced}
+              >
+                {sendingDesign && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {sendingDesign ? 'Sending design…' : 'Send design to Build Flow'}
+              </Button>
+              <p className="text-xs text-gray-600">
+                {!designIsPriced
+                  ? 'This design has no price yet, so it cannot be sent.'
+                  : designSendResult?.kind === 'error'
+                    ? designSendResult.message
+                    : designSendResult?.kind === 'duplicate'
+                      ? 'Already up to date'
+                      : designSendResult?.kind === 'sent'
+                        ? `Sent — v${designSendResult.version}`
+                        : job.buildflow_design_sent_at
+                          ? `Sent — v${job.buildflow_design_version ?? 1} on ${new Date(job.buildflow_design_sent_at).toLocaleDateString('en-AU')}`
+                          : 'Design not sent to Build Flow yet.'}
+              </p>
+
             </CardContent>
           </Card>
 
