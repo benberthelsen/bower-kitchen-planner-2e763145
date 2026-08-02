@@ -41,6 +41,9 @@ interface Job {
   buildflow_lead_id: string | null;
   buildflow_published_at: string | null;
   buildflow_error: string | null;
+  buildflow_design_version: number | null;
+  buildflow_design_sent_at: string | null;
+
   profiles?: {
     full_name: string;
     email: string;
@@ -90,6 +93,11 @@ export default function AdminJobDetail() {
   const [changeNote, setChangeNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [syncingLead, setSyncingLead] = useState(false);
+  const [sendingDesign, setSendingDesign] = useState(false);
+  const [designSendResult, setDesignSendResult] = useState<
+    { kind: 'sent' | 'duplicate'; version: number } | { kind: 'error'; message: string } | null
+  >(null);
+
 
   // Pricing data for shop document generation
   const { data: pricingData } = useQuery({
@@ -270,8 +278,43 @@ export default function AdminJobDetail() {
     }
   };
 
+  const sendBuildFlowDesign = async () => {
+    if (!job) return;
+    setSendingDesign(true);
+    setDesignSendResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-buildflow-design', {
+        body: { jobId: job.id },
+      });
+      if (error) throw error;
+      const payload = (data ?? {}) as { designVersion?: number; duplicate?: boolean };
+      const version = payload.designVersion ?? 0;
+      setDesignSendResult({ kind: payload.duplicate ? 'duplicate' : 'sent', version });
+      toast.success(payload.duplicate ? 'Build Flow already has this design' : `Design sent — v${version}`);
+      await loadJob();
+    } catch (error) {
+      console.error('Build Flow design send failed:', error);
+      const message = await getSupabaseFunctionErrorMessage(error, 'Build Flow design send failed');
+      setDesignSendResult({ kind: 'error', message });
+      toast.error(message);
+      await loadJob();
+    } finally {
+      setSendingDesign(false);
+    }
+  };
+
+
+
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
+
+  /** A design can only be sent to Build Flow once it carries a job total. */
+  const designIsPriced = useMemo(() => {
+    const totals = (designData.jobTotals ?? {}) as Record<string, unknown>;
+    const total = typeof totals.total === 'string' ? Number(totals.total) : totals.total;
+    return typeof total === 'number' && Number.isFinite(total);
+  }, [designData]);
+
 
   /** Stored trade cabinets have `category`, not `itemType` — treat rows without
    * an explicit itemType as cabinets unless their category is Appliance. */
@@ -712,6 +755,30 @@ export default function AdminJobDetail() {
                 {syncingLead && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {job.buildflow_status === 'published' ? 'Verify / resend lead' : 'Send to Build Flow'}
               </Button>
+
+              <Button
+                className="w-full min-h-11 text-base"
+                variant="outline"
+                onClick={sendBuildFlowDesign}
+                disabled={sendingDesign || !designIsPriced}
+              >
+                {sendingDesign && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {sendingDesign ? 'Sending design…' : 'Send design to Build Flow'}
+              </Button>
+              <p className="text-xs text-gray-600">
+                {!designIsPriced
+                  ? 'This design has no price yet, so it cannot be sent.'
+                  : designSendResult?.kind === 'error'
+                    ? designSendResult.message
+                    : designSendResult?.kind === 'duplicate'
+                      ? 'Already up to date'
+                      : designSendResult?.kind === 'sent'
+                        ? `Sent — v${designSendResult.version}`
+                        : job.buildflow_design_sent_at
+                          ? `Sent — v${job.buildflow_design_version ?? 1} on ${new Date(job.buildflow_design_sent_at).toLocaleDateString('en-AU')}`
+                          : 'Design not sent to Build Flow yet.'}
+              </p>
+
             </CardContent>
           </Card>
 

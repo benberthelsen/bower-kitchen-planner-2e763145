@@ -342,7 +342,12 @@ export type Database = {
       }
       jobs: {
         Row: {
+          buildflow_design_hash: string | null
+          buildflow_design_id: string | null
+          buildflow_design_sent_at: string | null
+          buildflow_design_version: number
           buildflow_error: string | null
+          buildflow_job_id: string | null
           buildflow_lead_id: string | null
           buildflow_published_at: string | null
           buildflow_status: string | null
@@ -361,7 +366,12 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          buildflow_design_hash?: string | null
+          buildflow_design_id?: string | null
+          buildflow_design_sent_at?: string | null
+          buildflow_design_version?: number
           buildflow_error?: string | null
+          buildflow_job_id?: string | null
           buildflow_lead_id?: string | null
           buildflow_published_at?: string | null
           buildflow_status?: string | null
@@ -380,7 +390,12 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          buildflow_design_hash?: string | null
+          buildflow_design_id?: string | null
+          buildflow_design_sent_at?: string | null
+          buildflow_design_version?: number
           buildflow_error?: string | null
+          buildflow_job_id?: string | null
           buildflow_lead_id?: string | null
           buildflow_published_at?: string | null
           buildflow_status?: string | null
