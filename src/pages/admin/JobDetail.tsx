@@ -278,6 +278,33 @@ export default function AdminJobDetail() {
     }
   };
 
+  const sendBuildFlowDesign = async () => {
+    if (!job) return;
+    setSendingDesign(true);
+    setDesignSendResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-buildflow-design', {
+        body: { jobId: job.id },
+      });
+      if (error) throw error;
+      const payload = (data ?? {}) as { designVersion?: number; duplicate?: boolean };
+      const version = payload.designVersion ?? 0;
+      setDesignSendResult({ kind: payload.duplicate ? 'duplicate' : 'sent', version });
+      toast.success(payload.duplicate ? 'Build Flow already has this design' : `Design sent — v${version}`);
+      await loadJob();
+    } catch (error) {
+      console.error('Build Flow design send failed:', error);
+      const message = await getSupabaseFunctionErrorMessage(error, 'Build Flow design send failed');
+      setDesignSendResult({ kind: 'error', message });
+      toast.error(message);
+      await loadJob();
+    } finally {
+      setSendingDesign(false);
+    }
+  };
+
+
+
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
 
