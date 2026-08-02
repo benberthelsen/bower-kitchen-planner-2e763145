@@ -93,6 +93,11 @@ export default function AdminJobDetail() {
   const [changeNote, setChangeNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [syncingLead, setSyncingLead] = useState(false);
+  const [sendingDesign, setSendingDesign] = useState(false);
+  const [designSendResult, setDesignSendResult] = useState<
+    { kind: 'sent' | 'duplicate'; version: number } | { kind: 'error'; message: string } | null
+  >(null);
+
 
   // Pricing data for shop document generation
   const { data: pricingData } = useQuery({
