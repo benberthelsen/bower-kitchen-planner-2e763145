@@ -17,6 +17,10 @@ verify_jwt = false
 [functions.sync-buildflow-lead]
 verify_jwt = true
 
+[functions.sync-buildflow-design]
+verify_jwt = true
+
+
 [functions.create-planner-handoff]
 verify_jwt = false
 
