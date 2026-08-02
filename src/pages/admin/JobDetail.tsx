@@ -41,6 +41,9 @@ interface Job {
   buildflow_lead_id: string | null;
   buildflow_published_at: string | null;
   buildflow_error: string | null;
+  buildflow_design_version: number | null;
+  buildflow_design_sent_at: string | null;
+
   profiles?: {
     full_name: string;
     email: string;
