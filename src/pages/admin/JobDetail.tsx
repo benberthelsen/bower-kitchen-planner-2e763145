@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DropdownMenu,
@@ -89,6 +90,8 @@ export default function AdminJobDetail() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportWarnings, setExportWarnings] = useState<string[]>([]);
   const [showRequestChanges, setShowRequestChanges] = useState(false);
   const [changeNote, setChangeNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
@@ -234,6 +237,18 @@ export default function AdminJobDetail() {
 
   const exportToXML = async () => {
     if (!job) return;
+    setExportError(null);
+    setExportWarnings([]);
+
+    // Pre-flight: no saved planner rooms means there is nothing to export.
+    const rooms = (job.design_data as Record<string, unknown> | null)?.tradeRooms;
+    if (!Array.isArray(rooms) || rooms.length === 0) {
+      const message = "This job has no saved planner room data, so there is nothing to export. Open the job's room planner and save it first.";
+      setExportError(message);
+      toast.error(message, { duration: 10000 });
+      return;
+    }
+
     setExporting(true);
     try {
       const response = await supabase.functions.invoke('export-microvellum-xml', {
@@ -242,18 +257,33 @@ export default function AdminJobDetail() {
 
       if (response.error) throw response.error;
 
-      const blob = new Blob([response.data.xml], { type: 'application/xml' });
+      const xml = (response.data as { xml?: unknown } | null)?.xml;
+      if (typeof xml !== 'string' || xml.trim().length === 0) {
+        throw new Error("Export returned no XML — check the job's room data");
+      }
+
+      const filename = (response.data as { filename?: string }).filename || `job-${job.id}`;
+      const blob = new Blob([xml], { type: 'application/xml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${response.data.filename}.xml`;
+      a.download = `${filename}.xml`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      const warnings = (response.data as { warnings?: unknown }).warnings;
+      if (Array.isArray(warnings) && warnings.length > 0) {
+        setExportWarnings(warnings.map((w) => String(w)));
+      }
 
       toast.success('XML exported');
     } catch (error) {
       console.error('Error exporting XML:', error);
-      toast.error(await getSupabaseFunctionErrorMessage(error, 'Failed to export XML'));
+      const message = await getSupabaseFunctionErrorMessage(error, 'Failed to export XML');
+      setExportError(`Microvellum export failed: ${message}`);
+      toast.error(`Microvellum export failed: ${message}`, { duration: 10000 });
     } finally {
       setExporting(false);
     }
@@ -848,6 +878,43 @@ export default function AdminJobDetail() {
                   <span className="ml-auto text-xs text-gray-400">Approved only</span>
                 )}
               </Button>
+
+              {exportError && (
+                <Alert variant="destructive">
+                  <AlertDescription className="text-sm break-words">
+                    {exportError}
+                    <button
+                      type="button"
+                      className="ml-2 underline"
+                      onClick={() => setExportError(null)}
+                    >
+                      Dismiss
+                    </button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {exportWarnings.length > 0 && (
+                <Alert className="border-amber-300 bg-amber-50">
+                  <AlertTitle className="text-sm">Exported with warnings — check product names in Microvellum</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc pl-4 text-xs">
+                      {exportWarnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      className="mt-1 underline text-xs"
+                      onClick={() => setExportWarnings([])}
+                    >
+                      Dismiss
+                    </button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+
 
               {!quoteBOM && pricingData && (
                 <p className="text-xs text-gray-400 text-center">
