@@ -89,6 +89,8 @@ export default function AdminJobDetail() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportWarnings, setExportWarnings] = useState<string[]>([]);
   const [showRequestChanges, setShowRequestChanges] = useState(false);
   const [changeNote, setChangeNote] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
