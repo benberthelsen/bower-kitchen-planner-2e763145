@@ -878,6 +878,43 @@ export default function AdminJobDetail() {
                 )}
               </Button>
 
+              {exportError && (
+                <Alert variant="destructive">
+                  <AlertDescription className="text-sm break-words">
+                    {exportError}
+                    <button
+                      type="button"
+                      className="ml-2 underline"
+                      onClick={() => setExportError(null)}
+                    >
+                      Dismiss
+                    </button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {exportWarnings.length > 0 && (
+                <Alert className="border-amber-300 bg-amber-50">
+                  <AlertTitle className="text-sm">Exported with warnings — check product names in Microvellum</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc pl-4 text-xs">
+                      {exportWarnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      className="mt-1 underline text-xs"
+                      onClick={() => setExportWarnings([])}
+                    >
+                      Dismiss
+                    </button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+
+
               {!quoteBOM && pricingData && (
                 <p className="text-xs text-gray-400 text-center">
                   No cabinets in job — PDFs unavailable.
