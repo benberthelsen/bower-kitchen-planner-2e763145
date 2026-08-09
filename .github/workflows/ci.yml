@@ -27,6 +27,7 @@ jobs:
         with:
           repository: benberthelsen/bower-cabinet-web-site
           path: website
+          ssh-key: ${{ secrets.WEBSITE_REPO_SSH_KEY }}
 
       - name: Use Node.js 20
         uses: actions/setup-node@v4
