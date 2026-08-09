@@ -58,16 +58,17 @@ const HandleMesh: React.FC<HandleMeshProps> = ({
   }
 
   if (type === 'Lip') {
+    const lipLength = Math.max(0.06, length);
     return (
       <group position={position} rotation={[0, 0, rotation]}>
         {/* Main lip profile - curved edge pull */}
         <mesh>
-          <boxGeometry args={[0.1, 0.02, 0.015]} />
+          <boxGeometry args={[lipLength, 0.02, 0.015]} />
           <meshStandardMaterial {...metalProps} />
         </mesh>
         {/* Curved back */}
         <mesh position={[0, -0.008, -0.008]} rotation={[Math.PI / 4, 0, 0]}>
-          <boxGeometry args={[0.1, 0.012, 0.012]} />
+          <boxGeometry args={[lipLength, 0.012, 0.012]} />
           <meshStandardMaterial {...metalProps} />
         </mesh>
       </group>

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { PlacedItem, GlobalDimensions, MaterialOption } from '../../types';
-import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, HANDLE_OPTIONS } from '../../constants';
+import { TAP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, HANDLE_OPTIONS, KICK_OPTIONS } from '../../constants';
 import { useCatalog, useCatalogItem } from '../../hooks/useCatalog';
 import { handleItemPointerDown } from './selectionGesture';
 import { getApplianceMaterial, resolveFinishKey, type ApplianceFinishKey } from './materials/applianceMaterials';
@@ -17,11 +17,16 @@ import {
 import { useApplianceFaceTexture, isProductElevationUrl, type ApplianceFaceTexture } from './materials/applianceImage';
 import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
 import ApplianceBenchtop from './ApplianceBenchtop';
+import { underBenchTopLocalY } from './appliances/underBenchTop';
 import IntegratedDishwasherFront from './IntegratedDishwasherFront';
 import { resolveHandleDefinition } from '../../lib/handleStyles';
 import { fridgeBodyWidthMm } from '../../lib/layout/catalogRoles';
 import CabinetMesh from './CabinetMesh';
+import { Gable } from './cabinet-parts';
+import { useOptionalTexture } from './materials/useOptionalTexture';
 import { SINK_RIM_WIDTH_M, sinkOpeningDimensions } from './appliances/sinkDimensions';
+import { CONSTRUCTION_STANDARDS } from '../../types/cabinetConfig';
+import { benchtopTextureRunOffsetM } from './cabinet-parts/benchtopGeometry';
 
 /** THREE box face order is +x, -x, +y, -y, +z, -z. */
 const FACE_TOP = 2;
@@ -95,6 +100,8 @@ interface ApplianceMeshProps {
   benchtop?: MaterialOption;
   /** Selected door finish for integrated dishwasher panels. */
   cabinetFinish?: MaterialOption;
+  /** Selected plinth finish so the dishwasher does not break the kick run. */
+  kick?: MaterialOption;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
 }
@@ -111,6 +118,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   item,
   benchtop,
   cabinetFinish: cabinetFinishProp,
+  kick: kickProp,
   globalDimensions: dimensionsProp,
   isSelected: isSelectedProp,
   isDragged: isDraggedProp,
@@ -118,6 +126,7 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   onDragStart,
 }) => {
   const globalDimensions = dimensionsProp ?? DEFAULT_GLOBAL_DIMENSIONS;
+  const selectedKick = kickProp ?? KICK_OPTIONS[0];
   const isSelected = isSelectedProp ?? false;
   const isDragged = isDraggedProp ?? false;
 
@@ -138,6 +147,17 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const [hovered, setHovered] = useState(false);
 
   const selectedTap = TAP_OPTIONS.find(t => t.id === item.tapId) || TAP_OPTIONS[0];
+  const cabinetFinish = FINISH_OPTIONS.find(option => option.id === item.finishColor)
+    ?? cabinetFinishProp
+    ?? FINISH_OPTIONS[0];
+  const hasEndSupport = Boolean(item.endPanelLeft || item.endPanelRight);
+  const endPanelTextureUrl = hasEndSupport
+    ? (item.doorTextureUrl || cabinetFinish.textureUrl || null)
+    : null;
+  const endPanelTextureSize = endPanelTextureUrl === cabinetFinish.textureUrl
+    ? cabinetFinish.textureRepeatMm
+    : null;
+  const endPanelTexture = useOptionalTexture(endPanelTextureUrl, endPanelTextureSize);
 
   // Supplier product elevation. Hooks cannot run after the catalog-loading
   // early return below, so the face is chosen from the item and its snapshot;
@@ -243,9 +263,6 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
   const panelHex = item.finishColor?.startsWith('#')
     ? item.finishColor
     : FINISH_OPTIONS.find(option => option.id === item.finishColor)?.hex;
-  const cabinetFinish = FINISH_OPTIONS.find(option => option.id === item.finishColor)
-    ?? cabinetFinishProp
-    ?? FINISH_OPTIONS[0];
   const cabinetHandle = resolveHandleDefinition(item.handleType)
     ?? HANDLE_OPTIONS.find(option => option.id === item.handleType)
     ?? HANDLE_OPTIONS[0];
@@ -501,9 +518,50 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
         const doorH = heightM - fasciaH - plinthH - 0.008;
         const doorY = -heightM / 2 + plinthH + doorH / 2;
         const frontZ = depthM / 2;
+        const supportPanelM = CONSTRUCTION_STANDARDS.gableThickness / 1000;
+        const benchtopLeftSupportM = Math.max(
+          (item.benchtopLeftOverhang ?? 0) / 1000,
+          item.endPanelLeft ? supportPanelM : 0,
+        );
+        const benchtopRightSupportM = Math.max(
+          (item.benchtopRightOverhang ?? 0) / 1000,
+          item.endPanelRight ? supportPanelM : 0,
+        );
         return (
         <group>
           <mesh material={bodyMat}><boxGeometry args={[widthM, heightM, depthM]} /></mesh>
+          {/* A dishwasher is an appliance opening, so it has no cabinet gable
+              to carry an exposed end of the benchtop. The finished support
+              panel therefore sits outside the opening and runs all the way
+              from the floor to the underside of the stone. */}
+          {item.endPanelLeft && (
+            <Gable
+              width={supportPanelM}
+              height={heightM}
+              depth={depthM}
+              position={[-widthM / 2 - supportPanelM / 2, 0, 0]}
+              color={cabinetFinish.hex}
+              roughness={cabinetFinish.roughness}
+              metalness={cabinetFinish.metalness}
+              map={endPanelTexture}
+              isExposedEnd
+              side="left"
+            />
+          )}
+          {item.endPanelRight && (
+            <Gable
+              width={supportPanelM}
+              height={heightM}
+              depth={depthM}
+              position={[widthM / 2 + supportPanelM / 2, 0, 0]}
+              color={cabinetFinish.hex}
+              roughness={cabinetFinish.roughness}
+              metalness={cabinetFinish.metalness}
+              map={endPanelTexture}
+              isExposedEnd
+              side="right"
+            />
+          )}
           {isIntegratedDishwasher ? (
             <IntegratedDishwasherFront
               widthM={widthM}
@@ -551,7 +609,11 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
           {/* Plinth, set back. */}
           <mesh position={[0, -heightM / 2 + plinthH / 2, frontZ - 0.012]}>
             <boxGeometry args={[widthM - 0.01, plinthH, 0.024]} />
-            <meshStandardMaterial color="#2b2e31" roughness={0.8} metalness={0.05} />
+            <meshStandardMaterial
+              color={selectedKick.hex}
+              roughness={selectedKick.roughness ?? 0.8}
+              metalness={selectedKick.metalness ?? 0.05}
+            />
           </mesh>
           {/* Top rails carrying the benchtop (dishwasher opening has no full top). */}
           {item.topRail !== false && (
@@ -574,7 +636,14 @@ const ApplianceMesh: React.FC<ApplianceMeshProps> = ({
             globalDimensions={globalDimensions}
             widthM={widthM}
             depthM={depthM}
-            topY={heightM / 2}
+            topY={underBenchTopLocalY(
+              heightM,
+              globalDimensions.baseHeight / 1000,
+              'centred',
+            )}
+            leftOverhangM={benchtopLeftSupportM}
+            rightOverhangM={benchtopRightSupportM}
+            textureRunOffsetM={benchtopTextureRunOffsetM(item)}
           />
         </group>
         );

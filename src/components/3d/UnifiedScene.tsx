@@ -210,6 +210,23 @@ function ServiceComposite({ s }: { s: ServicePoint }) {
   }
 }
 
+/** Through-floor service marker used for island plumbing, power and gas. */
+function FloorServiceComposite({ s }: { s: ServicePoint }) {
+  const color = SERVICE_COLORS[s.type] ?? '#64748b';
+  return (
+    <group>
+      <mesh position={[0, 0.012, 0]}>
+        <cylinderGeometry args={[0.045, 0.045, 0.022, 20]} />
+        <meshStandardMaterial color="#f8fafc" metalness={0.2} roughness={0.45} />
+      </mesh>
+      <mesh position={[0, 0.035, 0]}>
+        <cylinderGeometry args={[0.026, 0.026, 0.045, 18]} />
+        <meshStandardMaterial color={color} metalness={0.45} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
 function RoomServices({ room }: { room: RoomConfig }) {
   const services = room.services ?? [];
   if (!services.length) return null;
@@ -219,6 +236,13 @@ function RoomServices({ room }: { room: RoomConfig }) {
   return (
     <group>
       {services.map((s) => {
+        if (s.placement === 'floor' && s.xMm !== undefined && s.zMm !== undefined) {
+          return (
+            <group key={s.id} position={[s.xMm / 1000, 0, s.zMm / 1000]}>
+              <FloorServiceComposite s={s} />
+            </group>
+          );
+        }
         const { pos, rotY } = wallAnchor(s.wall, s.offsetMm / 1000, widthM, depthM);
         return (
           <group key={s.id} position={pos} rotation={[0, rotY, 0]}>
@@ -1113,6 +1137,7 @@ export function UnifiedScene({
                 globalDimensions={globalDimensions}
                 benchtop={sceneBenchtop}
                 cabinetFinish={sceneFinish}
+                kick={sceneKick}
                 {...commonProps}
               />
             );

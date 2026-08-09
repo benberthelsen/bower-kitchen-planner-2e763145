@@ -37,7 +37,8 @@ const sitePath = join(siteRepo, WEBSITE_CONTRACT_REL);
 if (!existsSync(siteRepo)) {
   console.log(`website repo not present at ${siteRepo} — skipped (website CI checks its lock hash)`);
 } else if (!existsSync(sitePath)) {
-  console.log('website copy not generated yet — skipped (created in the website integration run)');
+  console.error(`DRIFT: website contract copy missing at ${sitePath} — run npm run roomscan:sync -- --website`);
+  failed = true;
 } else {
   const siteText = readFileSync(sitePath, 'utf8');
   if (siteText !== canonical) {
@@ -55,6 +56,9 @@ if (!existsSync(siteRepo)) {
     } else {
       console.log('lock file: hash matches canonical');
     }
+  } else {
+    console.error(`DRIFT: website contract lock missing at ${lockPath}`);
+    failed = true;
   }
 }
 

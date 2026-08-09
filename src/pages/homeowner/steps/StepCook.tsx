@@ -18,6 +18,7 @@ export interface CookFields {
   cooktop?: 'gas' | 'induction';
   dishwasher: boolean;
   fridgeWidthMm: number;
+  fridgeOpeningWidthMm?: number;
   island: 'want' | 'no' | 'if-it-fits';
 }
 
@@ -46,6 +47,7 @@ function Chip({ active, onClick, children, ariaLabel }: { active: boolean; onCli
 
 const PRIORITY_OPTIONS: { id: Priority; label: string }[] = [
   { id: 'storage', label: 'Lots of storage' },
+  { id: 'drawers', label: 'Mostly drawers' },
   { id: 'bench-space', label: 'Bench space' },
   { id: 'entertaining', label: 'Entertaining' },
   { id: 'baking', label: 'Baking' },
@@ -121,12 +123,38 @@ export default function StepCook({ value, onChange }: Props) {
             </div>
           </div>
           <div className="space-y-2">
-            <p className="text-xs text-slate-500">Fridge space</p>
-            <div className="flex gap-2" role="group" aria-label="Fridge space">
-              <Chip active={value.fridgeWidthMm === 860} onClick={() => onChange({ fridgeWidthMm: 860 })}>Standard</Chip>
-              <Chip active={value.fridgeWidthMm === 940} onClick={() => onChange({ fridgeWidthMm: 940 })}>Large</Chip>
-              <Chip active={value.fridgeWidthMm === 1200} onClick={() => onChange({ fridgeWidthMm: 1200 })}>French door</Chip>
+            <p className="text-xs text-slate-500">Fridge body width</p>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Fridge body width">
+              {[600, 700, 800, 900].map(widthMm => (
+                <Chip
+                  key={widthMm}
+                  active={value.fridgeWidthMm === widthMm}
+                  onClick={() => onChange({ fridgeWidthMm: widthMm, fridgeOpeningWidthMm: undefined })}
+                >
+                  {widthMm}mm
+                </Chip>
+              ))}
             </div>
+            <label className="block max-w-[180px] text-xs text-slate-500">
+              Other size (mm)
+              <input
+                type="number"
+                min={500}
+                max={1400}
+                step={1}
+                value={value.fridgeWidthMm}
+                onChange={event => {
+                  const widthMm = Number(event.target.value);
+                  if (Number.isFinite(widthMm) && widthMm >= 500 && widthMm <= 1400) {
+                    onChange({ fridgeWidthMm: Math.round(widthMm), fridgeOpeningWidthMm: undefined });
+                  }
+                }}
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900"
+              />
+            </label>
+            <p className="text-[11px] leading-4 text-slate-400">
+              We add 50mm each side by default. The selected model's installation instructions are checked before manufacture.
+            </p>
           </div>
         </div>
       </div>

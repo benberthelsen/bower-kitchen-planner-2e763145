@@ -92,6 +92,36 @@ export function exportCutSummaryPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
 
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
+  // Complete kick faces are taken off by physical run, not once per cabinet.
+  const kickboards = quoteBOM.kickboards ?? [];
+  if (kickboards.length > 0) {
+    if (y > 220) { doc.addPage(); y = 18; }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Kick Faces', 14, y);
+    y += 2;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Run', 'Face length', 'Height', 'Stock', 'Installed cuts']],
+      body: kickboards.map(run => [
+        run.runLabel,
+        `${run.runLengthMm} mm`,
+        `${run.heightMm} mm`,
+        `${run.stockLengthMm} mm`,
+        run.cutLengthsMm.map(length => `${length}`).join(' + ') + ' mm',
+      ]),
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [30, 41, 82], textColor: 255 },
+      columnStyles: {
+        1: { halign: 'right', cellWidth: 28 },
+        2: { halign: 'right', cellWidth: 22 },
+        3: { halign: 'right', cellWidth: 24 },
+      },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+  }
+
   // ── Section 2: Time breakdown ─────────────────────────────────────────────
   if (y > 220) { doc.addPage(); y = 18; }
 

@@ -20,6 +20,7 @@ import {
   synthesiseApplianceOverlays,
   filterCatalogToCooking,
   filterApplianceProducts,
+  recommendApplianceProducts,
   excludedCategories,
   APPLIANCE_CATEGORY_ORDER,
 } from '../src/pages/homeowner/applianceSelection';
@@ -30,11 +31,24 @@ import {
   isIntegratedDishwasherAppliance,
 } from '../src/components/3d/applianceClassification';
 import { rectangularCutoutSegments } from '../src/components/3d/cabinet-parts/benchtopCutout';
+import {
+  benchtopTextureRunOffsetM,
+  rectangularBenchtopGeometry,
+} from '../src/components/3d/cabinet-parts/benchtopGeometry';
 import { sinkOpeningDimensions } from '../src/components/3d/appliances/sinkDimensions';
 import {
+  cabinetBodyMaterialForRole,
+  cabinetCategoryForLayoutRole,
+  cabinetCornerTypeForLayoutRole,
   carcassMaterialForCategory,
+  finishedEndPanelGeometry,
+  kickboardFrontOffsetM,
+  resolvedBenchtopThicknessM,
   shouldRenderKickboard,
 } from '../src/components/3d/cabinetConstruction';
+import { diagonalCornerGeometry } from '../src/components/3d/cabinet-parts/cornerGeometry';
+import { underBenchTopLocalY } from '../src/components/3d/appliances/underBenchTop';
+import { getConstructionRecipe } from '../src/lib/microvellum/constructionRecipes';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -212,6 +226,59 @@ check('no benchtop segment covers the centre of the sink',
   !centerCovered,
   JSON.stringify(cutoutSegments));
 
+const dishwasherHeightM = 0.82;
+const cabinetBenchHeightM = 0.73;
+const centredDishwasherTopY = underBenchTopLocalY(
+  dishwasherHeightM,
+  cabinetBenchHeightM,
+  'centred',
+);
+const baseOriginDishwasherTopY = underBenchTopLocalY(
+  dishwasherHeightM,
+  cabinetBenchHeightM,
+  'base-origin',
+);
+check('dishwasher benchtop stays level with the cabinet run, not the appliance model',
+  Math.abs(dishwasherHeightM / 2 + centredDishwasherTopY - cabinetBenchHeightM) < 0.000001
+    && Math.abs(baseOriginDishwasherTopY - cabinetBenchHeightM) < 0.000001,
+  JSON.stringify({ centredDishwasherTopY, baseOriginDishwasherTopY }));
+
+const baseRecipe = getConstructionRecipe('Base 2 Door');
+const dishwasherRecipe = getConstructionRecipe('Base Dishwasher');
+const baseTopThicknessM = resolvedBenchtopThicknessM(
+  DEFAULT_GLOBAL_DIMENSIONS,
+  baseRecipe?.benchtop.thickness,
+);
+const dishwasherTopThicknessM = resolvedBenchtopThicknessM(
+  DEFAULT_GLOBAL_DIMENSIONS,
+  dishwasherRecipe?.benchtop.thickness,
+);
+check('dishwasher and adjoining base cabinets use the same benchtop thickness',
+  Math.abs(baseTopThicknessM - dishwasherTopThicknessM) < 0.000001,
+  JSON.stringify({ baseTopThicknessM, dishwasherTopThicknessM }));
+
+const islandTop = rectangularBenchtopGeometry(0.6, 0.65, {
+  front: 0.025,
+  back: 0.025,
+  left: 0.025,
+  right: 0.025,
+});
+check('a storage island benchtop overhangs all four exposed edges',
+  Math.abs(islandTop.totalWidth - 0.65) < 0.000001
+    && Math.abs(islandTop.totalDepth - 0.7) < 0.000001
+    && islandTop.xOffset === 0
+    && islandTop.zOffset === 0,
+  JSON.stringify(islandTop));
+
+const seatingTop = rectangularBenchtopGeometry(0.6, 0.65, {
+  front: 0.025,
+  back: 0.3,
+});
+check('a seating island extends the stool edge without moving the cabinet fronts',
+  Math.abs(seatingTop.totalDepth - 0.975) < 0.000001
+    && Math.abs(seatingTop.zOffset + 0.1375) < 0.000001,
+  JSON.stringify(seatingTop));
+
 check('a floor-standing base cabinet keeps its kick despite noisy recipe metadata',
   shouldRenderKickboard({
     category: 'Base',
@@ -244,12 +311,69 @@ check('wall cabinets and applied panels never gain a kick',
     recipeEnabled: true,
   }));
 
+const upperEndPanel = finishedEndPanelGeometry(0.35, 0.018, 0.002);
+check('upper end panels retain the carcass back and finish flush with the door face',
+  Math.abs(upperEndPanel.depthM - 0.37) < 0.000001
+    && Math.abs(upperEndPanel.centerOffsetZM - 0.01) < 0.000001
+    && Math.abs(
+      upperEndPanel.centerOffsetZM - upperEndPanel.depthM / 2 + 0.35 / 2,
+    ) < 0.000001
+    && Math.abs(
+      upperEndPanel.centerOffsetZM + upperEndPanel.depthM / 2 - (0.35 / 2 + 0.018 + 0.002),
+    ) < 0.000001,
+  JSON.stringify(upperEndPanel));
+
+check('blind-corner kick is placed at the cabinet front instead of hidden through its centre',
+  Math.abs(kickboardFrontOffsetM(0.625, true, 'blind') - 0.2725) < 0.000001);
+check('pie-cut corner keeps its two joined kick faces centred on the corner origin',
+  kickboardFrontOffsetM(0.9, true, 'l-shape') === 0);
+
+check('generated floor and upper corners keep their correct construction categories',
+  cabinetCategoryForLayoutRole('Wall', 'corner') === 'Base'
+  && cabinetCategoryForLayoutRole('Base', 'wall-corner') === 'Wall');
+
+check('generated upper corner defaults to bi-fold while diagonal remains an explicit choice',
+  cabinetCornerTypeForLayoutRole(null, 'wall_corner_pie_cut_2_door', 'wall-corner') === 'l-shape'
+  && cabinetCornerTypeForLayoutRole('l-shape', 'wall_corner_diagonal', 'wall-corner') === 'diagonal');
+
+const upperCorner = diagonalCornerGeometry(0.6, 0.6, 0.35, 0.35);
+check('optional 600mm angled upper corner uses shallow wall arms and a true diagonal face',
+  Math.abs(upperCorner.leftArmWidth - 0.35) < 0.000001
+  && Math.abs(upperCorner.backArmDepth - 0.35) < 0.000001
+  && Math.abs(upperCorner.frontWidth - Math.hypot(0.25, 0.25)) < 0.000001
+  && upperCorner.frontYaw === Math.PI / 4,
+  JSON.stringify(upperCorner));
+
 const timberCarcass = { finish: 'timber' };
 const whiteMelamineCarcass = { finish: 'white-melamine' };
 check('overhead carcass stays white while other cabinet categories keep their configured material',
   carcassMaterialForCategory('Wall', timberCarcass, whiteMelamineCarcass) === whiteMelamineCarcass
   && carcassMaterialForCategory('Base', timberCarcass, whiteMelamineCarcass) === timberCarcass
   && carcassMaterialForCategory('Tall', timberCarcass, whiteMelamineCarcass) === timberCarcass);
+
+check('an open upper unit carries the selected door finish while a closed upper remains white inside',
+  cabinetBodyMaterialForRole(
+    'Wall', 'open-shelf', timberCarcass, timberCarcass, whiteMelamineCarcass,
+  ) === timberCarcass
+  && cabinetBodyMaterialForRole(
+    'Wall', 'wall-cabinet', timberCarcass, timberCarcass, whiteMelamineCarcass,
+  ) === whiteMelamineCarcass);
+
+const northFirstTop = { x: 300, z: 287.5, width: 600, rotation: 0 };
+const northSecondTop = { x: 900, z: 287.5, width: 600, rotation: 0 };
+const southFirstTop = { x: 3300, z: 3712.5, width: 600, rotation: 180 };
+const southSecondTop = { x: 2700, z: 3712.5, width: 600, rotation: 180 };
+check('adjacent benchtops advance one continuous texture phase on north and south runs',
+  Math.abs(
+    benchtopTextureRunOffsetM(northSecondTop)
+      - benchtopTextureRunOffsetM(northFirstTop)
+      - 0.6,
+  ) < 0.000001
+  && Math.abs(
+    benchtopTextureRunOffsetM(southSecondTop)
+      - benchtopTextureRunOffsetM(southFirstTop)
+      - 0.6,
+  ) < 0.000001);
 
 // These two are the load-bearing invariants. rules.ts detects islands via an
 // `ai-` prefix, and both pricing paths read compiled.items — an overlay that
@@ -338,13 +462,59 @@ check('freestanding dishwashers retain their appliance front',
   check('a tower oven does not suppress the whole tower cabinet front',
     !!tower && !tower.applianceHostInstanceId,
     tower?.applianceHostInstanceId ?? 'none');
+
+  const wideOven = product({
+    id: '77777777-7777-4777-8777-777777777777',
+    name: '900mm Built-in Oven',
+    category: 'oven',
+    width_mm: 895,
+    height_mm: 595,
+    depth_mm: 570,
+  });
+  const mismatched = synthesiseApplianceOverlays(
+    { rolePositions: underbenchRoles },
+    { oven: '77777777-7777-4777-8777-777777777777' },
+    [wideOven],
+  );
+  check('a 900mm oven is never drawn through a 600mm cabinet',
+    !mismatched.some(item => item.instanceId === 'appl-oven'),
+    JSON.stringify(mismatched));
+
+  const cooktopPosition = compiled.rolePositions.cooktop!;
+  const wideHostRoles = {
+    ...underbenchRoles,
+    cooktop: {
+      ...cooktopPosition,
+      widthMm: 900,
+      item: { ...cooktopPosition.item, width: 900 },
+    },
+  };
+  const correctlyHoused = synthesiseApplianceOverlays(
+    { rolePositions: wideHostRoles },
+    { oven: '77777777-7777-4777-8777-777777777777' },
+    [wideOven],
+  ).find(item => item.instanceId === 'appl-oven');
+  check('a 900mm oven renders when its under-bench housing is 900mm',
+    correctlyHoused?.width === 895 && correctlyHoused.applianceHostInstanceId === cooktopPosition.item.instanceId,
+    JSON.stringify(correctlyHoused));
 }
 
-// Nothing chosen must stay a no-op.
-check('no chosen products yields no overlays',
-  synthesiseApplianceOverlays(compiled, {}, PRODUCTS).length === 0, 'produced overlays from an empty selection');
-check('no catalog yields no overlays',
-  synthesiseApplianceOverlays(compiled, chosen, []).length === 0, 'produced overlays with no catalog');
+// An unfinished appliance selection must still communicate the proposed work
+// zones without silently adding products or prices to the order.
+const unchosenMarkers = synthesiseApplianceOverlays(compiled, {}, PRODUCTS);
+check('an unfinished appliance selection still marks sink, cooktop and oven positions',
+  ['appl-sink', 'appl-cooktop', 'appl-oven'].every(id => unchosenMarkers.some(item => item.instanceId === id)),
+  `got ${unchosenMarkers.map(item => item.instanceId).join(', ')}`);
+check('position markers are never priced or supplied as selected products',
+  unchosenMarkers.every(item => !item.applianceProductId
+    && item.supplyWithOrder === false
+    && item.applianceSnapshot?.unitPrice === 0),
+  JSON.stringify(unchosenMarkers));
+
+const unloadedCatalogMarkers = synthesiseApplianceOverlays(compiled, chosen, []);
+check('position markers remain visible while the appliance catalog is unavailable',
+  ['appl-sink', 'appl-cooktop', 'appl-oven'].every(id => unloadedCatalogMarkers.some(item => item.instanceId === id)),
+  `got ${unloadedCatalogMarkers.map(item => item.instanceId).join(', ')}`);
 
 /* ── Cooking-step filter ───────────────────────────────────────────────────
  *
@@ -375,6 +545,7 @@ const COOKING_CATALOG: Record<ApplianceCategory, unknown[]> = {
 } as never;
 
 const ids = (rows: unknown[]) => (rows as { id: string }[]).map(r => r.id).sort().join(',');
+const orderedIds = (rows: unknown[]) => (rows as { id: string }[]).map(r => r.id).join(',');
 
 {
   const induction = filterCatalogToCooking(COOKING_CATALOG as never, { cooktop: 'induction' });
@@ -457,6 +628,41 @@ const ids = (rows: unknown[]) => (rows as { id: string }[]).map(r => r.id).sort(
     filterApplianceProducts(sinks, 'haffle').length === sinks.length);
   check('clearing catalogue search restores the full range',
     filterApplianceProducts(sinks, '  ').length === sinks.length);
+}
+
+/* Kitchen-specific recommendations
+ *
+ * Supplier ordering must never promote laundry or bathroom fixtures into the
+ * kitchen shortlist. The unsuitable rows remain searchable in the full range.
+ */
+{
+  const sinks = [
+    product({ id: 'sink-laundry', item_code: '567.30.120', name: 'Laundry tub', category: 'sink', bowl_count: 1, sort_order: 10 }),
+    product({ id: 'sink-round', item_code: '567.56.000', name: 'Round bowl', category: 'sink', bowl_count: 1, sort_order: 20 }),
+    product({ id: 'sink-drainer', item_code: 'P-01582749', name: 'Squareline plus single bowl with drainer', category: 'sink', bowl_count: 1, width_mm: 860, installation: 'Surface mount', sort_order: 50 }),
+    product({ id: 'sink-one-three-quarter', item_code: '567.33.116', name: '1 & 3/4 Bowl', category: 'sink', bowl_count: 1.75, width_mm: 800, installation: 'Undermount', sort_order: 100 }),
+    product({ id: 'sink-double', item_code: '567.33.250', name: 'Squareline plus double bowl', category: 'sink', bowl_count: 2, width_mm: 780, installation: 'Surface mount, Undermount', sort_order: 110 }),
+  ];
+  const taps = [
+    product({ id: 'tap-wall', item_code: '589.33.367', name: 'Rondo wall mixer, with trim', category: 'tap', sort_order: 10 }),
+    product({ id: 'tap-basin', item_code: '589.33.031', name: 'Rondo basin mixer', category: 'tap', sort_order: 20 }),
+    product({ id: 'tap-gooseneck', item_code: '566.58.220', name: 'Gooseneck', category: 'tap', sort_order: 40 }),
+    product({ id: 'tap-spray', item_code: '569.40.200', name: 'With pull-out vegie spray', category: 'tap', sort_order: 50 }),
+    product({ id: 'tap-combined', item_code: 'P-01581837', name: 'Gooseneck, with pullout vegie spray', category: 'tap', sort_order: 150 }),
+  ];
+
+  check('sink recommendations are the Bower kitchen shortlist',
+    orderedIds(recommendApplianceProducts('sink', sinks as never[]))
+      === 'sink-one-three-quarter,sink-double,sink-drainer');
+  check('laundry and round utility bowls remain outside the recommended sinks',
+    recommendApplianceProducts('sink', sinks as never[])
+      .every(item => !/laundry|round bowl/i.test(item.name)));
+  check('tap recommendations contain kitchen gooseneck and pull-out mixers',
+    orderedIds(recommendApplianceProducts('tap', taps as never[]))
+      === 'tap-combined,tap-spray,tap-gooseneck');
+  check('wall and basin mixers remain outside the recommended taps',
+    recommendApplianceProducts('tap', taps as never[])
+      .every(item => !/wall mixer|basin/i.test(item.name)));
 }
 
 console.log(failures === 0

@@ -13,7 +13,7 @@ import {
   PRICING_VERSION,
   PROPOSAL_SCHEMA_VERSION,
 } from '@/lib/layout';
-import type { DesignBrief, KitchenSpec, Priority, Wall, WallRunRanges } from '@/lib/layout';
+import type { DesignBrief, KitchenSpec, Priority, StyleSpec, Wall, WallRunRanges } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 
 export interface WizardBriefFields {
@@ -33,7 +33,9 @@ export interface WizardBriefFields {
   oven?: '600' | '900';
   cooktop?: 'gas' | 'induction';
   dishwasher: boolean;
+  sinkCabinetWidthMm?: number;
   fridgeWidthMm: number;
+  fridgeOpeningWidthMm?: number;
   microwave?: 'built-in' | 'benchtop' | 'none';
   island: 'want' | 'no' | 'if-it-fits';
   /** Inspiration + client-chosen finishes (e.g. from a website flat-lay handoff).
@@ -48,6 +50,9 @@ export interface WizardBriefFields {
   finishId: string;
   benchtopId: string;
   handleId: string;
+  styleFamilyId?: string;
+  styleFamilyVersion?: number;
+  styleVariantId?: string;
 }
 
 /** A chosen design in wizard state: the spec is the source of truth; items,
@@ -61,6 +66,9 @@ export interface WizardDesign {
   name: string;
   spec: KitchenSpec;
   aiGenerated: boolean;
+  /** True only after the customer saves cabinet-level edits. Engine upgrades
+   *  must preserve these designs instead of silently regenerating them. */
+  customerEdited?: boolean;
   proposalId?: string;
   /** Canonical price band from the server proposal — when present, this is
    *  the ONE band shown for this design (option card, 3D overlay, review,
@@ -68,6 +76,45 @@ export interface WizardDesign {
    *  numbers for the same selection. Absent for the deterministic default
    *  layout, which falls back to the local estimator band. */
   priceBand?: { lowAud: number; highAud: number };
+}
+
+const AUTOMATIC_STARTER_NAMES = new Set(['Designer recommended', 'Standard layout']);
+
+function isAutomaticStarter(input: Partial<WizardDesign> | null | undefined): boolean {
+  if (!input || typeof input.name !== 'string' || !input.spec) return false;
+  const manuallyEdited = input.customerEdited === true || input.name.endsWith(' (edited)');
+  return !manuallyEdited
+    && input.aiGenerated !== true
+    && AUTOMATIC_STARTER_NAMES.has(input.name);
+}
+
+/**
+ * Automatic starter layouts are safe to recreate when the layout engine
+ * changes. Selected alternatives, AI proposals, shared designs and manual
+ * cabinet edits remain the customer's design and are never silently replaced.
+ */
+export function shouldRefreshAutomaticStarter(
+  input: Partial<WizardDesign> | null | undefined,
+): boolean {
+  return isAutomaticStarter(input)
+    && input.engineVersion !== ENGINE_VERSION;
+}
+
+/**
+ * A style-family change is a composition change, not a finish overlay. An
+ * automatic starter can therefore be rebuilt safely when a short-link style
+ * overrides the style stored in session state. Selected alternatives and
+ * customer-edited designs remain untouched.
+ */
+export function shouldRegenerateAutomaticStarterForStyle(
+  input: Partial<WizardDesign> | null | undefined,
+  style: Pick<StyleSpec, 'familyId' | 'familyVersion' | 'variantId'>,
+): boolean {
+  if (!isAutomaticStarter(input) || !input?.spec) return false;
+  const stored = input.spec.style;
+  return stored.familyId !== style.familyId
+    || stored.familyVersion !== style.familyVersion
+    || stored.variantId !== style.variantId;
 }
 
 export function createWizardDesign(
@@ -85,11 +132,13 @@ export function createWizardDesign(
 
 export function upgradeWizardDesign(input: Partial<WizardDesign> | null | undefined): WizardDesign | null {
   if (!input || typeof input.name !== 'string' || !input.spec) return null;
+  if (shouldRefreshAutomaticStarter(input)) return null;
   return {
     ...createWizardDesign({
       name: input.name,
       spec: input.spec,
       aiGenerated: input.aiGenerated === true,
+      ...(input.customerEdited === true ? { customerEdited: true } : {}),
       ...(input.proposalId ? { proposalId: input.proposalId } : {}),
       ...(input.priceBand ? { priceBand: input.priceBand } : {}),
     }),
@@ -124,12 +173,21 @@ export function buildBrief(f: WizardBriefFields): DesignBrief {
       oven: f.oven,
       cooktop: f.cooktop,
       dishwasher: f.dishwasher,
+      ...(f.sinkCabinetWidthMm ? { sinkCabinetWidthMm: f.sinkCabinetWidthMm } : {}),
       fridgeWidthMm: f.fridgeWidthMm,
+      ...(f.fridgeOpeningWidthMm ? { fridgeOpeningWidthMm: f.fridgeOpeningWidthMm } : {}),
       microwave: f.microwave,
     },
     island: f.island,
     ...(f.styleWords ? { styleWords: f.styleWords } : {}),
-    styleIds: { finishId: f.finishId, benchtopId: f.benchtopId, handleId: f.handleId },
+    styleIds: {
+      finishId: f.finishId,
+      benchtopId: f.benchtopId,
+      handleId: f.handleId,
+      ...(f.styleFamilyId ? { familyId: f.styleFamilyId } : {}),
+      ...(f.styleFamilyVersion ? { familyVersion: f.styleFamilyVersion } : {}),
+      ...(f.styleVariantId ? { variantId: f.styleVariantId } : {}),
+    },
     ...(f.cabinetWalls && f.cabinetWalls.length > 0 ? { allowedWalls: f.cabinetWalls } : {}),
     ...(f.cabinetWallRanges && Object.keys(f.cabinetWallRanges).length > 0
       ? { wallRanges: f.cabinetWallRanges }

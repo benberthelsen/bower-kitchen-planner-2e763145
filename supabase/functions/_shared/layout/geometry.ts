@@ -17,7 +17,7 @@
  *   what PlacedItem.endPanelLeft / fillerLeft refer to.
  */
 
-import type { Opening, RoomConfig } from './core.ts';
+import type { Opening, RoomConfig, ServicePoint } from './core.ts';
 import type { PlacedItem } from './core.ts';
 import type { Wall } from './types.ts';
 
@@ -47,12 +47,50 @@ export interface PlanRect { minX: number; maxX: number; minZ: number; maxZ: numb
 export function itemRect(item: PlacedItem): PlanRect {
   const rot = ((item.rotation % 360) + 360) % 360;
   const alongX = rot === 0 || rot === 180;
-  const sx = alongX ? item.width : item.depth;
-  const sz = alongX ? item.depth : item.width;
+  // A fridge item's width is the reserved housing opening (including its
+  // ventilation/door clearance). Collision geometry follows the physical
+  // appliance body so the side panels can sit inside that reserved opening.
+  const physicalWidth = item.layoutRole === 'fridge-gap' && item.applianceBodyWidth
+    ? item.applianceBodyWidth
+    : item.width;
+  const sx = alongX ? physicalWidth : item.depth;
+  const sz = alongX ? item.depth : physicalWidth;
   return {
     minX: item.x - sx / 2, maxX: item.x + sx / 2,
     minZ: item.z - sz / 2, maxZ: item.z + sz / 2,
   };
+}
+
+/** Plan footprint of the slab rendered above a base cabinet. Side fillers are
+ * covered by the slab and the normal 25mm front overhang follows the cabinet's
+ * room-facing direction. This lets the rules engine verify corner-top joins
+ * using the same orientation convention as CabinetAssembler. */
+export function benchtopRect(item: PlacedItem, frontOverhangMm = 25): PlanRect {
+  const rect = itemRect(item);
+  const out = { ...rect };
+  const rot = ((item.rotation % 360) + 360) % 360;
+  const front = item.benchtopFrontOverhang ?? frontOverhangMm;
+  const back = item.benchtopBackOverhang ?? 0;
+  const left = (item.fillerLeft ?? 0) + (item.benchtopLeftOverhang ?? 0);
+  const right = (item.fillerRight ?? 0) + (item.benchtopRightOverhang ?? 0);
+
+  if (rot === 0) {
+    out.minX -= left; out.maxX += right; out.maxZ += front; out.minZ -= back;
+  } else if (rot === 90) {
+    out.minZ -= left; out.maxZ += right; out.minX -= front; out.maxX += back;
+  } else if (rot === 180) {
+    out.maxX += left; out.minX -= right; out.minZ -= front; out.maxZ += back;
+  } else {
+    out.maxZ += left; out.minZ -= right; out.maxX += front; out.minX -= back;
+  }
+  return out;
+}
+
+/** True when two plan rectangles overlap or share a closed edge. */
+export function rectsJoin(a: PlanRect, b: PlanRect, toleranceMm = 1): boolean {
+  const xOverlap = Math.min(a.maxX, b.maxX) >= Math.max(a.minX, b.minX) - toleranceMm;
+  const zOverlap = Math.min(a.maxZ, b.maxZ) >= Math.max(a.minZ, b.minZ) - toleranceMm;
+  return xOverlap && zOverlap;
 }
 
 export function rectsOverlap(a: PlanRect, b: PlanRect, toleranceMm = 1): boolean {
@@ -98,6 +136,18 @@ export function usableIntervals(lengthMm: number, blocked: Interval[]): Interval
 export function wallPointWorld(wall: Wall, t: number, room: RoomConfig): { x: number; z: number } {
   const p = wallToWorld(wall, t, 0, 0, room);
   return { x: p.x, z: p.z };
+}
+
+/** Resolve either a legacy wall service or an exact through-floor service to
+ * the same plan coordinates used by appliance-distance rules. */
+export function servicePointWorld(service: ServicePoint, room: RoomConfig): { x: number; z: number } {
+  if (service.placement === 'floor' && service.xMm !== undefined && service.zMm !== undefined) {
+    return {
+      x: Math.max(0, Math.min(room.width, service.xMm)),
+      z: Math.max(0, Math.min(room.depth, service.zMm)),
+    };
+  }
+  return wallPointWorld(service.wall, service.offsetMm, room);
 }
 
 export function dist(a: { x: number; z: number }, b: { x: number; z: number }): number {

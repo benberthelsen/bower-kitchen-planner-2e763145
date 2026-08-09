@@ -20,7 +20,16 @@ import { baseBlockedIntervals, usableIntervals, type Interval } from './geometry
 import type { ResolvedSegment, Run, Segment, SegmentRole } from './types';
 
 const MAX_END_FILLER = 100;
-const MIN_MODULE = 300;
+// Microvellum base products are prompt-sized to the millimetre. Keep 200mm as
+// the practical lower bound for an auto-generated narrow cupboard so a real
+// cabinet closes a non-modular run instead of leaving a dead strip.
+const MIN_MODULE = 200;
+const STRETCHABLE_INFILL_ROLES = new Set<SegmentRole>([
+  'doors', 'sink', 'pantry', 'corner-buffer',
+]);
+const TALL_BANK_ROLES = new Set<SegmentRole>([
+  'pantry', 'oven-tower', 'fridge-gap', 'fridge-corner-pantry',
+]);
 
 /** droppable roles, least-important first */
 const DROP_ORDER: SegmentRole[] = ['doors', 'pantry', 'oven-tower', 'drawers'];
@@ -31,7 +40,43 @@ const ROLE_NAMES: Record<SegmentRole, string> = {
   drawers: 'a drawer bank', doors: 'a cupboard', pantry: 'the pantry',
   'oven-tower': 'the oven tower', 'fridge-gap': 'the fridge space', corner: 'the corner unit',
   'corner-buffer': 'the corner clearance cabinet',
+  'fridge-corner-pantry': 'the corner pantry beside the fridge',
 };
+
+function droppedRoleNote(role: SegmentRole, wallName: string): string {
+  return role === 'oven-tower'
+    ? `Used an under-bench oven because a tall oven cabinet did not fit on the ${wallName}`
+    : `Left out ${ROLE_NAMES[role]} — not enough room on the ${wallName}`;
+}
+
+/** An exact-size cupboard (or cupboards) immediately before the sink may be
+ * carrying the measured offset that centres the sink under a window. Treat
+ * that small group as functional positioning joinery, not disposable infill. */
+function protectsSinkPosition(segments: Segment[], index: number): boolean {
+  const segment = segments[index];
+  if (segment?.kind !== 'cabinet' || segment.role !== 'doors'
+    || segment.placementLock !== 'sink-window') return false;
+  for (let cursor = index + 1; cursor < segments.length; cursor++) {
+    const next = segments[cursor];
+    if (next.kind !== 'cabinet') return false;
+    if (next.role === 'sink') return true;
+    if (next.role !== 'doors' || next.placementLock !== 'sink-window') return false;
+  }
+  return false;
+}
+
+function lastDroppableIndex(segments: Segment[], role: SegmentRole): number {
+  for (let index = segments.length - 1; index >= 0; index--) {
+    const segment = segments[index];
+    if (segment.kind === 'cabinet'
+      && segment.role === role
+      && !(role === 'doors' && (
+        protectsSinkPosition(segments, index)
+        || segment.placementLock === 'cooktop-landing'
+      ))) return index;
+  }
+  return -1;
+}
 
 export interface SolvedRun {
   resolved: ResolvedSegment[];
@@ -46,18 +91,26 @@ function preferredWidth(seg: Segment): number {
 
 function minWidth(seg: Segment): number {
   if (seg.kind !== 'cabinet') return seg.widthMm;
-  if (FIXED_WIDTH_ROLES.includes(seg.role)) return ROLE_PRODUCTS[seg.role].widths[0];
+  // Internal fallback resolution may nominate a different mapped fixed size
+  // (the 1075mm blind corner instead of the 900mm pie-cut). Explicit fixed
+  // dimensions remain authoritative; AI-authored specs are schema-checked
+  // before reaching this function.
+  if (FIXED_WIDTH_ROLES.includes(seg.role)) {
+    return seg.widthMm ?? ROLE_PRODUCTS[seg.role].widths[0];
+  }
   if (seg.widthMm) return seg.widthMm;
   const ws = ROLE_PRODUCTS[seg.role].widths;
   return ws[ws.length - 1];
 }
 
+/** Fit one authored run into its measured, opening-aware wall intervals. */
 export function solveRun(
   run: Run,
   wallLengthMm: number,
   openings: Opening[],
   extraBlocked: Interval[] = [],
 ): SolvedRun {
+  const infillRole = run.baseInfillRole ?? 'doors';
   // Mirrored solve: flip blocked zones, solve left-to-right, flip results back.
   if (run.fromEnd) {
     const range = runRange(run, wallLengthMm);
@@ -85,8 +138,20 @@ export function solveRun(
   const notes: string[] = [];
   const wallName = `${WALL_NAMES[run.wall] ?? run.wall} wall`;
   const range = runRange(run, wallLengthMm);
+  // A filler deliberately placed at the high-t end belongs against the wall,
+  // after any auto-sized infill cabinets. Reserve its strip up front and emit
+  // it at the end; solving it sequentially would put infill cabinets after it
+  // and leave the cabinet, rather than the filler, touching the wall.
+  const trailingFiller = run.segments.at(-1)?.kind === 'filler'
+    ? run.segments.at(-1)
+    : null;
+  const trailingFillerWidth = trailingFiller?.widthMm ?? 0;
+  const trailingFillerStart = range.endMm - trailingFillerWidth;
   const rangeBlocked: Interval[] = [
     ...(range.startMm > 0 ? [{ start: 0, end: range.startMm }] : []),
+    ...(trailingFillerWidth > 0
+      ? [{ start: trailingFillerStart, end: range.endMm }]
+      : []),
     ...(range.endMm < wallLengthMm ? [{ start: range.endMm, end: wallLengthMm }] : []),
   ];
   const blocked = [...baseBlockedIntervals(run.wall, openings), ...extraBlocked, ...rangeBlocked];
@@ -97,15 +162,17 @@ export function solveRun(
 
   // ── pre-pass: drop least-important segments until the run can fit ──
   const usableTotal = intervals.reduce((s, i) => s + (i.end - i.start), 0);
-  const queue: Segment[] = [...run.segments];
+  const queue: Segment[] = trailingFiller
+    ? run.segments.slice(0, -1)
+    : [...run.segments];
   const minTotal = () => queue.reduce((s, seg) => s + minWidth(seg), 0);
   for (const dropRole of DROP_ORDER) {
     while (minTotal() > usableTotal) {
       // drop the LAST occurrence of the current drop-role
-      const idx = queue.map(s => (s.kind === 'cabinet' ? s.role : null)).lastIndexOf(dropRole);
+      const idx = lastDroppableIndex(queue, dropRole);
       if (idx === -1) break;
       queue.splice(idx, 1);
-      notes.push(`Left out ${ROLE_NAMES[dropRole]} — not enough room on the ${wallName}`);
+      notes.push(droppedRoleNote(dropRole, wallName));
     }
     if (minTotal() <= usableTotal) break;
   }
@@ -130,8 +197,11 @@ export function solveRun(
       const ladder = ROLE_PRODUCTS[seg.role].widths;
       const minimumAfter = queue.slice(1).reduce((sum, candidate) => sum + minWidth(candidate), 0);
       const availableForSegment = remainingUsable() - minimumAfter;
-      const fit = ladder.find(cand => cand <= remainingIn(interval) && cand <= availableForSegment);
+      const fittingWidths = ladder.filter(cand =>
+        cand <= remainingIn(interval) && cand <= availableForSegment);
+      const fit = fittingWidths[0];
       w = fit ?? ladder[ladder.length - 1];
+
     }
 
     if (w > remainingIn(interval)) {
@@ -176,45 +246,183 @@ export function solveRun(
   // nice-to-have segment instead of losing the essential. ──
   const ESSENTIALS: SegmentRole[] = [
     'sink', 'cooktop', 'dishwasher', 'fridge-gap', 'corner', 'corner-buffer',
+    'fridge-corner-pantry',
   ];
   const droppedEssential = run.segments.some(seg =>
     seg.kind === 'cabinet' && ESSENTIALS.includes(seg.role)
     && !resolved.some(rs => rs.segment === seg));
   if (droppedEssential) {
     for (const dropRole of DROP_ORDER) {
-      const idx = run.segments
-        .map(x => (x.kind === 'cabinet' ? x.role : null))
-        .lastIndexOf(dropRole);
+      const idx = lastDroppableIndex(run.segments, dropRole);
       if (idx === -1) continue;
       const reducedSegments = run.segments.filter((_, i) => i !== idx);
       const retry = solveRun({ ...run, segments: reducedSegments }, wallLengthMm, openings, extraBlocked);
       return {
         resolved: retry.resolved,
-        notes: [`Left out ${ROLE_NAMES[dropRole]} to make room on the ${wallName}`, ...retry.notes],
+        notes: [dropRole === 'oven-tower'
+          ? `Used an under-bench oven because a tall oven cabinet did not fit on the ${wallName}`
+          : `Left out ${ROLE_NAMES[dropRole]} to make room on the ${wallName}`, ...retry.notes],
       };
     }
   }
 
   // ── expand: fill leftover space in EVERY remaining interval ──
   for (; iv < intervals.length; iv++) {
-    cursor = Math.max(cursor, intervals[iv].start);
-    let leftover = intervals[iv].end - cursor;
-    const modules = [900, 600, 450, 300];
-    while (leftover >= MIN_MODULE) {
-      const w = modules.find(mm => mm <= leftover);
-      if (!w) break;
-      resolved.push({
-        segment: { kind: 'cabinet', role: 'doors', widthMm: w },
-        definitionId: resolveDefinition('doors', w),
-        startMm: cursor, widthMm: w,
-      });
-      cursor += w;
-      leftover -= w;
+    const interval = intervals[iv];
+    cursor = Math.max(cursor, interval.start);
+    let leftover = interval.end - cursor;
+    const authoredCabinets = run.segments.filter(segment => segment.kind === 'cabinet');
+    const authoredEnd = authoredCabinets.at(-1);
+    const tallBankIsAuthoredAtThisRunEnd = authoredEnd?.kind === 'cabinet'
+      && TALL_BANK_ROLES.has(authoredEnd.role);
+    let resolvedTallBankStart = resolved.length;
+    while (resolvedTallBankStart > 0) {
+      const candidate = resolved[resolvedTallBankStart - 1];
+      if (candidate.segment.kind !== 'cabinet'
+        || !TALL_BANK_ROLES.has(candidate.segment.role)) break;
+      resolvedTallBankStart--;
     }
-    if (leftover > 10 && leftover <= MAX_END_FILLER) {
-      resolved.push({ segment: { kind: 'filler', widthMm: leftover }, definitionId: 'base_filler', startMm: cursor, widthMm: leftover });
+    const resolvedTallBank = resolved.slice(resolvedTallBankStart);
+    const tallBankEnd = resolvedTallBank.at(-1);
+    if (run.wallCabinets
+      && tallBankIsAuthoredAtThisRunEnd
+      && resolvedTallBank.length > 0
+      && tallBankEnd
+      && leftover > 0
+      && Math.abs(tallBankEnd.startMm + tallBankEnd.widthMm - cursor) <= 1) {
+      // Anchor the complete fridge/pantry/oven bank at the physical wall end.
+      // Any spare millimetres belong on the working-bench side of that bank;
+      // putting auto-infill after it creates an isolated base cabinet trapped
+      // between tall joinery and the wall.
+      const oldTallBankStart = resolvedTallBank[0].startMm;
+      const shiftCompleteWorkingRun = iv === 0
+        && intervals.length === 1
+        // A blocked strip at the interval edge can be a deliberate adjoining
+        // corner return. Keep the first working cabinet against that return;
+        // moving the whole run would break the corner join merely to move the
+        // tall bank to the opposite wall.
+        && extraBlocked.length === 0
+        && Math.abs((resolved[0]?.startMm ?? interval.start) - interval.start) <= 1
+        && !run.segments.some(segment => segment.kind === 'cabinet'
+          && segment.placementLock === 'sink-window');
+      const segmentsToShift = shiftCompleteWorkingRun ? resolved : resolvedTallBank;
+      for (const shifted of segmentsToShift) shifted.startMm += leftover;
+      const insertionIndex = shiftCompleteWorkingRun ? 0 : resolvedTallBankStart;
+      const infillStart = shiftCompleteWorkingRun ? interval.start : oldTallBankStart;
+      const beforeTallBank: ResolvedSegment[] = [];
+      let infillMm = leftover;
+
+      if (infillMm > 10 && infillMm < 300) {
+        const stretch = shiftCompleteWorkingRun
+          ? resolved.find(candidate => candidate.segment.kind === 'cabinet'
+            && STRETCHABLE_INFILL_ROLES.has(candidate.segment.role)
+            && Math.abs(candidate.startMm - (interval.start + leftover)) <= 1
+            && candidate.widthMm + infillMm <= 900)
+          : [...resolved.slice(0, resolvedTallBankStart)].reverse().find(candidate =>
+            candidate.segment.kind === 'cabinet'
+            && STRETCHABLE_INFILL_ROLES.has(candidate.segment.role)
+            && Math.abs(candidate.startMm + candidate.widthMm - oldTallBankStart) <= 1
+            && candidate.widthMm + infillMm <= 900);
+        if (stretch && stretch.segment.kind === 'cabinet') {
+          if (shiftCompleteWorkingRun) stretch.startMm -= infillMm;
+          stretch.widthMm += infillMm;
+          stretch.definitionId = resolveDefinition(stretch.segment.role, stretch.widthMm);
+          infillMm = 0;
+        }
+      }
+      if (infillMm >= MIN_MODULE) {
+        const count = Math.ceil(infillMm / 900);
+        const baseWidth = Math.floor(infillMm / count);
+        let remainder = Math.round(infillMm - baseWidth * count);
+        let infillCursor = infillStart;
+        for (let index = 0; index < count; index++) {
+          const widthMm = baseWidth + (remainder > 0 ? 1 : 0);
+          if (remainder > 0) remainder--;
+          beforeTallBank.push({
+            segment: { kind: 'cabinet', role: infillRole, widthMm },
+            definitionId: resolveDefinition(infillRole, widthMm),
+            startMm: infillCursor,
+            widthMm,
+          });
+          infillCursor += widthMm;
+          infillMm -= widthMm;
+        }
+      }
+      if (infillMm > 0) {
+        // A sub-200mm remnant is a deliberate full-height joinery strip beside
+        // the tall bank, never a dead open gap or a tiny cupboard after it.
+        beforeTallBank.push({
+          segment: { kind: 'filler', widthMm: infillMm },
+          definitionId: 'base_filler',
+          startMm: shiftCompleteWorkingRun
+            ? (resolved[0]?.startMm ?? interval.start + infillMm) - infillMm
+            : resolvedTallBank[0].startMm - infillMm,
+          widthMm: infillMm,
+        });
+      }
+      resolved.splice(insertionIndex, 0, ...beforeTallBank);
+      cursor += leftover;
+      leftover = 0;
+    }
+    // A sub-module remainder is not a reason to leave a dead strip beside a
+    // corner. Stretch the adjoining prompt-sized cabinet to the exact mm so
+    // its carcase and benchtop close the joint. Appliance openings and the
+    // appliance openings, the drawer bank and corner products remain fixed to
+    // their mapped limits.
+    if (leftover > 10 && leftover < 300) {
+      const stretch = [...resolved].reverse().find(candidate =>
+        candidate.segment.kind === 'cabinet'
+        && STRETCHABLE_INFILL_ROLES.has(candidate.segment.role)
+        && Math.abs(candidate.startMm + candidate.widthMm - cursor) <= 1
+        && candidate.widthMm + leftover <= 900);
+      if (stretch && stretch.segment.kind === 'cabinet') {
+        stretch.widthMm += leftover;
+        stretch.definitionId = resolveDefinition(stretch.segment.role, stretch.widthMm);
+        cursor += leftover;
+        leftover = 0;
+      }
+    }
+    if (leftover >= MIN_MODULE) {
+      // Microvellum cabinets are prompt-sized, so close the interval exactly
+      // instead of leaving a dead 101-299mm strip after standard modules. Use
+      // the fewest cabinets that keeps every custom unit within 200-900mm,
+      // then distribute the millimetres evenly across them.
+      const count = Math.ceil(leftover / 900);
+      const baseWidth = Math.floor(leftover / count);
+      let remainder = Math.round(leftover - baseWidth * count);
+      for (let index = 0; index < count; index++) {
+        const w = baseWidth + (remainder > 0 ? 1 : 0);
+        if (remainder > 0) remainder--;
+        if (w < MIN_MODULE || w > 900) break;
+        resolved.push({
+          segment: { kind: 'cabinet', role: infillRole, widthMm: w },
+          definitionId: resolveDefinition(infillRole, w),
+          startMm: cursor, widthMm: w,
+        });
+        cursor += w;
+        leftover -= w;
+      }
+    }
+    if (leftover > 0 && leftover <= MAX_END_FILLER) {
+      resolved.push({
+        segment: { kind: 'filler', widthMm: leftover },
+        definitionId: 'base_filler',
+        startMm: cursor,
+        widthMm: leftover,
+      });
+      cursor += leftover;
+      leftover = 0;
     }
     if (iv + 1 < intervals.length) cursor = intervals[iv + 1].start;
+  }
+
+  if (trailingFiller && trailingFillerWidth > 0) {
+    resolved.push({
+      segment: trailingFiller,
+      definitionId: 'base_filler',
+      startMm: trailingFillerStart,
+      widthMm: trailingFillerWidth,
+    });
   }
 
   return { resolved, notes };

@@ -17,7 +17,8 @@ import { compileSpec } from './compileSpec';
 import { validate } from './validate';
 import { priceDesign } from './priceDesign';
 import { defaultSpecFor, inferLayoutShapeFromWalls, type LayoutShape } from './defaultSpec';
-import { scoreDesign, type DesignScore } from './designScore';
+import { meetsProfessionalThreshold, scoreDesign, type DesignScore } from './designScore';
+import { styleProfile } from './styleDNA';
 
 export type CandidateEmphasis = 'workflow' | 'storage' | 'social';
 
@@ -56,12 +57,30 @@ export interface GenerateCandidatesInput {
   style?: StyleSpec;
   /** maximum returned candidates (default 3) */
   maxCandidates?: number;
+  /** Enables the v5 professional presentation gate. Rollback/legacy callers
+   * may omit it while the feature flag is off. */
+  professionalGate?: boolean;
+  /** Customer preference is presented first when it survives all gates. */
+  preferredStrategy?: LayoutShape;
 }
 
 const ALL_STRATEGIES: LayoutShape[] = ['single-wall', 'l-shape', 'u-shape', 'galley'];
 
 function seg(role: SegmentRole, widthMm?: number): Segment {
   return { kind: 'cabinet', role, ...(widthMm ? { widthMm } : {}) };
+}
+
+function insertBeforeTrailingProtection(segments: Segment[], segment: Segment): void {
+  let insertionAt = segments.length;
+  while (insertionAt > 0) {
+    const candidate = segments[insertionAt - 1];
+    const protectsEnd = candidate.kind === 'filler'
+      || (candidate.kind === 'cabinet'
+        && (candidate.role === 'corner' || candidate.role === 'corner-buffer'));
+    if (!protectsEnd) break;
+    insertionAt--;
+  }
+  segments.splice(insertionAt, 0, segment);
 }
 
 /** Cheap geometric pre-filter; final authority is compile + validate. */
@@ -79,16 +98,14 @@ function strategyPlausible(strategy: LayoutShape, brief: DesignBrief): boolean {
   }
 }
 
-function canFitIsland(brief: DesignBrief): boolean {
-  return brief.room.depth >= 3800 && brief.room.width >= 3200;
-}
-
 /** Structural signature: wall → ordered cabinet roles, plus island features. */
 function fingerprintOf(spec: KitchenSpec): string {
   const runs = spec.runs
     .map(run => `${run.wall}:${run.segments
       .map(s => (s.kind === 'cabinet' ? s.role : s.kind))
-      .join(',')}${run.wallCabinets ? '+w' : ''}`)
+      .join(',')}${run.wallCabinets ? '+w' : ''}`
+      + `@${Math.round((run.upperPlan?.coverageRatio ?? (run.wallCabinets ? 1 : 0)) * 10)}`
+      + `/o${Math.round((run.upperPlan?.openShelfRatio ?? 0) * 10)}`)
     .sort()
     .join('|');
   const island = spec.island ? `#island:${[...spec.island.features].sort().join(',')}` : '';
@@ -109,7 +126,8 @@ function storageVariant(brief: DesignBrief, strategy: LayoutShape, style?: Style
     // drawers replace plain shelf cupboards wherever the role is flexible.
     segments: run.segments.map(segment =>
       segment.kind === 'cabinet' && segment.role === 'doors'
-        ? seg('drawers', segment.widthMm)
+        && segment.widthMm === undefined && segment.placementLock !== 'sink-window'
+        ? seg('drawers', 500)
         : { ...segment }),
   }));
   // Add a pantry to the longest practical run when the workflow layout did
@@ -117,17 +135,58 @@ function storageVariant(brief: DesignBrief, strategy: LayoutShape, style?: Style
   // fit; compile + validate remain the authority.
   const hasPantry = runs.some(run => run.segments.some(segment =>
     segment.kind === 'cabinet' && segment.role === 'pantry'));
+  const limitedTallMassing = styleProfile(spec.style.familyId)?.tallUnitMassing === 'limited';
   const longest = runs
     .map((run, index) => ({ index, length: availableRunLength(brief, run.wall) }))
     .sort((a, b) => b.length - a.length || a.index - b.index)[0];
-  if (!hasPantry && longest?.length >= 3000) runs[longest.index].segments.push(seg('pantry'));
+  if (!hasPantry && !limitedTallMassing && longest?.length >= 3000) {
+    insertBeforeTrailingProtection(runs[longest.index].segments, seg('pantry'));
+  }
 
   // Add one more drawer bank to the least-loaded run.
   const target = runs
-    .map((run, index) => ({ index, load: run.segments.length }))
-    .sort((a, b) => a.load - b.load || a.index - b.index)[0];
-  if (target) runs[target.index].segments.push(seg('drawers', 600));
+    .map((run, index) => ({
+      index,
+      load: run.segments.length,
+      hasTallBank: run.segments.some(segment => segment.kind === 'cabinet'
+        && ['pantry', 'oven-tower', 'fridge-gap', 'fridge-corner-pantry'].includes(segment.role)),
+    }))
+    .sort((a, b) => Number(a.hasTallBank) - Number(b.hasTallBank)
+      || a.load - b.load || a.index - b.index)[0];
+  if (target) {
+    insertBeforeTrailingProtection(runs[target.index].segments, seg('drawers', 500));
+  }
   return { ...spec, runs, rationale: 'Storage-first layout: maximum drawers, pantry and overhead cabinets.' };
+}
+
+const PROFESSIONAL_HARD_CODES = new Set([
+  'cooktop-landing',
+  'fridge-landing',
+  'triangle-size',
+  'triangle-obstruction',
+  'prep-space',
+]);
+
+/** A structural difference score; finishes and wording deliberately count 0. */
+export function candidateDifference(a: DesignCandidate, b: DesignCandidate): number {
+  let difference = 0;
+  if (a.strategy !== b.strategy) difference += 4;
+  const aWalls = a.spec.runs.map(run => run.wall).sort().join('');
+  const bWalls = b.spec.runs.map(run => run.wall).sort().join('');
+  if (aWalls !== bWalls) difference += 2;
+  const aIsland = a.spec.island ? [...a.spec.island.features].sort().join(',') : 'none';
+  const bIsland = b.spec.island ? [...b.spec.island.features].sort().join(',') : 'none';
+  if (aIsland !== bIsland) difference += 3;
+  const roleSequence = (candidate: DesignCandidate) => candidate.spec.runs.map(run => run.segments
+    .map(segment => segment.kind === 'cabinet' ? segment.role : segment.kind).join(',')).join('|');
+  // Moving the sink/cooktop to another run is a genuinely different workflow,
+  // not a near-duplicate cosmetic edit.
+  if (roleSequence(a) !== roleSequence(b)) difference += 3;
+  const upperSignature = (candidate: DesignCandidate) => candidate.spec.runs.map(run =>
+    `${Math.round((run.upperPlan?.coverageRatio ?? (run.wallCabinets ? 1 : 0)) * 10)}:${Math.round((run.upperPlan?.openShelfRatio ?? 0) * 10)}`,
+  ).join('|');
+  if (upperSignature(a) !== upperSignature(b)) difference += 2;
+  return difference;
 }
 
 function availableRunLength(brief: DesignBrief, wall: Wall): number {
@@ -137,7 +196,7 @@ function availableRunLength(brief: DesignBrief, wall: Wall): number {
 
 /** Social variant: island with seating where it fits, workflow otherwise. */
 function socialVariant(brief: DesignBrief, strategy: LayoutShape, style?: StyleSpec): KitchenSpec | null {
-  if (!canFitIsland(brief) || strategy === 'galley') return null;
+  if (strategy === 'galley') return null;
   const socialBrief: DesignBrief = { ...brief, island: 'want' };
   const spec = defaultSpecFor(socialBrief, strategy, style);
   if (!spec.island) return null;
@@ -152,10 +211,20 @@ function socialVariant(brief: DesignBrief, strategy: LayoutShape, style?: StyleS
 function mirrorSideRuns(spec: KitchenSpec, brief: DesignBrief): KitchenSpec | null {
   const flip: Partial<Record<Wall, Wall>> = { W: 'E', E: 'W' };
   const allowed = brief.allowedWalls?.length ? new Set(brief.allowedWalls) : null;
+  const hasFlippableSide = spec.runs.some(run => {
+    const target = flip[run.wall];
+    return Boolean(target && (!allowed || allowed.has(target)));
+  });
   let changed = false;
   const runs = spec.runs.map(run => {
     const target = flip[run.wall];
-    if (!target) return run;
+    if (!target) {
+      // Wâ†”E mirroring also swaps the physical ends of the shared N/S run.
+      // Reverse its DSL so wall fillers and tall banks remain at run ends.
+      return hasFlippableSide && (run.wall === 'N' || run.wall === 'S')
+        ? { ...run, segments: [...run.segments].reverse() }
+        : run;
+    }
     if (allowed && !allowed.has(target)) return run;
     changed = true;
     const { startMm: _startMm, endMm: _endMm, ...rest } = run;
@@ -261,7 +330,8 @@ export function generateCandidatePool(input: GenerateCandidatesInput): Candidate
       continue;
     }
     const violations = validate(compiled, brief.room, brief);
-    const errors = violations.filter(v => v.severity === 'error');
+    const errors = violations.filter(v => v.severity === 'error'
+      || (input.professionalGate && PROFESSIONAL_HARD_CODES.has(v.code)));
     if (errors.length > 0) {
       rejected.push({
         candidateId: attempt.candidateId, strategy: attempt.strategy, emphasis: attempt.emphasis,
@@ -270,6 +340,19 @@ export function generateCandidatePool(input: GenerateCandidatesInput): Candidate
       continue;
     }
     const band = priceDesign(compiled.items, attempt.spec.style);
+    const score = scoreDesign(brief, attempt.spec, violations);
+    if (input.professionalGate && !meetsProfessionalThreshold(score)) {
+      rejected.push({
+        candidateId: attempt.candidateId,
+        strategy: attempt.strategy,
+        emphasis: attempt.emphasis,
+        reasons: [
+          `professional-score: ${score.total}/100 (minimum 80)`,
+          ...score.failedMinimums.map(category => `professional-category: ${category}`),
+        ],
+      });
+      continue;
+    }
     candidates.push({
       candidateId: attempt.candidateId,
       strategy: attempt.strategy,
@@ -278,32 +361,54 @@ export function generateCandidatePool(input: GenerateCandidatesInput): Candidate
       items: compiled.items,
       violations,
       priceBand: { lowAud: band.lowAud, highAud: band.highAud },
-      score: scoreDesign(brief, attempt.spec, violations),
+      score,
       fingerprint: fingerprintOf(attempt.spec),
     });
   }
 
+  // Keep compact-room fallbacks available, but never present a cooktop in
+  // front of a window or a sink hard against an end/tall panel when this same
+  // room produced a safer candidate. The weighted minimum means a forced
+  // conflict survives only when every attempted arrangement needs it.
+  const avoidablePlacementPenalty = (candidate: DesignCandidate): number => {
+    const codes = new Set(candidate.violations.map(violation => violation.code));
+    return (codes.has('cooktop-window') ? 2 : 0)
+      + (codes.has('sink-side-clearance') ? 1 : 0);
+  };
+  const minimumPlacementPenalty = candidates.length > 0
+    ? Math.min(...candidates.map(avoidablePlacementPenalty))
+    : 0;
+  const placementApproved = candidates.filter(candidate =>
+    avoidablePlacementPenalty(candidate) === minimumPlacementPenalty);
+
   // De-duplicate structurally identical candidates, keeping the best score.
   const byFingerprint = new Map<string, DesignCandidate>();
-  for (const c of candidates) {
+  for (const c of placementApproved) {
     const existing = byFingerprint.get(c.fingerprint);
     if (!existing || c.score.total > existing.score.total) byFingerprint.set(c.fingerprint, c);
   }
 
-  // Rank, then pick with diversity: a new pick must add a new strategy or a
-  // new emphasis; never a colour-level variation of an already-picked design.
+  // Rank, then enforce material structural difference. A different strategy
+  // is preferred before a different massing/storage treatment on the same
+  // strategy. There is deliberately no near-duplicate backfill.
   const ranked = [...byFingerprint.values()].sort((a, b) =>
     b.score.total - a.score.total || a.candidateId.localeCompare(b.candidateId));
   const picked: DesignCandidate[] = [];
-  for (const c of ranked) {
-    if (picked.length >= maxCandidates) break;
-    const diverse = picked.every(p => p.strategy !== c.strategy || p.emphasis !== c.emphasis);
-    if (diverse) picked.push(c);
+  const preferred = input.preferredStrategy
+    ? ranked.find(candidate => candidate.strategy === input.preferredStrategy)
+    : ranked[0];
+  if (preferred) picked.push(preferred);
+
+  while (picked.length < maxCandidates) {
+    const eligible = ranked.filter(candidate => !picked.includes(candidate)
+      && picked.every(existing => candidateDifference(candidate, existing) >= 3));
+    if (eligible.length === 0) break;
+    const newStrategy = eligible.find(candidate => picked.every(existing => existing.strategy !== candidate.strategy));
+    picked.push(newStrategy ?? eligible[0]);
   }
-  // backfill if diversity left slots empty
-  for (const c of ranked) {
-    if (picked.length >= maxCandidates) break;
-    if (!picked.includes(c)) picked.push(c);
+
+  if (!input.preferredStrategy) {
+    picked.sort((a, b) => b.score.total - a.score.total || a.candidateId.localeCompare(b.candidateId));
   }
 
   return { candidates: picked, rejected, attemptedStrategies: attempted };
@@ -332,5 +437,5 @@ export function candidateSummaryFor(candidate: DesignCandidate): {
       r.segments.flatMap(s => (s.kind === 'cabinet' ? [`${r.wall}:${s.role}`] : []))),
     island: candidate.spec.island ? [...candidate.spec.island.features] : null,
     warnings: candidate.violations.filter(v => v.severity === 'warn').map(v => v.message),
-  };
+};
 }

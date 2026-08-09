@@ -206,6 +206,7 @@ export default function RoomPlanner() {
       endPanelLeft: cabinet.construction?.endPanelLeft,
       endPanelRight: cabinet.construction?.endPanelRight,
       blindSide: cabinet.construction?.blindSide,
+      cornerReturnSide: cabinet.construction?.cornerReturnSide,
       drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
       };
     });

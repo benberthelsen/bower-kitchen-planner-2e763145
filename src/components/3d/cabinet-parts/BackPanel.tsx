@@ -1,4 +1,5 @@
 import React from 'react';
+import type * as THREE from 'three';
 import EdgeOutline from './EdgeOutline';
 
 interface BackPanelProps {
@@ -7,6 +8,8 @@ interface BackPanelProps {
   thickness?: number; // Thickness in meters (default 3mm)
   position: [number, number, number];
   color?: string;
+  roughness?: number;
+  map?: THREE.Texture | null;
   insetFromEdge?: number; // How far from gable edges (meters) - dado depth
   setback?: number;       // Distance from rear of cabinet (meters) - for hanging rails
   showEdges?: boolean;    // Show edge outlines for technical drawing look
@@ -24,6 +27,8 @@ const BackPanel: React.FC<BackPanelProps> = ({
   thickness = 0.003,       // 3mm backing board
   position,
   color = '#f0f0f0',       // Slightly darker to distinguish from interior
+  roughness = 0.85,
+  map,
   insetFromEdge = 0.009,   // 9mm dado depth into gables
   setback = 0.016,         // 16mm setback for hanging rails (Microvellum standard)
   showEdges = true,
@@ -39,8 +44,9 @@ const BackPanel: React.FC<BackPanelProps> = ({
         <boxGeometry args={[actualWidth, actualHeight, thickness]} />
         <meshStandardMaterial 
           color={color}
-          roughness={0.85}
+          roughness={roughness}
           metalness={0.0}
+          map={map}
           side={2} // DoubleSide - visible from both sides
         />
       </mesh>

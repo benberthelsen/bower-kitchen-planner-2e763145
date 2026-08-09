@@ -41,14 +41,22 @@ export interface ProposedRoomPatch {
 // ─── Design brief (what the user tells us) ─────────────────────────────────
 
 export type CookFrequency = 'rare' | 'daily' | 'entertainer';
-export type Priority = 'storage' | 'bench-space' | 'entertaining' | 'baking' | 'budget';
+export type Priority = 'storage' | 'drawers' | 'bench-space' | 'entertaining' | 'baking' | 'budget';
 export type BudgetBand = 'value' | 'mid' | 'premium';
 
 export interface ApplianceChoices {
   oven?: '600' | '900';
   cooktop?: 'gas' | 'induction';
   dishwasher: boolean;
+  /** Manufactured sink-base width required by the selected sink and cut-out.
+   * The wizard derives this from the supplier product before generation so
+   * the layout engine authors the correct cabinet rather than merely warning
+   * about an undersized default in the editor. */
+  sinkCabinetWidthMm?: number;
   fridgeWidthMm?: number;
+  /** Exact manufacturer cabinetry opening. When absent, the planner applies
+   * the conservative freestanding default of 50mm per side. */
+  fridgeOpeningWidthMm?: number;
   microwave?: 'built-in' | 'benchtop' | 'none';
 }
 
@@ -62,7 +70,14 @@ export interface DesignBrief {
   /** Wizard-selected style ids (style-first product decision): the AI should
    *  choose layouts knowing the finish family. The client display overlay
    *  remains authoritative for rendering. */
-  styleIds?: { finishId: string; benchtopId: string; handleId: string };
+  styleIds?: {
+    finishId: string;
+    benchtopId: string;
+    handleId: string;
+    familyId?: string;
+    familyVersion?: number;
+    variantId?: string;
+  };
   budgetBand?: BudgetBand;
   /** Walls the customer wants cabinetry on (wizard wall selection).
    *  Omitted/empty = engine decides. When present, these are the exact walls
@@ -85,18 +100,49 @@ export type SegmentRole =
   | 'oven-tower'
   | 'fridge-gap'
   | 'corner'
-  | 'corner-buffer';
+  | 'corner-buffer'
+  | 'fridge-corner-pantry';
 
 export type Segment =
-  | { kind: 'cabinet'; role: SegmentRole; widthMm?: number }
+  | {
+      kind: 'cabinet';
+      role: SegmentRole;
+      widthMm?: number;
+      /** Engine-authored placement intent. It protects measured positioning
+       * cabinetry and the required landing cupboard beside a cooktop. */
+      placementLock?: 'sink-window' | 'cooktop-landing';
+      /** Engine-only resolution marker. It is never accepted as AI-authored
+       * geometry; compileSpec adds it only after proving a 900mm pie-cut
+       * return displaces required cabinets and a mapped blind unit fits. */
+      cornerFallback?: 'blind';
+      /** Engine-authored appliance body retained inside a fridge opening.
+       * This lets an exact integrated cavity differ from the generic 50mm
+       * freestanding allowance without shrinking the selected product. */
+      applianceBodyWidthMm?: number;
+      /** The selected appliance needs this exact Microvellum housing when no
+       * separate tall housing is successfully placed. */
+      applianceHousing?: 'oven';
+    }
   | { kind: 'filler'; widthMm: number }
   | { kind: 'gap'; reason: string; widthMm: number };
 
 export interface Run {
   wall: Wall;
   segments: Segment[];
+  /** Product family used when the solver closes otherwise unused base-run
+   * space. Defaults to ordinary cupboards; an explicit client preference can
+   * request drawer banks throughout without affecting sinks or corners. */
+  baseInfillRole?: 'doors' | 'drawers';
   /** add wall cabinets above this run where openings allow */
   wallCabinets: boolean;
+  /** Versioned Style DNA controls the quantity and character of the derived
+   * upper row. Omitted keeps the legacy full-fill behaviour. */
+  upperPlan?: {
+    coverage: 'full' | 'selective' | 'minimal' | 'none';
+    coverageRatio: number;
+    openShelfRatio: number;
+    featureElements: string[];
+  };
   /** solve the run from the far corner backward (segments listed corner-first) */
   fromEnd?: boolean;
   /** Optional customer-selected coverage along this wall. */
@@ -110,6 +156,11 @@ export interface StyleSpec {
   handleId: string;
   kickId?: string;
   tapId?: string;
+  familyId?: string;
+  familyVersion?: number;
+  variantId?: string;
+  doorProfile?: string;
+  compositionFeatureIds?: string[];
 }
 
 export interface IslandSpec {

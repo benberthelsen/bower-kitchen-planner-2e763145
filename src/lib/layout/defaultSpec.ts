@@ -5,14 +5,48 @@
  */
 
 import { rangeForWall } from './briefConstraints';
-import { fridgeOpeningWidthMm } from './catalogRoles';
+import {
+  FRIDGE_ROOM_CORNER_CLEARANCE_MM,
+  FRIDGE_PREFERRED_CORNER_LANDING_MM,
+  ROLE_PRODUCTS,
+  fridgeOpeningWidthMm,
+} from './catalogRoles';
 import { sharedCornerAt, wallLength } from './geometry';
+import { applyStyleDNA } from './styleDNA';
 import type { DesignBrief, KitchenSpec, Run, Segment, SegmentRole, StyleSpec, Wall } from './types';
 
 export type LayoutShape = 'single-wall' | 'l-shape' | 'u-shape' | 'galley';
 
 function seg(role: SegmentRole, widthMm?: number): Segment {
   return { kind: 'cabinet', role, ...(widthMm ? { widthMm } : {}) };
+}
+
+function fridgeSeg(bodyWidthMm: number, openingWidthMm: number): Segment {
+  return {
+    kind: 'cabinet',
+    role: 'fridge-gap',
+    widthMm: openingWidthMm,
+    applianceBodyWidthMm: bodyWidthMm,
+  };
+}
+
+function cooktopSeg(brief: DesignBrief, widthMm: number): Segment {
+  return {
+    kind: 'cabinet',
+    role: 'cooktop',
+    widthMm,
+    ...(brief.appliances.oven ? { applianceHousing: 'oven' as const } : {}),
+  };
+}
+
+/** Required low cabinet between a cooktop and the end of its run. */
+function cooktopLandingSeg(widthMm = 600): Segment {
+  return {
+    kind: 'cabinet',
+    role: 'doors',
+    widthMm,
+    placementLock: 'cooktop-landing',
+  };
 }
 
 const DEFAULT_STYLE: StyleSpec = {
@@ -47,8 +81,8 @@ function selectedWallsFor(brief: DesignBrief, shape: LayoutShape): Wall[] | null
 
 /** Which wall should hold the sink, preferring existing plumbing. */
 function sinkWall(brief: DesignBrief, candidates: Wall[]): Wall {
-  const drain = brief.room.services.find(s => s.type === 'drain')
-    ?? brief.room.services.find(s => s.type === 'water-supply');
+  const drain = brief.room.services.find(s => s.placement !== 'floor' && s.type === 'drain')
+    ?? brief.room.services.find(s => s.placement !== 'floor' && s.type === 'water-supply');
   if (drain && candidates.includes(drain.wall)) return drain.wall;
   const windowWall = brief.room.openings.find(o => o.type === 'window' && candidates.includes(o.wall));
   return windowWall?.wall ?? candidates[0];
@@ -56,12 +90,162 @@ function sinkWall(brief: DesignBrief, candidates: Wall[]): Wall {
 
 function withSelectedRange(run: Run, brief: DesignBrief): Run {
   const selectedRange = brief.wallRanges?.[run.wall];
-  return selectedRange ? { ...run, ...rangeForWall(brief, run.wall) } : run;
+  const ranged = selectedRange ? { ...run, ...rangeForWall(brief, run.wall) } : run;
+  return protectFridgeFromRoomCorners(ranged, brief);
+}
+
+function minimumSegmentWidth(segment: Segment): number {
+  if (segment.kind !== 'cabinet') return segment.widthMm;
+  if (segment.widthMm !== undefined) return segment.widthMm;
+  return ROLE_PRODUCTS[segment.role].widths.at(-1) ?? 0;
+}
+
+function survivesRunCompression(segment: Segment): boolean {
+  return segment.kind !== 'cabinet'
+    || !(['doors', 'drawers', 'pantry', 'oven-tower'] as SegmentRole[]).includes(segment.role);
+}
+
+/** A contiguous tall cabinet is real fridge-door protection while it remains
+ * in the design. compileSpec adds a guaranteed spacer if run compression later
+ * removes that cabinet. */
+function protectsFridgeFromCorner(segment: Segment): boolean {
+  return survivesRunCompression(segment)
+    || (segment.kind === 'cabinet'
+      && (segment.role === 'oven-tower'
+        || segment.role === 'fridge-corner-pantry'));
+}
+
+/**
+ * A fridge at a physical room corner may satisfy the old "tall unit at an end"
+ * rule while still being unusable because the perpendicular wall stops its
+ * door opening. Prefer a real 600mm base/landing cabinet; compact runs retain
+ * a non-negotiable 150mm side spacer outside the fridge opening. `fromEnd` is
+ * respected because source segments are solved from the opposite end in
+ * mirrored runs.
+ */
+function protectFridgeFromRoomCorners(run: Run, brief: DesignBrief): Run {
+  const fridgeIndex = run.segments.findIndex(segment =>
+    segment.kind === 'cabinet' && segment.role === 'fridge-gap');
+  if (fridgeIndex < 0) return run;
+  // A joinery-housed fridge is intentionally allowed to finish at the room
+  // wall. Its reserved opening already contains the normal 50mm clearance on
+  // both sides, and compileSpec gives the wall-side overhead a scribe filler.
+  // Keep the external door-swing spacer for an unhoused/free-standing fridge.
+  if (run.wallCabinets) return run;
+
+  const range = rangeForWall(brief, run.wall);
+  const length = wallLength(run.wall, brief.room);
+  const originCornerClearance = run.fromEnd ? length - range.endMm : range.startMm;
+  const farCornerClearance = run.fromEnd ? range.startMm : length - range.endMm;
+  const beforeFridge = run.segments
+    .slice(0, fridgeIndex)
+    .filter(protectsFridgeFromCorner)
+    .reduce((sum, segment) => sum + minimumSegmentWidth(segment), 0);
+  const afterFridge = run.segments
+    .slice(fridgeIndex + 1)
+    .filter(protectsFridgeFromCorner)
+    .reduce((sum, segment) => sum + minimumSegmentWidth(segment), 0);
+  const segments = [...run.segments];
+  const runLengthMm = range.endMm - range.startMm;
+  // Judge spare capacity using the compressible-role budget, while the actual
+  // corner-clearance calculation above also recognises an adjacent tall unit
+  // as real door protection. If compression removes it, the hard rule rejects
+  // that unsafe result rather than keeping a redundant spacer in every roomy
+  // tall bank.
+  let spareMm = range.endMm - range.startMm
+    - run.segments
+      .filter(survivesRunCompression)
+      .reduce((sum, segment) => sum + minimumSegmentWidth(segment), 0);
+  const protectionSegment = (requiredWidthMm: number): Segment => {
+    if (runLengthMm >= 4500 && spareMm >= FRIDGE_PREFERRED_CORNER_LANDING_MM) {
+      spareMm -= FRIDGE_PREFERRED_CORNER_LANDING_MM;
+      // This is a landing cabinet, not another tall unit. A tall pantry can
+      // end up on the far side of a fromEnd run after solving, separate the
+      // fridge/oven bank and physically cross the work triangle. The fixed
+      // low cabinet protects the fridge door while preserving an open path.
+      return seg('corner-buffer', FRIDGE_PREFERRED_CORNER_LANDING_MM);
+    }
+    const fillerWidth = Math.max(0, requiredWidthMm);
+    spareMm -= fillerWidth;
+    return { kind: 'filler', widthMm: fillerWidth };
+  };
+
+  if (originCornerClearance + beforeFridge < FRIDGE_ROOM_CORNER_CLEARANCE_MM) {
+    segments.unshift(protectionSegment(
+      FRIDGE_ROOM_CORNER_CLEARANCE_MM - originCornerClearance - beforeFridge,
+    ));
+  }
+  if (farCornerClearance + afterFridge < FRIDGE_ROOM_CORNER_CLEARANCE_MM) {
+    segments.push(protectionSegment(
+      FRIDGE_ROOM_CORNER_CLEARANCE_MM - farCornerClearance - afterFridge,
+    ));
+  }
+  return { ...run, segments };
 }
 
 function availableLength(brief: DesignBrief, wall: Wall): number {
   const range = rangeForWall(brief, wall);
   return range.endMm - range.startMm;
+}
+
+/**
+ * Pantry storage is a normal kitchen requirement, not a special
+ * "maximum-storage" upgrade. Size the preferred pantry from the actual
+ * selected cabinet-run capacity so compact kitchens may omit it, ordinary
+ * kitchens receive a 600mm single-door unit, and genuinely large kitchens
+ * receive a 900mm two-door unit. The run-level fit check below only authors
+ * the pantry when the required appliance and corner geometry leaves room.
+ */
+function preferredPantryWidthMm(
+  brief: DesignBrief,
+  shape: LayoutShape,
+  selectedWalls: Wall[] | null,
+): number | undefined {
+  const defaultWalls: Record<LayoutShape, Wall[]> = {
+    'single-wall': ['N'],
+    'l-shape': ['N', 'W'],
+    'u-shape': ['N', 'W', 'E'],
+    galley: ['N', 'S'],
+  };
+  const walls = [...new Set(selectedWalls ?? defaultWalls[shape])];
+  const lengths = walls.map(wall => availableLength(brief, wall));
+  const totalRunMm = lengths.reduce((sum, length) => sum + length, 0);
+  const longestRunMm = Math.max(0, ...lengths);
+  const storageWasRequested = brief.priorities.includes('storage');
+
+  if (shape === 'single-wall') {
+    if (longestRunMm >= 6000) return 900;
+    if (longestRunMm >= 4800 || (storageWasRequested && longestRunMm >= 3600)) return 600;
+    return undefined;
+  }
+
+  if (totalRunMm >= 8500 && longestRunMm >= 4000) return 900;
+  if (totalRunMm >= 5800 && longestRunMm >= 3000) return 600;
+  if (storageWasRequested && longestRunMm >= 3000) return 600;
+  return undefined;
+}
+
+/**
+ * Add the normal pantry only after the fixed/key-item cabinet sequence fits.
+ * A large-kitchen 900mm preference may step down to the mapped 600mm
+ * single-door pantry, but a pantry is never authored merely to be discarded by
+ * run compression. That keeps source coordinates stable and prevents an
+ * otherwise valid candidate from failing because of a phantom tall unit.
+ */
+function withPreferredPantry(
+  segments: Segment[],
+  preferredWidthMm: number | undefined,
+  capacityMm: number,
+  insertionAt = 0,
+): Segment[] {
+  if (!preferredWidthMm) return segments;
+  const requiredMm = segments.reduce((sum, segment) => sum + minimumSegmentWidth(segment), 0);
+  const candidates = preferredWidthMm >= 900 ? [900, 600] : [600];
+  const widthMm = candidates.find(width => requiredMm + width <= capacityMm);
+  if (!widthMm) return segments;
+  const next = [...segments];
+  next.splice(insertionAt, 0, seg('pantry', widthMm));
+  return next;
 }
 
 function reachesSharedCorner(brief: DesignBrief, a: Wall, b: Wall): boolean {
@@ -75,6 +259,184 @@ function reachesSharedCorner(brief: DesignBrief, a: Wall, b: Wall): boolean {
   const aReaches = atA === 'start' ? rangeA.startMm <= 25 : rangeA.endMm >= lenA - 25;
   const bReaches = atB === 'start' ? rangeB.startMm <= 25 : rangeB.endMm >= lenB - 25;
   return aReaches && bReaches;
+}
+
+const NORMAL_WALL_FILLER_MM = 50;
+
+/**
+ * Space unavailable to a straight bench run at one of its physical ends.
+ * A real adjoining run owns the full 900mm arm of the default pie-cut corner.
+ * A plain room wall only needs the normal scribe
+ * filler. Partial run ends inside the room need neither.
+ */
+function benchEndReserveMm(
+  brief: DesignBrief,
+  wall: Wall,
+  selectedWalls: Wall[],
+  at: 'start' | 'end',
+): number {
+  const range = rangeForWall(brief, wall);
+  const length = wallLength(wall, brief.room);
+  const reachesPhysicalEnd = at === 'start'
+    ? range.startMm <= 25
+    : range.endMm >= length - 25;
+  if (!reachesPhysicalEnd) return 0;
+
+  const hasAdjoiningRun = selectedWalls.some(other =>
+    other !== wall
+    && sharedCornerAt(wall, other) === at
+    && reachesSharedCorner(brief, wall, other));
+  return hasAdjoiningRun
+    ? ROLE_PRODUCTS.corner.widths[0]
+    : NORMAL_WALL_FILLER_MM;
+}
+
+/**
+ * Make the cooktop the visual and functional centre of its continuous low
+ * bench. The two landing cabinets absorb the exact measured remainder, so a
+ * non-modular wall closes to the millimetre without moving the appliance off
+ * centre or inventing a loose infill cabinet.
+ */
+function centredCookingBench(
+  brief: DesignBrief,
+  wall: Wall,
+  selectedWalls: Wall[],
+): Segment[] {
+  const range = rangeForWall(brief, wall);
+  const cooktopWidthMm = brief.appliances.oven === '900' ? 900 : 600;
+  const usableBenchMm = range.endMm - range.startMm
+    - benchEndReserveMm(brief, wall, selectedWalls, 'start')
+    - benchEndReserveMm(brief, wall, selectedWalls, 'end');
+  const landingTotalMm = Math.max(600, usableBenchMm - cooktopWidthMm);
+  const leadingLandingMm = Math.floor(landingTotalMm / 2);
+  const trailingLandingMm = landingTotalMm - leadingLandingMm;
+  return [
+    seg('corner-buffer', leadingLandingMm),
+    cooktopSeg(brief, cooktopWidthMm),
+    seg('doors', trailingLandingMm),
+  ];
+}
+
+/** Add an ordinary scribe filler where non-corner joinery meets a room wall. */
+function withNormalWallEndFillers(run: Run, brief: DesignBrief, selectedWalls: Wall[]): Run {
+  const range = rangeForWall(brief, run.wall);
+  const length = wallLength(run.wall, brief.room);
+  const connectedAt = (at: 'start' | 'end') => selectedWalls.some(other =>
+    other !== run.wall
+    && sharedCornerAt(run.wall, other) === at
+    && reachesSharedCorner(brief, run.wall, other));
+  const isProtected = (segment: Segment | undefined) => segment?.kind === 'filler'
+    || (segment?.kind === 'cabinet' && (
+      segment.role === 'corner'
+      // The opening already owns its 50mm wall-side clearance. An extra base
+      // filler would move the complete built-in fridge housing off the wall.
+      || (run.wallCabinets && segment.role === 'fridge-gap')
+    ));
+  const segments = [...run.segments];
+  const physicalStart = () => run.fromEnd ? segments.at(-1) : segments[0];
+  const physicalEnd = () => run.fromEnd ? segments[0] : segments.at(-1);
+  const filler = (): Segment => ({ kind: 'filler', widthMm: NORMAL_WALL_FILLER_MM });
+
+  if (range.startMm <= 25 && !connectedAt('start') && !isProtected(physicalStart())) {
+    if (run.fromEnd) segments.push(filler());
+    else segments.unshift(filler());
+  }
+  if (range.endMm >= length - 25 && !connectedAt('end') && !isProtected(physicalEnd())) {
+    if (run.fromEnd) segments.unshift(filler());
+    else segments.push(filler());
+  }
+  return { ...run, segments };
+}
+
+const MIN_WINDOW_ALIGNMENT_CABINET_MM = 200;
+const MAX_WINDOW_ALIGNMENT_CABINET_MM = 900;
+const MIN_SUITABLE_WINDOW_SILL_MM = 850;
+
+function preferredSegmentWidth(segment: Segment): number {
+  if (segment.kind !== 'cabinet') return segment.widthMm;
+  return segment.widthMm ?? ROLE_PRODUCTS[segment.role].widths[0];
+}
+
+/** Split an exact measured span into prompt-sized Microvellum base cabinets. */
+function windowAlignmentCabinets(totalMm: number): Segment[] | null {
+  const roundedTotal = Math.round(totalMm);
+  if (roundedTotal < MIN_WINDOW_ALIGNMENT_CABINET_MM) return null;
+  const count = Math.ceil(roundedTotal / MAX_WINDOW_ALIGNMENT_CABINET_MM);
+  const baseWidth = Math.floor(roundedTotal / count);
+  if (baseWidth < MIN_WINDOW_ALIGNMENT_CABINET_MM) return null;
+  let remainder = roundedTotal - baseWidth * count;
+  return Array.from({ length: count }, () => {
+    const widthMm = baseWidth + (remainder-- > 0 ? 1 : 0);
+    return { kind: 'cabinet', role: 'doors', widthMm, placementLock: 'sink-window' };
+  });
+}
+
+/**
+ * Professional default: when the selected sink run contains a suitable
+ * window, centre the sink cabinet beneath it. The extra measured span is real
+ * base cabinetry (never a dead gap). Existing plumbing still decides the sink
+ * wall first, and cramped/blocked runs retain their normal safe fallback.
+ */
+function withSinkUnderSuitableWindow(run: Run, brief: DesignBrief): Run {
+  const sinkIndex = run.segments.findIndex(segment =>
+    segment.kind === 'cabinet' && segment.role === 'sink');
+  if (sinkIndex < 0) return run;
+  // A door or walkway splits the wall into separate usable spans. Do not grow
+  // the cabinet sequence across that opening merely to centre the sink on a
+  // window; the fragmented-run solver must keep the key appliances first.
+  if (brief.room.openings.some(opening =>
+    opening.wall === run.wall && (opening.type === 'door' || opening.type === 'walkway'))) {
+    return run;
+  }
+
+  const length = wallLength(run.wall, brief.room);
+  const physicalRange = rangeForWall(brief, run.wall);
+  const solveRangeStart = run.fromEnd ? length - physicalRange.endMm : physicalRange.startMm;
+  const sinkSegment = run.segments[sinkIndex];
+  if (sinkSegment.kind !== 'cabinet') return run;
+  const sinkWidthMm = sinkSegment.widthMm ?? ROLE_PRODUCTS.sink.widths[0];
+  const prefixWidthMm = run.segments
+    .slice(0, sinkIndex)
+    .reduce((sum, segment) => sum + preferredSegmentWidth(segment), 0);
+
+  const windows = brief.room.openings
+    .filter(opening => opening.wall === run.wall
+      && opening.type === 'window'
+      && (opening.sillHeightMm === undefined
+        || opening.sillHeightMm >= MIN_SUITABLE_WINDOW_SILL_MM))
+    .sort((a, b) => b.widthMm - a.widthMm || a.offsetMm - b.offsetMm);
+
+  for (const window of windows) {
+    const physicalCentreMm = window.offsetMm + window.widthMm / 2;
+    const targetCentreMm = run.fromEnd ? length - physicalCentreMm : physicalCentreMm;
+    const physicalSinkStartMm = physicalCentreMm - sinkWidthMm / 2;
+    const physicalSinkEndMm = physicalCentreMm + sinkWidthMm / 2;
+    if (physicalSinkStartMm < physicalRange.startMm
+      || physicalSinkEndMm > physicalRange.endMm) continue;
+
+    const crossesOpening = brief.room.openings.some(opening =>
+      opening.wall === run.wall
+      && (opening.type === 'door' || opening.type === 'walkway')
+      && opening.offsetMm - 50 < physicalSinkEndMm
+      && opening.offsetMm + opening.widthMm + 50 > physicalSinkStartMm);
+    if (crossesOpening) continue;
+
+    const requiredCabinetMm = targetCentreMm - sinkWidthMm / 2
+      - solveRangeStart - prefixWidthMm;
+    if (Math.abs(requiredCabinetMm) <= 1) {
+      const segments = [...run.segments];
+      segments[sinkIndex] = { ...sinkSegment, widthMm: sinkWidthMm };
+      return { ...run, segments };
+    }
+    const alignmentCabinets = windowAlignmentCabinets(requiredCabinetMm);
+    if (!alignmentCabinets) continue;
+
+    const segments = [...run.segments];
+    segments[sinkIndex] = { ...sinkSegment, widthMm: sinkWidthMm };
+    segments.splice(sinkIndex, 0, ...alignmentCabinets);
+    return { ...run, segments };
+  }
+  return run;
 }
 
 function bridgeWall(walls: Wall[]): Wall {
@@ -94,36 +456,108 @@ function withProtectedCookingEnd(
   return protectsEnd ? [...segments, seg('corner-buffer', 600)] : segments;
 }
 
+function orientPrimaryForCorner(
+  segments: Segment[],
+  brief: DesignBrief,
+  primary: Wall,
+  adjoiningWalls: Wall[],
+): Segment[] {
+  const cornerAtStart = adjoiningWalls.some(wall =>
+    reachesSharedCorner(brief, primary, wall) && sharedCornerAt(primary, wall) === 'start');
+  const cornerAtEnd = adjoiningWalls.some(wall =>
+    reachesSharedCorner(brief, primary, wall) && sharedCornerAt(primary, wall) === 'end');
+  if (!cornerAtStart || cornerAtEnd) return withProtectedCookingEnd(segments, brief, primary, adjoiningWalls);
+  const isTall = (segment: Segment) => segment.kind === 'cabinet'
+    && (segment.role === 'pantry' || segment.role === 'oven-tower' || segment.role === 'fridge-gap');
+  const tall = segments.filter(isTall);
+  let working = segments.filter(segment => !isTall(segment));
+  if (working[0]?.kind === 'cabinet' && working[0].role === 'doors'
+    && working[1]?.kind === 'cabinet' && working[1].role === 'drawers') {
+    working = working.slice(1);
+  }
+  return [...working, ...tall.reverse()];
+}
+
+/** Keep a combined sink/cooking run safe even after the solver removes
+ * optional cupboards. The protected cabinets on both sides of the cooktop
+ * survive compression and stop it ending hard against a room corner. */
+function protectCooktopOnCompleteWall(segments: Segment[]): Segment[] {
+  const cooktopIndex = segments.findIndex(segment =>
+    segment.kind === 'cabinet' && segment.role === 'cooktop');
+  if (cooktopIndex < 0) return segments;
+  const protectedCooking = [
+    ...segments.slice(0, cooktopIndex),
+    seg('corner-buffer', 600),
+    segments[cooktopIndex],
+    seg('corner-buffer', 600),
+    ...segments.slice(cooktopIndex + 1),
+  ];
+  // A non-droppable tall pantry anchors the tall bank at the room corner. If
+  // the optional oven tower is removed during compression, the fridge still
+  // retains a real 600mm door-opening buffer instead of falling against the
+  // wall.
+  const firstTallIndex = protectedCooking.findIndex(segment =>
+    segment.kind === 'cabinet'
+    && ['pantry', 'oven-tower', 'fridge-gap'].includes(segment.role));
+  if (firstTallIndex < 0) return protectedCooking;
+  return [
+    ...protectedCooking.slice(0, firstTallIndex),
+    seg('fridge-corner-pantry', 600),
+    ...protectedCooking.slice(firstTallIndex),
+  ];
+}
+
 export function defaultSpecFor(
   brief: DesignBrief,
   shape: LayoutShape,
   style: StyleSpec = DEFAULT_STYLE,
 ): KitchenSpec {
-  const wantsStorage = brief.priorities.includes('storage');
-  const wantsOvenTower = brief.appliances.oven !== undefined;
+  const wantsMostlyDrawers = brief.priorities.includes('drawers');
+  // The mapped oven tower is 600mm. A selected 900mm oven belongs under a
+  // matching 900mm cooktop cabinet, never inside a 600mm tower or base unit.
+  // An unselected oven still needs a clear design position. In multi-run
+  // kitchens, reserve the standard 600mm tower unless the customer has chosen
+  // a 900mm oven, which must stay under a matching 900mm cooktop cabinet.
+  // Roomy U-shapes benefit especially: the tower completes the tall bank and
+  // uses otherwise stranded wall length instead of returning a false
+  // "not enough run space" result.
+  const wantsOvenTower = brief.appliances.oven === '600'
+    || (brief.appliances.oven === undefined
+      && shape === 'u-shape'
+      && Math.max(brief.room.width, brief.room.depth) >= 4200);
+  const cooktopCabinetWidthMm = brief.appliances.oven === '900' ? 900 : 600;
+  const sinkCabinetWidthMm = brief.appliances.sinkCabinetWidthMm;
   const dw = brief.appliances.dishwasher;
-  const fridgeW = fridgeOpeningWidthMm(brief.appliances.fridgeWidthMm ?? 940);
+  const fridgeBodyW = brief.appliances.fridgeWidthMm ?? 900;
+  const fridgeW = brief.appliances.fridgeOpeningWidthMm
+    ?? fridgeOpeningWidthMm(fridgeBodyW);
   const selected = selectedWallsFor(brief, shape);
+  const pantryWidthMm = preferredPantryWidthMm(brief, shape, selected);
 
   const mkPrimary = (wall: Wall, withSink: boolean, withCooktop: boolean): Segment[] => {
     const runLength = availableLength(brief, wall);
     const roomy = runLength >= 3600;
     const segments: Segment[] = [];
-    if (wantsStorage && roomy) segments.push(seg('pantry'));
-    segments.push(seg('fridge-gap', fridgeW));
     if (wantsOvenTower && roomy && shape !== 'single-wall') segments.push(seg('oven-tower'));
+    // Keep the fridge at the inner edge of the tall-unit cluster so its first
+    // neighbouring base cabinet is a genuine landing zone.
+    segments.push(fridgeSeg(fridgeBodyW, fridgeW));
+    segments.push(seg('doors', 600));
     if (withSink) {
       segments.push(seg('doors'));
-      segments.push(seg('sink'));
+      segments.push(seg('sink', sinkCabinetWidthMm));
       if (dw) segments.push(seg('dishwasher'));
     }
     if (withCooktop) {
-      segments.push(seg('cooktop'));
+      // Measured landing on both sides of the cooktop. The generator may
+      // enlarge these, but it may not omit them.
+      segments.push(seg('drawers', 500));
+      segments.push(cooktopSeg(brief, cooktopCabinetWidthMm));
       // Keep a real base cabinet between the cooking appliance and the
       // shared inside corner. If an oven tower is squeezed out, the selected
       // oven falls back under this cooktop; putting the cooktop last could
       // therefore leave the oven door trapped against the adjoining run.
-      segments.push(seg('drawers'));
+      segments.push(seg('doors', 600));
     }
     return segments;
   };
@@ -136,14 +570,34 @@ export function defaultSpecFor(
       const fragmented = brief.room.openings.some(opening =>
         opening.wall === wall && (opening.type === 'door' || opening.type === 'walkway'));
       const segments: Segment[] = [];
-      if (wantsStorage && runLength >= 4200) segments.push(seg('pantry'));
-      if (!dw) segments.push(seg('fridge-gap', fridgeW));
-      segments.push(seg('sink', fragmented ? 600 : undefined));
+      if (!dw) {
+        segments.push(fridgeSeg(fridgeBodyW, fridgeW));
+        segments.push(seg('doors', 600));
+      }
+      // In a roomy straight run, anchor the sink between usable low cabinets
+      // instead of against the exposed wall/end panel. The solver may drop
+      // this landing only when the measured room genuinely cannot keep it.
+      if (dw) segments.push(seg('doors', 600));
+      segments.push(seg('sink', sinkCabinetWidthMm ?? (fragmented ? 600 : undefined)));
       if (dw) segments.push(seg('dishwasher'));
-      segments.push(seg('drawers'));
-      segments.push(seg('cooktop'));
-      if (dw) segments.push(seg('fridge-gap', fridgeW));
-      runs = [withSelectedRange({ wall, segments, wallCabinets: true }, brief)];
+      segments.push(seg('drawers', 500));
+      segments.push(cooktopSeg(brief, cooktopCabinetWidthMm));
+      // Protect the landing on a continuous wall-to-wall run. A door or
+      // walkway divides the wall into separate spans, where keeping this exact
+      // cabinet could displace the fridge from the only remaining interval.
+      segments.push(fragmented ? seg('doors', 600) : cooktopLandingSeg());
+      if (dw) segments.push(fridgeSeg(fridgeBodyW, fridgeW));
+      // Reserve ordinary wall scribes here. A fridge opening at the end owns
+      // its own side clearance, so the conservative 100mm allowance is relaxed
+      // just enough to keep a legitimate mapped pantry where it genuinely fits.
+      const fillerReserveMm = dw ? NORMAL_WALL_FILLER_MM : NORMAL_WALL_FILLER_MM * 2;
+      const fitted = withPreferredPantry(
+        segments,
+        pantryWidthMm,
+        Math.max(0, runLength - fillerReserveMm),
+        0,
+      );
+      runs = [withSelectedRange({ wall, segments: fitted, wallCabinets: true }, brief)];
       break;
     }
     case 'l-shape': {
@@ -157,14 +611,52 @@ export function defaultSpecFor(
         sinkSide = sinkWall(brief, ['W', 'E']);
       }
       const hasCorner = reachesSharedCorner(brief, primary, sinkSide);
+      const sinkServiceWall = brief.room.services.find(service =>
+        service.placement !== 'floor'
+        && (service.type === 'drain' || service.type === 'water-supply'))?.wall;
+      const detachedShortReturn = !hasCorner
+        && availableLength(brief, primary) >= 4500
+        && availableLength(brief, sinkSide) <= 2400
+        && sinkServiceWall !== sinkSide;
+      if (detachedShortReturn) {
+        // A short selected return that does not reach the shared corner is an
+        // auxiliary storage run, not a sensible place to exile the sink. Keep
+        // the complete working kitchen on the long wall and use the detached
+        // return for accessible base storage. This avoids an over-long work
+        // triangle while still honouring both customer-selected wall ranges.
+        const completeWallSegments = protectCooktopOnCompleteWall(withPreferredPantry(
+          mkPrimary(primary, true, true),
+          pantryWidthMm,
+          availableLength(brief, primary),
+          0,
+        ));
+        runs = [
+          withSelectedRange({
+            wall: primary,
+            segments: completeWallSegments,
+            wallCabinets: true,
+          }, brief),
+          withSelectedRange({
+            wall: sinkSide,
+            segments: [seg('doors', 600), seg('drawers', 500), seg('doors', 600)],
+            wallCabinets: true,
+            fromEnd: sharedCornerAt(sinkSide, primary) === 'end',
+          }, brief),
+        ];
+        break;
+      }
       const sinkSegments: Segment[] = [
         ...(hasCorner ? [seg('corner')] : []),
-        seg('sink'),
+        ...(!hasCorner ? [seg('doors', 600)] : []),
+        seg('sink', sinkCabinetWidthMm),
       ];
       if (dw) sinkSegments.push(seg('dishwasher'));
-      sinkSegments.push(seg('drawers'));
-      const primarySegments = withProtectedCookingEnd(
-        mkPrimary(primary, false, true),
+      sinkSegments.push(seg('drawers', 500));
+      const primaryBase = mkPrimary(primary, false, true);
+      const primaryCapacityMm = availableLength(brief, primary)
+        - (hasCorner ? ROLE_PRODUCTS.corner.widths[0] : 0);
+      const primarySegments = orientPrimaryForCorner(
+        withPreferredPantry(primaryBase, pantryWidthMm, primaryCapacityMm, 0),
         brief,
         primary,
         hasCorner ? [sinkSide] : [],
@@ -186,36 +678,57 @@ export function defaultSpecFor(
       const sides = walls.filter(wall => wall !== primary);
       const sinkSide = sinkWall(brief, sides);
       const otherSide = sides.find(wall => wall !== sinkSide) ?? sides[0];
+      const sinkHasCorner = reachesSharedCorner(brief, primary, sinkSide);
+      const storageHasCorner = reachesSharedCorner(brief, primary, otherSide);
       const sinkSegments: Segment[] = [
-        ...(reachesSharedCorner(brief, primary, sinkSide) ? [seg('corner')] : []),
-        seg('sink'),
+        ...(sinkHasCorner ? [seg('corner')] : []),
+        ...(!sinkHasCorner ? [seg('doors', 600)] : []),
+        seg('sink', sinkCabinetWidthMm),
       ];
       if (dw) sinkSegments.push(seg('dishwasher'));
-      const storageSegments: Segment[] = [
-        ...(reachesSharedCorner(brief, primary, otherSide) ? [seg('corner')] : []),
-        seg('drawers'),
-        seg('doors'),
+      sinkSegments.push(seg('drawers', 500));
+      if (availableLength(brief, sinkSide) >= 3600) sinkSegments.push(seg('drawers', 500));
+      const storageCore: Segment[] = [
+        ...(storageHasCorner ? [seg('corner')] : []),
+        ...(wantsOvenTower ? [seg('oven-tower', 600)] : []),
+        fridgeSeg(fridgeBodyW, fridgeW),
+        seg('doors', 600),
       ];
-      const primarySegments = withProtectedCookingEnd(
-        mkPrimary(primary, false, true),
-        brief,
-        primary,
-        sides,
+      // Keep pantry, oven and fridge as one tall bank. Inserting after the
+      // optional corner/oven protection preserves the fridge landing cabinet
+      // at the room-facing edge of that bank.
+      const tallInsertionAt = (storageHasCorner ? 1 : 0) + (wantsOvenTower ? 1 : 0);
+      const storageSegments = withPreferredPantry(
+        storageCore,
+        pantryWidthMm,
+        availableLength(brief, otherSide),
+        tallInsertionAt,
       );
+      // Keep the working wall low and continuous. The cooktop is centred in
+      // the usable benchtop (after real corner reserves and wall fillers), and
+      // the landing cabinets close the measured run to the millimetre. Oven,
+      // fridge and pantry remain grouped together on the storage wall.
+      const primarySegments = centredCookingBench(brief, primary, walls);
+      const primaryRun: Run = { wall: primary, segments: primarySegments, wallCabinets: true };
+      const sinkRun: Run = {
+        wall: sinkSide,
+        segments: sinkSegments,
+        wallCabinets: true,
+        fromEnd: sinkHasCorner && sharedCornerAt(sinkSide, primary) === 'end',
+      };
+      const storageRun: Run = {
+        wall: otherSide,
+        segments: storageSegments,
+        // Keep this run eligible for Style DNA overhead allocation. Selective
+        // styles use a short return from the upper corner into the pantry/oven
+        // gable; the tall units themselves remain blocked from overhead fill.
+        wallCabinets: true,
+        fromEnd: storageHasCorner && sharedCornerAt(otherSide, primary) === 'end',
+      };
       runs = [
-        withSelectedRange({ wall: primary, segments: primarySegments, wallCabinets: true }, brief),
-        withSelectedRange({
-          wall: sinkSide,
-          segments: sinkSegments,
-          wallCabinets: true,
-          fromEnd: sharedCornerAt(sinkSide, primary) === 'end',
-        }, brief),
-        withSelectedRange({
-          wall: otherSide,
-          segments: storageSegments,
-          wallCabinets: false,
-          fromEnd: sharedCornerAt(otherSide, primary) === 'end',
-        }, brief),
+        withSelectedRange(primaryRun, brief),
+        withSelectedRange(sinkRun, brief),
+        withSelectedRange(storageRun, brief),
       ];
       break;
     }
@@ -223,30 +736,82 @@ export function defaultSpecFor(
       const walls = selected ?? (['N', 'S'] as Wall[]);
       const sinkRunWall = sinkWall(brief, walls);
       const cooktopRunWall = walls.find(wall => wall !== sinkRunWall) ?? walls[1];
-      const sinkSegments: Segment[] = [seg('fridge-gap', fridgeW), seg('sink')];
+      const sinkSegments: Segment[] = [
+        fridgeSeg(fridgeBodyW, fridgeW),
+        seg('doors', 600),
+        seg('sink', sinkCabinetWidthMm),
+      ];
       if (dw) sinkSegments.push(seg('dishwasher'));
-      sinkSegments.push(seg('drawers'));
-      const cooktopSegments: Segment[] = [seg('cooktop'), seg('doors')];
-      if (wantsStorage) cooktopSegments.push(seg('pantry'));
+      sinkSegments.push(seg('drawers', 500));
+      const cooktopSegments: Segment[] = [seg('drawers', 500), cooktopSeg(brief, cooktopCabinetWidthMm), seg('doors', 600)];
+      const fittedSinkSegments = withPreferredPantry(
+        sinkSegments,
+        pantryWidthMm,
+        Math.max(0, availableLength(brief, sinkRunWall) - NORMAL_WALL_FILLER_MM),
+        0,
+      );
       runs = [
-        withSelectedRange({ wall: sinkRunWall, segments: sinkSegments, wallCabinets: true }, brief),
+        withSelectedRange({ wall: sinkRunWall, segments: fittedSinkSegments, wallCabinets: true }, brief),
         withSelectedRange({ wall: cooktopRunWall, segments: cooktopSegments, wallCabinets: false }, brief),
       ];
       break;
     }
   }
 
-  const canFitIsland = brief.room.depth >= 3800 && brief.room.width >= 3200;
+  // Every ordinary run end that meets a room wall receives the same normal
+  // filler. Real corner units are excluded by the helper.
+  const runWalls = runs.map(run => run.wall);
+  runs = runs.map(run => withNormalWallEndFillers(run, brief, runWalls));
+  runs = runs.map(run => withSinkUnderSuitableWindow(run, brief));
+  if (wantsMostlyDrawers) {
+    // The explicit customer preference is stronger than the normal balanced
+    // mix. Convert every ordinary base cupboard while preserving sinks,
+    // corners, appliance housings and protected clearance roles.
+    runs = runs.map(run => ({
+      ...run,
+      baseInfillRole: 'drawers',
+      segments: run.segments.map(segment => segment.kind === 'cabinet' && segment.role === 'doors'
+        ? { ...segment, role: 'drawers' as const, widthMm: segment.widthMm ?? 500 }
+        : segment),
+    }));
+  }
+
+  const islandWorkWall = runs.find(run => run.segments.some(segment =>
+    segment.kind === 'cabinet' && segment.role === 'cooktop'))?.wall
+    ?? runs.find(run => run.segments.some(segment =>
+      segment.kind === 'cabinet' && segment.role === 'sink'))?.wall
+    ?? 'N';
+  const islandRunsAlongX = islandWorkWall === 'N' || islandWorkWall === 'S';
+  const islandCrossRoomMm = islandRunsAlongX ? brief.room.depth : brief.room.width;
+  const islandAlongRoomMm = islandRunsAlongX ? brief.room.width : brief.room.depth;
+  const lowSideWall: Wall = islandRunsAlongX ? 'W' : 'N';
+  const highSideWall: Wall = islandRunsAlongX ? 'E' : 'S';
+  // Calculate from finished benchtop edges, not cabinet bodies. A side with a
+  // perpendicular cabinet run needs that run's depth and front overhang, the
+  // 900mm clear walkway, and the island end overhang. A plain room end keeps
+  // 900mm beyond the island's finished top.
+  const sideClearance = (wall: Wall) => runs.some(run => run.wall === wall)
+    ? 580 + 25 + 900 + 25
+    : 900 + 25;
+  const maximumIslandLengthMm = Math.floor(Math.max(
+    0,
+    islandAlongRoomMm
+      - sideClearance(lowSideWall)
+      - sideClearance(highSideWall),
+  ) / 600) * 600;
+  // 580 working-run depth + 25 top overhang + 900 clear working aisle
+  // + 25 island front + 650 island + 300 seating top + 900 rear clearance.
+  const canFitIsland = islandCrossRoomMm >= 3380 && maximumIslandLengthMm >= 1200;
   const island = (brief.island === 'want' || (brief.island === 'if-it-fits' && canFitIsland)) && canFitIsland
-    ? { lengthMm: Math.min(2400, brief.room.width - 1800), depthMm: 650, features: ['storage' as const] }
+    ? { lengthMm: Math.min(2400, maximumIslandLengthMm), depthMm: 650, features: ['storage' as const, 'seating' as const] }
     : undefined;
 
-  return {
+  return applyStyleDNA({
     runs,
     island,
     style,
     rationale: selected
       ? 'Layout follows your selected cabinet walls and run limits, with the sink kept near services where possible.'
       : 'Standard layout: sink near existing plumbing, cooktop with bench space both sides, fridge at the end of the run.',
-  };
+  });
 }

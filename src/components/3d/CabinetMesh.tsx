@@ -9,6 +9,10 @@ import CabinetAssembler from './CabinetAssembler';
 import { handleItemClick, handleItemPointerDown } from './selectionGesture';
 import { CabinetRenderConfig } from '../../types/cabinetConfig';
 import { isConcealedRangehoodAppliance } from './applianceClassification';
+import {
+  cabinetCategoryForLayoutRole,
+  cabinetCornerTypeForLayoutRole,
+} from './cabinetConstruction';
 
 interface CabinetMeshProps {
   item: PlacedItem;
@@ -144,12 +148,7 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
 
   // Generate render config from catalog item or create a default
   const renderConfig: CabinetRenderConfig = useMemo(() => {
-    if (catalogItem?.renderConfig) {
-      return catalogItem.renderConfig;
-    }
-    
-    // Create a default render config if catalog item not found
-    return {
+    const baseConfig: CabinetRenderConfig = catalogItem?.renderConfig ?? {
       productId: item.definitionId,
       productName: 'Cabinet',
       category: 'Base',
@@ -180,7 +179,38 @@ const CabinetMesh: React.FC<CabinetMeshProps> = ({
       defaultHeight: item.height || 720,
       defaultDepth: item.depth || 560,
     };
-  }, [catalogItem, item.definitionId, item.width, item.height, item.depth]);
+
+    const category = cabinetCategoryForLayoutRole(baseConfig.category, item.layoutRole);
+    if (item.layoutRole === 'wall-corner') {
+      return {
+        ...baseConfig,
+        category,
+        productType: 'cabinet',
+        isCorner: true,
+        cornerType: cabinetCornerTypeForLayoutRole(
+          baseConfig.cornerType,
+          item.definitionId,
+          item.layoutRole,
+        ),
+        leftArmDepth: Math.min(item.depth || 350, 350),
+        rightArmDepth: Math.min(item.depth || 350, 350),
+      };
+    }
+    if (item.layoutRole === 'corner') {
+      return {
+        ...baseConfig,
+        category,
+        productType: 'cabinet',
+        isCorner: true,
+        cornerType: cabinetCornerTypeForLayoutRole(
+          baseConfig.cornerType,
+          item.definitionId,
+          item.layoutRole,
+        ),
+      };
+    }
+    return category === baseConfig.category ? baseConfig : { ...baseConfig, category };
+  }, [catalogItem, item.definitionId, item.width, item.height, item.depth, item.layoutRole]);
 
   // Validate dimensions
   const safeWidth = item.width && !isNaN(item.width) && item.width > 0 ? item.width : 600;

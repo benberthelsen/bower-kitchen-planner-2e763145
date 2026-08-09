@@ -24,7 +24,25 @@ export const servicePointSchema = z.object({
   wall: wallSchema,
   type: z.enum(['water-supply', 'drain', 'gpo', 'gas', 'hood-duct']),
   offsetMm: z.number().min(0),
+  placement: z.enum(['wall', 'floor']).optional(),
+  xMm: z.number().min(0).max(12000).optional(),
+  zMm: z.number().min(0).max(12000).optional(),
   heightMm: z.number().min(0).max(3000).optional(),
+}).superRefine((service, context) => {
+  if (service.placement === 'floor' && (service.xMm === undefined || service.zMm === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['placement'],
+      message: 'Floor service points require left-wall and back-wall measurements',
+    });
+  }
+  if (service.placement === 'floor' && service.type === 'hood-duct') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['placement'],
+      message: 'Existing extraction duct points must be marked on a wall',
+    });
+  }
 });
 
 export const roomSpecSchema = z.object({
@@ -53,6 +71,12 @@ export const roomSpecSchema = z.object({
     }
   }
   for (const [index, service] of room.services.entries()) {
+    if (service.placement === 'floor') {
+      if ((service.xMm ?? 0) > room.width || (service.zMm ?? 0) > room.depth) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['services', index], message: 'Floor service point is outside the room' });
+      }
+      continue;
+    }
     const wallLength = service.wall === 'N' || service.wall === 'S' ? room.width : room.depth;
     if (service.offsetMm > wallLength) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['services', index], message: 'Service point is beyond its wall' });
@@ -80,12 +104,14 @@ export const designBriefSchema = z.object({
     size: z.number().int().min(1).max(12).optional(),
     cooks: z.enum(['rare', 'daily', 'entertainer']).optional(),
   }),
-  priorities: z.array(z.enum(['storage', 'bench-space', 'entertaining', 'baking', 'budget'])),
+  priorities: z.array(z.enum(['storage', 'drawers', 'bench-space', 'entertaining', 'baking', 'budget'])),
   appliances: z.object({
     oven: z.enum(['600', '900']).optional(),
     cooktop: z.enum(['gas', 'induction']).optional(),
     dishwasher: z.boolean(),
+    sinkCabinetWidthMm: z.number().int().min(600).max(1400).optional(),
     fridgeWidthMm: z.number().min(500).max(1400).optional(),
+    fridgeOpeningWidthMm: z.number().min(500).max(1800).optional(),
     microwave: z.enum(['built-in', 'benchtop', 'none']).optional(),
   }),
   island: z.enum(['want', 'no', 'if-it-fits']),
@@ -94,6 +120,9 @@ export const designBriefSchema = z.object({
     finishId: z.string().min(1).max(64),
     benchtopId: z.string().min(1).max(64),
     handleId: z.string().min(1).max(64),
+    familyId: z.string().min(1).max(64).optional(),
+    familyVersion: z.number().int().positive().optional(),
+    variantId: z.string().min(1).max(64).optional(),
   }).optional(),
   budgetBand: z.enum(['value', 'mid', 'premium']).optional(),
   // Wizard wall picker — without this line zod strips the field and the
@@ -112,11 +141,18 @@ export const designBriefSchema = z.object({
 
 export const segmentRoleSchema = z.enum([
   'sink', 'cooktop', 'dishwasher', 'drawers', 'doors',
-  'pantry', 'oven-tower', 'fridge-gap', 'corner', 'corner-buffer',
+  'pantry', 'oven-tower', 'fridge-gap', 'corner', 'corner-buffer', 'fridge-corner-pantry',
 ]);
 
 export const segmentSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('cabinet'), role: segmentRoleSchema, widthMm: z.number().min(150).max(1400).optional() }),
+  z.object({
+    kind: z.literal('cabinet'),
+    role: segmentRoleSchema,
+    widthMm: z.number().min(150).max(1400).optional(),
+    applianceBodyWidthMm: z.number().min(200).max(1400).optional(),
+    applianceHousing: z.literal('oven').optional(),
+    placementLock: z.enum(['sink-window', 'cooktop-landing']).optional(),
+  }),
   z.object({ kind: z.literal('filler'), widthMm: z.number().min(10).max(200) }),
   z.object({ kind: z.literal('gap'), reason: z.string().max(200), widthMm: z.number().min(50).max(2000) }),
 ]);
@@ -124,7 +160,14 @@ export const segmentSchema = z.discriminatedUnion('kind', [
 export const runSchema = z.object({
   wall: wallSchema,
   segments: z.array(segmentSchema).min(1).max(24),
+  baseInfillRole: z.enum(['doors', 'drawers']).optional(),
   wallCabinets: z.boolean(),
+  upperPlan: z.object({
+    coverage: z.enum(['full', 'selective', 'minimal', 'none']),
+    coverageRatio: z.number().min(0).max(1),
+    openShelfRatio: z.number().min(0).max(1),
+    featureElements: z.array(z.string().min(1).max(64)).max(16),
+  }).optional(),
   fromEnd: z.boolean().optional(),
   startMm: z.number().min(0).max(12000).optional(),
   endMm: z.number().min(0).max(12000).optional(),
@@ -139,6 +182,11 @@ export const styleSpecSchema = z.object({
   handleId: z.string(),
   kickId: z.string().optional(),
   tapId: z.string().optional(),
+  familyId: z.string().max(64).optional(),
+  familyVersion: z.number().int().positive().optional(),
+  variantId: z.string().max(64).optional(),
+  doorProfile: z.string().max(64).optional(),
+  compositionFeatureIds: z.array(z.string().min(1).max(64)).max(16).optional(),
 });
 
 export const kitchenSpecSchema = z.object({

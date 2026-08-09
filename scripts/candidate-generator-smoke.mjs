@@ -16,7 +16,7 @@ mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
 const LAYOUT_FILES = [
-  'types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec',
+  'types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'blindCorner', 'catalogRoles', 'catalogCapabilities', 'styleDNA', 'solveRun', 'compileSpec',
   'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState',
   'designScore', 'candidateGenerator', 'index',
 ];
@@ -71,16 +71,20 @@ function roomyBrief() {
 
 console.log('candidate generator smoke tests');
 
-check('roomy room returns a full, diverse, error-free pool', () => {
+check('roomy room returns only materially different, error-free alternatives', () => {
   const pool = generateCandidatePool({ brief: roomyBrief() });
-  assert(pool.candidates.length === 3, `expected 3 candidates, got ${pool.candidates.length}`);
+  // Fewer than three is correct when the third option would be a near-copy
+  // or carries an avoidable appliance-placement fault.
+  assert(pool.candidates.length >= 1 && pool.candidates.length <= 3,
+    `expected 1-3 approved candidates, got ${pool.candidates.length}`);
   for (const c of pool.candidates) {
     assert(c.violations.every(v => v.severity !== 'error'), `${c.candidateId} carries an error violation`);
     assert(c.priceBand.lowAud > 0 && c.priceBand.highAud >= c.priceBand.lowAud, `${c.candidateId} price band invalid`);
     assert(c.score.total >= 0 && c.score.total <= 100, `${c.candidateId} score out of range`);
   }
   const pairs = new Set(pool.candidates.map(c => `${c.strategy}/${c.emphasis}`));
-  assert(pairs.size === 3, 'candidates are not diverse (strategy/emphasis pairs repeat)');
+  assert(pairs.size === pool.candidates.length,
+    'candidates are not diverse (strategy/emphasis pairs repeat)');
   const totals = pool.candidates.map(c => c.score.total);
   assert(totals.every((t, i) => i === 0 || t <= totals[i - 1]), 'candidates are not ranked by score');
 });
@@ -101,7 +105,7 @@ check('duplicate structures are removed', () => {
 
 check('small room restricts attempted strategies', () => {
   const brief = briefFromWizard(
-    { layoutPreference: 'single-wall', roomWidth: 2400, roomDepth: 2000, layoutStyle: 'minimal' },
+    { layoutPreference: 'single-wall', roomWidth: 2450, roomDepth: 2000, layoutStyle: 'minimal' },
     { openings: [], services: [] },
   );
   const pool = generateCandidatePool({ brief });

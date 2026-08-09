@@ -130,11 +130,16 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   (room.config.services ?? []).forEach((s) => {
     const rgb = SERVICE_RGB[s.type] ?? [120, 120, 120];
     let cx: number, cy: number;
-    switch (s.wall) {
-      case 'N': cx = X(s.offsetMm); cy = Y(0); break;
-      case 'S': cx = X(roomW - s.offsetMm); cy = Y(roomD); break;
-      case 'W': cx = X(0); cy = Y(roomD - s.offsetMm); break;
-      default:  cx = X(roomW); cy = Y(s.offsetMm); break; // E
+    if (s.placement === 'floor' && s.xMm !== undefined && s.zMm !== undefined) {
+      cx = X(s.xMm);
+      cy = Y(s.zMm);
+    } else {
+      switch (s.wall) {
+        case 'N': cx = X(s.offsetMm); cy = Y(0); break;
+        case 'S': cx = X(roomW - s.offsetMm); cy = Y(roomD); break;
+        case 'W': cx = X(0); cy = Y(roomD - s.offsetMm); break;
+        default:  cx = X(roomW); cy = Y(s.offsetMm); break; // E
+      }
     }
     doc.setFillColor(rgb[0], rgb[1], rgb[2]);
     doc.circle(cx, cy, 1.4, 'F');

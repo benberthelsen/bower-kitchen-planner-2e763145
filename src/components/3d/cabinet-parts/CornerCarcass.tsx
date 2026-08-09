@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import { diagonalCornerGeometry, lShapeCornerGeometry, type CornerReturnSide } from './cornerGeometry';
 
 interface CornerCarcassProps {
   // For L-shape: both arms use width as front width, leftArmDepth/rightArmDepth for depths
@@ -11,12 +12,16 @@ interface CornerCarcassProps {
   // L-shape specific: arm depths
   leftArmDepth?: number;   // Depth of left arm (in meters), defaults to depth
   rightArmDepth?: number;  // Depth of right arm (in meters), defaults to depth
+  returnSide?: CornerReturnSide; // Which cabinet end turns into the adjoining wall
   
   // Blind corner specific
   blindDepth?: number;     // Blind extension depth (in meters)
   blindSide?: 'Left' | 'Right'; // Which side has the blind
   fillerWidth?: number;    // Width of filler strip (in meters)
   hasReturnFiller?: boolean; // Whether to show return filler
+  /** Wall corner cabinets have a closed cabinet top. Base corners are closed
+   * by their benchtop and keep the normal open rail construction. */
+  closedTop?: boolean;
   
   gableThickness?: number;
   color: string;
@@ -60,10 +65,12 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
   cornerType,
   leftArmDepth,
   rightArmDepth,
+  returnSide = 'Left',
   blindDepth = 0.15,
   blindSide = 'Left',
   fillerWidth = 0.075,
   hasReturnFiller = false,
+  closedTop = false,
   gableThickness = 0.018,
   color,
   roughness,
@@ -131,14 +138,15 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
   //   └──────────┘  ← front (z = +depth/2)
   //              ↑ notchX (door faces +X here)
   if (cornerType === 'l-shape') {
+    const cornerGeometry = lShapeCornerGeometry(width, depth, leftDepth, rightDepth, returnSide);
     const notchX = -width / 2 + Math.min(leftDepth, width - 0.05);
-    const notchZ = -depth / 2 + Math.min(rightDepth, depth - 0.05);
+    const notchZ = cornerGeometry.backDoorPlaneZ;
     const leftArmWidth = notchX + width / 2;     // X extent of left arm
     const backArmDepth = notchZ + depth / 2;     // Z extent of back arm
     const leftArmFrontLen = depth / 2 - notchZ;  // left arm portion in front of back arm
 
     return (
-      <group>
+      <group scale={[cornerGeometry.mirrorX, 1, 1]}>
         {/* ===== BACK ARM (full width, z ∈ [-depth/2, notchZ]) ===== */}
         {/* Back panel against the back wall */}
         <mesh position={[0, 0, -depth / 2 + backThickness / 2]}>
@@ -173,6 +181,19 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
           <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
         </mesh>
 
+        {closedTop && (
+          <>
+            <mesh position={[0, height / 2 - bottomThickness / 2, (-depth / 2 + notchZ) / 2 + backThickness / 2]}>
+              <boxGeometry args={[width - gableThickness * 2, bottomThickness, backArmDepth - backThickness]} />
+              <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
+            </mesh>
+            <mesh position={[(-width / 2 + notchX) / 2, height / 2 - bottomThickness / 2, (notchZ + depth / 2) / 2]}>
+              <boxGeometry args={[leftArmWidth - gableThickness, bottomThickness, leftArmFrontLen]} />
+              <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
+            </mesh>
+          </>
+        )}
+
         {/* No internal corner post: the pie-cut bi-fold pair is hinged leaf-to-leaf
             and closes across the notch itself — a full-height post here reads as a
             stray vertical fragment between the door leaves. */}
@@ -180,54 +201,62 @@ const CornerCarcass: React.FC<CornerCarcassProps> = ({
     );
   }
   
-  // Diagonal corner: 45-degree angled front with two gables meeting at corner
+  // Diagonal corner: two shallow wall arms close the room corner and a single
+  // diagonal front bridges their inner ends. This is deliberately different
+  // from the 900mm base pie-cut box: a 600mm upper uses the normal 350mm wall
+  // depth and has a closed top, so it reads as an overhead cabinet.
   if (cornerType === 'diagonal') {
-    const diagonalWidth = Math.sqrt(2) * width * 0.4;
+    const diagonal = diagonalCornerGeometry(width, depth, leftDepth, rightDepth);
+    const {
+      notchX,
+      notchZ,
+      leftArmWidth,
+      backArmDepth,
+      leftArmFrontDepth,
+    } = diagonal;
+    const horizontalPanel = (key: string, y: number) => (
+      <React.Fragment key={key}>
+        <mesh position={[0, y, (-depth / 2 + notchZ) / 2 + backThickness / 2]}>
+          <boxGeometry args={[width - gableThickness * 2, bottomThickness, backArmDepth - backThickness]} />
+          <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
+        </mesh>
+        <mesh position={[(-width / 2 + notchX) / 2, y, (notchZ + depth / 2) / 2]}>
+          <boxGeometry args={[leftArmWidth - gableThickness, bottomThickness, leftArmFrontDepth]} />
+          <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
+        </mesh>
+      </React.Fragment>
+    );
     
     return (
       <group>
-        {/* Left gable - along left wall */}
-        <mesh position={[-width / 2 + gableThickness / 2, 0, depth / 4]}>
-          <boxGeometry args={[gableThickness, height, depth / 2]} />
+        {/* Full wall-side gables. */}
+        <mesh position={[-width / 2 + gableThickness / 2, 0, 0]}>
+          <boxGeometry args={[gableThickness, height, depth]} />
           <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
-        
-        {/* Right gable - along back wall */}
-        <mesh position={[width / 4, 0, -depth / 2 + gableThickness / 2]}>
-          <boxGeometry args={[width / 2, height, gableThickness]} />
+        <mesh position={[0, 0, -depth / 2 + gableThickness / 2]}>
+          <boxGeometry args={[width, height, gableThickness]} />
           <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
-        
-        {/* Angled front panel (45 degrees) */}
-        <mesh 
-          position={[0, 0, depth / 4]} 
-          rotation={[0, -Math.PI / 4, 0]}
-        >
-          <boxGeometry args={[diagonalWidth, height, gableThickness]} />
+        {/* End closures where the two overhead runs meet this cabinet. */}
+        <mesh position={[width / 2 - gableThickness / 2, 0, (-depth / 2 + notchZ) / 2]}>
+          <boxGeometry args={[gableThickness, height, backArmDepth]} />
           <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
-        
-        {/* Bottom panel */}
-        <mesh position={[-width / 8, -height / 2 + bottomThickness / 2, -depth / 8]}>
-          <boxGeometry args={[width * 0.6, bottomThickness, depth * 0.6]} />
-          <meshStandardMaterial key={horizontalTexture ? horizontalTexture.uuid : 'flat'} {...materialProps} map={horizontalTexture} />
+        <mesh position={[(-width / 2 + notchX) / 2, 0, depth / 2 - gableThickness / 2]}>
+          <boxGeometry args={[leftArmWidth, height, gableThickness]} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
-        
-        {/* Back panels - two pieces at 90 degrees */}
-        <mesh position={[-width / 8, 0, -depth / 2 + gableThickness + backThickness / 2]}>
-          <boxGeometry args={[width / 3, height - bottomThickness * 2, backThickness]} />
-          <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
+
+        {/* Thin diagonal face rail behind the door closes the two arms. */}
+        <mesh position={[diagonal.frontCenterX, 0, diagonal.frontCenterZ]} rotation={[0, diagonal.frontYaw, 0]}>
+          <boxGeometry args={[diagonal.frontWidth, height, gableThickness]} />
+          <meshStandardMaterial key={verticalTexture ? verticalTexture.uuid : 'flat'} {...materialProps} map={verticalTexture} />
         </mesh>
-        <mesh position={[-width / 2 + gableThickness + backThickness / 2, 0, -depth / 8]}>
-          <boxGeometry args={[backThickness, height - bottomThickness * 2, depth / 3]} />
-          <meshStandardMaterial color="#e8e8e8" roughness={0.7} />
-        </mesh>
-        
-        {/* Interior shelf */}
-        <mesh position={[-width / 8, 0, -depth / 8]}>
-          <boxGeometry args={[width * 0.4, 0.018, depth * 0.4]} />
-          <meshStandardMaterial color="#f0f0f0" roughness={0.6} />
-        </mesh>
+
+        {horizontalPanel('diagonal-bottom', -height / 2 + bottomThickness / 2)}
+        {horizontalPanel('diagonal-shelf', 0)}
+        {closedTop && horizontalPanel('diagonal-top', height / 2 - bottomThickness / 2)}
       </group>
     );
   }

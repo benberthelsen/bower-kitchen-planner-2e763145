@@ -53,6 +53,7 @@ const LAYOUTS: { value: LayoutShape; label: string }[] = [
 
 const PRIORITIES: { value: Priority; label: string }[] = [
   { value: 'storage', label: 'Storage' },
+  { value: 'drawers', label: 'Mostly drawers' },
   { value: 'bench-space', label: 'Bench space' },
   { value: 'entertaining', label: 'Entertaining' },
   { value: 'baking', label: 'Baking' },

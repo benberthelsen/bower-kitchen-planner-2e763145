@@ -147,15 +147,22 @@ const DoorFront: React.FC<DoorFrontProps> = ({
           <HandleMesh
             type={handle.type}
             color={handle.color}
-            // Profile rails span the full door width (handleless look), so they
-            // are centred horizontally instead of using the 32mm-system offset.
+            // Profile rails and horizontal base-door lip pulls are centred;
+            // vertical upper/tall lip pulls retain the 32mm-system edge offset.
             position={[
-              -hingeOffset + (handle.type === 'Profile' ? 0 : handle.x),
+              -hingeOffset + (handle.type === 'Profile'
+                || (handle.type === 'Lip' && (handle.rotation ?? 0) === 0)
+                ? 0
+                : handle.x),
               handle.y,
               thickness / 2 + 0.015,
             ]}
             rotation={handle.rotation ?? 0}
-            length={handle.type === 'Profile' ? actualWidth : handle.length}
+            length={handle.type === 'Profile'
+              ? actualWidth
+              : handle.type === 'Lip'
+                ? Math.min(0.16, actualWidth - 0.06)
+                : handle.length}
           />
         )}
       </group>

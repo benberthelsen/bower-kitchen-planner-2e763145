@@ -27,12 +27,24 @@
 
 import type { PlacedItem } from './core.ts';
 import { rangeForWall } from './briefConstraints.ts';
-import { fridgeOpeningWidthMm } from './catalogRoles.ts';
 import {
-  dist, itemRect, rectsOverlap, sharedCornerAt, wallLength, wallPointWorld, WALL_ROTATION,
+  FRIDGE_ROOM_CORNER_CLEARANCE_MM,
+  FRIDGE_SIDE_CLEARANCE_MM,
+  fridgeOpeningWidthMm,
+} from './catalogRoles.ts';
+import { ROLE_PRODUCTS } from './catalogRoles.ts';
+import { styleProfile } from './styleDNA.ts';
+import {
+  BLIND_CORNER_MIN_ACCESS_MM,
+  BLIND_CORNER_RETURN_MM,
+  blindCornerFrontLayout,
+} from './blindCorner.ts';
+import {
+  benchtopRect, dist, itemRect, rectsJoin, rectsOverlap, sharedCornerAt, wallLength,
+  servicePointWorld, wallPointWorld, WALL_ROTATION,
 } from './geometry.ts';
 import type { CompiledDesign } from './compileSpec.ts';
-import type { DesignBrief, RoomSpec, Wall } from './types.ts';
+import type { DesignBrief, RoomSpec, Segment, SegmentRole, Wall } from './types.ts';
 
 export type RuleTier = 'hard' | 'safety' | 'soft';
 export type RuleScope = 'relational' | 'spatial';
@@ -67,18 +79,116 @@ export interface Rule {
 }
 
 // thresholds (mm) — shared with the legacy checks they replace
-const MIN_AISLE = 1000;
-const MIN_FACING_AISLE = 1200;
+const MIN_AISLE = 900;
+const MIN_FACING_AISLE = 900;
 const TRIANGLE_MIN = 3600;
 const TRIANGLE_MAX = 8000;
 const LEG_MIN = 1200;
 const LEG_MAX = 2700;
 const SINK_DRAIN_MAX = 1500;
 const GAS_MAX = 600;
-const COOKING_APPLIANCE_CORNER_CLEARANCE = 600;
+/** Fallbacks only: the nominated appliance installation instructions govern. */
+const GAS_COOKTOP_COMBUSTIBLE_SIDE_CLEARANCE = 200;
+const INDUCTION_COOKTOP_SIDE_CLEARANCE_FALLBACK = 150;
+const OVEN_TOWER_CORNER_CLEARANCE = 600;
+const COOKTOP_LANDING_MIN = 300;
+const SINK_SIDE_CLEARANCE_MIN = 300;
+const FRIDGE_LANDING_MIN = 400;
+const PREP_BENCH_MIN = 900;
 
 function finding(ruleId: string, tier: RuleTier, message: string, itemIds?: string[]): RuleFinding {
   return { ruleId, tier, message, ...(itemIds ? { itemIds } : {}) };
+}
+
+const TALL_ROLES = new Set<SegmentRole>([
+  'pantry', 'oven-tower', 'fridge-gap', 'fridge-corner-pantry',
+]);
+const BENCH_ROLES = new Set<SegmentRole>(['doors', 'drawers', 'dishwasher', 'corner-buffer']);
+
+function segmentWidth(segment: Segment): number {
+  if (segment.kind !== 'cabinet') return segment.widthMm;
+  return segment.widthMm ?? ROLE_PRODUCTS[segment.role].widths[0] ?? 600;
+}
+
+function isBenchSegment(segment: Segment): boolean {
+  return segment.kind === 'cabinet' && BENCH_ROLES.has(segment.role);
+}
+
+function isTallSegment(segment: Segment): boolean {
+  return segment.kind === 'cabinet' && TALL_ROLES.has(segment.role);
+}
+
+function contiguousBenchFrom(segments: Segment[], start: number, direction: -1 | 1): number {
+  let total = 0;
+  for (let index = start; index >= 0 && index < segments.length; index += direction) {
+    const segment = segments[index];
+    if (!isBenchSegment(segment)) break;
+    total += segmentWidth(segment);
+  }
+  return total;
+}
+
+function contiguousSinkSideFrom(segments: Segment[], start: number, direction: -1 | 1): number {
+  let total = 0;
+  for (let index = start; index >= 0 && index < segments.length; index += direction) {
+    const segment = segments[index];
+    if (segment.kind !== 'cabinet'
+      || (!BENCH_ROLES.has(segment.role) && segment.role !== 'corner')) break;
+    total += segmentWidth(segment);
+  }
+  return total;
+}
+
+function runTouchesSharedCorner(design: CompiledDesign, room: RoomSpec, a: Wall, b: Wall): boolean {
+  const atA = sharedCornerAt(a, b);
+  const atB = sharedCornerAt(b, a);
+  if (!atA || !atB) return false;
+  const rangeA = design.runRanges.find(range => range.wall === a);
+  const rangeB = design.runRanges.find(range => range.wall === b);
+  if (!rangeA || !rangeB) return false;
+  const reaches = (range: { startMm: number; endMm: number }, wall: Wall, end: 'start' | 'end') =>
+    end === 'start' ? range.startMm <= 25 : range.endMm >= wallLength(wall, room) - 25;
+  return reaches(rangeA, a, atA) && reaches(rangeB, b, atB);
+}
+
+function segmentCrossesRect(
+  start: { x: number; z: number },
+  end: { x: number; z: number },
+  rect: { minX: number; maxX: number; minZ: number; maxZ: number },
+): boolean {
+  // Liang-Barsky clipping with an endpoint margin so a tall unit forming one
+  // endpoint (the fridge) never reports itself as an obstruction.
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  let low = 0.08;
+  let high = 0.92;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const ratio = q / p;
+    if (p < 0) low = Math.max(low, ratio);
+    else high = Math.min(high, ratio);
+    return low <= high;
+  };
+  return clip(-dx, start.x - rect.minX)
+    && clip(dx, rect.maxX - start.x)
+    && clip(-dz, start.z - rect.minZ)
+    && clip(dz, rect.maxZ - start.z);
+}
+
+/**
+ * Work-triangle travel begins at the usable front of an appliance, not at the
+ * centre of its carcass. Measuring centre-to-centre made the route appear to
+ * pass through a pantry beside a fridge and inflated large-room triangles by
+ * roughly one cabinet depth at every leg.
+ */
+function workingAccessPoint(item: PlacedItem): { x: number; z: number } {
+  const reach = item.depth / 2 + 100;
+  const rotation = ((item.rotation % 360) + 360) % 360;
+  if (rotation === 0) return { x: item.x, z: item.z + reach };
+  if (rotation === 180) return { x: item.x, z: item.z - reach };
+  if (rotation === 90) return { x: item.x - reach, z: item.z };
+  if (rotation === 270) return { x: item.x + reach, z: item.z };
+  return { x: item.x, z: item.z };
 }
 
 // ─── The registry ───────────────────────────────────────────────────────────
@@ -161,6 +271,43 @@ export const RULES: Rule[] = [
         )];
       });
     },
+  },
+  {
+    id: 'wall-end-filler', tier: 'hard', scope: 'relational',
+    title: 'Ordinary cabinets are scribed to room walls',
+    why: 'A standard cabinet or tall bank finishing against a wall needs a normal filler so doors, handles and installation tolerances clear the wall. A housed fridge uses the clearance and overhead filler within its reserved opening.',
+    evaluate: ({ design, room }) => design.sourceSpec.runs.flatMap(run => {
+      const range = design.runRanges.find(candidate => candidate.wall === run.wall);
+      if (!range || run.segments.length === 0) return [];
+      const connectsAt = (at: 'start' | 'end') => design.sourceSpec.runs.some(other =>
+        other.wall !== run.wall
+        && sharedCornerAt(run.wall, other.wall) === at
+        && runTouchesSharedCorner(design, room, run.wall, other.wall));
+      const physicalStart = run.fromEnd ? run.segments.at(-1) : run.segments[0];
+      const physicalEnd = run.fromEnd ? run.segments[0] : run.segments.at(-1);
+      const protectedEdge = (segment: Segment | undefined) => segment?.kind === 'filler'
+        || (segment?.kind === 'cabinet' && (
+          segment.role === 'corner'
+          || (run.wallCabinets && segment.role === 'fridge-gap')
+        ));
+      const findings: RuleFinding[] = [];
+      if (range.startMm <= 25 && !connectsAt('start') && !protectedEdge(physicalStart)) {
+        findings.push(finding(
+          'wall-end-filler',
+          'hard',
+          `The ${run.wall} run starts against a room wall without a normal filler`,
+        ));
+      }
+      if (range.endMm >= wallLength(run.wall, room) - 25
+        && !connectsAt('end') && !protectedEdge(physicalEnd)) {
+        findings.push(finding(
+          'wall-end-filler',
+          'hard',
+          `The ${run.wall} run ends against a room wall without a normal filler`,
+        ));
+      }
+      return findings;
+    }),
   },
   {
     id: 'duplicate-run-wall', tier: 'hard', scope: 'relational',
@@ -256,17 +403,24 @@ export const RULES: Rule[] = [
     why: `An aisle beside an island narrower than ${MIN_AISLE}mm is not usable.`,
     evaluate: ({ floorItems, islandItems }) => {
       const out: RuleFinding[] = [];
+      const workingFootprint = (item: PlacedItem) => item.height <= 1000
+        ? benchtopRect(item)
+        : itemRect(item);
       for (const isl of islandItems) {
         for (const other of floorItems) {
           if (islandItems.includes(other)) continue;
-          const a = itemRect(isl), b = itemRect(other);
-          if (a.minX < b.maxX && a.maxX > b.minX) {
-            const gap = Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ);
-            if (gap > 0 && gap < MIN_AISLE) {
-              out.push(finding('narrow-aisle', 'hard',
-                `Aisle ${Math.round(gap)}mm between island and run (min ${MIN_AISLE}mm)`,
-                [isl.instanceId, other.instanceId]));
-            }
+          const a = workingFootprint(isl), b = workingFootprint(other);
+          const overlapsX = a.minX < b.maxX && a.maxX > b.minX;
+          const overlapsZ = a.minZ < b.maxZ && a.maxZ > b.minZ;
+          const gap = overlapsX
+            ? Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ)
+            : overlapsZ
+              ? Math.max(b.minX - a.maxX, a.minX - b.maxX)
+              : Number.POSITIVE_INFINITY;
+          if (gap > 0 && gap < MIN_AISLE) {
+            out.push(finding('narrow-aisle', 'hard',
+              `Clear benchtop-to-benchtop aisle is ${Math.round(gap)}mm (min ${MIN_AISLE}mm)`,
+              [isl.instanceId, other.instanceId]));
           }
         }
       }
@@ -298,6 +452,49 @@ export const RULES: Rule[] = [
     title: 'Has a cooktop',
     why: 'A kitchen must have a cooktop.',
     evaluate: ({ design }) => design.rolePositions.cooktop ? [] : [finding('no-cooktop', 'hard', 'Design has no cooktop cabinet')],
+  },
+  {
+    id: 'cooktop-window', tier: 'safety', scope: 'relational',
+    title: 'Cooktop stays clear of windows',
+    why: 'A cooktop in front of a window conflicts with safe extraction, window operation and the normal rangehood position. It is only retained when a compact room has no safer layout.',
+    evaluate: ({ design, room }) => {
+      const cooktop = design.rolePositions.cooktop;
+      if (!cooktop || cooktop.wall === 'island') return [];
+      const cooktopEnd = cooktop.startMm + cooktop.widthMm;
+      const overlappingWindow = room.openings.find(opening =>
+        opening.type === 'window'
+        && opening.wall === cooktop.wall
+        && opening.offsetMm < cooktopEnd - 1
+        && opening.offsetMm + opening.widthMm > cooktop.startMm + 1);
+      return overlappingWindow
+        ? [finding(
+            'cooktop-window',
+            'safety',
+            `Cooktop overlaps the window on wall ${cooktop.wall}; use this only when the room has no safe alternative`,
+            [cooktop.item.instanceId],
+          )]
+        : [];
+    },
+  },
+  {
+    id: 'sink-side-clearance', tier: 'safety', scope: 'relational',
+    title: 'Sink stays clear of exposed ends and tall panels',
+    why: `A sink needs at least ${SINK_SIDE_CLEARANCE_MIN}mm of adjoining low bench or a usable corner on both sides. This keeps the bowl away from an exposed run end, wall or tall panel unless a compact kitchen leaves no alternative.`,
+    evaluate: ({ design }) => design.sourceSpec.runs.flatMap(run => {
+      const index = run.segments.findIndex(segment =>
+        segment.kind === 'cabinet' && segment.role === 'sink');
+      if (index < 0) return [];
+      const left = contiguousSinkSideFrom(run.segments, index - 1, -1);
+      const right = contiguousSinkSideFrom(run.segments, index + 1, 1);
+      return left < SINK_SIDE_CLEARANCE_MIN || right < SINK_SIDE_CLEARANCE_MIN
+        ? [finding(
+            'sink-side-clearance',
+            'safety',
+            `Sink side bench is ${left}mm / ${right}mm (preferred minimum ${SINK_SIDE_CLEARANCE_MIN}mm on each side)`,
+            design.rolePositions.sink ? [design.rolePositions.sink.item.instanceId] : undefined,
+          )]
+        : [];
+    }),
   },
   {
     id: 'no-fridge', tier: 'hard', scope: 'relational',
@@ -332,18 +529,268 @@ export const RULES: Rule[] = [
     },
   },
   {
-    id: 'corner-integrity', tier: 'safety', scope: 'relational',
+    id: 'tall-unit-run-end', tier: 'hard', scope: 'relational',
+    title: 'Tall units stay at run ends',
+    why: 'A pantry, fridge or oven tower in the middle of a bench breaks preparation flow and visually splits the kitchen.',
+    evaluate: ({ design }) => design.sourceSpec.runs.flatMap(run => {
+      const cabinetSegments = run.segments.filter(segment => segment.kind === 'cabinet');
+      const tallIndexes = cabinetSegments
+        .map((segment, index) => TALL_ROLES.has(segment.role) ? index : -1)
+        .filter(index => index >= 0);
+      if (tallIndexes.length === 0) return [];
+      const baseIndexes = cabinetSegments
+        .map((segment, index) => !TALL_ROLES.has(segment.role) ? index : -1)
+        .filter(index => index >= 0);
+      const firstBase = Math.min(...baseIndexes);
+      const lastBase = Math.max(...baseIndexes);
+      const midRun = tallIndexes.some(index => {
+        const segment = cabinetSegments[index];
+        const protectedByLeadingBuffer = ['corner', 'corner-buffer'].includes(cabinetSegments[0]?.role)
+          && cabinetSegments.slice(1, index + 1).every(isTallSegment);
+        const protectedByTrailingBuffer = ['corner', 'corner-buffer'].includes(cabinetSegments.at(-1)?.role)
+          && cabinetSegments.slice(index, -1).every(isTallSegment);
+        const cornerProtectedOven = index === 1
+          && segment.role === 'oven-tower'
+          && cabinetSegments[0]?.role === 'doors'
+          && segmentWidth(cabinetSegments[0]) <= OVEN_TOWER_CORNER_CLEARANCE;
+        return index > firstBase && index < lastBase
+          && !protectedByLeadingBuffer && !protectedByTrailingBuffer && !cornerProtectedOven;
+      });
+      return midRun
+        ? [finding('tall-unit-run-end', 'hard', `A tall unit interrupts the working bench on wall ${run.wall}`)]
+        : [];
+    }),
+  },
+  {
+    id: 'tall-unit-cluster', tier: 'hard', scope: 'relational',
+    title: 'Tall units form one continuous bank',
+    why: 'Fridge, oven tower and pantry belong together at a run end; scattering them across working walls breaks bench flow and visual order.',
+    evaluate: ({ design }) => {
+      const tallRuns = design.sourceSpec.runs
+        .map(run => ({
+          run,
+          cabinets: run.segments.filter(segment => segment.kind === 'cabinet'),
+        }))
+        .map(entry => ({
+          ...entry,
+          tallIndexes: entry.cabinets
+            .map((segment, index) => isTallSegment(segment) ? index : -1)
+            .filter(index => index >= 0),
+        }))
+        .filter(entry => entry.tallIndexes.length > 0);
+      const tallCount = tallRuns.reduce((sum, entry) => sum + entry.tallIndexes.length, 0);
+      if (tallCount <= 1) return [];
+      if (tallRuns.length > 1) {
+        return [finding(
+          'tall-unit-cluster',
+          'hard',
+          'Fridge, oven tower and pantry are split across different walls instead of one tall-unit bank',
+        )];
+      }
+      const indexes = tallRuns[0].tallIndexes;
+      const contiguous = indexes.at(-1)! - indexes[0] + 1 === indexes.length;
+      return contiguous
+        ? []
+        : [finding(
+            'tall-unit-cluster',
+            'hard',
+            `Tall units are separated by a base cabinet on wall ${tallRuns[0].run.wall}`,
+          )];
+    },
+  },
+  {
+    id: 'tall-unit-workflow-break', tier: 'hard', scope: 'relational',
+    title: 'Sink-to-cooktop bench remains unbroken',
+    why: 'Tall cabinetry must never split the main sink-to-cooktop preparation run.',
+    evaluate: ({ design }) => design.sourceSpec.runs.flatMap(run => {
+      const sink = run.segments.findIndex(segment => segment.kind === 'cabinet' && segment.role === 'sink');
+      const cooktop = run.segments.findIndex(segment => segment.kind === 'cabinet' && segment.role === 'cooktop');
+      if (sink < 0 || cooktop < 0) return [];
+      const low = Math.min(sink, cooktop);
+      const high = Math.max(sink, cooktop);
+      return run.segments.slice(low + 1, high).some(isTallSegment)
+        ? [finding('tall-unit-workflow-break', 'hard', `A tall unit breaks the sink-to-cooktop bench on wall ${run.wall}`)]
+        : [];
+    }),
+  },
+  {
+    id: 'fridge-room-corner-clearance', tier: 'hard', scope: 'spatial',
+    title: 'Fridge doors clear perpendicular room walls',
+    why: `A fridge needs at least ${FRIDGE_ROOM_CORNER_CLEARANCE_MM}mm between it and a physical room corner so its doors and internal drawers can open fully.`,
+    evaluate: ({ design, room }) => {
+      const fridge = design.rolePositions['fridge-gap'];
+      if (!fridge || fridge.wall === 'island') return [];
+      const length = wallLength(fridge.wall, room);
+      const startClearance = fridge.startMm;
+      const endClearance = length - fridge.startMm - fridge.widthMm;
+      const sourceRun = fridge.item.layoutRunIndex === undefined
+        ? undefined
+        : design.sourceSpec.runs[fridge.item.layoutRunIndex];
+      const housed = sourceRun?.wallCabinets === true;
+      // A housed opening may deliberately meet the wall: its nominal width
+      // already includes the appliance's side allowance and the overhead is
+      // closed with a normal filler. A small accidental sliver is still invalid.
+      const startIsValid = startClearance >= FRIDGE_ROOM_CORNER_CLEARANCE_MM
+        || (housed && startClearance <= FRIDGE_SIDE_CLEARANCE_MM + 1);
+      const endIsValid = endClearance >= FRIDGE_ROOM_CORNER_CLEARANCE_MM
+        || (housed && endClearance <= FRIDGE_SIDE_CLEARANCE_MM + 1);
+      if (startIsValid && endIsValid) return [];
+      return [finding(
+        'fridge-room-corner-clearance',
+        'hard',
+        `Fridge door clearance is ${Math.max(0, Math.round(startClearance))}mm / ${Math.max(0, Math.round(endClearance))}mm from the room corners (minimum ${FRIDGE_ROOM_CORNER_CLEARANCE_MM}mm)`,
+        [fridge.item.instanceId],
+      )];
+    },
+  },
+  {
+    id: 'corner-resolution', tier: 'hard', scope: 'relational',
+    title: 'Every internal corner is deliberately resolved',
+    why: 'Usable corner hardware or an explicit no-fit void prevents valuable space being lost behind filler panels.',
+    evaluate: ({ design, room }) => {
+      const findings: RuleFinding[] = [];
+      for (let a = 0; a < design.sourceSpec.runs.length; a++) {
+        for (let b = a + 1; b < design.sourceSpec.runs.length; b++) {
+          const first = design.sourceSpec.runs[a];
+          const second = design.sourceSpec.runs[b];
+          if (!runTouchesSharedCorner(design, room, first.wall, second.wall)) continue;
+          const pair = [...first.segments, ...second.segments];
+          const resolved = pair.some(segment => segment.kind === 'cabinet' && segment.role === 'corner')
+            || pair.some(segment => segment.kind === 'gap'
+              && /corner/i.test(segment.reason) && /(void|no.?fit|walk.?in)/i.test(segment.reason));
+          if (!resolved) {
+            findings.push(finding(
+              'corner-resolution',
+              'hard',
+              `The internal corner between walls ${first.wall} and ${second.wall} has no mapped corner unit or explicit no-fit reason`,
+            ));
+          }
+        }
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'style-composition-fidelity', tier: 'hard', scope: 'relational',
+    title: 'Style family changes composition',
+    why: 'A style is a cabinet-composition system, not a material wrap applied to the same kitchen.',
+    evaluate: ({ design }) => {
+      const profile = styleProfile(design.sourceSpec.style.familyId);
+      if (!profile) return [];
+      const plans = design.sourceSpec.runs.map(run => run.upperPlan).filter(Boolean);
+      const maxCoverage = Math.max(0, ...plans.map(plan => plan?.coverageRatio ?? 0));
+      const maxShelving = Math.max(0, ...plans.map(plan => plan?.openShelfRatio ?? 0));
+      const features = new Set(design.sourceSpec.style.compositionFeatureIds ?? []);
+      const findings: RuleFinding[] = [];
+      for (const required of profile.requiredFeatureElements) {
+        if (!features.has(required)) findings.push(finding('style-required-feature', 'hard', `${profile.name} requires ${required}`));
+      }
+      if (profile.id === 'hamptons' && maxCoverage < .78) {
+        findings.push(finding('style-overhead-density', 'hard', 'Hamptons requires a generous overhead run'));
+      }
+      if (profile.id === 'scandinavian' && maxCoverage > .55) {
+        findings.push(finding('style-overhead-density', 'hard', 'Scandinavian must not use a full overhead run'));
+      }
+      if (profile.id === 'coastal' && maxShelving < .45) {
+        findings.push(finding('style-open-shelving', 'hard', 'Coastal requires visible open shelving'));
+      }
+      return findings;
+    },
+  },
+  {
+    id: 'corner-integrity', tier: 'hard', scope: 'relational',
     title: 'Corner cabinets resolve correctly',
-    why: 'A corner position must use a real blind/pie-cut corner cabinet with its blind side facing the corner, or its doors jam against the adjoining run.',
-    evaluate: ({ floorItems }) => floorItems.flatMap(item =>
-      item.definitionId.includes('corner') && !item.blindSide
-        ? [finding('corner-integrity', 'safety', `${item.definitionId} is a corner cabinet with no blind side set`, [item.instanceId])]
-        : []),
+    why: 'A corner position must use a real square pie-cut cabinet with linked bi-fold doors, or a correctly oriented blind-corner fallback.',
+    evaluate: ({ floorItems }) => floorItems.flatMap(item => {
+      if (!item.definitionId.includes('corner')) return [];
+      if (item.definitionId.includes('pie_cut')) {
+        const findings: RuleFinding[] = [];
+        if (Math.abs(item.width - item.depth) > 1) {
+          findings.push(finding(
+            'corner-integrity',
+            'hard',
+            `${item.definitionId} must use a square footprint so both arms meet the adjoining runs`,
+            [item.instanceId],
+          ));
+        }
+        if (Math.abs(item.width - 900) > 1) {
+          findings.push(finding(
+            'corner-integrity',
+            'hard',
+            `${item.definitionId} must use the mapped 900mm bi-fold corner size`,
+            [item.instanceId],
+          ));
+        }
+        return findings;
+      }
+      if (!item.definitionId.includes('blind')) return [];
+      if (!item.blindSide) {
+        return [finding(
+          'corner-integrity',
+          'hard',
+          `${item.definitionId} is a corner cabinet with no blind side set`,
+          [item.instanceId],
+        )];
+      }
+      const front = blindCornerFrontLayout(item.width, item.depth, item.blindSide);
+      const findings: RuleFinding[] = [];
+      if (Math.abs(item.depth - (575 + BLIND_CORNER_RETURN_MM)) > 1) {
+        findings.push(finding(
+          'corner-integrity',
+          'hard',
+          `${item.definitionId} does not include its ${BLIND_CORNER_RETURN_MM}mm built-in return`,
+          [item.instanceId],
+        ));
+      }
+      if (front.accessWidthMm < BLIND_CORNER_MIN_ACCESS_MM) {
+        findings.push(finding(
+            'corner-integrity',
+            'hard',
+            `${item.definitionId} leaves only ${Math.round(front.accessWidthMm)}mm of usable door opening (minimum ${BLIND_CORNER_MIN_ACCESS_MM}mm)`,
+            [item.instanceId],
+          ));
+      }
+      return findings;
+    }),
+  },
+  {
+    id: 'blind-corner-join', tier: 'hard', scope: 'spatial',
+    title: 'Blind-corner return and adjoining run form one joint',
+    why: 'The first base cabinet on the adjoining run must finish directly into the blind unit return, and their benchtops must close the corner with no gap.',
+    evaluate: ({ floorItems }) => floorItems.flatMap(corner => {
+      if (!corner.definitionId.includes('corner') || !corner.blindSide) return [];
+      const cornerRotation = ((corner.rotation % 360) + 360) % 360;
+      const cornerCarcase = itemRect(corner);
+      const adjacent = floorItems.find(candidate => {
+        if (candidate === corner || candidate.height > 1000
+          || candidate.definitionId.includes('corner')) return false;
+        const candidateRotation = ((candidate.rotation % 360) + 360) % 360;
+        const perpendicular = Math.abs(cornerRotation - candidateRotation) % 180 === 90;
+        return perpendicular && rectsJoin(cornerCarcase, itemRect(candidate));
+      });
+      if (!adjacent) {
+        return [finding(
+          'blind-corner-join',
+          'hard',
+          `${corner.definitionId} has no adjoining base cabinet linked to its built-in return`,
+          [corner.instanceId],
+        )];
+      }
+      if (!rectsJoin(benchtopRect(corner), benchtopRect(adjacent))) {
+        return [finding(
+          'blind-corner-join',
+          'hard',
+          `The benchtop above ${adjacent.definitionId} does not join the blind-corner benchtop`,
+          [corner.instanceId, adjacent.instanceId],
+        )];
+      }
+      return [];
+    }),
   },
   {
     id: 'cooking-appliance-corner-clearance', tier: 'hard', scope: 'spatial',
     title: 'Cooking appliances clear inside corners',
-    why: `An oven or cooktop needs at least ${COOKING_APPLIANCE_CORNER_CLEARANCE}mm between it and an adjoining cabinet run so its door, handles and landing space remain usable.`,
+    why: 'Cooktops follow the nominated appliance side-clearance instructions; before a product is confirmed the planner uses 200mm for gas and 150mm for induction. Oven towers retain a larger working clearance for doors and handles.',
     evaluate: ({ design, room, brief }) => {
       const cookingRoles = [
         ['cooktop', design.rolePositions.cooktop],
@@ -361,6 +808,32 @@ export const RULES: Rule[] = [
       return cookingRoles.flatMap(([role, position]) => {
         if (!position || position.wall === 'island') return [];
         const length = wallLength(position.wall, room);
+        const requiredClearance = role === 'oven-tower'
+          ? OVEN_TOWER_CORNER_CLEARANCE
+          : brief?.appliances.cooktop === 'gas'
+            ? GAS_COOKTOP_COMBUSTIBLE_SIDE_CLEARANCE
+            : INDUCTION_COOKTOP_SIDE_CLEARANCE_FALLBACK;
+        const clearanceBasis = role === 'oven-tower'
+          ? 'oven-door working clearance'
+          : brief?.appliances.cooktop === 'gas'
+            ? 'gas fallback beside an unprotected combustible side'
+            : 'induction fallback until the appliance instructions are confirmed';
+        if (role === 'cooktop' && design.runWalls.length > 1) {
+          const physicalClearance = Math.min(
+            position.startMm,
+            length - position.startMm - position.widthMm,
+          );
+          if (physicalClearance < requiredClearance) {
+            const isUnderbenchOven = brief?.appliances.oven !== undefined
+              && !design.rolePositions['oven-tower'];
+            return [finding(
+              'cooking-appliance-corner-clearance',
+              'hard',
+              `${isUnderbenchOven ? 'Under-bench oven and cooktop' : 'Cooktop'} is only ${Math.max(0, Math.round(physicalClearance))}mm from a room corner (planner minimum ${requiredClearance}mm: ${clearanceBasis}; confirm the selected appliance instructions)`,
+              [position.item.instanceId],
+            )];
+          }
+        }
         for (const adjacentWall of design.runWalls) {
           if (adjacentWall === position.wall) continue;
           const applianceCorner = sharedCornerAt(position.wall, adjacentWall);
@@ -373,7 +846,7 @@ export const RULES: Rule[] = [
           const clearance = applianceCorner === 'start'
             ? position.startMm
             : length - position.startMm - position.widthMm;
-          if (clearance >= COOKING_APPLIANCE_CORNER_CLEARANCE) continue;
+          if (clearance >= requiredClearance) continue;
 
           const isUnderbenchOven = role === 'cooktop'
             && brief?.appliances.oven !== undefined
@@ -384,7 +857,7 @@ export const RULES: Rule[] = [
           return [finding(
             'cooking-appliance-corner-clearance',
             'hard',
-            `${label} is only ${Math.max(0, Math.round(clearance))}mm from an inside corner (minimum ${COOKING_APPLIANCE_CORNER_CLEARANCE}mm)`,
+            `${label} is only ${Math.max(0, Math.round(clearance))}mm from an inside corner (planner minimum ${requiredClearance}mm: ${clearanceBasis}; confirm the selected appliance instructions)`,
             [position.item.instanceId],
           )];
         }
@@ -395,12 +868,20 @@ export const RULES: Rule[] = [
   {
     id: 'appliance-gap-fit', tier: 'safety', scope: 'relational',
     title: 'Appliance openings fit the appliance',
-    why: 'The fridge space and dishwasher opening must be wide enough for the actual appliance.',
+    why: 'The sink cabinet, fridge space and dishwasher opening must be wide enough for the actual appliance.',
     evaluate: ({ design, brief }) => {
       const out: RuleFinding[] = [];
+      const sink = design.rolePositions.sink;
+      const requiredSinkCabinet = brief?.appliances.sinkCabinetWidthMm;
+      if (sink && requiredSinkCabinet && sink.widthMm + 1 < requiredSinkCabinet) {
+        out.push(finding('appliance-gap-fit', 'safety',
+          `Sink cabinet is ${Math.round(sink.widthMm)}mm but the selected sink needs ${requiredSinkCabinet}mm`,
+          [sink.item.instanceId]));
+      }
       const fridge = design.rolePositions['fridge-gap'];
-      const nominated = brief?.appliances.fridgeWidthMm ?? 940;
-      const requiredOpening = fridgeOpeningWidthMm(nominated);
+      const nominated = brief?.appliances.fridgeWidthMm ?? 900;
+      const requiredOpening = brief?.appliances.fridgeOpeningWidthMm
+        ?? fridgeOpeningWidthMm(nominated);
       if (fridge && fridge.widthMm + 20 < requiredOpening) {
         out.push(finding('appliance-gap-fit', 'safety',
           `Fridge space is ${fridge.widthMm}mm but a ${nominated}mm fridge needs ${requiredOpening}mm including 50mm clearance on each side`,
@@ -416,6 +897,23 @@ export const RULES: Rule[] = [
     },
   },
   {
+    id: 'oven-housing-fit', tier: 'hard', scope: 'relational',
+    title: 'Oven housing matches the selected oven',
+    why: 'A nominated oven must never be presented inside a narrower cabinet.',
+    evaluate: ({ design, brief }) => {
+      if (!brief?.appliances.oven) return [];
+      const requiredWidthMm = Number(brief.appliances.oven);
+      const host = design.rolePositions['oven-tower'] ?? design.rolePositions.cooktop;
+      if (!host || host.widthMm + 1 >= requiredWidthMm) return [];
+      return [finding(
+        'oven-housing-fit',
+        'hard',
+        `${requiredWidthMm}mm oven is assigned to a ${Math.round(host.widthMm)}mm cabinet`,
+        [host.item.instanceId],
+      )];
+    },
+  },
+  {
     id: 'replumb', tier: 'safety', scope: 'spatial',
     title: 'Sink near existing plumbing',
     why: 'A sink far from the existing drain means re-plumbing — extra cost the customer should know about.',
@@ -423,7 +921,7 @@ export const RULES: Rule[] = [
       const sink = design.rolePositions.sink;
       const drain = room.services.find(s => s.type === 'drain') ?? room.services.find(s => s.type === 'water-supply');
       if (!sink || !drain) return [];
-      const d = dist({ x: sink.item.x, z: sink.item.z }, wallPointWorld(drain.wall, drain.offsetMm, room));
+      const d = dist({ x: sink.item.x, z: sink.item.z }, servicePointWorld(drain, room));
       return d > SINK_DRAIN_MAX
         ? [finding('replumb', 'safety', `Sink is ${(d / 1000).toFixed(1)}m from existing plumbing — re-plumbing will be required`)]
         : [];
@@ -437,7 +935,7 @@ export const RULES: Rule[] = [
       const cooktop = design.rolePositions.cooktop;
       const gas = room.services.find(s => s.type === 'gas');
       if (!cooktop || brief?.appliances.cooktop !== 'gas' || !gas) return [];
-      const d = dist({ x: cooktop.item.x, z: cooktop.item.z }, wallPointWorld(gas.wall, gas.offsetMm, room));
+      const d = dist({ x: cooktop.item.x, z: cooktop.item.z }, servicePointWorld(gas, room));
       return d > GAS_MAX
         ? [finding('gas-move', 'safety', `Gas cooktop is ${(d / 1000).toFixed(1)}m from the gas point — gas work required`)]
         : [];
@@ -446,24 +944,41 @@ export const RULES: Rule[] = [
   {
     id: 'cooktop-landing', tier: 'safety', scope: 'relational',
     title: 'Cooktop landing zones',
-    why: 'A cooktop needs bench space either side to safely set down hot pans.',
-    evaluate: ({ design, floorItems }) => {
-      const cooktop = design.rolePositions.cooktop;
-      if (!cooktop || cooktop.wall === 'island') return [];
-      const sameWall = floorItems.filter(i => i !== cooktop.item && i.itemType === 'Cabinet' && i.rotation === cooktop.item.rotation);
-      const cr = itemRect(cooktop.item);
-      const hasSide = (side: 'left' | 'right') => sameWall.some(i => {
-        const r = itemRect(i);
-        const horizontal = cooktop.item.rotation === 0 || cooktop.item.rotation === 180;
-        if (horizontal) {
-          return side === 'left' ? Math.abs(r.maxX - cr.minX) < 50 : Math.abs(r.minX - cr.maxX) < 50;
-        }
-        return side === 'left' ? Math.abs(r.maxZ - cr.minZ) < 50 : Math.abs(r.minZ - cr.maxZ) < 50;
-      });
-      return (!hasSide('left') || !hasSide('right'))
-        ? [finding('cooktop-landing', 'safety', 'Cooktop should have bench space on both sides', [cooktop.item.instanceId])]
+    why: 'A cooktop needs measured bench space on both sides to set down hot pans safely.',
+    evaluate: ({ design }) => design.sourceSpec.runs.flatMap(run => {
+      const index = run.segments.findIndex(segment => segment.kind === 'cabinet' && segment.role === 'cooktop');
+      if (index < 0) return [];
+      const left = contiguousBenchFrom(run.segments, index - 1, -1);
+      const right = contiguousBenchFrom(run.segments, index + 1, 1);
+      return left < COOKTOP_LANDING_MIN || right < COOKTOP_LANDING_MIN
+        ? [finding(
+            'cooktop-landing',
+            'safety',
+            `Cooktop landing is ${left}mm / ${right}mm (minimum ${COOKTOP_LANDING_MIN}mm on each side)`,
+            design.rolePositions.cooktop ? [design.rolePositions.cooktop.item.instanceId] : undefined,
+          )]
         : [];
-    },
+    }),
+  },
+  {
+    id: 'fridge-landing', tier: 'safety', scope: 'relational',
+    title: 'Fridge landing zone',
+    why: 'A fridge needs an adjacent bench where groceries and containers can be set down safely.',
+    evaluate: ({ design }) => design.sourceSpec.runs.flatMap(run => {
+      const index = run.segments.findIndex(segment => segment.kind === 'cabinet' && segment.role === 'fridge-gap');
+      if (index < 0) return [];
+      const left = contiguousBenchFrom(run.segments, index - 1, -1);
+      const right = contiguousBenchFrom(run.segments, index + 1, 1);
+      const landing = Math.max(left, right);
+      return landing < FRIDGE_LANDING_MIN
+        ? [finding(
+            'fridge-landing',
+            'safety',
+            `Fridge landing is ${landing}mm (minimum ${FRIDGE_LANDING_MIN}mm adjacent bench)`,
+            design.rolePositions['fridge-gap'] ? [design.rolePositions['fridge-gap'].item.instanceId] : undefined,
+          )]
+        : [];
+    }),
   },
   {
     id: 'island-exposed', tier: 'safety', scope: 'relational',
@@ -479,39 +994,73 @@ export const RULES: Rule[] = [
     },
   },
   {
-    id: 'triangle-size', tier: 'soft', scope: 'spatial',
+    id: 'triangle-size', tier: 'safety', scope: 'spatial',
     title: 'Work-triangle perimeter',
     why: 'The sink–cooktop–fridge triangle works best between 3.6m and 8m total.',
     evaluate: ({ design }) => {
       const { sink, cooktop } = design.rolePositions;
       const fridge = design.rolePositions['fridge-gap'];
       if (!sink || !cooktop || !fridge) return [];
-      const pts = [sink.item, cooktop.item, fridge.item].map(i => ({ x: i.x, z: i.z }));
+      if (sink.wall === cooktop.wall && cooktop.wall === fridge.wall) return [];
+      const pts = [sink.item, cooktop.item, fridge.item].map(workingAccessPoint);
       const perimeter = dist(pts[0], pts[1]) + dist(pts[1], pts[2]) + dist(pts[2], pts[0]);
       return (perimeter < TRIANGLE_MIN || perimeter > TRIANGLE_MAX)
-        ? [finding('triangle-size', 'soft', `Work triangle ${(perimeter / 1000).toFixed(1)}m (ideal 3.6–8m)`)]
+        ? [finding('triangle-size', 'safety', `Work triangle ${(perimeter / 1000).toFixed(1)}m (required 3.6–8m)`)]
         : [];
     },
   },
   {
-    id: 'triangle-leg', tier: 'soft', scope: 'spatial',
+    id: 'triangle-leg', tier: 'safety', scope: 'spatial',
     title: 'Work-triangle legs',
     why: 'Each leg of the work triangle should be neither cramped nor a long walk.',
     evaluate: ({ design }) => {
       const { sink, cooktop } = design.rolePositions;
       const fridge = design.rolePositions['fridge-gap'];
       if (!sink || !cooktop || !fridge) return [];
-      const pts = [sink.item, cooktop.item, fridge.item].map(i => ({ x: i.x, z: i.z }));
+      if (sink.wall === cooktop.wall && cooktop.wall === fridge.wall) return [];
+      const pts = [sink.item, cooktop.item, fridge.item].map(workingAccessPoint);
       const legs = [dist(pts[0], pts[1]), dist(pts[1], pts[2]), dist(pts[2], pts[0])];
       for (const leg of legs) {
-        if (leg < LEG_MIN) return [finding('triangle-leg', 'soft', 'Two work zones are very close together')];
-        if (leg > LEG_MAX) return [finding('triangle-leg', 'soft', 'Two work zones are far apart — expect extra walking')];
+        if (leg < LEG_MIN) return [finding('triangle-leg', 'safety', `A work-triangle leg is under ${LEG_MIN}mm`)];
+        if (leg > LEG_MAX) return [finding('triangle-leg', 'safety', `A work-triangle leg exceeds ${LEG_MAX}mm`)];
       }
       return [];
     },
   },
   {
-    id: 'prep-space', tier: 'soft', scope: 'relational',
+    id: 'triangle-obstruction', tier: 'safety', scope: 'spatial',
+    title: 'Work-triangle paths stay clear',
+    why: 'A tall cabinet cannot stand in the walking path between the sink, cooktop and fridge.',
+    evaluate: ({ design, floorItems }) => {
+      const sink = design.rolePositions.sink?.item;
+      const cooktop = design.rolePositions.cooktop?.item;
+      const fridge = design.rolePositions['fridge-gap']?.item;
+      if (!sink || !cooktop || !fridge) return [];
+      const tall = floorItems.filter(item => item.height > 1500
+        && item !== fridge
+        // These 18mm panels are the fridge enclosure itself, not a separate
+        // tall cabinet standing in a work-triangle path.
+        && item.layoutRole !== 'fridge-side-panel');
+      const legs = [
+        [workingAccessPoint(sink), workingAccessPoint(cooktop)],
+        [workingAccessPoint(cooktop), workingAccessPoint(fridge)],
+        [workingAccessPoint(fridge), workingAccessPoint(sink)],
+      ] as const;
+      for (const blocker of tall) {
+        if (legs.some(([start, end]) => segmentCrossesRect(start, end, itemRect(blocker)))) {
+          return [finding(
+            'triangle-obstruction',
+            'safety',
+            `${blocker.definitionId} blocks a work-triangle path`,
+            [blocker.instanceId],
+          )];
+        }
+      }
+      return [];
+    },
+  },
+  {
+    id: 'prep-space', tier: 'safety', scope: 'relational',
     title: 'Continuous prep bench',
     why: 'A usable kitchen wants at least 900mm of uninterrupted bench to prepare food.',
     evaluate: ({ design, floorItems }) => {
@@ -522,8 +1071,8 @@ export const RULES: Rule[] = [
         || prepRun.some(a => prepRun.some(b => a !== b && a.rotation === b.rotation
           && Math.abs(a.z - b.z) < 10 && Math.abs(Math.abs(a.x - b.x) - (a.width + b.width) / 2) < 20
           && a.width + b.width >= 900));
-      return (prepRun.length > 0 && !hasPrep)
-        ? [finding('prep-space', 'soft', 'Less than 900mm of continuous prep bench')]
+      return !hasPrep
+        ? [finding('prep-space', 'safety', `Less than ${PREP_BENCH_MIN}mm of continuous prep bench`)]
         : [];
     },
   },
@@ -537,7 +1086,7 @@ export const RESERVED_RULE_IDS = ['sink-bowl-fit', 'run-end-panel', 'filler-comp
 /** Build the shared context once, then run every rule. Deterministic order. */
 export function evaluateRules(design: CompiledDesign, room: RoomSpec, brief?: DesignBrief): RuleFinding[] {
   const floorItems = design.items.filter(i => i.y === 0);
-  const islandItems = floorItems.filter(i => i.instanceId.startsWith('ai-') && i.rotation === 180 && i.z > 700 && i.z < room.depth - 700);
+  const islandItems = floorItems.filter(i => i.layoutRole === 'island');
   const ctx: RuleContext = { design, room, brief, floorItems, islandItems };
   return RULES.flatMap(rule => rule.evaluate(ctx));
 }

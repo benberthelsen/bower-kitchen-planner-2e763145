@@ -18,22 +18,30 @@ export interface PlannerAlternative {
   violations: Violation[];
   rationale: string;
   source: 'planner';
+  engineScore: number;
+  layoutFamily: LayoutShape;
+  emphasis: CandidateEmphasis;
 }
 
 interface SpecBearingAlternative {
   spec: KitchenSpec;
 }
 
-const EMPHASIS_NAMES: Record<CandidateEmphasis, string> = {
-  workflow: 'Easy workflow',
-  storage: 'More storage',
-  social: 'Entertainer layout',
+const LAYOUT_NAMES: Record<LayoutShape, string> = {
+  'single-wall': 'Single-wall',
+  'l-shape': 'L-shape',
+  'u-shape': 'U-shape',
+  galley: 'Galley',
 };
 
 function optionName(candidateId: string, emphasis: CandidateEmphasis): string {
-  if (candidateId.includes('workflow-mirrored')) return 'Alternative workflow';
-  if (candidateId.includes('work-zones-swapped')) return 'Swapped work zones';
-  return EMPHASIS_NAMES[emphasis];
+  const strategy = candidateId.split('/')[0] as LayoutShape;
+  const layout = LAYOUT_NAMES[strategy] ?? 'Kitchen';
+  if (candidateId.includes('workflow-mirrored')) return `${layout} · opposite side`;
+  if (candidateId.includes('work-zones-swapped')) return `${layout} · swapped work zones`;
+  if (emphasis === 'storage') return `${layout} · more storage`;
+  if (emphasis === 'social') return `${layout} · island entertaining`;
+  return `${layout} · easy workflow`;
 }
 
 /**
@@ -48,6 +56,7 @@ export function plannerAlternativeSignature(option: SpecBearingAlternative): str
     endMm: run.endMm ?? null,
     fromEnd: !!run.fromEnd,
     wallCabinets: run.wallCabinets,
+    upperPlan: run.upperPlan ?? null,
     segments: run.segments.map(segment => segment.kind === 'cabinet'
       ? ['cabinet', segment.role, segment.widthMm ?? null]
       : [segment.kind, segment.widthMm]),
@@ -97,10 +106,14 @@ export function createPlannerAlternatives(input: {
   shape: LayoutShape;
   style: StyleSpec;
   maxCandidates?: number;
+  professionalGate?: boolean;
+  exploreStrategies?: boolean;
 }): PlannerAlternative[] {
   const pool = generateCandidatePool({
     brief: input.brief,
-    allowedStrategies: [input.shape],
+    ...(input.exploreStrategies ? {} : { allowedStrategies: [input.shape] }),
+    preferredStrategy: input.shape,
+    professionalGate: input.professionalGate ?? false,
     style: input.style,
     maxCandidates: input.maxCandidates ?? 3,
   });
@@ -114,5 +127,8 @@ export function createPlannerAlternatives(input: {
     violations: candidate.violations,
     rationale: candidate.spec.rationale,
     source: 'planner',
+    engineScore: candidate.score.total,
+    layoutFamily: candidate.strategy,
+    emphasis: candidate.emphasis,
   }));
 }

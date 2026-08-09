@@ -124,6 +124,7 @@ function TradeCabinetMesh({
     hinge: 'Left' as const, // Default hinge, can be overridden in cabinet config
     itemType: 'Cabinet' as const,
     topRail: cabinet.construction?.topRail,
+    cornerReturnSide: cabinet.construction?.cornerReturnSide,
   }), [cabinet, width, height, depth, rotation]);
 
   // Generate render config

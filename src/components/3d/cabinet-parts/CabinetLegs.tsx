@@ -1,4 +1,5 @@
 import React from 'react';
+import type { CornerReturnSide } from './cornerGeometry';
 
 interface CabinetLegsProps {
   width: number;       // Cabinet width in meters
@@ -12,6 +13,7 @@ interface CabinetLegsProps {
   cornerType?: 'l-shape' | 'blind' | 'diagonal';
   leftArmDepth?: number;   // L-shape left arm depth in meters
   rightArmDepth?: number;  // L-shape right arm depth in meters
+  returnSide?: CornerReturnSide;
 }
 
 /**
@@ -29,6 +31,7 @@ const CabinetLegs: React.FC<CabinetLegsProps> = ({
   cornerType = 'blind',
   leftArmDepth = 0.575,
   rightArmDepth = 0.575,
+  returnSide = 'Left',
 }) => {
   const legHeight = height - 0.015; // Slightly shorter than kick space
   const footDiameter = legDiameter * 1.3; // Foot is wider than leg
@@ -107,9 +110,10 @@ const CabinetLegs: React.FC<CabinetLegsProps> = ({
   };
 
   const positions = getPositions();
+  const mirrorX = isCorner && cornerType === 'l-shape' && returnSide === 'Right' ? -1 : 1;
 
   return (
-    <group>
+    <group scale={[mirrorX, 1, 1]}>
       {positions.map((pos, i) => (
         <group key={`leg-${i}`} position={pos}>
           {/* Leg post - black plastic cylinder */}

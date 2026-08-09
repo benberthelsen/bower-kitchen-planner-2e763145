@@ -109,6 +109,7 @@ export function proposalToTradeRoom(
       ...(item.endPanelLeft ? { endPanelLeft: true } : {}),
       ...(item.endPanelRight ? { endPanelRight: true } : {}),
       ...(item.blindSide ? { blindSide: item.blindSide } : {}),
+      ...(item.cornerReturnSide ? { cornerReturnSide: item.cornerReturnSide } : {}),
       ...(item.hinge ? { hingeSide: item.hinge } : {}),
       ...(item.drawerFrontHeights ? { drawerFrontHeights: [...item.drawerFrontHeights] } : {}),
       ...(category === 'Appliance' ? { topRail: true } : {}),

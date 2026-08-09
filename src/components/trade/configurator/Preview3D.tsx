@@ -46,6 +46,7 @@ function toPlacedItem(cabinet: ConfiguredCabinet): PlacedItem {
     endPanelLeft: cabinet.construction?.endPanelLeft,
     endPanelRight: cabinet.construction?.endPanelRight,
     blindSide: cabinet.construction?.blindSide,
+    cornerReturnSide: cabinet.construction?.cornerReturnSide,
     drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
   } as PlacedItem;
 }

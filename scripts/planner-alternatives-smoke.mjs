@@ -80,9 +80,7 @@ console.log('planner alternatives smoke tests');
   assert.ok(options.every(option => option.violations.every(v => v.severity !== 'error')), 'fallback returned a blocked layout');
   assert.ok(options.every(option => option.spec.style.finishId === style.finishId), 'chosen finish was not preserved');
   assert.equal(
-    new Set(options.map(option => option.spec.runs.map(run =>
-      `${run.wall}:${run.segments.map(segment => segment.kind === 'cabinet' ? segment.role : segment.kind).join(',')}`,
-    ).join('|'))).size,
+    new Set(options.map(plannerAlternativeSignature)).size,
     options.length,
     'alternatives should be structurally distinct',
   );
@@ -91,7 +89,13 @@ console.log('planner alternatives smoke tests');
       const roles = run.segments.flatMap(segment => segment.kind === 'cabinet' ? [segment.role] : []);
       return `${run.wall}:${roles.includes('sink') ? 'sink' : ''}:${roles.includes('cooktop') ? 'cooktop' : ''}`;
     }).join('|'));
-    assert.ok(new Set(zoneSignatures).size >= 2, 'comparison should include a different work-zone arrangement');
+    const massingSignatures = options.map(option => `${option.emphasis}:${option.spec.island
+      ? [...option.spec.island.features].sort().join(',')
+      : 'no-island'}`);
+    assert.ok(
+      new Set(zoneSignatures).size >= 2 || new Set(massingSignatures).size >= 2,
+      'comparison should change the work zones or use a genuinely different storage/social massing',
+    );
   }
 }
 

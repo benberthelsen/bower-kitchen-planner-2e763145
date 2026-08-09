@@ -1,5 +1,5 @@
 /** One source for proposal lineage shared by browser, tests, and Edge Functions. */
-export const ENGINE_VERSION = 'layout-v1.1';
-export const CATALOG_VERSION = 'homeowner-catalog-v1';
+export const ENGINE_VERSION = 'layout-v1.12';
+export const CATALOG_VERSION = 'homeowner-catalog-v2';
 export const PRICING_VERSION = 'price-band-v2';
 export const PROPOSAL_SCHEMA_VERSION = 1 as const;

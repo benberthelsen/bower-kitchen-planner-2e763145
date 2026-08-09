@@ -5,6 +5,8 @@ import { useCabinetMaterials } from '../../hooks/useCabinetMaterials';
 import { BenchtopMesh } from './cabinet-parts';
 import { useOptionalTexture } from './materials/useOptionalTexture';
 import { withOptionalSurfaceTexture } from './materials/physicalTexture';
+import { getConstructionRecipe } from '@/lib/microvellum/constructionRecipes';
+import { resolvedBenchtopThicknessM } from './cabinetConstruction';
 
 interface ApplianceBenchtopProps {
   material?: MaterialOption;
@@ -13,6 +15,11 @@ interface ApplianceBenchtopProps {
   depthM: number;
   /** Local height of the appliance top in the component's parent group. */
   topY: number;
+  /** Side extensions covering exposed appliance support panels. */
+  leftOverhangM?: number;
+  rightOverhangM?: number;
+  /** Physical start of the appliance opening on the joined cabinet run. */
+  textureRunOffsetM?: number;
 }
 
 /**
@@ -26,6 +33,9 @@ const ApplianceBenchtop: React.FC<ApplianceBenchtopProps> = ({
   widthM,
   depthM,
   topY,
+  leftOverhangM = 0,
+  rightOverhangM = 0,
+  textureRunOffsetM = 0,
 }) => {
   const selectedMaterial = material ?? BENCHTOP_OPTIONS[0];
   // CabinetAssembler uses this hook for its immediate procedural fallback.
@@ -47,7 +57,13 @@ const ApplianceBenchtop: React.FC<ApplianceBenchtopProps> = ({
 
   if (!material) return null;
 
-  const thickness = (globalDimensions.benchtopThickness ?? 33) / 1000;
+  // The dishwasher opening belongs to the same Microvellum base-cabinet run
+  // as its neighbours. Use that recipe's slab thickness so its top cannot sit
+  // proud when the global preview default differs from the mapped product.
+  const thickness = resolvedBenchtopThicknessM(
+    globalDimensions,
+    getConstructionRecipe('Base Dishwasher')?.benchtop.thickness,
+  );
   const overhang = (globalDimensions.benchtopOverhang ?? 0) / 1000;
 
   return (
@@ -61,6 +77,9 @@ const ApplianceBenchtop: React.FC<ApplianceBenchtopProps> = ({
       metalness={resolvedMaterial.metalness}
       map={resolvedMaterial.map}
       overhang={overhang}
+      leftOverhang={leftOverhangM}
+      rightOverhang={rightOverhangM}
+      textureRunOffsetM={textureRunOffsetM}
     />
   );
 };

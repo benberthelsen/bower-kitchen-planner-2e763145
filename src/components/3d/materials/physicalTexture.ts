@@ -30,7 +30,13 @@ export function cloneTextureForSurface(
   source: THREE.Texture | null | undefined,
   widthM: number,
   heightM: number,
-  options: { rotateQuarterTurn?: boolean } = {},
+  options: {
+    rotateQuarterTurn?: boolean;
+    /** Physical start of this piece along the complete joined surface. */
+    originXM?: number;
+    /** Physical start across the complete joined surface. */
+    originYM?: number;
+  } = {},
 ): THREE.Texture | null {
   if (!source) return null;
   try {
@@ -48,8 +54,13 @@ export function cloneTextureForSurface(
       const sourceHeightM = physicalSize.height / 1000;
       const repeatX = rotate ? heightM / sourceWidthM : widthM / sourceWidthM;
       const repeatY = rotate ? widthM / sourceHeightM : heightM / sourceHeightM;
+      const originXM = options.originXM ?? 0;
+      const originYM = options.originYM ?? 0;
       texture.repeat.set(Math.max(0.01, repeatX), Math.max(0.01, repeatY));
-      texture.offset.set((1 - repeatX) / 2, (1 - repeatY) / 2);
+      texture.offset.set(
+        (1 - repeatX) / 2 - (rotate ? originYM / sourceWidthM : originXM / sourceWidthM),
+        (1 - repeatY) / 2 - (rotate ? originXM / sourceHeightM : originYM / sourceHeightM),
+      );
     } else if (rotate) {
       texture.repeat.set(1, Math.max(1, widthM / Math.max(heightM, 0.01)));
     } else {

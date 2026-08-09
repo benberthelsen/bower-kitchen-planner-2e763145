@@ -63,6 +63,7 @@ export interface CabinetConstruction {
   endPanelLeft?: boolean;       // finished panel on the cabinet's local left end
   endPanelRight?: boolean;      // finished panel on the cabinet's local right end
   blindSide?: 'Left' | 'Right'; // blind corner orientation
+  cornerReturnSide?: 'Left' | 'Right'; // pie-cut return into the adjoining wall
   hingeSide?: 'Left' | 'Right'; // door hinging
   frontType?: 'PieCut' | 'Angled'; // corner front style (MV: PieCut/Angled Front)
   drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (#20)

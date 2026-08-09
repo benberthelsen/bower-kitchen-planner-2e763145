@@ -501,7 +501,7 @@ export const MV_CONSTRUCTION_RECIPES: Record<string, ConstructionRecipe> = {
     carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
     toeKick: BASE_TOEKICK,
-    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 50 } },
     benchtop: BASE_BENCHTOP,
   },
   
@@ -510,7 +510,7 @@ export const MV_CONSTRUCTION_RECIPES: Record<string, ConstructionRecipe> = {
     carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
     toeKick: BASE_TOEKICK,
-    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'right', blindDepth: 150, fillerWidth: 75 } },
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'right', blindDepth: 150, fillerWidth: 50 } },
     benchtop: BASE_BENCHTOP,
   },
   
@@ -519,7 +519,7 @@ export const MV_CONSTRUCTION_RECIPES: Record<string, ConstructionRecipe> = {
     carcass: BASE_CARCASS,
     shelves: { count: 1, adjustable: true, thickness: 18, setback: 20 },
     toeKick: BASE_TOEKICK,
-    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 75 } },
+    fronts: { type: 'CORNER', corner: { render: 'BLIND_EXTENSION', blindSide: 'left', blindDepth: 150, fillerWidth: 50 } },
     benchtop: BASE_BENCHTOP,
   },
   

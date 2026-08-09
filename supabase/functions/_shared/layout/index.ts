@@ -12,6 +12,9 @@ export * from './schemas.ts';
 export * from './geometry.ts';
 export * from './briefConstraints.ts';
 export * from './catalogRoles.ts';
+export * from './catalogCapabilities.ts';
+export * from './styleDNA.ts';
+export * from './blindCorner.ts';
 export { solveRun } from './solveRun.ts';
 export { compileSpec, type CompiledDesign } from './compileSpec.ts';
 export { validate } from './validate.ts';
@@ -42,9 +45,17 @@ export {
 export { defaultSpecFor, inferLayoutShapeFromWalls, type LayoutShape } from './defaultSpec.ts';
 export { priceDesign } from './priceDesign.ts';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter.ts';
-export { scoreDesign, type DesignScore, type DesignScoreParts } from './designScore.ts';
+export {
+  scoreDesign,
+  meetsProfessionalThreshold,
+  PROFESSIONAL_SCORE_MINIMUM,
+  PROFESSIONAL_CATEGORY_MINIMUMS,
+  type DesignScore,
+  type DesignScoreParts,
+} from './designScore.ts';
 export {
   generateCandidatePool,
+  candidateDifference,
   candidateSummaryFor,
   type CandidateEmphasis,
   type CandidatePool,

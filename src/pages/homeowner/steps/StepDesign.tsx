@@ -10,7 +10,7 @@
 
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, CornerUpLeft, Loader2, PencilRuler, Send, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, CornerUpLeft, Loader2, PencilRuler, Send, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,16 +20,27 @@ import { UnifiedScene } from '@/components/3d/UnifiedScene';
 import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS } from '@/constants';
 import {
-  compileSpec, defaultSpecFor,
+  compileSpec, defaultSpecFor, generateCandidatePool,
 } from '@/lib/layout';
-import type { DesignBrief, KitchenSpec, ProposedRoomPatch } from '@/lib/layout';
+import type { DesignBrief, KitchenSpec, ProposedRoomPatch, StyleSpec } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
 import { useAiDesigner, type AiDesignOption } from '@/hooks/useAiDesigner';
 import { evaluateDesign } from '@/lib/designV2';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
-import { createWizardDesign, type WizardDesign } from '../wizardBrief';
+import {
+  createWizardDesign,
+  shouldRegenerateAutomaticStarterForStyle,
+  shouldRefreshAutomaticStarter,
+  type WizardDesign,
+} from '../wizardBrief';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
-import { enrichItemsWithChosenAppliances, synthesiseApplianceOverlays } from '../applianceSelection';
+import {
+  anyPlaceholderPrices,
+  appliancesTotal,
+  buildApplianceLineItems,
+  enrichItemsWithChosenAppliances,
+  synthesiseApplianceOverlays,
+} from '../applianceSelection';
 import { featureFlags, isIosDevice } from '@/lib/featureFlags';
 import {
   createPlannerAlternatives,
@@ -37,11 +48,12 @@ import {
 } from '@/lib/homeowner/plannerAlternatives';
 
 const KitchenUnitEditor = lazy(() => import('@/components/homeowner/KitchenUnitEditor'));
+type AiDesignResultProvider = 'openai' | 'local-openai' | 'local-simulator';
 
 interface Props {
   brief: DesignBrief;
   shape: LayoutShape;
-  style: { finishId: string; benchtopId: string; handleId: string };
+  style: StyleSpec;
   design: WizardDesign | null;
   chosenAppliances: Record<string, string>;
   onDesignChange: (design: WizardDesign) => void;
@@ -122,17 +134,42 @@ export default function StepDesign({
   const [undoStack, setUndoStack] = useState<WizardDesign[]>([]);
   const [loadingLine, setLoadingLine] = useState(0);
   const [cabinetEditorOpen, setCabinetEditorOpen] = useState(false);
+  const [priceDetailsOpen, setPriceDetailsOpen] = useState(false);
   const [usingPlannerFallback, setUsingPlannerFallback] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiDesignResultProvider | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Always have a design: seed the deterministic default on entry.
+  // The first design goes through the same deterministic candidate engine and
+  // professional gate as the alternatives. AI is never needed to rescue it.
   useEffect(() => {
-    if (!design) {
-      const spec = defaultSpecFor(brief, shape, style);
-      onDesignChange(createWizardDesign({ name: 'Standard layout', spec, aiGenerated: false }));
+    const needsCurrentComposition = shouldRefreshAutomaticStarter(design)
+      || shouldRegenerateAutomaticStarterForStyle(design, style);
+    if (!design || needsCurrentComposition) {
+      const pool = generateCandidatePool({
+        brief,
+        style,
+        preferredStrategy: shape,
+        professionalGate: featureFlags.designStudio,
+        maxCandidates: 3,
+      });
+      const candidate = pool.candidates[0];
+      if (candidate) {
+        onDesignChange(createWizardDesign({
+          name: 'Designer recommended',
+          spec: candidate.spec,
+          aiGenerated: false,
+          priceBand: candidate.priceBand,
+        }));
+      } else {
+        // An over-constrained room can legitimately have no approved
+        // candidate. Never leave the Design step blank: show the deterministic
+        // measured draft with its blocking findings so the customer can see
+        // what fits and return to the exact wall/run controls to resolve it.
+        const spec = defaultSpecFor(brief, shape, style);
+        onDesignChange(createWizardDesign({ name: 'Standard layout', spec, aiGenerated: false }));
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [brief, design, onDesignChange, shape, style]);
 
   // rotate loading copy
   useEffect(() => {
@@ -147,7 +184,7 @@ export default function StepDesign({
 
   const activeSpec: KitchenSpec | null = useMemo(() => {
     if (!design) return null;
-    return { ...design.spec, style };
+    return { ...design.spec, style: { ...design.spec.style, ...style } };
   }, [design, style]);
 
   const compiled = useMemo(() => (activeSpec ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
@@ -168,6 +205,18 @@ export default function StepDesign({
 
   const room3D = brief.room;
   const band = useWizardPricing(compiled?.items ?? [], activeSpec?.style ?? style);
+  const applianceLineItems = useMemo(
+    () => buildApplianceLineItems(chosenAppliances, applianceProducts),
+    [chosenAppliances, applianceProducts],
+  );
+  const applianceSubtotal = appliancesTotal(applianceLineItems);
+  const appliancePriceIndicative = anyPlaceholderPrices(applianceLineItems);
+  // The engine price is the custom kitchen only. Catalogue appliances are
+  // deliberately separate so the first number remains comparable with the
+  // cabinetry/benchtop figure customers often already have in mind.
+  const shownKitchenBand = design?.priceBand ?? band;
+  const combinedLow = Math.round(shownKitchenBand.lowAud + applianceSubtotal);
+  const combinedHigh = Math.round(shownKitchenBand.highAud + applianceSubtotal);
   // One rules pipeline (brief v4.3 §4.4): geometric + policy evaluation.
   const evald = useMemo(
     () => (compiled && activeSpec ? evaluateDesign(compiled, brief.room, brief, activeSpec) : null),
@@ -185,6 +234,21 @@ export default function StepDesign({
       ...violations.filter(v => v.severity === 'warn').map(v => v.message),
     ]));
   }, [compiled, violations]);
+  const islandOmission = useMemo(() => {
+    if (brief.island !== 'want' || !activeSpec || activeSpec.island) return null;
+    const workRun = activeSpec.runs.find(run => run.segments.some(segment =>
+      segment.kind === 'cabinet' && segment.role === 'cooktop'))
+      ?? activeSpec.runs.find(run => run.segments.some(segment =>
+        segment.kind === 'cabinet' && segment.role === 'sink'));
+    const acrossRoomMm = workRun && (workRun.wall === 'E' || workRun.wall === 'W')
+      ? brief.room.width
+      : brief.room.depth;
+    if (acrossRoomMm < 3380) {
+      return `You selected an island, but this room has ${acrossRoomMm}mm across the working aisle. `
+        + 'An island with a 900mm working aisle, 300mm seating overhang and rear circulation needs at least 3380mm, so it has been left out.';
+    }
+    return 'You selected an island, but the nominated cabinet returns leave less than 1200mm for a buildable island with 900mm clear walkways, so it has been left out.';
+  }, [activeSpec, brief]);
 
   const selectedFinish = FINISH_OPTIONS.find(f => f.id === style.finishId) ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === style.benchtopId) ?? BENCHTOP_OPTIONS[0];
@@ -195,24 +259,29 @@ export default function StepDesign({
   const handleGenerate = async () => {
     if (!featureFlags.aiDesigner) return;
     trackEvent('ai_generate_requested', { shape });
-    const res = await generate(brief, shape);
+    const plannerOptions: AiDesignOption[] = createPlannerAlternatives({
+      brief, shape, style, professionalGate: featureFlags.designStudio, exploreStrategies: featureFlags.designStudio,
+    });
+    const res = await generate(brief, shape, plannerOptions);
     if (!res || res.options.length === 0) {
-      const plannerOptions = createPlannerAlternatives({ brief, shape, style });
       if (plannerOptions.length > 0) {
         setUsingPlannerFallback(true);
         setOptions(plannerOptions);
+        if (blockingErrors.length > 0) selectOption(plannerOptions[0]);
         trackEvent('ai_generate_fallback_succeeded', {
           count: plannerOptions.length,
           reason: lastError() ?? 'empty_result',
         });
-        toast.success('The online designer is offline, so planner-checked alternatives are shown instead.');
+        toast.success(featureFlags.localAiDesigner
+          ? 'The local AI test could not run, so planner-checked alternatives are shown instead.'
+          : 'The online designer is offline, so planner-checked alternatives are shown instead.');
         return;
       }
       trackEvent('ai_generate_failed', { reason: lastError() ?? 'no_valid_alternatives' });
       toast.error('No valid alternative fits the selected cabinet run. Adjust the walls or run length to make more room.');
       return;
     }
-    const plannerOptions: AiDesignOption[] = createPlannerAlternatives({ brief, shape, style });
+    setAiProvider(res.modelTrace?.provider ?? null);
     const distinctOptions = mergeDistinctPlannerAlternatives<AiDesignOption>(
       res.options,
       plannerOptions,
@@ -226,9 +295,15 @@ export default function StepDesign({
       supplementedByPlanner,
     });
     setOptions(distinctOptions);
+    // "Regenerate" must actually replace a broken starter. Previously it
+    // only displayed valid cards while leaving the invalid old kitchen
+    // selected, so the blocking alert and disabled Review button remained.
+    if (blockingErrors.length > 0 && distinctOptions[0]) {
+      selectOption(distinctOptions[0]);
+    }
   };
 
-  const selectOption = (opt: AiDesignOption) => {
+  function selectOption(opt: AiDesignOption) {
     // Re-run the current client rule pack before accepting a server proposal.
     // This is deliberate defence in depth: a just-deployed browser rule must
     // still protect customers if the Edge Function is on an older version or
@@ -254,7 +329,7 @@ export default function StepDesign({
       priceBand: opt.priceBand,
     }));
     setChatLog([{ role: 'assistant', content: `"${opt.name}" — ${opt.rationale}` }]);
-  };
+  }
 
   /**
    * Turn a failed refine into something the customer can act on. The old copy
@@ -304,7 +379,23 @@ export default function StepDesign({
     const nextChatLog: ChatEntry[] = [...chatLog, { role: 'user', content: msg }];
     setChatLog(nextChatLog);
     trackEvent('ai_refine_used');
-    const res = await refine(brief, shape, activeSpec, design.proposalId, msg, nextChatLog.slice(-7, -1));
+    const approvedRefinements: AiDesignOption[] = createPlannerAlternatives({
+      brief,
+      shape,
+      style: activeSpec.style,
+      professionalGate: featureFlags.designStudio,
+      exploreStrategies: featureFlags.designStudio,
+      maxCandidates: 6,
+    });
+    const res = await refine(
+      brief,
+      shape,
+      activeSpec,
+      design.proposalId,
+      msg,
+      nextChatLog.slice(-7, -1),
+      approvedRefinements,
+    );
     if (!res || res.options.length === 0) {
       // `lastError()` is a ref, not state, so it is already correct here.
       const why = lastError();
@@ -313,6 +404,7 @@ export default function StepDesign({
       return;
     }
     const updated = res.options[0];
+    setAiProvider(res.modelTrace?.provider ?? null);
     if (res.proposedRoomPatch) {
       toast.info('Review the suggested change before redesigning your kitchen.');
       onRoomPatchProposed(res.proposedRoomPatch);
@@ -369,6 +461,7 @@ export default function StepDesign({
       name: editedName,
       spec: { ...nextSpec, style },
       aiGenerated: design.aiGenerated,
+      customerEdited: true,
     }));
     setCabinetEditorOpen(false);
     setChatLog(log => [...log, {
@@ -389,6 +482,19 @@ export default function StepDesign({
             : 'Your buildable starter layout is ready below. Compare alternatives if you want a different balance of storage, bench space, or entertaining.'}
         </p>
       </div>
+
+      {featureFlags.localAiDesigner && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-3" role="status">
+          <p className="text-sm font-semibold text-sky-950">Local AI test mode</p>
+          <p className="mt-0.5 text-xs text-sky-800">
+            {aiProvider === 'local-openai'
+              ? 'The real AI is ranking Bower-approved layouts through this local preview. Nothing is deployed to the live site.'
+              : aiProvider === 'local-simulator'
+                ? 'The workflow simulator is active because no private AI key is installed. It tests the full screen safely, but it is not the real AI model.'
+                : 'This preview tests the designer without deploying. It will show whether the real local AI or the workflow simulator answered.'}
+          </p>
+        </div>
+      )}
 
       {blockingErrors.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2" role="alert">
@@ -417,6 +523,13 @@ export default function StepDesign({
             <PencilRuler className="mr-1.5 h-3.5 w-3.5" />
             Adjust walls &amp; run length
           </Button>
+        </div>
+      )}
+
+      {islandOmission && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3" role="status">
+          <p className="text-sm font-semibold text-amber-900">The island does not fit this room safely</p>
+          <p className="mt-0.5 text-xs text-amber-800">{islandOmission}</p>
         </div>
       )}
 
@@ -461,9 +574,15 @@ export default function StepDesign({
           <div>
             <p className="text-sm font-semibold text-slate-900">Choose an alternative</p>
             <p className="text-xs text-slate-500">
-              {usingPlannerFallback
-                ? 'The online AI is offline, so these were created and checked by the built-in Bower layout engine.'
-                : 'Each option passed the same room and clearance checks.'}
+              {aiProvider === 'local-openai'
+                ? 'The local AI ranked and explained these Bower engine-approved layouts; it did not create or alter cabinet geometry.'
+                : aiProvider === 'local-simulator'
+                  ? 'The local workflow simulator ranked these Bower engine-approved layouts. Install a private AI key to test the real model.'
+                  : usingPlannerFallback
+                    ? featureFlags.localAiDesigner
+                      ? 'The local AI test did not answer, so these were created and checked by the built-in Bower layout engine.'
+                      : 'The online AI is offline, so these were created and checked by the built-in Bower layout engine.'
+                    : 'Each option passed the same room and clearance checks.'}
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -489,9 +608,18 @@ export default function StepDesign({
                     : index === 0 && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Top-ranked</span>}
                 </div>
                 <p className="text-xs text-slate-500 line-clamp-3">{opt.rationale}</p>
-                <p className="text-xs font-medium text-slate-700">
-                  ${opt.priceBand.lowAud.toLocaleString()} – ${opt.priceBand.highAud.toLocaleString()}
-                </p>
+                <div className="space-y-0.5 text-xs text-slate-600">
+                  <p>
+                    <span className="font-medium text-slate-700">Custom kitchen</span>{' '}
+                    ${opt.priceBand.lowAud.toLocaleString()} – ${opt.priceBand.highAud.toLocaleString()}
+                  </p>
+                  <p>
+                    <span className="font-medium text-slate-700">Selected appliances</span>{' '}
+                    {applianceSubtotal > 0
+                      ? `$${Math.round(applianceSubtotal).toLocaleString()}`
+                      : 'none'}
+                  </p>
+                </div>
                 {opt.violations.filter(v => v.severity === 'warn').length > 0 && (
                   <p className="text-[11px] text-amber-600">
                     {opt.violations.filter(v => v.severity === 'warn').length}{' '}
@@ -514,7 +642,9 @@ export default function StepDesign({
         <div className="text-center space-y-0.5">
           <p className="text-xs text-slate-500">
             {usingPlannerFallback
-              ? 'Online AI unavailable — the planner-generated alternatives remain fully usable and editable.'
+              ? featureFlags.localAiDesigner
+                ? 'Local AI unavailable — the planner-generated alternatives remain fully usable and editable.'
+                : 'Online AI unavailable — the planner-generated alternatives remain fully usable and editable.'
               : blockingErrors.length > 0
                 ? 'Online AI unavailable — adjust the selected walls or run length to make a valid layout.'
                 : 'Online AI unavailable — the checked standard layout remains available below.'}
@@ -528,20 +658,51 @@ export default function StepDesign({
           className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50"
           style={{ height: 'clamp(240px, 38vw, 340px)' }}
         >
-          <div className="absolute top-2 left-2 z-10 bg-white/85 backdrop-blur rounded-lg px-2.5 py-1">
-            <p className="text-xs font-medium text-slate-800">{design?.name}</p>
-            {(() => {
-              // One canonical band per design: prefer the server proposal band
-              // stored on the selection so the option card and this overlay
-              // never disagree. Fallback to the local estimator for the
-              // default (non-AI) layout.
-              const shown = design?.priceBand ?? band;
-              return shown && (
-                <p className="text-[11px] text-slate-500">
-                  ${shown.lowAud.toLocaleString()} – ${shown.highAud.toLocaleString()} AUD
-                </p>
-              );
-            })()}
+          <div className="absolute left-2 top-2 z-10 w-[min(255px,calc(100%-1rem))] rounded-lg border border-white/70 bg-white/90 shadow-sm backdrop-blur">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+              aria-expanded={priceDetailsOpen}
+              aria-controls="design-price-details"
+              onClick={() => setPriceDetailsOpen(open => !open)}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-[10px] text-slate-500">{design?.name}</span>
+                <span className="block text-xs font-semibold text-slate-800">
+                  Kitchen ${shownKitchenBand.lowAud.toLocaleString()} – ${shownKitchenBand.highAud.toLocaleString()}
+                </span>
+              </span>
+              <ChevronDown
+                aria-hidden="true"
+                className={cn('h-4 w-4 flex-none text-slate-500 transition-transform', priceDetailsOpen && 'rotate-180')}
+              />
+            </button>
+            {priceDetailsOpen && (
+              <div id="design-price-details" className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 border-t border-slate-200 px-3 py-2 text-[10px] leading-tight">
+                <span className="text-slate-500">Custom kitchen</span>
+                <span className="font-semibold text-slate-800">
+                  ${shownKitchenBand.lowAud.toLocaleString()} – ${shownKitchenBand.highAud.toLocaleString()}
+                </span>
+                <span className="col-span-2 text-[9px] text-slate-400">Cabinetry, benchtop &amp; installation</span>
+                <span className="mt-1 border-t border-slate-200 pt-1 text-slate-500">Selected appliances</span>
+                <span className="mt-1 border-t border-slate-200 pt-1 font-semibold text-slate-800">
+                  {applianceSubtotal > 0
+                    ? `$${Math.round(applianceSubtotal).toLocaleString()}`
+                    : 'None selected'}
+                </span>
+                {applianceSubtotal > 0 && (
+                  <>
+                    <span className="text-slate-500">Combined estimate</span>
+                    <span className="font-semibold text-slate-800">
+                      ${combinedLow.toLocaleString()} – ${combinedHigh.toLocaleString()}
+                    </span>
+                  </>
+                )}
+                <span className="col-span-2 text-[9px] text-slate-400">
+                  AUD inc. GST{appliancePriceIndicative ? ' · appliance prices indicative' : ''}
+                </span>
+              </div>
+            )}
           </div>
           <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[72%] gap-1.5">
             {[selectedFinish, selectedBenchtop].map(material => (

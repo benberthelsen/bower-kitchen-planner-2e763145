@@ -22,6 +22,7 @@ import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { UnifiedScene } from '@/components/3d/UnifiedScene';
 import { BENCHTOP_OPTIONS, DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS } from '@/constants';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import { useCatalog } from '@/hooks/useCatalog';
 import { evaluateDesign } from '@/lib/designV2';
 import { compileSpec, type DesignBrief, type KitchenSpec, type SegmentRole } from '@/lib/layout';
 import { ROLE_PRODUCTS } from '@/lib/layout/catalogRoles';
@@ -154,7 +155,9 @@ function KitchenWidthControl({
           <span className="block font-normal text-slate-500">
             {role === 'sink'
               ? `Minimum ${policy.minMm}mm for the selected sink`
-              : `${policy.minMm}–${policy.maxMm}mm`}
+              : role === 'corner'
+                ? `${policy.minMm}–${policy.maxMm}mm · adjusts in 1mm steps`
+                : `${policy.minMm}–${policy.maxMm}mm`}
           </span>
         </label>
       )}
@@ -199,6 +202,13 @@ export default function KitchenUnitEditor({
   );
   const blockingErrors = evaluation.violations.filter(violation => violation.severity === 'error');
   const { products: applianceProducts } = useApplianceCatalog({ activeOnly: true });
+  // Use the exact same trade/Microvellum catalogue identities as the trade
+  // planner. The role labels below remain supporting customer language only.
+  const { catalog: cabinetCatalog } = useCatalog('trade');
+  const cabinetCatalogById = useMemo(
+    () => new Map(cabinetCatalog.map(item => [item.id, item])),
+    [cabinetCatalog],
+  );
   const selectedSinkProduct = applianceProducts.find(product =>
     product.id === chosenAppliances.sink);
   const selectedSinkMinimumWidth = sinkCabinetMinimumWidthMm(
@@ -257,6 +267,14 @@ export default function KitchenUnitEditor({
   const selectedWidth = selectedSegment
     ? selectedPlacedItem?.width ?? segmentWidthMm(selectedSegment)
     : null;
+  const underBenchOvenPlaced = compiled.items.some(item =>
+    item.layoutRole === 'cooktop' && item.definitionId === 'base_oven');
+  const roleOptionLabel = (role: SegmentRole): string => {
+    const definitionId = role === 'cooktop' && underBenchOvenPlaced
+      ? 'base_oven'
+      : ROLE_PRODUCTS[role].definitionId;
+    return cabinetCatalogById.get(definitionId)?.name ?? KITCHEN_ROLE_LABELS[role];
+  };
 
   const applyDraft = (next: KitchenSpec) => {
     if (next === draft) return;
@@ -459,12 +477,27 @@ export default function KitchenUnitEditor({
                         const placed = compiled.items.find(item =>
                           item.layoutRunIndex === activeRunIndex
                           && item.layoutSegmentIndex === segmentIndex);
+                        // The solver may deliberately drop an optional source
+                        // request (for example a tall oven cabinet) and use a
+                        // buildable fallback. Never list that discarded request
+                        // as though it exists in the rendered kitchen.
+                        if (!placed) return null;
                         const width = placed?.width ?? segmentWidthMm(segment);
+                        const catalogItem = cabinetCatalogById.get(placed.definitionId);
+                        const productName = catalogItem?.name
+                          ?? placed.productName
+                          ?? KITCHEN_ROLE_LABELS[segment.role];
+                        const roleLabel = segment.role === 'cooktop' && underBenchOvenPlaced
+                          ? 'Cooktop with under-bench oven'
+                          : KITCHEN_ROLE_LABELS[segment.role];
+                        const libraryReference = catalogItem?.microvellumLinkId
+                          ? `MV ${catalogItem.microvellumLinkId}`
+                          : placed.definitionId;
                         return (
                           <button
                             key={segmentIndex}
                             type="button"
-                            aria-label={`Select ${KITCHEN_ROLE_LABELS[segment.role]} ${width}mm`}
+                            aria-label={`Select ${productName} ${width}mm`}
                             onClick={() => setSelectedRef(ref)}
                             className={cn(
                               'flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors',
@@ -481,13 +514,13 @@ export default function KitchenUnitEditor({
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-xs font-semibold">
-                                {KITCHEN_ROLE_LABELS[segment.role]}
+                                {productName}
                               </span>
                               <span className={cn(
                                 'block text-[11px]',
                                 sameRef(selectedRef, ref) ? 'text-white/65' : 'text-slate-500',
                               )}>
-                                {width}mm
+                                {width}mm · {roleLabel} · {libraryReference}
                               </span>
                             </span>
                             <span className={cn(
@@ -537,7 +570,7 @@ export default function KitchenUnitEditor({
                             className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800"
                           >
                             {EDITABLE_KITCHEN_ROLES.map(role => (
-                              <option key={role} value={role}>{KITCHEN_ROLE_LABELS[role]}</option>
+                              <option key={role} value={role}>{roleOptionLabel(role)}</option>
                             ))}
                           </select>
                         </label>
@@ -617,7 +650,7 @@ export default function KitchenUnitEditor({
                         className="h-10 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-800"
                       >
                         {EDITABLE_KITCHEN_ROLES.map(role => (
-                          <option key={role} value={role}>{KITCHEN_ROLE_LABELS[role]}</option>
+                          <option key={role} value={role}>{roleOptionLabel(role)}</option>
                         ))}
                       </select>
                       <KitchenWidthControl
