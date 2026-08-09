@@ -31,6 +31,7 @@ export function cabinetToPlacedItem(
     endPanelLeft: cabinet.construction?.endPanelLeft,
     endPanelRight: cabinet.construction?.endPanelRight,
     blindSide: cabinet.construction?.blindSide,
+    cornerReturnSide: cabinet.construction?.cornerReturnSide,
   };
 }
 

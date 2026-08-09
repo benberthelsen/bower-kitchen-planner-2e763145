@@ -35,6 +35,7 @@ export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: 
     fillerLeft: cabinet.construction?.leftFillerWidth,
     fillerRight: cabinet.construction?.rightFillerWidth,
     blindSide: cabinet.construction?.blindSide,
+    cornerReturnSide: cabinet.construction?.cornerReturnSide,
     drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
     // Stage 1: catalog appliance passthrough
     applianceProductId: cabinet.applianceProductId,

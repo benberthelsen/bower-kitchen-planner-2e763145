@@ -3,6 +3,7 @@ import {
   fillCabinetRunGap,
   getCabinetRunSpacing,
   handleItemClick,
+  lShapeCornerGeometry,
 } from '../.tmp-snap-test/editor-geometry.mjs';
 
 let passed = 0;
@@ -48,6 +49,16 @@ const sinkGuidance = cabinetWidthGuidance({ productName: 'Sink cabinet', definit
 check(sinkGuidance.minimumWidthMm === 600 && sinkGuidance.belowMinimum, 'sink cabinet enforces a 600mm minimum');
 const cornerGuidance = cabinetWidthGuidance({ productName: 'Pie cut corner', definitionId: 'BASE_CORNER', dimensions: { width: 1000, depth: 900 } });
 check(cornerGuidance.recommendedMaximumWidthMm === null, 'corner cabinet is exempt from straight-run 900mm warning');
+
+const leftCorner = lShapeCornerGeometry(0.9, 0.9, 0.575, 0.575, 'Left');
+const rightCorner = lShapeCornerGeometry(0.9, 0.9, 0.575, 0.575, 'Right');
+check(Math.abs(leftCorner.sideDoorPlaneX - 0.125) < 0.0001,
+  'left-return corner face lands on the adjoining 575mm cabinet plane');
+check(Math.abs(rightCorner.sideDoorPlaneX + 0.125) < 0.0001,
+  'right-return corner face mirrors onto the adjoining 575mm cabinet plane');
+check(Math.abs(rightCorner.backDoorWidth - 0.325) < 0.0001
+  && Math.abs(rightCorner.sideDoorWidth - 0.325) < 0.0001,
+  '900mm pie-cut keeps two 325mm visible door leaves');
 
 const group = (id, parent = null) => ({ userData: { itemId: id }, parent });
 let selectedId = null;

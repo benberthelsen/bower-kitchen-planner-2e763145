@@ -291,6 +291,37 @@ for (const [id, w, h, d] of families) {
   check('kick: sheet allocation exists for base cabs', !!kickSheet, kickSheet ? 'found' : 'missing');
   check('kick: 2200mm run needs 1 piece (fits in 2400)', kickSheet?.sheetsRequired === 1, String(kickSheet?.sheetsRequired));
   check('kick: cost > 0', (kickSheet?.totalMaterialCost ?? 0) > 0, String(kickSheet?.totalMaterialCost));
+  check('kick takeoff: one complete 2200mm face, not three cabinet pieces',
+    q3.kickboards.length === 1
+      && q3.kickboards[0].runLengthMm === 2200
+      && q3.kickboards[0].cutLengthsMm.join(',') === '2200',
+    JSON.stringify(q3.kickboards));
+
+  const dishwasherOpening = {
+    instanceId: 'dw-kick', definitionId: 'dishwasher_opening', itemType: 'Appliance',
+    layoutRole: 'dishwasher', x: 1100, y: 0, z: 287.5, rotation: 0,
+    width: 600, height: 730, depth: 575,
+  };
+  const positionedRun = [
+    { ...cab('base_2_door', 800, 730, 575, 21), x: 400, z: 287.5 },
+    dishwasherOpening,
+    { ...cab('base_2_door', 800, 730, 575, 22), x: 1800, z: 287.5 },
+  ];
+  const qDishwasherKick = generateQuoteBOM(positionedRun, dims, { ...hw, adjustableLegs: true }, pricingData);
+  check('kick takeoff: adjoining cabinets continue through a dishwasher opening',
+    qDishwasherKick.kickboards.length === 1
+      && qDishwasherKick.kickboards[0].runLengthMm === 2200,
+    JSON.stringify(qDishwasherKick.kickboards));
+
+  const separatedRuns = [
+    { ...cab('base_1_door', 600, 730, 575, 23), x: 300, z: 287.5 },
+    { ...cab('base_1_door', 600, 730, 575, 24), x: 2100, z: 287.5 },
+  ];
+  const qSeparatedKick = generateQuoteBOM(separatedRuns, dims, { ...hw, adjustableLegs: true }, pricingData);
+  check('kick takeoff: a genuine cabinet gap starts a second run',
+    qSeparatedKick.kickboards.length === 2
+      && qSeparatedKick.kickboards.every(run => run.runLengthMm === 600),
+    JSON.stringify(qSeparatedKick.kickboards));
 
   // Four base cabs totalling 3300mm - needs 2 pieces (ceil(3300/2400)=2)
   const four = [
@@ -313,6 +344,7 @@ for (const [id, w, h, d] of families) {
   const qLadder = generateQuoteBOM(three, dims, { ...hw, adjustableLegs: false }, pricingData);
   const kickSheetLadder = qLadder.consolidatedSheets.find(s => s.materialName.includes('Kick'));
   check('kick: ladder kick mode adds no kick sheets', !kickSheetLadder, kickSheetLadder ? 'found (wrong)' : 'absent (correct)');
+  check('kick takeoff: ladder kick mode has no adjustable-leg faces', qLadder.kickboards.length === 0);
 }
 
 // 9. Benchtop pricing — per_sqm (legacy stone), per_sheet (Meganite), per_lm (Egger)

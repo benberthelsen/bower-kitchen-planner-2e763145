@@ -72,7 +72,15 @@ import { buildBrief, createWizardDesign, upgradeWizardDesign, type WizardDesign 
 import { evaluateDesign } from '@/lib/designV2';
 import { STYLE_PRESETS } from '@/data/stylePresets';
 import { useWizardPricing } from '@/hooks/useWizardPricing';
-import type { KitchenSpec, Priority, ProposedRoomPatch } from '@/lib/layout';
+import { featureFlags } from '@/lib/featureFlags';
+import {
+  previewStyleFamilies,
+  styleProfile,
+  type KitchenSpec,
+  type Priority,
+  type ProposedRoomPatch,
+  type StyleSpec,
+} from '@/lib/layout';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +104,9 @@ interface WizardState {
   finishId:    string;
   benchtopId:  string;
   handleId:    string;
+  styleFamilyId: string;
+  styleFamilyVersion: number;
+  styleVariantId: string;
   openings:    Opening[];
   services:    ServicePoint[];
   /** Walls the customer wants cabinetry on. Empty = auto (engine decides). */
@@ -109,7 +120,11 @@ interface WizardState {
   oven?:        '600' | '900';
   cooktop?:     'gas' | 'induction';
   dishwasher:   boolean;
+  /** Exact manufactured sink cabinet derived from the selected catalog sink. */
+  sinkCabinetWidthMm?: number;
   fridgeWidthMm: number;
+  /** Exact selected-model cavity; absent uses the generic planning allowance. */
+  fridgeOpeningWidthMm?: number;
   island:       'want' | 'no' | 'if-it-fits';
   // Inspiration + client-chosen finishes from a website flat-lay handoff — the
   // AI designer honours these as a strong style preference.
@@ -139,7 +154,7 @@ const IDENTITY_FRAME: CoordinateFrameV1 = {
   originDescription: 'north-west-corner-in-canonical-plan',
 };
 
-const DEFAULTS: Pick<WizardState, 'layoutPreference' | 'roomWidth' | 'roomDepth' | 'roomHeight' | 'roomGeometryShape' | 'roomCutoutWidth' | 'roomCutoutDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId'> = {
+const DEFAULTS: Pick<WizardState, 'layoutPreference' | 'roomWidth' | 'roomDepth' | 'roomHeight' | 'roomGeometryShape' | 'roomCutoutWidth' | 'roomCutoutDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId' | 'styleFamilyId' | 'styleFamilyVersion' | 'styleVariantId'> = {
   layoutPreference: 'single-wall',
   roomWidth:   3600,
   roomDepth:   3000,
@@ -148,10 +163,26 @@ const DEFAULTS: Pick<WizardState, 'layoutPreference' | 'roomWidth' | 'roomDepth'
   roomCutoutWidth: 0,
   roomCutoutDepth: 0,
   layoutStyle: 'standard',
-  finishId:    'do-designer-white',
-  benchtopId:  'egger-white-carrara',
+  finishId:    'do-classic-white',
+  benchtopId:  'egger-premium-white',
   handleId:    'handle-bar-ss',
+  styleFamilyId: 'classic-white',
+  styleFamilyVersion: 1,
+  styleVariantId: 'balanced',
 };
+
+function styleSpecFromState(state: Pick<WizardState,
+  'finishId' | 'benchtopId' | 'handleId' | 'styleFamilyId' | 'styleFamilyVersion' | 'styleVariantId'>): StyleSpec {
+  const profile = styleProfile(state.styleFamilyId);
+  return {
+    finishId: state.finishId,
+    benchtopId: state.benchtopId,
+    handleId: state.handleId,
+    familyId: profile?.id ?? state.styleFamilyId,
+    familyVersion: profile?.version ?? state.styleFamilyVersion,
+    variantId: state.styleVariantId,
+  };
+}
 
 // ─── URL serialisation helpers ──────────────────────────────────────────────────
 
@@ -178,6 +209,8 @@ function stateToParams(s: WizardState): URLSearchParams {
   if (s.finishId    !== DEFAULTS.finishId)    p.set('f',  s.finishId);
   if (s.benchtopId  !== DEFAULTS.benchtopId)  p.set('b',  s.benchtopId);
   if (s.handleId    !== DEFAULTS.handleId)    p.set('h',  s.handleId);
+  if (s.styleFamilyId !== DEFAULTS.styleFamilyId) p.set('sf', s.styleFamilyId);
+  if (s.styleVariantId !== DEFAULTS.styleVariantId) p.set('sv', s.styleVariantId);
   if (s.cabinetWalls.length > 0)              p.set('cw', s.cabinetWalls.join(''));
   const rangeParam = s.cabinetWalls
     .flatMap(wall => {
@@ -195,26 +228,44 @@ function stateToParams(s: WizardState): URLSearchParams {
 // audit item 4). Tab-scoped (sessionStorage), 24 h freshness cap, cleared on
 // successful submission. URL params still win over restored state.
 
-// v3: step order changed (Style before Design) + cabinetWalls added — old
-// saved states use the previous step numbering and are discarded.
-export const WIZARD_STATE_KEY = 'bower.wizard.state.v4';
+// v5 merges Style + Design. The v4 key is read once and migrated so existing
+// customer work and shared designs are not lost.
+export const WIZARD_STATE_KEY = 'bower.wizard.state.v5';
+export const WIZARD_STATE_V4_KEY = 'bower.wizard.state.v4';
 const WIZARD_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function loadSavedWizardState(): Partial<WizardState> {
   try {
-    const raw = sessionStorage.getItem(WIZARD_STATE_KEY);
+    const raw = sessionStorage.getItem(WIZARD_STATE_KEY) ?? sessionStorage.getItem(WIZARD_STATE_V4_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as { v?: number; savedAt?: number; state?: WizardState };
-    if (parsed?.v !== 4 || typeof parsed.savedAt !== 'number'
+    if ((parsed?.v !== 4 && parsed?.v !== 5) || typeof parsed.savedAt !== 'number'
       || Date.now() - parsed.savedAt > WIZARD_STATE_MAX_AGE_MS
       || typeof parsed.state !== 'object' || parsed.state === null
       || typeof parsed.state.step !== 'number') {
       sessionStorage.removeItem(WIZARD_STATE_KEY);
+      sessionStorage.removeItem(WIZARD_STATE_V4_KEY);
       return {};
     }
+    const source = parsed.state;
+    const migratedStep = parsed.v === 4 && featureFlags.designStudio
+      ? (source.step >= 6 ? 5 : source.step >= 4 ? 4 : source.step)
+      : parsed.v === 5 && !featureFlags.designStudio
+        ? (source.step >= 5 ? 6 : source.step)
+        : source.step;
+    const inferredFamily = STYLE_PRESETS.find(preset =>
+      preset.style.finishId === source.finishId
+      && preset.style.benchtopId === source.benchtopId
+      && preset.style.handleId === source.handleId)?.id;
+    const migratedFamilyId = inferredFamily === 'scandi' ? 'scandinavian' : inferredFamily;
+    const family = styleProfile(source.styleFamilyId ?? migratedFamilyId ?? DEFAULTS.styleFamilyId);
     return {
-      ...parsed.state,
-      design: upgradeWizardDesign(parsed.state.design),
+      ...source,
+      step: migratedStep,
+      styleFamilyId: family?.id ?? DEFAULTS.styleFamilyId,
+      styleFamilyVersion: family?.version ?? DEFAULTS.styleFamilyVersion,
+      styleVariantId: source.styleVariantId ?? DEFAULTS.styleVariantId,
+      design: upgradeWizardDesign(source.design),
     };
   } catch {
     return {};
@@ -223,12 +274,15 @@ function loadSavedWizardState(): Partial<WizardState> {
 
 export function saveWizardState(state: WizardState): void {
   try {
-    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 4, savedAt: Date.now(), state }));
+    sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 5, savedAt: Date.now(), state }));
   } catch { /* storage full or unavailable — persistence is best-effort */ }
 }
 
 export function clearSavedWizardState(): void {
-  try { sessionStorage.removeItem(WIZARD_STATE_KEY); } catch { /* ignore */ }
+  try {
+    sessionStorage.removeItem(WIZARD_STATE_KEY);
+    sessionStorage.removeItem(WIZARD_STATE_V4_KEY);
+  } catch { /* ignore */ }
 }
 
 /** Parse a numeric query param, ignoring anything non-finite so a stray or
@@ -252,6 +306,16 @@ function paramsToState(p: URLSearchParams): Partial<WizardState> {
   if (p.has('f'))  out.finishId    = p.get('f')!;
   if (p.has('b'))  out.benchtopId  = p.get('b')!;
   if (p.has('h'))  out.handleId    = p.get('h')!;
+  if (p.has('sf')) {
+    const family = styleProfile(p.get('sf') ?? undefined);
+    if (family) {
+      out.styleFamilyId = family.id;
+      out.styleFamilyVersion = family.version;
+    }
+  }
+  if (p.has('sv') && ['balanced', 'lighter', 'storage'].includes(p.get('sv')!)) {
+    out.styleVariantId = p.get('sv')!;
+  }
   if (p.has('cw')) {
     const walls = p.get('cw')!.split('').filter((c): c is Wall => ['N', 'E', 'S', 'W'].includes(c));
     out.cabinetWalls = [...new Set(walls)];
@@ -299,7 +363,9 @@ interface SharePayloadV1 {
     oven?: '600' | '900';
     cooktop?: 'gas' | 'induction';
     dishwasher: boolean;
+    sinkCabinetWidthMm?: number;
     fridgeWidthMm: number;
+    fridgeOpeningWidthMm?: number;
     island: WizardState['island'];
   };
   styleWords?: string;
@@ -307,7 +373,7 @@ interface SharePayloadV1 {
   chosenAppliances?: Record<string, string>;
   /** Finish/benchtop/handle so a shared design renders and re-prices with the
    *  sender's style, not the recipient's defaults. */
-  style?: { finishId: string; benchtopId: string; handleId: string };
+  style?: StyleSpec;
   /** proposalId is deliberately NOT shared — the recipient regenerates before
    *  chat-refining; the spec itself is the portable source of truth. The
    *  priceBand IS shared so the recipient sees the sender's canonical band
@@ -383,14 +449,20 @@ export async function encodeSharePayload(state: WizardState): Promise<string | n
         oven: state.oven,
         cooktop: state.cooktop,
         dishwasher: state.dishwasher,
+        ...(state.sinkCabinetWidthMm
+          ? { sinkCabinetWidthMm: state.sinkCabinetWidthMm }
+          : {}),
         fridgeWidthMm: state.fridgeWidthMm,
+        ...(state.fridgeOpeningWidthMm
+          ? { fridgeOpeningWidthMm: state.fridgeOpeningWidthMm }
+          : {}),
         island: state.island,
       },
       ...(state.styleWords ? { styleWords: state.styleWords } : {}),
       ...(Object.keys(state.chosenAppliances ?? {}).length
         ? { chosenAppliances: state.chosenAppliances }
         : {}),
-      style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
+      style: styleSpecFromState(state),
       ...(state.design
         ? { design: {
               name: state.design.name,
@@ -470,12 +542,18 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
       if (c.cooks === 'rare' || c.cooks === 'daily' || c.cooks === 'entertainer') patch.cooks = c.cooks;
       if (Array.isArray(c.priorities)) {
         patch.priorities = c.priorities.filter((p): p is Priority =>
-          ['storage', 'bench-space', 'entertaining', 'baking', 'budget'].includes(p));
+          ['storage', 'drawers', 'bench-space', 'entertaining', 'baking', 'budget'].includes(p));
       }
       if (c.oven === '600' || c.oven === '900') patch.oven = c.oven;
       if (c.cooktop === 'gas' || c.cooktop === 'induction') patch.cooktop = c.cooktop;
       if (typeof c.dishwasher === 'boolean') patch.dishwasher = c.dishwasher;
+      if (typeof c.sinkCabinetWidthMm === 'number') {
+        patch.sinkCabinetWidthMm = Math.max(600, Math.min(1400, Math.round(c.sinkCabinetWidthMm)));
+      }
       if (typeof c.fridgeWidthMm === 'number') patch.fridgeWidthMm = Math.max(500, Math.min(1400, c.fridgeWidthMm));
+      if (typeof c.fridgeOpeningWidthMm === 'number') {
+        patch.fridgeOpeningWidthMm = Math.max(500, Math.min(1800, c.fridgeOpeningWidthMm));
+      }
       if (c.island === 'want' || c.island === 'no' || c.island === 'if-it-fits') patch.island = c.island;
     }
     if (typeof raw.styleWords === 'string' && raw.styleWords.trim()) {
@@ -502,6 +580,16 @@ export async function decodeSharePayload(encoded: string): Promise<Partial<Wizar
       }
       if (typeof s.handleId === 'string' && HANDLE_OPTIONS.some(h => h.id === s.handleId)) {
         patch.handleId = s.handleId;
+      }
+      if (typeof s.familyId === 'string') {
+        const family = styleProfile(s.familyId);
+        if (family) {
+          patch.styleFamilyId = family.id;
+          patch.styleFamilyVersion = family.version;
+        }
+      }
+      if (typeof s.variantId === 'string' && ['balanced', 'lighter', 'storage'].includes(s.variantId)) {
+        patch.styleVariantId = s.variantId;
       }
     }
     if (raw.design && typeof raw.design === 'object') {
@@ -583,7 +671,8 @@ function estimatePrice(
  *  are logged rather than shown. */
 // ─── Step indicator ─────────────────────────────────────────────────────────────
 
-const STEPS = ['Room', 'Cooking', 'Appliances', 'Style', 'Design', 'Review'];
+const SPLIT_STEPS = ['Room', 'Cooking', 'Appliances', 'Style', 'Design', 'Review'];
+const STUDIO_STEPS = ['Room', 'Cooking', 'Appliances', 'Design Studio', 'Review'];
 
 // ─── Wall selection ─────────────────────────────────────────────────────────────
 // Which walls each layout strategy needs: every inner group must have at least
@@ -824,10 +913,10 @@ function WallPicker({
   );
 }
 
-function StepIndicator({ current }: { current: number }) {
+function StepIndicator({ current, steps }: { current: number; steps: string[] }) {
   return (
     <div className="flex items-center justify-center mb-8 overflow-x-auto pb-1">
-      {STEPS.map((label, i) => {
+      {steps.map((label, i) => {
         const n = i + 1;
         const done   = n < current;
         const active = n === current;
@@ -847,7 +936,7 @@ function StepIndicator({ current }: { current: number }) {
                 active ? 'text-slate-900 font-medium' : 'text-slate-400',
               )}>{label}</span>
             </div>
-            {i < STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <div className={cn(
                 'h-px w-3 sm:w-12 mb-5 mx-0.5 sm:mx-1 flex-shrink-0 transition-colors',
                 done ? 'bg-emerald-400' : 'bg-slate-200',
@@ -1238,13 +1327,15 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
         )}
       </Step1Section>
 
-      <Step1Section n={4} title="Doors, windows & connections" subtitle="Tap a wall to place each one — the sink stays near your plumbing and doorways stay clear.">
+      <Step1Section n={4} title="Doors, windows & existing connections" subtitle="Choose a feature, then mark it on a wall or through the floor — useful for island plumbing and gas.">
         <RoomFeaturesEditor
           widthMm={state.roomWidth}
           depthMm={state.roomDepth}
           openings={state.openings}
           services={state.services}
           cabinetLayout={state.layoutPreference}
+          cabinetWalls={state.cabinetWalls}
+          cabinetWallRanges={state.cabinetWallRanges}
           showHeading={false}
           onChange={p => onChange(p)}
         />
@@ -1366,20 +1457,41 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
   const selectedFinish   = FINISH_OPTIONS.find(f => f.id === state.finishId)   ?? FINISH_OPTIONS[0];
   const selectedBenchtop = BENCHTOP_OPTIONS.find(b => b.id === state.benchtopId) ?? BENCHTOP_OPTIONS[0];
   const selectedHandle   = HANDLE_OPTIONS.find(h => h.id === state.handleId)   ?? HANDLE_OPTIONS[0];
+  const studioPresets = previewStyleFamilies().map(profile => ({
+    id: profile.id,
+    name: profile.name,
+    blurb: profile.description,
+    style: {
+      ...profile.defaultStyle,
+      familyId: profile.id,
+      familyVersion: profile.version,
+      variantId: state.styleFamilyId === profile.id ? state.styleVariantId : 'balanced',
+    } satisfies StyleSpec,
+  }));
+  const presets = featureFlags.designStudio ? studioPresets : STYLE_PRESETS;
+  const activeProfile = styleProfile(state.styleFamilyId);
 
   return (
     <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">Choose your style</h2>
-        <p className="text-sm text-slate-500">Pick colours and hardware to preview in 3D on the next step.</p>
+        <h2 className="text-lg font-semibold text-slate-900 mb-1 outline-none">
+          {featureFlags.designStudio ? 'Choose a design direction' : 'Choose your style'}
+        </h2>
+        <p className="text-sm text-slate-500">
+          {featureFlags.designStudio
+            ? 'Style changes the cabinet composition, storage and overheads—not only the colours.'
+            : 'Pick colours and hardware to preview in 3D on the next step.'}
+        </p>
       </div>
 
       {/* Quick styles */}
       <div className="space-y-3">
         <Label>Quick styles</Label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="Quick styles">
-          {STYLE_PRESETS.map(preset => {
-            const active = state.finishId === preset.style.finishId
+          {presets.map(preset => {
+            const active = featureFlags.designStudio
+              ? state.styleFamilyId === preset.id
+              : state.finishId === preset.style.finishId
               && state.benchtopId === preset.style.benchtopId
               && state.handleId === preset.style.handleId;
             return (
@@ -1392,6 +1504,13 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
                     finishId: preset.style.finishId,
                     benchtopId: preset.style.benchtopId,
                     handleId: preset.style.handleId,
+                    ...(featureFlags.designStudio && preset.style.familyId
+                      ? {
+                          styleFamilyId: preset.style.familyId,
+                          styleFamilyVersion: preset.style.familyVersion ?? 1,
+                          styleVariantId: preset.style.variantId ?? 'balanced',
+                        }
+                      : {}),
                   });
                 }}
                 className={cn(
@@ -1416,6 +1535,35 @@ function Step3Style({ state, onChange }: { state: WizardState; onChange: (p: Par
           })}
         </div>
       </div>
+
+      {featureFlags.designStudio && activeProfile && (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div>
+            <Label>Composition</Label>
+            <p className="mt-1 text-xs text-slate-500">
+              {activeProfile.storageCharacter.replace(/-/g, ' ')} · {activeProfile.tallUnitMassing.replace(/-/g, ' ')} · {Math.round(activeProfile.overheadCoverage.target * 100)}% overhead target
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Style composition variant">
+            {activeProfile.variants.map(variant => (
+              <button
+                type="button"
+                key={variant.id}
+                aria-pressed={state.styleVariantId === variant.id}
+                onClick={() => onChange({ styleVariantId: variant.id })}
+                className={cn(
+                  'rounded-lg border-2 px-3 py-1.5 text-xs transition-all',
+                  state.styleVariantId === variant.id
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400',
+                )}
+              >
+                {variant.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Door colour */}
       <div className="space-y-3">
@@ -1536,7 +1684,10 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
   const brief = buildBrief(state);
   const activeSpec: KitchenSpec = {
     ...(state.design?.spec ?? defaultSpecFor(brief, state.layoutPreference)),
-    style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
+    style: {
+      ...(state.design?.spec.style ?? {}),
+      ...styleSpecFromState(state),
+    },
   };
   const compiled = compileSpec(activeSpec, brief.room);
   // Stage 3 — homeowner appliance catalog. Chosen products are (a) stamped
@@ -1694,6 +1845,9 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         roomCutoutDepth: state.roomCutoutDepth,
         layoutStyle: state.layoutStyle, finishId: state.finishId,
         benchtopId: state.benchtopId, handleId: state.handleId, items,
+        styleFamilyId: state.styleFamilyId,
+        styleFamilyVersion: state.styleFamilyVersion,
+        styleVariantId: state.styleVariantId,
         openings: state.openings, services: state.services,
         cabinetWalls: state.cabinetWalls,
         cabinetWallRanges: state.cabinetWallRanges,
@@ -1909,21 +2063,36 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         </div>
       )}
 
-      {/* Estimate banner */}
-      <div className="bg-slate-900 text-white rounded-xl p-4 sm:p-5 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs text-slate-400 uppercase tracking-wide">Estimated supply & install</p>
-          <p className="text-lg sm:text-2xl font-bold mt-0.5">
-            ${low.toLocaleString()} – ${high.toLocaleString()}
-            <span className="text-xs sm:text-sm font-normal text-slate-400 ml-1.5">AUD inc. GST</span>
-          </p>
-          {applianceSubtotal > 0 && (
-            <p className="text-[11px] text-slate-400 mt-1">
-              Cabinets ${cabinetsLow.toLocaleString()}–${cabinetsHigh.toLocaleString()} + appliances ${Math.round(applianceSubtotal).toLocaleString()}
+      {/* Estimate banner — lead with the custom kitchen, then keep optional
+          supplied appliances visibly separate from the cabinetry comparison. */}
+      <div className="rounded-xl bg-slate-900 p-4 text-white sm:p-5">
+        <p className="text-xs uppercase tracking-wide text-slate-400">Your estimate at a glance</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3 sm:divide-x sm:divide-slate-700">
+          <div>
+            <p className="text-xs text-slate-400">Custom kitchen</p>
+            <p className="mt-0.5 text-lg font-bold">
+              ${cabinetsLow.toLocaleString()} – ${cabinetsHigh.toLocaleString()}
             </p>
-          )}
+            <p className="mt-0.5 text-[11px] text-slate-400">Cabinetry, benchtop &amp; installation</p>
+          </div>
+          <div className="border-t border-slate-700 pt-3 sm:border-t-0 sm:pl-4 sm:pt-0">
+            <p className="text-xs text-slate-400">Selected appliances</p>
+            <p className="mt-0.5 text-lg font-semibold">
+              {applianceSubtotal > 0
+                ? `$${Math.round(applianceSubtotal).toLocaleString()}`
+                : 'None selected'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">Kept separate for easy comparison</p>
+          </div>
+          <div className="border-t border-slate-700 pt-3 sm:border-t-0 sm:pl-4 sm:pt-0">
+            <p className="text-xs text-slate-400">Combined estimate</p>
+            <p className="mt-0.5 text-lg font-semibold">
+              ${Math.round(low).toLocaleString()} – ${Math.round(high).toLocaleString()}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">AUD inc. GST</p>
+          </div>
         </div>
-        <p className="text-right text-xs text-slate-400 max-w-[130px] hidden sm:block">
+        <p className="mt-3 border-t border-slate-700 pt-3 text-[11px] text-slate-400">
           Indicative only. Final price confirmed after site measure.
         </p>
       </div>
@@ -1999,7 +2168,7 @@ export default function HomeownerWizard() {
     cabinetWallRanges: {},
     priorities: [],
     dishwasher: true,
-    fridgeWidthMm: 940,
+    fridgeWidthMm: 900,
     island: 'if-it-fits',
     design: null,
     doorsOpen: false,
@@ -2058,7 +2227,13 @@ export default function HomeownerWizard() {
       return {
         ...prev,
         ...patch,
-        design: touchesGeometry || 'layoutPreference' in patch || 'cabinetWalls' in patch || 'cabinetWallRanges' in patch
+        design: touchesGeometry || 'layoutPreference' in patch || 'layoutStyle' in patch
+          || 'cabinetWalls' in patch || 'cabinetWallRanges' in patch
+          || 'householdSize' in patch || 'cooks' in patch || 'priorities' in patch
+          || 'oven' in patch || 'cooktop' in patch || 'dishwasher' in patch
+          || 'sinkCabinetWidthMm' in patch
+          || 'fridgeWidthMm' in patch || 'fridgeOpeningWidthMm' in patch || 'island' in patch
+          || 'styleFamilyId' in patch || 'styleVariantId' in patch
           ? null
           : ('design' in patch ? patch.design ?? null : prev.design),
         geometryEdits: touchesGeometry ? prev.geometryEdits + 1 : prev.geometryEdits,
@@ -2188,23 +2363,28 @@ export default function HomeownerWizard() {
     const brief = buildBrief(state);
     const spec = {
       ...state.design.spec,
-      style: { finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId },
+      style: { ...state.design.spec.style, ...styleSpecFromState(state) },
     };
     // One rules pipeline (brief v4.3 §4.4): the concept gate comes from
     // evaluateDesign, not hand-rolled severity filtering.
     return evaluateDesign(compileSpec(spec, brief.room), brief.room, brief, spec).conceptBlocker;
   })();
 
+  const designStudioEnabled = featureFlags.designStudio;
+  const designStep = designStudioEnabled ? 4 : 5;
+  const reviewStep = designStudioEnabled ? 5 : 6;
+  const stepLabels = designStudioEnabled ? STUDIO_STEPS : SPLIT_STEPS;
+
   const canAdvance =
     state.step === 1
       ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid :
     state.step === 2 ? true :
     state.step === 3 ? true :
-    state.step === 4 ? true :
-    state.step === 5 ? state.design !== null && !selectedDesignHasBlockingErrors : false;
+    state.step === 4 ? (designStudioEnabled ? state.design !== null && !selectedDesignHasBlockingErrors : true) :
+    state.step === 5 ? (!designStudioEnabled && state.design !== null && !selectedDesignHasBlockingErrors) : false;
 
   const advance = () => {
-    if (state.step < 6) {
+    if (state.step < reviewStep) {
       trackEvent('step_complete', {
         step: state.step,
         shape: state.layoutPreference,
@@ -2267,7 +2447,7 @@ export default function HomeownerWizard() {
 
       {/* Wizard body */}
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <StepIndicator current={state.step} />
+        <StepIndicator current={state.step} steps={stepLabels} />
 
         {state.step === 1 && <Step1Room state={state} onChange={onChange} onValidityChange={handleStep1Validity} />}
         {state.step === 2 && <StepCook value={state} onChange={p => onChange(p)} />}
@@ -2281,15 +2461,39 @@ export default function HomeownerWizard() {
               fridgeWidthMm: state.fridgeWidthMm,
             }}
             onChange={next => onChange({ chosenAppliances: next })}
+            onSinkCabinetWidthChange={sinkCabinetWidthMm => onChange({ sinkCabinetWidthMm })}
+            onFridgeDimensionsChange={({ bodyWidthMm, openingWidthMm }) => onChange({
+              fridgeWidthMm: bodyWidthMm,
+              fridgeOpeningWidthMm: openingWidthMm,
+            })}
           />
         )}
-        {state.step === 4 && <Step3Style state={state} onChange={onChange} />}
-        {state.step === 5 && (
+        {state.step === 4 && (
+          <div className="space-y-10">
+            <Step3Style state={state} onChange={onChange} />
+            {designStudioEnabled && (
+              <div className="border-t border-slate-200 pt-8">
+                <StepDesign
+                  key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}|${state.styleFamilyId}|${state.styleVariantId}`}
+                  brief={buildBrief(state)}
+                  shape={state.layoutPreference}
+                  style={styleSpecFromState(state)}
+                  design={state.design}
+                  chosenAppliances={state.chosenAppliances}
+                  onDesignChange={d => onChange({ design: d })}
+                  onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
+                  onReturnToRoom={() => onChange({ step: 1 })}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {!designStudioEnabled && state.step === 5 && (
           <StepDesign
-            key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}`}
+            key={`${state.layoutPreference}|${state.roomGeometryShape}|${state.roomWidth}x${state.roomDepth}x${state.roomHeight}|${state.roomCutoutWidth}x${state.roomCutoutDepth}|${state.styleFamilyId}|${state.styleVariantId}`}
             brief={buildBrief(state)}
             shape={state.layoutPreference}
-            style={{ finishId: state.finishId, benchtopId: state.benchtopId, handleId: state.handleId }}
+            style={styleSpecFromState(state)}
             design={state.design}
             chosenAppliances={state.chosenAppliances}
             onDesignChange={d => onChange({ design: d })}
@@ -2297,10 +2501,10 @@ export default function HomeownerWizard() {
             onReturnToRoom={() => onChange({ step: 1 })}
           />
         )}
-        {state.step === 6 && <Step4Review state={state} onChange={onChange} />}
+        {state.step === reviewStep && <Step4Review state={state} onChange={onChange} />}
 
         {/* Nav footer */}
-        {state.step < 6 ? (
+        {state.step < reviewStep ? (
           <div className="mt-8 sm:mt-10 pt-5 border-t border-slate-100">
             {state.step === 1 && step1Invalid && (
               <p className="text-xs text-red-600 mb-3 text-center sm:text-right">
@@ -2323,7 +2527,7 @@ export default function HomeownerWizard() {
                   disabled={!canAdvance}
                   className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
                 >
-                  {state.step === 5 ? 'Review & price' : 'Continue'}
+                  {state.step === designStep ? 'Review & price' : 'Continue'}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

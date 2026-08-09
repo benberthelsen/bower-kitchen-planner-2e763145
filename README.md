@@ -1,73 +1,71 @@
-# Welcome to your Lovable project
+# Bower Kitchen Planner
 
-## Project info
+Bower's homeowner and trade kitchen-planning application. It combines measured
+room capture, deterministic professional layout rules, Microvellum-backed
+cabinet products, editable 3D designs, indicative pricing and an AI-assisted
+Design Studio.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+The repository and GitHub history are the source of truth. Production is hosted
+on Cloudflare Pages; this project does not use Lovable for editing or deployment.
 
-## How can I edit this code?
+## Live services
 
-There are several ways of editing your application.
+- Planner: <https://planner.bowercabinets.com>
+- Public website: <https://www.bowercabinets.com>
+- Source: <https://github.com/benberthelsen/bower-kitchen-planner-2e763145>
+- AI designer backend: Supabase Edge Function `ai-designer`
 
-**Use Lovable**
+Cloudflare Pages builds the planner from the `main` branch. The Supabase Edge
+Function is deployed separately so its copy of the shared layout engine must be
+kept in sync.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Local development
 
-Changes made via Lovable will be committed automatically to this repo.
+Requires Node.js 20 and npm.
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```powershell
+npm ci
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+For the unified Design Studio and local AI test harness:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```powershell
+npm run dev:design-studio
+```
 
-**Use GitHub Codespaces**
+To exercise a real model locally, copy `.env.design-studio.local.example` to
+`.env.design-studio.local`, add the private server-side key, and restart the
+preview. Never put provider keys in a `VITE_*` variable or commit the local
+file.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Validation
 
-## What technologies are used for this project?
+```powershell
+npm run test:ci
+npm run build:design-studio
+```
 
-This project is built with:
+The release suite covers the layout engine, Design Studio, 200 synthetic
+customer journeys, editor geometry, pricing, room-scan contracts, trade
+handoff, rendering fidelity and production builds.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Release path
 
-## How can I deploy this project?
+1. Run `npm run ai:sync-shared` whenever shared layout or trade code changes.
+2. Run `npm run test:ci` and `npm run build:design-studio`.
+3. Merge the reviewed release into `main`; Cloudflare Pages then deploys the
+   planner automatically.
+4. When `supabase/functions/ai-designer` or its shared engine changed, deploy
+   it to the linked Bower Supabase project.
+5. Verify the Cloudflare and GitHub checks, then smoke-test the live wizard.
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Continue the design training
 
-## Can I connect a custom domain to my Lovable project?
+Read [Kitchen AI University](docs/KITCHEN-AI-UNIVERSITY.md) before changing the
+designer. It records the professional rules, architecture, evidence workflow,
+test gates and the safest way to teach the planner another kitchen-design
+lesson without losing earlier knowledge.
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+The current implementation handoff is
+[Unified AI Kitchen Design Studio v5](docs/AI-DESIGN-STUDIO-v5-HANDOFF.md).

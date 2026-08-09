@@ -54,6 +54,10 @@ assert.equal(kitchenUnitWidthPolicy('oven-tower').custom, false);
 assert.match(kitchenUnitWidthError('oven-tower', 650), /selected oven size/i);
 assert.equal(kitchenUnitWidthPolicy('dishwasher').custom, false);
 assert.match(kitchenUnitWidthError('dishwasher', 750), /dishwasher opening/i);
+assert.equal(kitchenUnitWidthPolicy('corner').custom, false);
+assert.equal(kitchenUnitWidthError('corner', 900), null);
+assert.match(kitchenUnitWidthError('corner', 899), /900mm square bi-fold corner/i);
+assert.match(kitchenUnitWidthError('corner', 1127), /900mm square bi-fold corner/i);
 
 const removed = removeKitchenUnit(replaced, { runIndex: 0, segmentIndex: 1 }, 450);
 assert.deepEqual(removed.runs[0].segments[1], {

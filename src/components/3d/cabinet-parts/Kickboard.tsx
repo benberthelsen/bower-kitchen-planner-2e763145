@@ -1,6 +1,7 @@
 import React from 'react';
 import * as THREE from 'three';
 import EdgeOutline from './EdgeOutline';
+import { lShapeCornerGeometry, type CornerReturnSide } from './cornerGeometry';
 
 interface KickboardProps {
   width: number;      // Width in meters
@@ -20,6 +21,7 @@ interface KickboardProps {
   depth?: number;           // Cabinet depth in meters (for corner kickboards)
   leftArmDepth?: number;    // L-shape left arm depth in meters
   rightArmDepth?: number;   // L-shape right arm depth in meters
+  returnSide?: CornerReturnSide;
 }
 
 /**
@@ -43,6 +45,7 @@ const Kickboard: React.FC<KickboardProps> = ({
   depth = 0.56,
   leftArmDepth = 0.575,
   rightArmDepth = 0.575,
+  returnSide = 'Left',
 }) => {
   // Rotate texture for horizontal grain
   const texture = React.useMemo(() => {
@@ -62,8 +65,9 @@ const Kickboard: React.FC<KickboardProps> = ({
   // L-shape (pie-cut) corner cabinet: kickboards run under the two notch
   // faces where the doors sit (matches CornerCarcass notch geometry).
   if (isCorner && cornerType === 'l-shape') {
+    const cornerGeometry = lShapeCornerGeometry(width, depth, leftArmDepth, rightArmDepth, returnSide);
     const notchX = -width / 2 + Math.min(leftArmDepth, width - 0.05);
-    const notchZ = -depth / 2 + Math.min(rightArmDepth, depth - 0.05);
+    const notchZ = cornerGeometry.backDoorPlaneZ;
     // Both kicks are set back from their door faces; extend each to the other's
     // setback line so they meet cleanly at the inner corner (no gap).
     const kickInnerX = notchX - setback;
@@ -81,27 +85,10 @@ const Kickboard: React.FC<KickboardProps> = ({
 
     return (
       <group position={position}>
-        {/* Kick under door 1 - faces +Z */}
-        <mesh position={[kickAX, 0, kickAZ]}>
-          <boxGeometry args={[kickAWidth, height, thickness]} />
-          <meshStandardMaterial
-            key={texture ? texture.uuid : 'flat'}
-            color={color}
-            roughness={roughness}
-            metalness={metalness}
-            map={texture}
-          />
-        </mesh>
-        {showEdges && (
-          <group position={[kickAX, 0, kickAZ]}>
-            <EdgeOutline width={kickAWidth} height={height} depth={thickness} />
-          </group>
-        )}
-
-        {/* Kick under door 2 - faces +X (rotated 90 degrees) */}
-        <group position={[kickBX, 0, kickBZ]} rotation={[0, -Math.PI / 2, 0]}>
-          <mesh>
-            <boxGeometry args={[kickBWidth, height, thickness]} />
+        <group scale={[cornerGeometry.mirrorX, 1, 1]}>
+          {/* Kick under door 1 - faces +Z */}
+          <mesh position={[kickAX, 0, kickAZ]}>
+            <boxGeometry args={[kickAWidth, height, thickness]} />
             <meshStandardMaterial
               key={texture ? texture.uuid : 'flat'}
               color={color}
@@ -111,8 +98,27 @@ const Kickboard: React.FC<KickboardProps> = ({
             />
           </mesh>
           {showEdges && (
-            <EdgeOutline width={kickBWidth} height={height} depth={thickness} />
+            <group position={[kickAX, 0, kickAZ]}>
+              <EdgeOutline width={kickAWidth} height={height} depth={thickness} />
+            </group>
           )}
+
+          {/* Kick under door 2 - faces +X (rotated 90 degrees) */}
+          <group position={[kickBX, 0, kickBZ]} rotation={[0, -Math.PI / 2, 0]}>
+            <mesh>
+              <boxGeometry args={[kickBWidth, height, thickness]} />
+              <meshStandardMaterial
+                key={texture ? texture.uuid : 'flat'}
+                color={color}
+                roughness={roughness}
+                metalness={metalness}
+                map={texture}
+              />
+            </mesh>
+            {showEdges && (
+              <EdgeOutline width={kickBWidth} height={height} depth={thickness} />
+            )}
+          </group>
         </group>
       </group>
     );

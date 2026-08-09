@@ -13,10 +13,9 @@
  * Returns: { options: { name, spec, items, priceBand, violations, rationale }[],
  *            changeSummary?, unchanged? }
  *
- * The model only ever DECIDES (KitchenSpec DSL); the deterministic engine in
- * ../_shared/layout compiles, validates, and prices. Invalid tool payloads are
- * bounced back to the model with the violation list. Specs are compiled
- * server-side — the client never trusts raw model output.
+ * The deterministic engine authors and validates all geometry. The model sees
+ * compact summaries only and may rank, name and explain approved candidate
+ * IDs. It never receives a tool capable of writing KitchenSpec geometry.
  *
  * Env: OPENAI_API_KEY (required), OPENAI_MODEL (default gpt-5.6-terra)
  *
@@ -27,6 +26,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   applyBriefConstraints, compileSpec, defaultSpecFor, priceDesign, validate,
+  generateCandidatePool, candidateSummaryFor,
   kitchenSpecSchema, roomSpecSchema, aiDesignerRequestSchema, finalizeSelectionSchema,
   proposedRoomPatchSchema, RequestProposalRegistry, ROLE_PRODUCTS,
   ENGINE_VERSION, CATALOG_VERSION, PRICING_VERSION,
@@ -98,7 +98,7 @@ const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = Deno.env.get('OPENAI_MODEL') ?? 'gpt-5.6-terra';
 const MAX_TOOL_ROUNDS = 8;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const PROMPT_VERSION = 'ai-designer-v2.2';
+const PROMPT_VERSION = 'ai-designer-v5-candidate-ranker';
 
 // ── catalog / style summary given to the model ──
 function catalogSummary() {
@@ -360,6 +360,152 @@ async function persistValidatedOptions(
   };
 }
 
+interface ApprovedCandidateChoice {
+  candidateId: string;
+  name: string;
+  rationale: string;
+}
+
+interface CandidateRankingResult {
+  choices: ApprovedCandidateChoice[];
+  changeSummary?: string;
+  unchanged?: boolean;
+  providerUsed: boolean;
+}
+
+const RANKING_TOOL = [{
+  type: 'function',
+  function: {
+    name: 'rank_approved_candidates',
+    description: 'Rank, name and explain only the supplied approved candidate IDs. Never create or alter geometry.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        choices: {
+          type: 'array',
+          maxItems: 3,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              candidateId: { type: 'string' },
+              name: { type: 'string', maxLength: 80 },
+              rationale: { type: 'string', maxLength: 600 },
+            },
+            required: ['candidateId', 'name', 'rationale'],
+          },
+        },
+        changeSummary: { type: 'string', maxLength: 500 },
+        unchanged: { type: 'boolean' },
+      },
+      required: ['choices'],
+    },
+  },
+}];
+
+function safeText(value: unknown, fallback: string, max: number): string {
+  return typeof value === 'string' && value.trim()
+    ? value.trim().slice(0, max)
+    : fallback.slice(0, max);
+}
+
+async function rankApprovedCandidateIds(input: {
+  apiKey: string;
+  mode: 'generate' | 'refine' | 'style';
+  userMessage?: string;
+  summaries: unknown[];
+  allowedIds: string[];
+  maxChoices: number;
+  fallback: ApprovedCandidateChoice[];
+  requestId: string;
+}): Promise<CandidateRankingResult> {
+  const roomFactRequest = input.mode === 'refine'
+    && /\b(room|dimension|wall|window|door|opening|plumbing|gas point|wider|longer|shorter)\b/i.test(input.userMessage ?? '');
+  if (roomFactRequest) {
+    const current = input.fallback.find(choice => choice.candidateId === 'current-approved') ?? input.fallback[0];
+    return {
+      choices: current ? [current] : [],
+      changeSummary: 'Room facts must be changed and reconfirmed in the Room step before the kitchen is regenerated.',
+      unchanged: true,
+      providerUsed: false,
+    };
+  }
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${input.apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL,
+        max_completion_tokens: 1800,
+        reasoning_effort: 'none',
+        parallel_tool_calls: false,
+        tool_choice: { type: 'function', function: { name: 'rank_approved_candidates' } },
+        tools: RANKING_TOOL,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an Australian kitchen designer. You may rank, name and explain only the approved candidate IDs supplied. Never propose cabinets, measurements, walls, materials or geometry. Prefer the customer request, professional score and genuinely different layouts. Plain English only.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              mode: input.mode,
+              request: input.userMessage ?? 'Rank the best distinct kitchen options.',
+              approvedCandidates: input.summaries,
+              maximumChoices: input.maxChoices,
+            }),
+          },
+        ],
+      }),
+    });
+    if (!response.ok) throw new Error(`provider_${response.status}`);
+    const data = await response.json();
+    const call = data.choices?.[0]?.message?.tool_calls?.find(
+      (toolCall: { function?: { name?: string } }) => toolCall.function?.name === 'rank_approved_candidates',
+    );
+    if (!call?.function?.arguments) throw new Error('ranking_tool_missing');
+    const parsed = JSON.parse(call.function.arguments) as Record<string, unknown>;
+    const allowed = new Set(input.allowedIds);
+    const seen = new Set<string>();
+    const rawChoices = Array.isArray(parsed.choices) ? parsed.choices : [];
+    const choices: ApprovedCandidateChoice[] = [];
+    for (const raw of rawChoices) {
+      if (!isRecord(raw) || typeof raw.candidateId !== 'string'
+        || !allowed.has(raw.candidateId) || seen.has(raw.candidateId)) continue;
+      seen.add(raw.candidateId);
+      const fallback = input.fallback.find(choice => choice.candidateId === raw.candidateId);
+      choices.push({
+        candidateId: raw.candidateId,
+        name: safeText(raw.name, fallback?.name ?? 'Designer option', 80),
+        rationale: safeText(raw.rationale, fallback?.rationale ?? 'A professionally checked kitchen option.', 600),
+      });
+      if (choices.length >= input.maxChoices) break;
+    }
+    if (choices.length === 0) throw new Error('ranking_empty');
+    return {
+      choices,
+      changeSummary: safeText(parsed.changeSummary, '', 500) || undefined,
+      unchanged: parsed.unchanged === true,
+      providerUsed: true,
+    };
+  } catch (error) {
+    console.error('[ai-designer] candidate ranking unavailable; deterministic order retained', {
+      requestId: input.requestId,
+      error: error instanceof Error ? error.message : 'ranking_failed',
+    });
+    return {
+      choices: input.fallback.slice(0, input.maxChoices),
+      changeSummary: input.mode === 'generate'
+        ? undefined
+        : 'The ranking service was unavailable, so the best rule-checked option is shown.',
+      unchanged: input.mode !== 'generate' && input.fallback[0]?.candidateId === 'current-approved',
+      providerUsed: false,
+    };
+  }
+}
+
 const TOOLS = [
   {
     type: 'function',
@@ -513,11 +659,135 @@ serve(async (req) => {
     }
     const request = requestParsed.data;
     const { mode, shape, currentSpec, message, history, brief } = request;
-    if (brief.room.shape === 'LShape') {
-      logOutcome('ai-designer', requestId, 'unsupported_l_shape', started);
-      return errorResponse(req, 422, 'unsupported_l_shape');
-    }
     const persistence = await preparePersistenceContext(service, request, syntheticTest);
+
+    {
+    // v5 boundary: geometry is fully deterministic. The provider receives
+    // compact summaries and can return approved IDs only.
+    const selectedStyle = currentSpec?.style
+      ?? brief.styleIds
+      ?? defaultSpecFor(brief as never, shape).style;
+    const pool = generateCandidatePool({
+      brief: brief as never,
+      style: selectedStyle as never,
+      preferredStrategy: shape,
+      professionalGate: true,
+      maxCandidates: 8,
+    });
+    const available = new Map<string, PersistableOption>();
+    const summaries: unknown[] = [];
+    for (const candidate of pool.candidates) {
+      available.set(candidate.candidateId, {
+        proposalId: candidate.candidateId,
+        name: candidate.emphasis === 'storage'
+          ? 'Storage considered'
+          : candidate.emphasis === 'social' ? 'Social kitchen' : 'Easy workflow',
+        spec: candidate.spec as KitchenSpecInput,
+        items: candidate.items,
+        priceBand: candidate.priceBand,
+        violations: candidate.violations,
+        rationale: candidate.spec.rationale,
+      });
+      summaries.push(candidateSummaryFor(candidate));
+    }
+
+    if (currentSpec && mode !== 'generate') {
+      const current = compileAndScore(currentSpec, brief.room, brief, shape);
+      const professionalCodes = new Set([
+        'cooktop-landing', 'fridge-landing', 'triangle-size',
+        'triangle-obstruction', 'prep-space',
+      ]);
+      if (current.ok && !current.violations.some(violation =>
+        violation.severity === 'error' || professionalCodes.has(violation.code))) {
+        available.set('current-approved', {
+          proposalId: 'current-approved',
+          name: 'Current design',
+          spec: current.spec,
+          items: current.items,
+          priceBand: current.priceBand,
+          violations: current.violations,
+          rationale: current.spec.rationale,
+        });
+        summaries.unshift({
+          candidateId: 'current-approved',
+          strategy: shape,
+          emphasis: 'current',
+          score: 'already selected and rule checked',
+          cabinetRoles: current.spec.runs.flatMap(run => run.segments.flatMap(segment =>
+            segment.kind === 'cabinet' ? [`${run.wall}:${segment.role}`] : [])),
+          warnings: current.violations.filter(violation => violation.severity === 'warn').map(violation => violation.message),
+        });
+      }
+    }
+
+    const orderedIds = mode === 'style' && available.has('current-approved')
+      ? ['current-approved']
+      : [
+          ...(mode === 'refine' && available.has('current-approved') ? ['current-approved'] : []),
+          ...pool.candidates.map(candidate => candidate.candidateId),
+        ];
+    const distinctIds = [...new Set(orderedIds)].filter(id => available.has(id));
+    if (distinctIds.length === 0) {
+      return json({
+        error: 'No professional rule-checked design fits the confirmed room',
+        rejected: pool.rejected.slice(0, 12),
+      }, 422);
+    }
+    const fallbackChoices = distinctIds.map(candidateId => {
+      const option = available.get(candidateId)!;
+      return { candidateId, name: option.name, rationale: option.rationale };
+    });
+    const maxChoices = mode === 'generate' ? Math.min(3, distinctIds.length) : 1;
+    const ranking = await rankApprovedCandidateIds({
+      apiKey,
+      mode,
+      userMessage: message,
+      summaries,
+      allowedIds: distinctIds,
+      maxChoices,
+      fallback: fallbackChoices,
+      requestId,
+    });
+    const selectedOptions = ranking.choices.flatMap(choice => {
+      const option = available.get(choice.candidateId);
+      return option ? [{ ...option, name: choice.name, rationale: choice.rationale }] : [];
+    });
+    if (selectedOptions.length === 0) return json({ error: 'No approved candidate was selected' }, 502);
+
+    const unchanged = ranking.unchanged === true
+      && selectedOptions[0].proposalId === 'current-approved'
+      && !!request.currentProposalId;
+    let responseOptions = selectedOptions;
+    let designRevision = persistence.designRevision;
+    if (unchanged) {
+      responseOptions = selectedOptions.map(option => ({ ...option, proposalId: request.currentProposalId! }));
+    } else {
+      const saved = await persistValidatedOptions(service, persistence, request, selectedOptions);
+      responseOptions = saved.options;
+      designRevision = saved.designRevision;
+    }
+
+    logOutcome('ai-designer', requestId, 'ok', started);
+    return json({
+      options: responseOptions,
+      changeSummary: ranking.changeSummary,
+      unchanged,
+      proposedRoomPatch: null,
+      session: {
+        id: persistence.sessionId,
+        ...(persistence.publicToken ? { token: persistence.publicToken } : {}),
+        briefRevision: persistence.briefRevision,
+        designRevision,
+      },
+      modelTrace: {
+        provider: ranking.providerUsed ? 'openai' : 'deterministic-fallback',
+        modelId: ranking.providerUsed ? MODEL : 'none',
+        promptVersion: PROMPT_VERSION,
+        engineVersion: ENGINE_VERSION,
+      },
+      ...(syntheticTest ? { syntheticTest: { ...syntheticTest, isSyntheticTest: true } } : {}),
+    });
+    }
 
     // Conversation state. The confirmed room remains immutable for the entire
     // request. Room edits are returned as proposals for user reconfirmation.

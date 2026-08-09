@@ -27,10 +27,15 @@ import {
   isBenchtopInsetAppliance,
   isConcealedRangehoodAppliance,
   isDishwasherAppliance,
+  isFridgeAppliance,
   isIntegratedDishwasherAppliance,
 } from './applianceClassification';
 import ApplianceBenchtop from './ApplianceBenchtop';
-import { DEFAULT_GLOBAL_DIMENSIONS } from '../../constants';
+import { underBenchTopLocalY } from './appliances/underBenchTop';
+import { DEFAULT_GLOBAL_DIMENSIONS, KICK_OPTIONS } from '../../constants';
+import { fridgeBodyWidthMm } from '../../lib/layout/catalogRoles';
+import { Kickboard } from './cabinet-parts';
+import { benchtopTextureRunOffsetM } from './cabinet-parts/benchtopGeometry';
 
 // ─── Refcounted GLB disposal ───────────────────────────────────────────────
 // Two instances of the same product share drei's GLTF cache entry. Clearing
@@ -61,6 +66,8 @@ interface Props {
   benchtop?: MaterialOption;
   /** Selected door finish for integrated dishwasher fallback. */
   cabinetFinish?: MaterialOption;
+  /** Selected plinth finish so dishwasher openings remain in the kick run. */
+  kick?: MaterialOption;
   onSelect?: (id: string) => void;
   onDragStart?: (id: string, x: number, z: number) => void;
 }
@@ -111,7 +118,9 @@ function GlbInner({ url, item, benchtopInset }: { url: string; item: PlacedItem;
   const scene = useMemo(() => (gltf.scene ? gltf.scene.clone(true) : null), [gltf.scene]);
   const groupRef = useRef<THREE.Group>(null);
 
-  const targetW = item.width / 1000;
+  const targetW = (item.layoutRole === 'fridge-gap'
+    ? fridgeBodyWidthMm(item.width, item.applianceBodyWidth)
+    : item.width) / 1000;
   const targetH = item.height / 1000;
   const targetD = item.depth / 1000;
 
@@ -181,11 +190,16 @@ const ApplianceModel: React.FC<Props> = (props) => {
   // need `def` to be scaled and placed.
   void def;
 
-  const widthM = item.width / 1000;
+  const isFridge = isFridgeAppliance(item, def);
+  const widthM = (isFridge
+    ? fridgeBodyWidthMm(item.width, item.applianceBodyWidth)
+    : item.width) / 1000;
   const heightM = item.height / 1000;
   const depthM = item.depth / 1000;
   const benchtopInset = isBenchtopInsetAppliance(item, def);
   const isDishwasher = isDishwasherAppliance(item, def);
+  const dimensions = props.globalDimensions ?? DEFAULT_GLOBAL_DIMENSIONS;
+  const selectedKick = props.kick ?? KICK_OPTIONS[0];
   const posY = (item.y / 1000);
   const position: [number, number, number] = [item.x / 1000, posY, item.z / 1000];
 
@@ -220,13 +234,33 @@ const ApplianceModel: React.FC<Props> = (props) => {
           )}
           <GlbInner url={url} item={item} benchtopInset={benchtopInset} />
           {isDishwasher && (
-            <ApplianceBenchtop
-              material={props.benchtop}
-              globalDimensions={props.globalDimensions ?? DEFAULT_GLOBAL_DIMENSIONS}
-              widthM={widthM}
-              depthM={depthM}
-              topY={heightM}
-            />
+            <>
+              <Kickboard
+                width={widthM}
+                height={(dimensions.toeKickHeight || 135) / 1000}
+                position={[
+                  0,
+                  (dimensions.toeKickHeight || 135) / 2000,
+                  depthM / 2 - 0.04,
+                ]}
+                color={selectedKick.hex}
+                roughness={selectedKick.roughness}
+                metalness={selectedKick.metalness}
+                showEdges={false}
+              />
+              <ApplianceBenchtop
+                material={props.benchtop}
+                globalDimensions={dimensions}
+                widthM={widthM}
+                depthM={depthM}
+                topY={underBenchTopLocalY(
+                  heightM,
+                  dimensions.baseHeight / 1000,
+                  'base-origin',
+                )}
+                textureRunOffsetM={benchtopTextureRunOffsetM(item)}
+              />
+            </>
           )}
         </group>
       </Suspense>

@@ -141,7 +141,7 @@ export const designBriefV2Schema = z.object({
     accessibilityNotes: z.string().max(1000).optional(),
   }).strict(),
   priorities: z.array(z.object({
-    value: z.enum(['storage', 'bench-space', 'entertaining', 'baking', 'budget']),
+    value: z.enum(['storage', 'drawers', 'bench-space', 'entertaining', 'baking', 'budget']),
     strength: requirementStrengthSchema,
   }).strict()).max(10),
   appliances: z.array(applianceRequirementV2Schema).max(24),

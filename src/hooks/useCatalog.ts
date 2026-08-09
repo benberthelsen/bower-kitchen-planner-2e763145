@@ -183,6 +183,9 @@ function inferStaticDimensions(specGroup: string, id: string): { width: number; 
   }
 
   if (lowerSpecGroup.includes('appliance')) {
+    if (lowerId.includes('sink_position')) return { width: 600, depth: 450, height: 200, category: 'Base' };
+    if (lowerId.includes('cooktop_position')) return { width: 600, depth: 500, height: 60, category: 'Base' };
+    if (lowerId.includes('oven_position')) return { width: 600, depth: 570, height: 595, category: 'Base' };
     if (lowerId.includes('fridge')) return { width: 900, depth: 650, height: 2100, category: 'Tall' };
     if (lowerId.includes('dishwasher')) return { width: 600, depth: 580, height: 870, category: 'Base' };
     if (lowerId.includes('range')) return { width: 900, depth: 650, height: 900, category: 'Base' };
@@ -359,6 +362,7 @@ const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
   { specGroup: 'Wall Cabinets', id: 'fridge_top_cabinet', name: 'Fridge Top Cabinet' },
   { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_blind_left', name: 'Blind Corner Wall Left' },
   { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_blind_right', name: 'Blind Corner Wall Right' },
+  { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_pie_cut_2_door', name: 'Upper Corner Pie Cut' },
   { specGroup: 'Corner Wall Cabinets', id: 'wall_corner_diagonal', name: 'Diagonal Corner Wall' },
   { specGroup: 'Corner Wall Cabinets', id: 'open_corner_wall', name: 'Open Corner Wall' },
   { specGroup: 'Tall Cabinets', id: 'tall_1_door_pantry', name: 'Tall 1 Door Pantry' },
@@ -389,6 +393,9 @@ const STATIC_LIBRARY_TEMPLATES: StaticCatalogTemplate[] = [
   { specGroup: 'Appliance Openings', id: 'dishwasher_opening_only', name: 'Dishwasher Opening Only' },
   { specGroup: 'Appliance Openings', id: 'range_opening', name: 'Range Opening' },
   { specGroup: 'Appliance Openings', id: 'microwave_opening', name: 'Microwave Opening' },
+  { specGroup: 'Appliance Openings', id: 'sink_position', name: 'Sink Position' },
+  { specGroup: 'Appliance Openings', id: 'cooktop_position', name: 'Cooktop Position' },
+  { specGroup: 'Appliance Openings', id: 'oven_position', name: 'Oven Position' },
 ];
 
 const STATIC_LIBRARY_CATALOG: ExtendedCatalogItem[] = STATIC_LIBRARY_TEMPLATES.map(transformStaticTemplate);

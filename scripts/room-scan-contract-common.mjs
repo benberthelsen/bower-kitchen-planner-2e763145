@@ -6,7 +6,10 @@ import { resolve } from 'node:path';
 
 export const CANONICAL_PATH = 'src/lib/roomScan/contract.ts';
 export const DENO_PATH = 'supabase/functions/_shared/roomScan/contract.ts';
-export const WEBSITE_REPO_DEFAULT = resolve('..', 'bower-cabinet-web-site');
+// The planner is nested directly inside the website repository. The previous
+// path appended the website folder name a second time and made CI skip the
+// real contract with a false green result.
+export const WEBSITE_REPO_DEFAULT = resolve('..');
 export const WEBSITE_CONTRACT_REL = 'src/lib/roomScan/contract.ts';
 export const WEBSITE_LOCK_REL = 'src/lib/roomScan/contract.lock.json';
 

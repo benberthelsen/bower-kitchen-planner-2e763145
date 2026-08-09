@@ -25,7 +25,10 @@ import CornerBiFold from './cabinet-parts/CornerBiFold';
 import { useOptionalTexture } from './materials/useOptionalTexture';
 import { withOptionalSurfaceTexture } from './materials/physicalTexture';
 import {
-  carcassMaterialForCategory,
+  cabinetBodyMaterialForRole,
+  finishedEndPanelGeometry,
+  kickboardFrontOffsetM,
+  resolvedBenchtopThicknessM,
   shouldRenderKickboard,
 } from './cabinetConstruction';
 import { 
@@ -38,6 +41,9 @@ import {
 } from '@/lib/microvellum/constructionRecipes';
 import { distributeDrawerHeights } from '@/lib/drawerHeights';
 import { calculateHandlePosition } from '@/utils/snapping/gableSnapping';
+import { blindCornerFrontLayout } from '@/lib/layout/blindCorner';
+import { diagonalCornerGeometry, lShapeCornerGeometry } from './cabinet-parts/cornerGeometry';
+import { benchtopTextureRunOffsetM } from './cabinet-parts/benchtopGeometry';
 
 interface MaterialProps {
   color: string;
@@ -152,6 +158,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const isTallOvenTower = config.category === 'Tall' && config.isOven;
   const isOvenMicrowaveTower = isTallOvenTower && /microwave/i.test(productIdentity);
   const isTallFridgeHousing = config.category === 'Tall' && config.isFridge;
+  const isOpenDisplayUnit = item.layoutRole === 'open-shelf';
   const isIntegratedBinPullout = /bin.*pullout|pullout.*bin/i.test(productIdentity);
   
   // Use recipe construction values or fall back to standards
@@ -177,9 +184,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   });
   
   // Other global dimensions
-  const btThickness = recipe?.benchtop.thickness 
-    ? (recipe.benchtop.thickness / 1000)
-    : ((globalDimensions?.benchtopThickness || 33) / 1000);
+  const btThickness = resolvedBenchtopThicknessM(
+    globalDimensions,
+    recipe?.benchtop.thickness,
+  );
   const btOverhang = recipe?.benchtop.frontOverhang 
     ? (recipe.benchtop.frontOverhang / 1000)
     : ((globalDimensions?.benchtopOverhang || 0) / 1000);
@@ -218,27 +226,35 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Decorative finishes belong on doors and explicit finished end panels.
   // Overhead cabinet structure is white melamine, including the top surface
   // that is visible from the planner's elevated camera angle.
-  const gableMat = carcassMaterialForCategory(
+  const gableMat = cabinetBodyMaterialForRole(
     config.category,
+    item.layoutRole,
     applyTex(gableRaw, carcaseTex),
+    applyTex(doorRaw, doorTex),
     gableIntRaw,
   );
-  const gableIntMat = carcassMaterialForCategory(
+  const gableIntMat = cabinetBodyMaterialForRole(
     config.category,
+    item.layoutRole,
     applyTex(gableIntRaw, carcaseTex),
+    applyTex(doorRaw, doorTex),
     gableIntRaw,
   );
   const gableExtMat = applyTex(gableExtRaw, doorTex);
   const doorMat = applyTex(doorRaw, doorTex);
   const drawerMat = applyTex(drawerRaw, doorTex);
-  const shelfMat = carcassMaterialForCategory(
+  const shelfMat = cabinetBodyMaterialForRole(
     config.category,
+    item.layoutRole,
     applyTex(shelfRaw, carcaseTex),
+    applyTex(doorRaw, doorTex),
     gableIntRaw,
   );
-  const bottomMat = carcassMaterialForCategory(
+  const bottomMat = cabinetBodyMaterialForRole(
     config.category,
+    item.layoutRole,
     applyTex(bottomRaw, carcaseTex),
+    applyTex(doorRaw, doorTex),
     gableIntRaw,
   );
   const kickMat = kickRaw;
@@ -303,6 +319,14 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const cornerFootprintDepthM = cornerType === 'l-shape' ? secondWidthM : depthM;
   const leftArmDepthM = Math.min(armLeftSrcM, widthM - 0.05);
   const rightArmDepthM = Math.min(armRightSrcM, cornerFootprintDepthM - 0.05);
+  const cornerReturnSide = item.cornerReturnSide ?? 'Left';
+  const cornerGeometry = lShapeCornerGeometry(
+    widthM,
+    cornerFootprintDepthM,
+    leftArmDepthM,
+    rightArmDepthM,
+    cornerReturnSide,
+  );
   const blindDepthM = (recipe?.fronts.corner?.blindDepth || config.blindDepth || 150) / 1000;
   const fillerWidthM = (recipe?.fronts.corner?.fillerWidth || config.fillerWidth || 75) / 1000;
 
@@ -325,10 +349,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
             leftArmDepth={leftArmDepthM}
             rightArmDepth={rightArmDepthM}
+            returnSide={cornerReturnSide}
             blindDepth={blindDepthM}
             blindSide={item.blindSide}
             fillerWidth={fillerWidthM}
             hasReturnFiller={config.hasReturnFiller}
+            closedTop={config.category === 'Wall'}
             gableThickness={gableThickness}
             color={gableMat.color}
             roughness={gableMat.roughness}
@@ -410,23 +436,37 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     // what "no back panel on the island" looks like. Finish it in the door
     // material and bring it flush with the carcase instead.
     if (item.finishedBack) {
+      const finishedBackHeight = item.finishedBackFullHeight ? heightM : carcassHeight;
+      const finishedBackY = item.finishedBackFullHeight ? 0 : carcassYOffset;
+      const finishedBackWidth = (item.finishedBackWidth || safeWidth) / 1000;
+      const finishedBackOffset = (item.finishedBackOffset || 0) / 1000;
       return (
-        <mesh position={[0, carcassYOffset, -depthM / 2 + gableThickness / 2]}>
-          <boxGeometry args={[widthM, carcassHeight, gableThickness]} />
-          <meshStandardMaterial
-            color={endPanelMat.color}
-            roughness={endPanelMat.roughness}
-            map={endPanelMat.map}
-          />
-        </mesh>
+        <group position={[finishedBackOffset, finishedBackY, -depthM / 2 - gableThickness / 2]}>
+          <mesh>
+            <boxGeometry args={[finishedBackWidth, finishedBackHeight, gableThickness]} />
+            <meshStandardMaterial
+              color={endPanelMat.color}
+              roughness={endPanelMat.roughness}
+              map={endPanelMat.map}
+            />
+          </mesh>
+          <EdgeOutline width={finishedBackWidth} height={finishedBackHeight} depth={gableThickness} />
+        </group>
       );
     }
+    // One island anchor draws the continuous decorative panel. Do not let the
+    // remaining modules draw their recessed 3mm cabinet backs through it.
+    if (item.suppressStandardBack) return null;
     return (
       <BackPanel
         width={interiorWidth}
         height={carcassHeight - bottomThickness * 2}
         position={[0, carcassYOffset, -depthM / 2 + backSetback + backPanelThickness / 2]}
         setback={backSetback}
+        color={isOpenDisplayUnit ? doorMat.color : undefined}
+        roughness={isOpenDisplayUnit ? doorMat.roughness : undefined}
+        map={isOpenDisplayUnit ? doorMat.map : undefined}
+        showEdges={!isOpenDisplayUnit}
       />
     );
   };
@@ -487,7 +527,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           </group>
         );
       }
-      return cornerShelves;
+      return (
+        <group scale={[cornerGeometry.mirrorX, 1, 1]}>
+          {cornerShelves}
+        </group>
+      );
       }
       // Blind corner: fall through to the standard rectangular shelves below.
     }
@@ -652,10 +696,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       // 32mm system handle positions
       const handleOffset = 0.032; // 32mm from door edge
       const handleY = config.category === 'Base'
-        ? effectiveDoorHeight / 2 - 0.096        // 96mm from top for base cabinets
+        ? effectiveDoorHeight / 2 - (handle.type === 'Lip' ? 0.018 : 0.096)
         : config.category === 'Tall'
         ? -effectiveDoorHeight / 2 + Math.min(0.9, effectiveDoorHeight * 0.43)  // ~900mm from bottom for tall
         : -effectiveDoorHeight / 2 + 0.096;      // 96mm from bottom for wall
+      const lipRotation = handle.type === 'Lip' && config.category !== 'Base'
+        ? Math.PI / 2
+        : 0;
       
       return (
         <>
@@ -671,7 +718,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             gap={0} // Gap already accounted for in positioning
             hingeLeft={true}
             forceOpen={doorsOpen}
-            handle={{ type: handle.type, color: handle.hex, x: doorWidth / 2 - handleOffset, y: handleY }}
+            handle={{ type: handle.type, color: handle.hex, x: doorWidth / 2 - handleOffset, y: handleY, rotation: lipRotation }}
           />
           {/* Right door - hinge on right edge; handle near the inner (left) edge */}
           <DoorFront
@@ -685,7 +732,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             gap={0}
             hingeLeft={false}
             forceOpen={doorsOpen}
-            handle={{ type: handle.type, color: handle.hex, x: -doorWidth / 2 + handleOffset, y: handleY }}
+            handle={{ type: handle.type, color: handle.hex, x: -doorWidth / 2 + handleOffset, y: handleY, rotation: lipRotation }}
           />
         </>
       );
@@ -696,10 +743,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     const handleOffset = 0.032; // 32mm from edge
     const handleX = hingeLeft ? doorWidth / 2 - handleOffset : -doorWidth / 2 + handleOffset;
     const handleY = config.category === 'Base'
-      ? effectiveDoorHeight / 2 - 0.096
+      ? effectiveDoorHeight / 2 - (handle.type === 'Lip' ? 0.018 : 0.096)
       : config.category === 'Tall'
       ? -effectiveDoorHeight / 2 + Math.min(0.9, effectiveDoorHeight * 0.43)
       : -effectiveDoorHeight / 2 + 0.096;
+    const lipRotation = handle.type === 'Lip' && config.category !== 'Base'
+      ? Math.PI / 2
+      : 0;
     
     return (
       <DoorFront
@@ -713,7 +763,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         gap={0}
         hingeLeft={hingeLeft}
         forceOpen={doorsOpen}
-        handle={{ type: handle.type, color: handle.hex, x: handleX, y: handleY }}
+        handle={{ type: handle.type, color: handle.hex, x: handleX, y: handleY, rotation: lipRotation }}
       />
     );
   };
@@ -742,30 +792,33 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       // Leaf on the left arm's side face (plane x = notchX, faces +X)
       const d2Width = (cornerFootprintDepthM / 2 - notchZ) - sideReveal * 2;
 
-      // Hinge side picks which end of the pair is fixed to the carcase.
-      if (hingeLeft) {
+      // Hinge side picks which end of the pair is fixed to the carcase. The
+      // complete pair is mirrored for a right-return room corner so both
+      // leaves stay on the same planes as the adjoining 575mm cabinet run.
+      const doors = hingeLeft ? (
         // Carcase hinge at the FRONT end of the left-arm face; the pair folds
         // from there around the internal corner onto the back-arm face.
-        return (
-          <CornerBiFold
-            leadWidth={d2Width}
-            secondWidth={d1Width}
-            height={doorHeight}
-            thickness={doorThickness}
-            color={doorMat.color}
-            roughness={doorMat.roughness}
-            map={doorMat.map}
-            pivot={[notchX + shadowGap, doorY, cornerFootprintDepthM / 2 - sideReveal]}
-            dir={1}
-            yaw={Math.PI / 2}
-            handle={{ type: handle.type, color: handle.hex }}
-            handleY={cornerHandleY}
-            forceOpen={doorsOpen}
-          />
-        );
-      }
-      // Carcase hinge at the RIGHT end of the back-arm face.
-      return (
+        <CornerBiFold
+          leadWidth={d2Width}
+          secondWidth={d1Width}
+          height={doorHeight}
+          thickness={doorThickness}
+          color={doorMat.color}
+          roughness={doorMat.roughness}
+          map={doorMat.map}
+          pivot={[notchX + shadowGap, doorY, cornerFootprintDepthM / 2 - sideReveal]}
+          dir={1}
+          yaw={Math.PI / 2}
+          handle={{
+            type: handle.type,
+            color: handle.hex,
+            rotation: handle.type === 'Lip' && config.category === 'Wall' ? Math.PI / 2 : 0,
+          }}
+          handleY={cornerHandleY}
+          forceOpen={doorsOpen}
+        />
+      ) : (
+        // Carcase hinge at the RIGHT end of the back-arm face.
         <CornerBiFold
           leadWidth={d1Width}
           secondWidth={d2Width}
@@ -777,24 +830,45 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           pivot={[widthM / 2 - sideReveal, doorY, notchZ + shadowGap]}
           dir={-1}
           yaw={0}
-          handle={{ type: handle.type, color: handle.hex }}
+          handle={{
+            type: handle.type,
+            color: handle.hex,
+            rotation: handle.type === 'Lip' && config.category === 'Wall' ? Math.PI / 2 : 0,
+          }}
           handleY={cornerHandleY}
           forceOpen={doorsOpen}
         />
+      );
+      return (
+        <group scale={[cornerGeometry.mirrorX, 1, 1]}>
+          {doors}
+        </group>
       );
     }
     
     // Diagonal corner: angled door at 45 degrees
     if (cornerType === 'diagonal') {
-      const diagonalDoorWidth = Math.sqrt(2) * widthM * 0.35;
+      const diagonal = diagonalCornerGeometry(
+        widthM,
+        cornerFootprintDepthM,
+        leftArmDepthM,
+        rightArmDepthM,
+      );
+      const diagonalDoorWidth = Math.max(
+        0.15,
+        diagonal.frontWidth - sideReveal * 2,
+      );
       
       return (
-        <group position={[0, 0, depthM / 4]} rotation={[0, -Math.PI / 4, 0]}>
+        <group
+          position={[diagonal.frontCenterX, 0, diagonal.frontCenterZ]}
+          rotation={[0, diagonal.frontYaw, 0]}
+        >
           <DoorFront
             width={diagonalDoorWidth}
             height={doorHeight}
             thickness={doorThickness}
-            position={[0, doorY, doorThickness / 2 + 0.01]}
+            position={[0, doorY, doorThickness / 2 + shadowGap]}
             color={doorMat.color}
             roughness={doorMat.roughness}
             map={doorMat.map}
@@ -806,6 +880,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
               color: handle.hex,
               x: diagonalDoorWidth / 2 - 0.06,
               y: config.category === 'Wall' ? -doorHeight / 2 + 0.08 : cornerHandleY,
+              rotation: handle.type === 'Lip' && config.category === 'Wall' ? Math.PI / 2 : 0,
             }}
           />
         </group>
@@ -816,16 +891,17 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     // accessible side. Both sit in the front plane inside the bounding box.
     const blindIsLeft = item.blindSide === 'Left';
     const frontZ = depthM / 2 + doorThickness / 2 + shadowGap;
-
-    const doorWidth = widthM / 2 - sideReveal * 2;
-    const doorX = blindIsLeft ? widthM / 4 : -widthM / 4;
-    const blindX = blindIsLeft ? -widthM / 4 : widthM / 4;
+    const front = blindCornerFrontLayout(item.width, item.depth, item.blindSide ?? 'Left');
+    const doorWidth = front.accessWidthMm / 1000 - sideReveal * 2;
+    const doorX = front.accessCenterMm / 1000;
+    const blindWidth = front.blindPanelWidthMm / 1000 - sideReveal;
+    const blindX = front.blindPanelCenterMm / 1000;
 
     return (
       <>
         {/* Blank blind panel (no handle) covering the corner side */}
         <DoorFront
-          width={widthM / 2 - sideReveal}
+          width={blindWidth}
           height={doorHeight}
           thickness={doorThickness}
           position={[blindX, doorY, frontZ]}
@@ -834,7 +910,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           map={doorMat.map}
           gap={0}
           hingeLeft={blindIsLeft}
-          forceOpen={doorsOpen}
+          interactive={false}
+          showHinges={false}
+          forceOpen={false}
         />
         {/* Door on the accessible side — handle mounted ON the door so it swings with it */}
         <DoorFront
@@ -846,13 +924,14 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
           roughness={doorMat.roughness}
           map={doorMat.map}
           gap={0}
-          hingeLeft={!blindIsLeft}
+          hingeLeft={front.hingeLeft}
           forceOpen={doorsOpen}
           handle={{
             type: handle.type,
             color: handle.hex,
-            x: blindIsLeft ? -(doorWidth / 2 - 0.04) : doorWidth / 2 - 0.04,
+            x: blindIsLeft ? doorWidth / 2 - 0.04 : -(doorWidth / 2 - 0.04),
             y: cornerHandleY,
+            rotation: handle.type === 'Lip' && config.category === 'Wall' ? Math.PI / 2 : 0,
           }}
         />
       </>
@@ -1012,6 +1091,10 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Render kickboard and legs
   const renderKickboard = () => {
     if (!hasKick) return null;
+    const kickFillerLeftM = isCornerCabinet ? 0 : (item.fillerLeft ?? 0) / 1000;
+    const kickFillerRightM = isCornerCabinet ? 0 : (item.fillerRight ?? 0) / 1000;
+    const kickFaceWidthM = widthM + kickFillerLeftM + kickFillerRightM;
+    const kickFaceOffsetX = (kickFillerRightM - kickFillerLeftM) / 2;
     
     return (
       <>
@@ -1026,21 +1109,32 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
             cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
             leftArmDepth={leftArmDepthM}
             rightArmDepth={rightArmDepthM}
+            returnSide={cornerReturnSide}
           />
         </group>
         {/* Kickboard panel */}
         <Kickboard
-          width={widthM}
+          width={isCornerCabinet ? widthM : kickFaceWidthM}
           height={kickHeight}
-          position={[0, -heightM / 2 + kickHeight / 2, isCornerCabinet ? 0 : depthM / 2 - 0.04]}
+          position={[
+            isCornerCabinet ? 0 : kickFaceOffsetX,
+            -heightM / 2 + kickHeight / 2,
+            kickboardFrontOffsetM(
+              cornerFootprintDepthM,
+              isCornerCabinet,
+              cornerType as 'l-shape' | 'blind' | 'diagonal',
+            ),
+          ]}
           color={kickMat.color}
           roughness={kickMat.roughness}
           map={kickMat.map}
+          showEdges={isCornerCabinet}
           isCorner={isCornerCabinet}
           cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
           depth={cornerFootprintDepthM}
           leftArmDepth={leftArmDepthM}
           rightArmDepth={rightArmDepthM}
+          returnSide={cornerReturnSide}
         />
       </>
     );
@@ -1050,8 +1144,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const renderBenchtop = () => {
     if (config.category !== 'Base') return null;
     
-    const fillerLeftM = (item.fillerLeft || 0) / 1000;
-    const fillerRightM = (item.fillerRight || 0) / 1000;
+    const frontOverhangM = item.benchtopFrontOverhang === undefined
+      ? btOverhang
+      : item.benchtopFrontOverhang / 1000;
+    const backOverhangM = (item.benchtopBackOverhang || 0) / 1000;
+    const fillerLeftM = ((item.fillerLeft || 0) + (item.benchtopLeftOverhang || 0)) / 1000;
+    const fillerRightM = ((item.fillerRight || 0) + (item.benchtopRightOverhang || 0)) / 1000;
     
     return (
       <BenchtopMesh
@@ -1062,9 +1160,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         color={benchMat.color}
         roughness={benchMat.roughness}
         map={benchMat.map}
-        overhang={btOverhang}
+        overhang={frontOverhangM}
+        backOverhang={backOverhangM}
         leftOverhang={fillerLeftM}
         rightOverhang={fillerRightM}
+        textureRunOffsetM={benchtopTextureRunOffsetM(item)}
         hasSinkCutout={config.isSink || Boolean(sinkCutout)}
         sinkCutoutWidth={sinkCutout?.widthM}
         sinkCutoutDepth={sinkCutout?.depthM}
@@ -1072,6 +1172,7 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         cornerType={cornerType as 'l-shape' | 'blind' | 'diagonal'}
         leftArmDepth={leftArmDepthM}
         rightArmDepth={rightArmDepthM}
+        returnSide={cornerReturnSide}
       />
     );
   };
@@ -1079,15 +1180,22 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // Render end panels (if specified on item)
   const renderEndPanels = () => {
     const panels = [];
+    const endPanelHeight = item.endPanelsFullHeight ? heightM : carcassHeight;
+    const endPanelY = item.endPanelsFullHeight ? 0 : carcassYOffset;
+    const endPanelGeometry = finishedEndPanelGeometry(depthM, doorThickness, shadowGap);
     
     if (item.endPanelLeft) {
       panels.push(
         <Gable
           key="end-panel-left"
           width={gableThickness}
-          height={carcassHeight}
-          depth={depthM}
-          position={[-widthM / 2 - gableThickness / 2, carcassYOffset, 0]}
+          height={endPanelHeight}
+          depth={endPanelGeometry.depthM}
+          position={[
+            -widthM / 2 - gableThickness / 2,
+            endPanelY,
+            endPanelGeometry.centerOffsetZM,
+          ]}
           color={endPanelMat.color}
           roughness={endPanelMat.roughness}
           map={endPanelMat.map}
@@ -1100,9 +1208,13 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
         <Gable
           key="end-panel-right"
           width={gableThickness}
-          height={carcassHeight}
-          depth={depthM}
-          position={[widthM / 2 + gableThickness / 2, carcassYOffset, 0]}
+          height={endPanelHeight}
+          depth={endPanelGeometry.depthM}
+          position={[
+            widthM / 2 + gableThickness / 2,
+            endPanelY,
+            endPanelGeometry.centerOffsetZM,
+          ]}
           color={endPanelMat.color}
           roughness={endPanelMat.roughness}
           map={endPanelMat.map}
@@ -1122,7 +1234,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       fillers.push(
         <mesh key="filler-left" position={[-widthM / 2 - fillerW / 2, carcassYOffset, depthM / 2 + 0.005]}>
           <boxGeometry args={[fillerW, carcassHeight, 0.01]} />
-          <meshStandardMaterial color={doorMat.color} roughness={doorMat.roughness} />
+          <meshStandardMaterial
+            color={doorMat.color}
+            roughness={doorMat.roughness}
+            metalness={doorMat.metalness}
+            map={doorMat.map}
+          />
         </mesh>
       );
     }
@@ -1132,7 +1249,12 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
       fillers.push(
         <mesh key="filler-right" position={[widthM / 2 + fillerW / 2, carcassYOffset, depthM / 2 + 0.005]}>
           <boxGeometry args={[fillerW, carcassHeight, 0.01]} />
-          <meshStandardMaterial color={doorMat.color} roughness={doorMat.roughness} />
+          <meshStandardMaterial
+            color={doorMat.color}
+            roughness={doorMat.roughness}
+            metalness={doorMat.metalness}
+            map={doorMat.map}
+          />
         </mesh>
       );
     }

@@ -29,6 +29,7 @@ export const KITCHEN_ROLE_LABELS: Record<SegmentRole, string> = {
   'fridge-gap': 'Fridge space',
   corner: 'Corner cabinet',
   'corner-buffer': 'Corner clearance cupboard',
+  'fridge-corner-pantry': 'Corner pantry',
 };
 
 export interface KitchenUnitWidthPolicy {
@@ -54,9 +55,10 @@ export function sinkCabinetMinimumWidthMm(
 }
 
 /**
- * Custom widths are for manufactured cabinets, not fixed appliance openings
- * or corner geometry. Oven/rangehood compatibility remains controlled by
- * their discrete appliance sizes.
+ * Custom widths are for prompt-sized manufactured cabinets, including the
+ * prompt-sized manufactured products. Fixed appliance openings and the
+ * square pie-cut corner remain locked to
+ * their compatible sizes.
  */
 export function kitchenUnitWidthPolicy(
   role: SegmentRole,
@@ -102,7 +104,14 @@ export function kitchenUnitWidthPolicy(
         lockedReason: 'Fixed to the fridge and its side clearances.',
       };
     case 'corner':
+      return {
+        custom: false,
+        minMm: ROLE_PRODUCTS.corner.widths[0],
+        maxMm: ROLE_PRODUCTS.corner.widths[0],
+        lockedReason: 'Fixed to the 900mm square bi-fold corner cabinet.',
+      };
     case 'corner-buffer':
+    case 'fridge-corner-pantry':
       return {
         custom: false,
         minMm: ROLE_PRODUCTS[role].widths.at(-1) ?? 600,

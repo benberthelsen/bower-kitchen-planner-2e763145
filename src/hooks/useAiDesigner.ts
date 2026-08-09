@@ -16,6 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { PlacedItem } from '@/types';
 import type { DesignBrief, KitchenSpec, ProposedRoomPatch, Violation } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
+import { featureFlags } from '@/lib/featureFlags';
 
 export interface AiDesignOption {
   proposalId: string;
@@ -28,6 +29,10 @@ export interface AiDesignOption {
   /** Present for deterministic client-side alternatives used when the online
    * AI explanation/ranking service is unavailable. */
   source?: 'ai' | 'planner';
+  /** Deterministic planner metadata exposed to the ranker, never geometry. */
+  engineScore?: number;
+  layoutFamily?: LayoutShape;
+  emphasis?: 'workflow' | 'storage' | 'social';
 }
 
 export interface AiDesignResult {
@@ -42,7 +47,7 @@ export interface AiDesignResult {
     designRevision: number;
   };
   modelTrace?: {
-    provider: 'openai';
+    provider: 'openai' | 'local-openai' | 'local-simulator';
     modelId: string;
     promptVersion?: string;
     engineVersion?: string;
@@ -57,6 +62,32 @@ interface AuthorizedDesignSession {
 }
 
 interface ChatTurn { role: 'user' | 'assistant'; content: string }
+
+interface LocalRankerResponse {
+  choices: { candidateId: string; name: string; rationale: string }[];
+  provider: 'openai' | 'simulator';
+  modelId: string;
+  error?: string;
+  detail?: string;
+}
+
+function compactCandidate(option: AiDesignOption, index: number) {
+  return {
+    candidateId: option.proposalId,
+    existingName: option.name,
+    existingRationale: option.rationale,
+    layoutFamily: option.layoutFamily ?? option.proposalId.split(':').pop()?.split('/')[0] ?? '',
+    emphasis: option.emphasis ?? '',
+    engineScore: option.engineScore ?? 100 - index,
+    cabinetRoles: option.spec.runs.flatMap(run => run.segments.flatMap(segment =>
+      segment.kind === 'cabinet' ? [`${run.wall}:${segment.role}`] : [])),
+    upperPlans: option.spec.runs.map(run =>
+      `${run.wall}:${run.upperPlan?.coverage ?? (run.wallCabinets ? 'full' : 'none')}`),
+    islandFeatures: option.spec.island?.features ?? [],
+    warnings: option.violations.filter(violation => violation.severity === 'warn').map(violation => violation.message),
+    priceBand: option.priceBand,
+  };
+}
 
 /**
  * The edge function validates `session` with a **strict** zod object of exactly
@@ -179,10 +210,92 @@ export function useAiDesigner() {
     }
   }, []);
 
+  const callLocal = useCallback(async (input: {
+    mode: 'generate' | 'refine';
+    brief: DesignBrief;
+    shape: LayoutShape;
+    candidates: readonly AiDesignOption[];
+    currentCandidateId?: string;
+    instruction?: string;
+  }): Promise<AiDesignResult | null> => {
+    setLoading(true);
+    setError(null);
+    lastErrorRef.current = null;
+    try {
+      if (input.candidates.length === 0) throw new Error('local_ai_requires_approved_candidates');
+      const response = await fetch('/__bower/local-ai-designer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: input.mode,
+          instruction: input.instruction,
+          currentCandidateId: input.currentCandidateId,
+          style: {
+            familyId: input.brief.styleIds?.familyId,
+            styleWords: input.brief.styleWords,
+          },
+          room: {
+            shape: input.shape,
+            widthMm: input.brief.room.width,
+            depthMm: input.brief.room.depth,
+            selectedWalls: input.brief.allowedWalls ?? [],
+          },
+          candidates: input.candidates.map(compactCandidate),
+        }),
+      });
+      const payload = await response.json() as LocalRankerResponse;
+      if (!response.ok || payload.error) {
+        throw new Error(payload.detail ? `${payload.error} — ${payload.detail}` : payload.error || 'local_ai_failed');
+      }
+      const byId = new Map(input.candidates.map(candidate => [candidate.proposalId, candidate]));
+      const options = payload.choices.flatMap(choice => {
+        const approved = byId.get(choice.candidateId);
+        if (!approved) return [];
+        return [{ ...approved, name: choice.name, rationale: choice.rationale, source: 'ai' as const }];
+      });
+      if (options.length === 0) throw new Error('local_ai_returned_no_approved_ids');
+
+      const localSession: AuthorizedDesignSession = {
+        id: `local-${Date.now()}`,
+        token: 'local-preview-session-not-server-authority',
+        briefRevision: 1,
+        designRevision: input.mode === 'refine' ? 1 : 0,
+      };
+      sessionRef.current = localSession;
+      setHasActiveSession(true);
+      const unchanged = input.mode === 'refine' && options[0]?.proposalId === input.currentCandidateId;
+      return {
+        options,
+        unchanged,
+        changeSummary: input.mode === 'refine'
+          ? (unchanged
+              ? 'The current checked layout is still the best fit for that request.'
+              : `I re-ranked the checked layouts for “${input.instruction ?? 'your request'}”.`)
+          : undefined,
+        session: localSession,
+        modelTrace: {
+          provider: payload.provider === 'openai' ? 'local-openai' : 'local-simulator',
+          modelId: payload.modelId,
+          promptVersion: 'local-approved-candidate-ranker-v1',
+        },
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Local AI designer unavailable';
+      console.error('[local-ai-designer] request failed:', msg);
+      lastErrorRef.current = msg;
+      setError(msg);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const generate = useCallback(
-    (brief: DesignBrief, shape: LayoutShape) =>
-      call({ mode: 'generate', brief, shape }),
-    [call],
+    (brief: DesignBrief, shape: LayoutShape, approvedCandidates: readonly AiDesignOption[] = []) =>
+      featureFlags.localAiDesigner
+        ? callLocal({ mode: 'generate', brief, shape, candidates: approvedCandidates })
+        : call({ mode: 'generate', brief, shape }),
+    [call, callLocal],
   );
 
   const refine = useCallback(
@@ -193,17 +306,27 @@ export function useAiDesigner() {
       currentProposalId: string,
       message: string,
       history: ChatTurn[] = [],
-    ) => call({
-      mode: 'refine',
-      brief,
-      shape,
-      currentSpec,
-      currentProposalId,
-      session: sessionPayload(sessionRef.current),
-      message,
-      history,
-    }),
-    [call],
+      approvedCandidates: readonly AiDesignOption[] = [],
+    ) => featureFlags.localAiDesigner
+      ? callLocal({
+          mode: 'refine',
+          brief,
+          shape,
+          candidates: approvedCandidates,
+          currentCandidateId: currentProposalId,
+          instruction: message,
+        })
+      : call({
+          mode: 'refine',
+          brief,
+          shape,
+          currentSpec,
+          currentProposalId,
+          session: sessionPayload(sessionRef.current),
+          message,
+          history,
+        }),
+    [call, callLocal],
   );
 
   const restyle = useCallback(

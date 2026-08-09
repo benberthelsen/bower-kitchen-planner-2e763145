@@ -15,6 +15,7 @@ const ROLE_MAP: Record<SegmentRole, CatalogCapabilityV2['designerRoles'][number]
   'fridge-gap': 'fridge-opening',
   corner: 'corner-base',
   'corner-buffer': 'door-base',
+  'fridge-corner-pantry': 'pantry-tall',
 };
 
 const MOUNTING_MAP: Record<SegmentRole, CatalogCapabilityV2['mountingClass']> = {
@@ -28,6 +29,7 @@ const MOUNTING_MAP: Record<SegmentRole, CatalogCapabilityV2['mountingClass']> = 
   'fridge-gap': 'opening',
   corner: 'base',
   'corner-buffer': 'base',
+  'fridge-corner-pantry': 'tall',
 };
 
 /**

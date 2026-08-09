@@ -31,6 +31,8 @@ Object.assign(DEFN_WEIGHTS, {
   sink_base_1_door: 520,
   wall_1_door: 320,
   wall_2_door: 420,
+  wall_corner_pie_cut_2_door: 620,
+  wall_corner_diagonal: 620,
   wall_rangehood: 380,
   fridge_top_cabinet: 300,
   base_filler: 40,

@@ -175,6 +175,17 @@ export interface ApplianceLineItem {
   isPlaceholderPrice: boolean;
 }
 
+/** A continuous plinth face in the workshop takeoff. Cut lengths are the
+ * installed pieces required from the nominated stock length. */
+export interface KickboardAllocation {
+  runLabel: string;
+  rotation: number;
+  runLengthMm: number;
+  heightMm: number;
+  stockLengthMm: number;
+  cutLengthsMm: number[];
+}
+
 /** Appliance product record from Supabase `appliance_products`. */
 export interface ApplianceProductRecord {
   id: string;
@@ -219,6 +230,8 @@ export interface QuoteBOM {
   consolidatedHardware: HardwareItem[];
   /** One entry per wall (rotation group). Empty when no benchtop material is configured. */
   benchtops: BenchtopAllocation[];
+  /** Continuous kick-face runs, including dishwasher openings and fillers. */
+  kickboards: KickboardAllocation[];
   /** Stage 1 — appliance line items included in the quote. Empty by default. */
   applianceItems: ApplianceLineItem[];
   /**

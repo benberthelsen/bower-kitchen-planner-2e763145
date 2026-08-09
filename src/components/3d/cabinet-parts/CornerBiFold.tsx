@@ -25,7 +25,7 @@ interface CornerBiFoldProps {
   dir?: -1 | 1;
   /** Yaw of the whole assembly about Y (radians) to place it on either notch face. */
   yaw?: number;
-  handle?: { type: HandleType; color: string };
+  handle?: { type: HandleType; color: string; rotation?: number };
   /** Handle height relative to the door centre. Wall cabinets use the bottom. */
   handleY?: number;
   forceOpen?: boolean;
@@ -155,6 +155,7 @@ const CornerBiFold: React.FC<CornerBiFoldProps> = ({
               type={handle.type}
               color={handle.color}
               position={[dir * (secondWidth - 0.045), handleY ?? height / 2 - 0.096, thickness + 0.012]}
+              rotation={handle.rotation ?? 0}
             />
           )}
         </group>

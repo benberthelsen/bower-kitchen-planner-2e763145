@@ -27,7 +27,8 @@ interface DrawerFrontProps {
 
 /**
  * Drawer front panel component
- * Grain runs horizontally
+ * Grain runs vertically to match the adjacent door fronts and the production
+ * cut direction used by the Bower/Microvellum library.
  * Click to animate drawer sliding open
  */
 const DrawerFront: React.FC<DrawerFrontProps> = ({
@@ -70,12 +71,11 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
   const actualWidth = width - gap * 2;
   const actualHeight = height - gap * 2;
 
-  // Horizontal woodgrain at a consistent scale — NOT stretched to fit. The 90°
-  // rotation swaps the texture axes, so tiling the (rotated) vertical axis by
-  // the width/height ratio spreads the grain across a wide drawer front instead
-  // of smearing one texture image over the whole panel.
+  // Vertical woodgrain at the same physical scale as the adjacent doors.
+  // Every drawer front is a separate cut part, but its grain direction remains
+  // vertical across the complete drawer bank.
   const texture = React.useMemo(() => {
-    return cloneTextureForSurface(map, actualWidth, actualHeight, { rotateQuarterTurn: true });
+    return cloneTextureForSurface(map, actualWidth, actualHeight);
   }, [map, actualWidth, actualHeight]);
   React.useEffect(() => () => texture?.dispose(), [texture]);
   
@@ -122,12 +122,18 @@ const DrawerFront: React.FC<DrawerFrontProps> = ({
             color={handle.color}
             position={[
               0,
-              // Profile rails sit along the top edge; other handles centre vertically.
-              handle.y ?? (handle.type === 'Profile' ? actualHeight / 2 - 0.018 : 0),
+              // Profile and lip pulls sit on the top edge of every drawer.
+              handle.y ?? (handle.type === 'Profile' || handle.type === 'Lip'
+                ? actualHeight / 2 - 0.018
+                : 0),
               thickness / 2 + 0.015,
             ]}
-            rotation={Math.PI / 2}
-            length={handle.type === 'Profile' ? actualWidth : handle.length}
+            rotation={handle.type === 'Lip' ? 0 : Math.PI / 2}
+            length={handle.type === 'Profile'
+              ? actualWidth
+              : handle.type === 'Lip'
+                ? Math.min(0.16, actualWidth - 0.06)
+                : handle.length}
           />
         )}
 

@@ -1,6 +1,6 @@
 // BOM Generator Service - orchestrates all pricing calculations
 
-import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem } from './types';
+import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem, KickboardAllocation } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
 import { getCabinetPartMapping, getPartQuantities } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
@@ -324,6 +324,112 @@ function createEmptyBOM(cabinet: PlacedItem, name: string): CabinetBOM {
   };
 }
 
+const KICKABLE_ROLE = new Set([
+  'doors', 'drawers', 'sink', 'cooktop', 'dishwasher', 'corner',
+  'pantry', 'oven-tower', 'fridge-corner-pantry',
+]);
+
+function carriesKickFace(item: PlacedItem): boolean {
+  if ((item.y ?? 0) > 1) return false;
+  if (item.layoutRole === 'dishwasher') return true;
+  if (item.itemType !== 'Cabinet') return false;
+  if (item.layoutRole && KICKABLE_ROLE.has(item.layoutRole)) return true;
+  return /^(base|tall|corner|sink|pie)/i.test(item.definitionId ?? '');
+}
+
+function cutKickRun(runLengthMm: number, stockLengthMm: number): number[] {
+  const cuts: number[] = [];
+  let remaining = Math.max(0, Math.round(runLengthMm));
+  while (remaining > 0) {
+    const cut = Math.min(stockLengthMm, remaining);
+    cuts.push(cut);
+    remaining -= cut;
+  }
+  return cuts;
+}
+
+/** Build complete plinth runs rather than one takeoff line per cabinet. */
+export function calculateKickboardRuns(
+  items: PlacedItem[],
+  globalDims: GlobalDimensions,
+  stockLengthMm = 2400,
+): KickboardAllocation[] {
+  type Span = { start: number; end: number; rotation: number };
+  const groups = new Map<string, Span[]>();
+
+  for (const item of items.filter(carriesKickFace)) {
+    const rotation = ((Math.round(item.rotation / 90) * 90) % 360 + 360) % 360;
+    const alongX = rotation === 0 || rotation === 180;
+    const centre = alongX ? item.x : item.z;
+    const cross = alongX ? item.z : item.x;
+    const start = centre - item.width / 2 - (item.fillerLeft ?? 0);
+    const end = centre + item.width / 2 + (item.fillerRight ?? 0);
+    const crossBand = Math.round(cross / 25) * 25;
+    const key = `${rotation}:${crossBand}`;
+    const spans = groups.get(key) ?? [];
+    spans.push({ start, end, rotation });
+    groups.set(key, spans);
+  }
+
+  const allocations: KickboardAllocation[] = [];
+  let runNumber = 1;
+  const pushRun = (rotation: number, runLengthMm: number) => {
+    const roundedLength = Math.max(0, Math.round(runLengthMm));
+    if (roundedLength === 0) return;
+    allocations.push({
+      runLabel: `Kick run ${runNumber++}`,
+      rotation,
+      runLengthMm: roundedLength,
+      heightMm: globalDims.toeKickHeight || 135,
+      stockLengthMm,
+      cutLengthsMm: cutKickRun(roundedLength, stockLengthMm),
+    });
+  };
+
+  for (const spans of groups.values()) {
+    spans.sort((a, b) => a.start - b.start);
+    // Older saved jobs and pricing fixtures can carry placeholder coordinates.
+    // Preserve their known total width instead of collapsing overlapping items.
+    const hasPlaceholderCollisions = spans.some((span, index) => index > 0
+      && span.start < spans[index - 1].end - 5);
+    if (hasPlaceholderCollisions) {
+      pushRun(spans[0].rotation, spans.reduce((sum, span) => sum + span.end - span.start, 0));
+      continue;
+    }
+
+    let mergedStart = spans[0]?.start;
+    let mergedEnd = spans[0]?.end;
+    const flush = () => {
+      if (mergedStart !== undefined && mergedEnd !== undefined) {
+        pushRun(spans[0].rotation, mergedEnd - mergedStart);
+      }
+    };
+    for (const span of spans.slice(1)) {
+      if (span.start <= (mergedEnd ?? span.start) + 5) {
+        mergedEnd = Math.max(mergedEnd ?? span.end, span.end);
+      } else {
+        flush();
+        mergedStart = span.start;
+        mergedEnd = span.end;
+      }
+    }
+    flush();
+  }
+  return allocations;
+}
+
+function stockPiecesForKickCuts(allocations: KickboardAllocation[]): number {
+  const stockLength = allocations[0]?.stockLengthMm ?? 2400;
+  const remaining: number[] = [];
+  const cuts = allocations.flatMap(allocation => allocation.cutLengthsMm).sort((a, b) => b - a);
+  for (const cut of cuts) {
+    const bin = remaining.findIndex(space => space >= cut);
+    if (bin >= 0) remaining[bin] -= cut;
+    else remaining.push(stockLength - cut);
+  }
+  return remaining.length;
+}
+
 /**
  * Generate complete quote BOM for all cabinets
  */
@@ -343,6 +449,9 @@ export function generateQuoteBOM(
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
   const jobLevelWarnings: string[] = [];
+  const kickboards = hardwareOptions.adjustableLegs === false
+    ? []
+    : calculateKickboardRuns(items, globalDims);
 
   // -- P5 Reconciliation -------------------------------------------------------
   // Redistribute the consolidated sheet cost back to each cabinet as an
@@ -377,14 +486,10 @@ export function generateQuoteBOM(
   if (hardwareOptions.adjustableLegs !== false) {
     const KICK_STOCK_MM = 2400;
     const kickHeightMm = globalDims.toeKickHeight || 135;
-    // Only Base, Tall, Corner, Sink cabs carry a toe kick -- Wall/Upper do not
-    const BASE_TALL_RE = /^(base|tall|corner|sink|pie)/i;
-    const totalKickMm = items
-      .filter(i => i.itemType === 'Cabinet' && BASE_TALL_RE.test(i.definitionId ?? ''))
-      .reduce((sum, cab) => sum + cab.width, 0);
+    const totalKickMm = kickboards.reduce((sum, run) => sum + run.runLengthMm, 0);
 
     if (totalKickMm > 0) {
-      const pieces = Math.ceil(totalKickMm / KICK_STOCK_MM);
+      const pieces = stockPiecesForKickCuts(kickboards);
       // Resolve kick material: same carcase material as first cabinet, or first available
       const firstCab = items.find(i => i.itemType === 'Cabinet');
       const resolvedKickMaterialId = resolveMaterialId(firstCab?.carcaseMaterialId, pricingData.materials);
@@ -494,6 +599,7 @@ export function generateQuoteBOM(
     consolidatedEdgeTape,
     consolidatedHardware,
     benchtops,
+    kickboards,
     applianceItems,
     grandTotal: {
       materials: matTotal,

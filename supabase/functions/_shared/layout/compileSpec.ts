@@ -6,27 +6,30 @@
  *
  * Joinery intent (v1.2): fillers solved by solveRun are attached to their
  * neighbouring cabinet as fillerLeft/fillerRight; exposed run ends get
- * endPanelLeft/endPanelRight; blind corners resolve to the left/right variant
- * with blindSide set, so the corner opens away from the adjacent run. Under
- * the wall-offset convention (low-t = Left as seen from the room) these
- * left/right flags are wall-agnostic.
+ * endPanelLeft/endPanelRight. The normal corner is a square pie-cut product;
+ * mapped blind-corner fallbacks still resolve to a left/right variant with the
+ * blind side facing the physical corner.
  */
 
 import type { GlobalDimensions, PlacedItem } from './core.ts';
 import { DEFAULT_GLOBAL_DIMENSIONS } from './core.ts';
 import { runRange, runTouchesWallEnd } from './briefConstraints.ts';
 import {
+  FRIDGE_ROOM_CORNER_CLEARANCE_MM,
   fridgeBodyWidthMm,
+  ROLE_PRODUCTS,
   WALL_CAB,
+  OPEN_WALL_CAB,
   RANGEHOOD_ID,
   resolveCornerVariant,
 } from './catalogRoles.ts';
 import {
-  sharedCornerAt, usableIntervals, wallCabBlockedIntervals, wallLength, wallToWorld,
+  benchtopRect, itemRect, sharedCornerAt, usableIntervals, wallCabBlockedIntervals, wallLength, wallToWorld,
   type Interval,
 } from './geometry.ts';
 import { solveRun } from './solveRun.ts';
-import type { KitchenSpec, ResolvedSegment, RoomSpec, SegmentRole, Wall } from './types.ts';
+import { BLIND_CORNER_CLEARANCE_MM, BLIND_CORNER_MIN_WIDTH_MM } from './blindCorner.ts';
+import type { KitchenSpec, ResolvedSegment, RoomSpec, Run, SegmentRole, Wall } from './types.ts';
 
 export interface CompiledDesign {
   items: PlacedItem[];
@@ -37,9 +40,197 @@ export interface CompiledDesign {
   runRanges: { wall: Wall; startMm: number; endMm: number }[];
   /** wall + interval of key roles, used by validate() */
   rolePositions: Partial<Record<SegmentRole, { wall: Wall | 'island'; startMm: number; widthMm: number; item: PlacedItem }>>;
+  /** Original deterministic DSL retained for relational professional rules. */
+  sourceSpec: KitchenSpec;
 }
 
-const TALL_ROLES: SegmentRole[] = ['pantry', 'oven-tower', 'fridge-gap'];
+const TALL_ROLES: SegmentRole[] = ['pantry', 'oven-tower', 'fridge-gap', 'fridge-corner-pantry'];
+const FRIDGE_BODY_HEIGHT_MM = 1800;
+const FRIDGE_OVERHEAD_MIN_HEIGHT_MM = 300;
+const FRIDGE_SIDE_PANEL_THICKNESS_MM = 18;
+/** Microvellum-mapped decorative support panel thickness. Kept local so the
+ * generated Deno engine shares the same value without a frontend-only import. */
+const DISHWASHER_SUPPORT_PANEL_MM = 16;
+/** Cabinet positions are stored in whole millimetres. Ends farther apart than
+ * this are visibly separate and must each receive their own finished panel. */
+const END_JOIN_TOLERANCE_MM = 1;
+const NORMAL_UPPER_WALL_FILLER_MM = 50;
+
+/** Choose mapped widths without leaving an unusable strip under 300mm. Wall
+ * cabinets may use Microvellum prompt widths to close the final section. */
+function nextWallCabinetWidth(remainingMm: number): number | undefined {
+  const standardWidth = WALL_CAB.widths.find(mm => mm <= remainingMm);
+  if (!standardWidth) return undefined;
+  const remainder = remainingMm - standardWidth;
+  if (remainingMm <= WALL_CAB.widths[0] && remainder < 300) {
+    return Math.floor(remainingMm);
+  }
+  if (remainder > 0 && remainder < 300) {
+    return WALL_CAB.widths.find(mm => mm < standardWidth && remainingMm - mm >= 300)
+      ?? standardWidth;
+  }
+  return standardWidth;
+}
+
+/** Does this run deliberately place its corner cabinet at this physical
+ * wall end? Segments are listed in solve order, and `fromEnd` reverses that
+ * order onto the wall. */
+function ownsCornerAt(run: KitchenSpec['runs'][number], at: 'start' | 'end'): boolean {
+  const cabinets = run.segments.filter(segment => segment.kind === 'cabinet');
+  if (cabinets.length === 0) return false;
+  const solveOrigin = run.fromEnd ? 'end' : 'start';
+  const nearest = at === solveOrigin ? cabinets[0] : cabinets[cabinets.length - 1];
+  return nearest.role === 'corner';
+}
+
+const REQUIRED_PLACEMENT_ROLES = new Set<SegmentRole>([
+  'sink', 'cooktop', 'dishwasher', 'fridge-gap', 'corner', 'corner-buffer',
+  'fridge-corner-pantry',
+]);
+
+function cornerReserve(at: 'start' | 'end', wallLengthMm: number, reserveMm: number): Interval {
+  return at === 'start'
+    ? { start: 0, end: reserveMm }
+    : { start: wallLengthMm - reserveMm, end: wallLengthMm };
+}
+
+/** Move a wall-mounted item toward the room while preserving its wall rotation. */
+function pullForwardFromWall(
+  position: { x: number; z: number; rotation: number },
+  wall: Wall,
+  offsetMm: number,
+): { x: number; z: number; rotation: number } {
+  if (wall === 'N') return { ...position, z: position.z + offsetMm };
+  if (wall === 'S') return { ...position, z: position.z - offsetMm };
+  if (wall === 'W') return { ...position, x: position.x + offsetMm };
+  return { ...position, x: position.x - offsetMm };
+}
+
+/** Required source segments must survive the solver. Optional storage can be
+ * compressed before the engine gives up the preferred corner product. */
+function keepsRequiredPlacements(
+  run: KitchenSpec['runs'][number],
+  resolved: ResolvedSegment[],
+): boolean {
+  return run.segments.every(segment =>
+    segment.kind !== 'cabinet'
+    || !REQUIRED_PLACEMENT_ROLES.has(segment.role)
+    || resolved.some(candidate => candidate.segment === segment));
+}
+
+function withBlindCornerFallback(run: KitchenSpec['runs'][number]): KitchenSpec['runs'][number] {
+  return {
+    ...run,
+    segments: run.segments.map(segment =>
+      segment.kind === 'cabinet' && segment.role === 'corner'
+        ? { ...segment, widthMm: BLIND_CORNER_MIN_WIDTH_MM, cornerFallback: 'blind' as const }
+        : segment),
+  };
+}
+
+/**
+ * Prefer the mapped 900x900 bi-fold corner. A blind unit is selected only
+ * when that 900mm return makes the adjoining run lose a required cabinet and
+ * the smaller 625mm blind return preserves every required placement. The
+ * longer 1075mm blind cabinet must also fit its own run.
+ */
+function resolveBlindFallbackRuns(
+  spec: KitchenSpec,
+  room: RoomSpec,
+  dims: GlobalDimensions,
+): Set<number> {
+  const fallbackRuns = new Set<number>();
+  const pieCutReturnMm = ROLE_PRODUCTS.corner.widths[0];
+  const blindReturnMm = dims.baseDepth + BLIND_CORNER_CLEARANCE_MM;
+
+  for (let ownerIndex = 0; ownerIndex < spec.runs.length; ownerIndex++) {
+    const owner = spec.runs[ownerIndex];
+    const ownerLength = wallLength(owner.wall, room);
+    const ownerEnds = (['start', 'end'] as const).filter(at => ownsCornerAt(owner, at));
+    if (ownerEnds.length === 0) continue;
+
+    for (const ownerAt of ownerEnds) {
+      const blindOwner = withBlindCornerFallback(owner);
+      const blindOwnerSolved = solveRun(blindOwner, ownerLength, room.openings);
+      if (!keepsRequiredPlacements(blindOwner, blindOwnerSolved.resolved)) continue;
+
+      for (let adjoiningIndex = 0; adjoiningIndex < spec.runs.length; adjoiningIndex++) {
+        if (adjoiningIndex === ownerIndex) continue;
+        const adjoining = spec.runs[adjoiningIndex];
+        const ownerCorner = sharedCornerAt(owner.wall, adjoining.wall);
+        const adjoiningAt = sharedCornerAt(adjoining.wall, owner.wall);
+        if (ownerCorner !== ownerAt || !adjoiningAt) continue;
+
+        const adjoiningLength = wallLength(adjoining.wall, room);
+        if (!runTouchesWallEnd(owner, ownerLength, ownerAt)
+          || !runTouchesWallEnd(adjoining, adjoiningLength, adjoiningAt)) continue;
+
+        const pieCutSolved = solveRun(
+          adjoining,
+          adjoiningLength,
+          room.openings,
+          [cornerReserve(adjoiningAt, adjoiningLength, pieCutReturnMm)],
+        );
+        if (keepsRequiredPlacements(adjoining, pieCutSolved.resolved)) continue;
+
+        const blindSolved = solveRun(
+          adjoining,
+          adjoiningLength,
+          room.openings,
+          [cornerReserve(adjoiningAt, adjoiningLength, blindReturnMm)],
+        );
+        if (!keepsRequiredPlacements(adjoining, blindSolved.resolved)) continue;
+
+        fallbackRuns.add(ownerIndex);
+        break;
+      }
+      if (fallbackRuns.has(ownerIndex)) break;
+    }
+  }
+  return fallbackRuns;
+}
+
+/**
+ * An optional pantry or oven tower can initially protect a fridge from a room
+ * corner, then be removed when solveRun compresses a constrained wall. Repair
+ * that result with the exact remaining clearance as a normal end filler and
+ * solve again. Roomy tall banks keep their normal 50mm scribe because their
+ * adjacent tall unit remains in the compiled design.
+ */
+function withSolvedFridgeCornerClearance(
+  run: Run,
+  resolved: ResolvedSegment[],
+  wallLengthMm: number,
+): Run | null {
+  // A built-in surround uses the opening's internal side allowance and a
+  // wall-side overhead filler. Do not insert another 150mm/600mm spacer that
+  // pushes the complete fridge cabinet away from the wall.
+  if (run.wallCabinets) return null;
+  const fridge = resolved.find(candidate =>
+    candidate.segment.kind === 'cabinet' && candidate.segment.role === 'fridge-gap');
+  if (!fridge) return null;
+
+  const startShortfall = FRIDGE_ROOM_CORNER_CLEARANCE_MM - fridge.startMm;
+  const endShortfall = FRIDGE_ROOM_CORNER_CLEARANCE_MM
+    - (wallLengthMm - fridge.startMm - fridge.widthMm);
+  const at = startShortfall > 0 ? 'start' : endShortfall > 0 ? 'end' : null;
+  if (!at) return null;
+  const extraMm = Math.ceil(at === 'start' ? startShortfall : endShortfall);
+  if (extraMm <= 0) return null;
+
+  const segments = [...run.segments];
+  const physicalEdgeIndex = at === 'start'
+    ? (run.fromEnd ? segments.length - 1 : 0)
+    : (run.fromEnd ? 0 : segments.length - 1);
+  const edge = segments[physicalEdgeIndex];
+  const filler = edge?.kind === 'filler'
+    ? { ...edge, widthMm: edge.widthMm + extraMm }
+    : { kind: 'filler' as const, widthMm: extraMm };
+  if (edge?.kind === 'filler') segments[physicalEdgeIndex] = filler;
+  else if (physicalEdgeIndex === 0) segments.unshift(filler);
+  else segments.push(filler);
+  return { ...run, segments };
+}
 
 export function compileSpec(
   spec: KitchenSpec,
@@ -49,6 +240,7 @@ export function compileSpec(
   const items: PlacedItem[] = [];
   const notes: string[] = [];
   const rolePositions: CompiledDesign['rolePositions'] = {};
+  const upperMountHeight = Math.max(0, dims.tallHeight - dims.wallHeight);
   let n = 1;
   let cabNo = 1;
 
@@ -69,35 +261,141 @@ export function compileSpec(
     return placed;
   };
 
-  const wallsWithRuns = new Set(spec.runs.map(r => r.wall));
+  const blindFallbackRuns = resolveBlindFallbackRuns(spec, room, dims);
+  const effectiveRuns = spec.runs.map((run, index) =>
+    blindFallbackRuns.has(index) ? withBlindCornerFallback(run) : run);
+  for (const runIndex of blindFallbackRuns) {
+    notes.push(`Used a blind corner on the ${effectiveRuns[runIndex].wall} wall because the preferred 900mm bi-fold return displaced required adjoining cabinets`);
+  }
 
-  for (let runIdx = 0; runIdx < spec.runs.length; runIdx++) {
-    const run = spec.runs[runIdx];
+  // A real upper-corner cabinet owns 600mm on both adjoining overhead rows.
+  // It is derived from the same physical corner intent as the base corner and
+  // is emitted once on the owner run; the two reservations stop standard wall
+  // cabinets overlapping its square footprint. The normal upper-corner
+  // construction is a linked two-door bi-fold; diagonal fronts remain a
+  // catalogue design choice.
+  const upperCornerSizeMm = 600;
+  const upperCornerPlans: Array<{
+    ownerRunIndex: number;
+    ownerAt: 'start' | 'end';
+    adjoiningRunIndex: number;
+    adjoiningAt: 'start' | 'end';
+  }> = [];
+  for (let ownerRunIndex = 0; ownerRunIndex < effectiveRuns.length; ownerRunIndex++) {
+    const owner = effectiveRuns[ownerRunIndex];
+    if (!owner.wallCabinets) continue;
+    const ownerLength = wallLength(owner.wall, room);
+    for (const ownerAt of ['start', 'end'] as const) {
+      if (!ownsCornerAt(owner, ownerAt) || !runTouchesWallEnd(owner, ownerLength, ownerAt)) continue;
+      for (let adjoiningRunIndex = 0; adjoiningRunIndex < effectiveRuns.length; adjoiningRunIndex++) {
+        if (adjoiningRunIndex === ownerRunIndex) continue;
+        const adjoining = effectiveRuns[adjoiningRunIndex];
+        if (!adjoining.wallCabinets) continue;
+        const adjoiningAt = sharedCornerAt(adjoining.wall, owner.wall);
+        if (sharedCornerAt(owner.wall, adjoining.wall) !== ownerAt || !adjoiningAt) continue;
+        const adjoiningLength = wallLength(adjoining.wall, room);
+        if (!runTouchesWallEnd(adjoining, adjoiningLength, adjoiningAt)) continue;
+
+        const ownerReserve = cornerReserve(ownerAt, ownerLength, upperCornerSizeMm);
+        const adjoiningReserve = cornerReserve(adjoiningAt, adjoiningLength, upperCornerSizeMm);
+        const overlapsOpening = (wall: Wall, reserve: Interval) =>
+          wallCabBlockedIntervals(wall, room.openings).some(blocked =>
+            blocked.start < reserve.end && blocked.end > reserve.start);
+        if (overlapsOpening(owner.wall, ownerReserve)
+          || overlapsOpening(adjoining.wall, adjoiningReserve)) continue;
+
+        upperCornerPlans.push({ ownerRunIndex, ownerAt, adjoiningRunIndex, adjoiningAt });
+        break;
+      }
+    }
+  }
+
+  let fourDrawerAssigned = false;
+  const upperRowsByRun = new Map<number, Array<{ item: PlacedItem; start: number; end: number }>>();
+
+  for (let runIdx = 0; runIdx < effectiveRuns.length; runIdx++) {
+    let run = effectiveRuns[runIdx];
     const len = wallLength(run.wall, room);
 
-    // Reserve shared corners already claimed by earlier runs: block the
-    // adjacent run's carcase depth (+clearance) so runs never collide.
-    const cornerBlocked: Interval[] = [];
-    const reserve = dims.baseDepth + 25;
-    for (let k = 0; k < runIdx; k++) {
-      const previous = spec.runs[k];
-      const at = sharedCornerAt(run.wall, previous.wall);
-      const previousAt = sharedCornerAt(previous.wall, run.wall);
-      if (!at || !previousAt) continue;
-      const previousLength = wallLength(previous.wall, room);
-      const bothReachCorner = runTouchesWallEnd(run, len, at)
-        && runTouchesWallEnd(previous, previousLength, previousAt);
-      if (!bothReachCorner) continue;
-      if (at === 'start') cornerBlocked.push({ start: 0, end: reserve });
-      if (at === 'end') cornerBlocked.push({ start: len - reserve, end: len });
+    // Resolve shared corners by intent, not array order. The run carrying the
+    // corner unit owns the physical corner; the adjoining run stops at that
+    // unit's actual return. The default 900mm pie-cut cabinet therefore owns a
+    // full 900mm square footprint, while a blind fallback retains its 625mm
+    // carcase-plus-return depth.
+    const baseCornerBlocked: Interval[] = [];
+    const wallCornerBlocked: Interval[] = upperCornerPlans.flatMap(plan => {
+      if (plan.ownerRunIndex === runIdx) {
+        return [cornerReserve(plan.ownerAt, len, upperCornerSizeMm)];
+      }
+      if (plan.adjoiningRunIndex === runIdx) {
+        return [cornerReserve(plan.adjoiningAt, len, upperCornerSizeMm)];
+      }
+      return [];
+    });
+    let normalFillerAtStart = false;
+    let normalFillerAtEnd = false;
+    for (let k = 0; k < effectiveRuns.length; k++) {
+      if (k === runIdx) continue;
+      const other = effectiveRuns[k];
+      const at = sharedCornerAt(run.wall, other.wall);
+      const otherAt = sharedCornerAt(other.wall, run.wall);
+      if (!at || !otherAt) continue;
+      const otherLength = wallLength(other.wall, room);
+      const currentReachesCorner = runTouchesWallEnd(run, len, at);
+      const otherReachesCorner = runTouchesWallEnd(other, otherLength, otherAt);
+      if (!otherReachesCorner) continue;
+
+      const currentOwns = ownsCornerAt(run, at);
+      const otherOwns = ownsCornerAt(other, otherAt);
+      // A selected partial run can stop short of the wall corner but still
+      // enter the depth of joinery on the adjoining wall. For example, a
+      // 500mm clear end still overlaps a 575mm base cabinet by 75mm. In that
+      // case this run must yield the adjoining cabinet depth even though the
+      // two selected ranges do not technically touch the same corner.
+      const currentMustYield = !currentReachesCorner
+        || (otherOwns && !currentOwns)
+        || (currentOwns === otherOwns && k < runIdx);
+      if (!currentMustYield) continue;
+
+      const addReserve = (target: Interval[], reserve: number) => {
+        if (at === 'start') target.push({ start: 0, end: reserve });
+        else target.push({ start: len - reserve, end: len });
+      };
+      // A default pie-cut corner owns its full 900mm adjoining arm. Ordinary
+      // perpendicular joinery is 575mm deep and needs a normal 50mm scribe
+      // filler on this yielding run, so reserve 625mm and attach that filler
+      // to the end cabinet after solving.
+      const normalFillerWidth = 50;
+      addReserve(
+        baseCornerBlocked,
+        otherOwns
+          ? (blindFallbackRuns.has(k)
+              ? dims.baseDepth + BLIND_CORNER_CLEARANCE_MM
+              : ROLE_PRODUCTS.corner.widths[0])
+          : dims.baseDepth + normalFillerWidth,
+      );
+      if (!otherOwns) {
+        if (at === 'start') normalFillerAtStart = true;
+        else normalFillerAtEnd = true;
+      }
+      // An overhead only needs to clear the adjoining overhead depth. Reusing
+      // the 625mm base reserve made both upper rows visibly stop short.
+      addReserve(wallCornerBlocked, dims.wallDepth);
     }
 
-    const solved = solveRun(run, len, room.openings, cornerBlocked);
+    let solved = solveRun(run, len, room.openings, baseCornerBlocked);
+    const fridgeClearanceRun = withSolvedFridgeCornerClearance(run, solved.resolved, len);
+    if (fridgeClearanceRun) {
+      run = fridgeClearanceRun;
+      effectiveRuns[runIdx] = run;
+      solved = solveRun(run, len, room.openings, baseCornerBlocked);
+    }
     notes.push(...solved.notes);
 
     // base + tall row
     const tallSpans: { start: number; end: number }[] = [];
     let cooktopSeg: ResolvedSegment | null = null;
+    let sinkSeg: ResolvedSegment | null = null;
 
     /** placed floor items of this run with their wall spans, in t order */
     const rowItems: { item: PlacedItem; start: number; end: number }[] = [];
@@ -119,31 +417,68 @@ export function compileSpec(
       const role = rs.segment.kind === 'cabinet' ? rs.segment.role : null;
       const sourceSegmentIndex = run.segments.indexOf(rs.segment);
       const isTall = role !== null && TALL_ROLES.includes(role);
-      const height = isTall ? dims.tallHeight : dims.baseHeight;
-      const depth = isTall ? dims.tallDepth : dims.baseDepth;
+      const isCorner = role === 'corner';
+      const useFourDrawer = role === 'drawers' && rs.widthMm === 500 && !fourDrawerAssigned;
+      const resolvedDefinitionId = role === 'drawers'
+        ? (useFourDrawer ? 'base_4_drawer' : 'base_3_drawer')
+        : rs.definitionId ?? 'base_1_door';
+      if (useFourDrawer) fourDrawerAssigned = true;
+      const isBlindCorner = isCorner && (
+        resolvedDefinitionId.includes('blind')
+        || (rs.segment.kind === 'cabinet' && rs.segment.cornerFallback === 'blind')
+      );
+      const hasFridgeHousing = role === 'fridge-gap' && run.wallCabinets;
+      const fridgeHousingHeight = Math.max(
+        dims.tallHeight,
+        dims.wallMountHeight + dims.wallHeight,
+      );
+      const fridgeOverheadHeight = Math.max(
+        FRIDGE_OVERHEAD_MIN_HEIGHT_MM,
+        fridgeHousingHeight - FRIDGE_BODY_HEIGHT_MM,
+      );
+      const fridgeBodyHeight = fridgeHousingHeight - fridgeOverheadHeight;
+      const height = hasFridgeHousing
+        ? fridgeBodyHeight
+        : isTall ? dims.tallHeight : dims.baseHeight;
+      const depth = isTall
+        ? dims.tallDepth
+        : isCorner
+          ? (isBlindCorner ? dims.baseDepth + BLIND_CORNER_CLEARANCE_MM : rs.widthMm)
+          : dims.baseDepth;
       const pos = wallToWorld(run.wall, rs.startMm, rs.widthMm, depth, room);
 
       // Blind corner: blind panel faces the corner it serves (low-t half → Left).
-      const isCorner = role === 'corner';
-      const blindSide: 'Left' | 'Right' | undefined = isCorner
+      const blindSide: 'Left' | 'Right' | undefined = isBlindCorner
         ? (rs.startMm + rs.widthMm / 2 <= len / 2 ? 'Left' : 'Right')
+        : undefined;
+      // A pie-cut unit is not inherently left- or right-handed, but its
+      // rendered L return must face the physical wall end it occupies. Without
+      // this the 575mm return is mirrored into the room on right-hand corners,
+      // placing its doors and benchtop 250mm proud of the adjoining run.
+      const cornerReturnSide: 'Left' | 'Right' | undefined = isCorner && !isBlindCorner
+        ? (rs.startMm <= len - (rs.startMm + rs.widthMm) ? 'Left' : 'Right')
         : undefined;
 
       const placed = push({
-        definitionId: isCorner && blindSide ? resolveCornerVariant(blindSide) : (rs.definitionId ?? 'base_1_door'),
+        definitionId: isBlindCorner && blindSide
+          ? resolveCornerVariant(blindSide)
+          : resolvedDefinitionId,
         itemType: role === 'dishwasher' || role === 'fridge-gap' ? 'Appliance' : 'Cabinet',
         x: pos.x, y: 0, z: pos.z, rotation: pos.rotation,
         width: rs.widthMm, height, depth,
         ...(role === 'fridge-gap'
-          ? { applianceBodyWidth: fridgeBodyWidthMm(rs.widthMm) }
+          ? { applianceBodyWidth: fridgeBodyWidthMm(
+              rs.widthMm,
+              rs.segment.kind === 'cabinet' ? rs.segment.applianceBodyWidthMm : undefined,
+            ) }
           : {}),
         // Explicit role tag so downstream consumers (appliance enrichment,
         // build notes) never have to reverse-engineer intent from the SKU.
         ...(role ? { layoutRole: role } : {}),
-        ...(sourceSegmentIndex >= 0
-          ? { layoutRunIndex: runIdx, layoutSegmentIndex: sourceSegmentIndex }
-          : {}),
+        layoutRunIndex: runIdx,
+        ...(sourceSegmentIndex >= 0 ? { layoutSegmentIndex: sourceSegmentIndex } : {}),
         ...(blindSide ? { blindSide } : {}),
+        ...(cornerReturnSide ? { cornerReturnSide } : {}),
         ...(pendingFillerLeft > 0 ? { fillerLeft: pendingFillerLeft } : {}),
       });
 
@@ -154,70 +489,365 @@ export function compileSpec(
       if (role && !rolePositions[role]) {
         rolePositions[role] = { wall: run.wall, startMm: rs.startMm, widthMm: rs.widthMm, item: placed };
       }
+      if (hasFridgeHousing) {
+        // A built-in fridge opening is a joinery assembly: two floor-length
+        // finished side panels support a shallow cabinet over the appliance.
+        // The overhead is pulled forward so its front aligns with the fridge
+        // panels, leaving the normal service void behind it instead of fixing
+        // a standard-depth wall cabinet to the wall.
+        const fridgeHousingAtWallStart = rs.startMm <= END_JOIN_TOLERANCE_MM;
+        const fridgeHousingAtWallEnd = len - (rs.startMm + rs.widthMm) <= END_JOIN_TOLERANCE_MM;
+        // The room wall closes the wall side of the housing. Do not double it
+        // with a decorative end panel; retain the full-height support panel on
+        // every open/joinery side.
+        const panelStarts = [
+          ...(!fridgeHousingAtWallStart ? [rs.startMm] : []),
+          ...(!fridgeHousingAtWallEnd
+            ? [rs.startMm + rs.widthMm - FRIDGE_SIDE_PANEL_THICKNESS_MM]
+            : []),
+        ];
+        for (const panelStart of panelStarts) {
+          const panelPosition = wallToWorld(
+            run.wall,
+            panelStart,
+            FRIDGE_SIDE_PANEL_THICKNESS_MM,
+            dims.tallDepth,
+            room,
+          );
+          push({
+            definitionId: 'fridge_side_panel',
+            itemType: 'Cabinet',
+            layoutRole: 'fridge-side-panel',
+            applianceHostInstanceId: placed.instanceId,
+            x: panelPosition.x,
+            y: 0,
+            z: panelPosition.z,
+            rotation: panelPosition.rotation,
+            width: FRIDGE_SIDE_PANEL_THICKNESS_MM,
+            height: fridgeHousingHeight,
+            depth: dims.tallDepth,
+          });
+        }
+
+        const fridgeSideGapMm = Math.max(
+          0,
+          (rs.widthMm - (placed.applianceBodyWidth ?? fridgeBodyWidthMm(rs.widthMm))) / 2,
+        );
+        const overheadFillerLeft = fridgeHousingAtWallStart ? fridgeSideGapMm : 0;
+        const overheadFillerRight = fridgeHousingAtWallEnd ? fridgeSideGapMm : 0;
+        const overheadStartMm = rs.startMm + overheadFillerLeft;
+        const overheadWidthMm = rs.widthMm - overheadFillerLeft - overheadFillerRight;
+        const wallMountedOverhead = wallToWorld(
+          run.wall,
+          overheadStartMm,
+          overheadWidthMm,
+          dims.wallDepth,
+          room,
+        );
+        const overheadPosition = pullForwardFromWall(
+          wallMountedOverhead,
+          run.wall,
+          dims.tallDepth - dims.wallDepth,
+        );
+        push({
+          definitionId: 'fridge_top_cabinet',
+          itemType: 'Cabinet',
+          layoutRole: 'fridge-overhead',
+          applianceHostInstanceId: placed.instanceId,
+          x: overheadPosition.x,
+          y: fridgeBodyHeight,
+          z: overheadPosition.z,
+          rotation: overheadPosition.rotation,
+          width: overheadWidthMm,
+          height: fridgeOverheadHeight,
+          depth: dims.wallDepth,
+          ...(overheadFillerLeft > 0 ? { fillerLeft: overheadFillerLeft } : {}),
+          ...(overheadFillerRight > 0 ? { fillerRight: overheadFillerRight } : {}),
+        });
+      }
       if (isTall) tallSpans.push({ start: rs.startMm, end: rs.startMm + rs.widthMm });
       if (role === 'cooktop') cooktopSeg = rs;
+      if (role === 'sink') sinkSeg = rs;
     }
     if (pendingFillerLeft > 0 && rowItems.length > 0) {
       const last = rowItems[rowItems.length - 1];
       last.item.fillerRight = (last.item.fillerRight ?? 0) + pendingFillerLeft;
       last.end += pendingFillerLeft;
     }
+    // Close the deliberate 50mm scribe gap where this run meets ordinary
+    // perpendicular cabinetry. These are standard fillers attached to the
+    // end unit, not special corner products.
+    if (normalFillerAtStart && rowItems.length > 0) {
+      const first = rowItems[0];
+      first.item.fillerLeft = (first.item.fillerLeft ?? 0) + 50;
+      first.start -= 50;
+    }
+    if (normalFillerAtEnd && rowItems.length > 0) {
+      const last = rowItems[rowItems.length - 1];
+      last.item.fillerRight = (last.item.fillerRight ?? 0) + 50;
+      last.end += 50;
+    }
 
     // End panels on exposed run ends. An end is exposed unless it lands at a
     // room corner or against a corner reserve backed by an adjacent run.
-    const coveredByReserve = (t: number) =>
-      cornerBlocked.some(b => t >= b.start - 30 && t <= b.end + 30);
+    const meetsReserve = (t: number) =>
+      baseCornerBlocked.some(b =>
+        Math.abs(t - b.start) <= END_JOIN_TOLERANCE_MM
+        || Math.abs(t - b.end) <= END_JOIN_TOLERANCE_MM,
+      );
     for (let gi = 0; gi < rowItems.length; gi++) {
-      const startsGroup = gi === 0 || rowItems[gi].start - rowItems[gi - 1].end > 20;
-      const endsGroup = gi === rowItems.length - 1 || rowItems[gi + 1].start - rowItems[gi].end > 20;
-      if (startsGroup && rowItems[gi].start > 25 && !coveredByReserve(rowItems[gi].start)) {
+      const startsGroup = gi === 0
+        || rowItems[gi].start - rowItems[gi - 1].end > END_JOIN_TOLERANCE_MM;
+      const endsGroup = gi === rowItems.length - 1
+        || rowItems[gi + 1].start - rowItems[gi].end > END_JOIN_TOLERANCE_MM;
+      if (startsGroup
+        && rowItems[gi].start > END_JOIN_TOLERANCE_MM
+        && !meetsReserve(rowItems[gi].start)) {
         rowItems[gi].item.endPanelLeft = true;
       }
-      if (endsGroup && rowItems[gi].end < len - 25 && !coveredByReserve(rowItems[gi].end)) {
+      if (endsGroup
+        && rowItems[gi].end < len - END_JOIN_TOLERANCE_MM
+        && !meetsReserve(rowItems[gi].end)) {
         rowItems[gi].item.endPanelRight = true;
+      }
+    }
+
+    // A dishwasher is a joinery opening. Finish the cabinet gable on each
+    // side that touches that opening so a white/raw carcass edge is never
+    // left visible beside the appliance. These panels belong to the adjoining
+    // cabinets; a dishwasher at the end of a run still receives its own
+    // floor-length support panel through the exposed-end logic above.
+    for (let gi = 0; gi < rowItems.length; gi++) {
+      const opening = rowItems[gi];
+      if (opening.item.layoutRole !== 'dishwasher') continue;
+      const previous = rowItems[gi - 1];
+      if (previous
+        && previous.item.itemType === 'Cabinet'
+        && Math.abs(previous.end - opening.start) <= END_JOIN_TOLERANCE_MM) {
+        previous.item.endPanelRight = true;
+      }
+      const next = rowItems[gi + 1];
+      if (next
+        && next.item.itemType === 'Cabinet'
+        && Math.abs(next.start - opening.end) <= END_JOIN_TOLERANCE_MM) {
+        next.item.endPanelLeft = true;
+      }
+    }
+
+    // Cover every exposed base-cabinet end with the benchtop. A dishwasher
+    // opening additionally needs the decorative end to act as a structural
+    // floor-length support because it has no cabinet gable of its own.
+    const supportPanelMm = DISHWASHER_SUPPORT_PANEL_MM;
+    for (const { item } of rowItems) {
+      if (!item.endPanelLeft && !item.endPanelRight) continue;
+      const isBaseItem = item.height <= dims.baseHeight;
+      if (isBaseItem) item.endPanelsFullHeight = true;
+      if (item.endPanelLeft) {
+        if (isBaseItem) {
+          item.benchtopLeftOverhang = Math.max(item.benchtopLeftOverhang ?? 0, supportPanelMm);
+        }
+      }
+      if (item.endPanelRight) {
+        if (isBaseItem) {
+          item.benchtopRightOverhang = Math.max(item.benchtopRightOverhang ?? 0, supportPanelMm);
+        }
+      }
+      if (item.layoutRole === 'dishwasher') {
+        item.endPanelsFullHeight = true;
       }
     }
 
     // wall cabinet row
     if (run.wallCabinets) {
       const coverage = runRange(run, len);
+      const openingBlocks = wallCabBlockedIntervals(run.wall, room.openings);
+      const windowBlocks = wallCabBlockedIntervals(
+        run.wall,
+        room.openings.filter(opening => opening.type === 'window'),
+      );
+      const upperCornerAt = (at: 'start' | 'end') => upperCornerPlans.some(plan =>
+        (plan.ownerRunIndex === runIdx && plan.ownerAt === at)
+        || (plan.adjoiningRunIndex === runIdx && plan.adjoiningAt === at));
+      const selectedWallToWall = coverage.startMm <= END_JOIN_TOLERANCE_MM
+        && coverage.endMm >= len - END_JOIN_TOLERANCE_MM;
+      const normalUpperFillerAtStart = selectedWallToWall && !upperCornerAt('start');
+      const normalUpperFillerAtEnd = selectedWallToWall && !upperCornerAt('end');
       const blocked: Interval[] = [
-        ...wallCabBlockedIntervals(run.wall, room.openings),
+        ...openingBlocks,
         ...tallSpans,
-        ...cornerBlocked,
+        ...wallCornerBlocked,
+        ...(spec.style.variantId !== 'storage' && sinkSeg
+          ? [{ start: sinkSeg.startMm, end: sinkSeg.startMm + sinkSeg.widthMm }]
+          : []),
+        ...(normalUpperFillerAtStart
+          ? [{ start: 0, end: NORMAL_UPPER_WALL_FILLER_MM }]
+          : []),
+        ...(normalUpperFillerAtEnd
+          ? [{ start: len - NORMAL_UPPER_WALL_FILLER_MM, end: len }]
+          : []),
         ...(coverage.startMm > 0 ? [{ start: 0, end: coverage.startMm }] : []),
         ...(coverage.endMm < len ? [{ start: coverage.endMm, end: len }] : []),
       ];
       // reserve the rangehood slot above the cooktop
       if (cooktopSeg) blocked.push({ start: cooktopSeg.startMm, end: cooktopSeg.startMm + cooktopSeg.widthMm });
 
-      const abutsTall = (t: number) => tallSpans.some(s => Math.abs(s.start - t) <= 30 || Math.abs(s.end - t) <= 30);
-      const abutsReserve = (t: number) => cornerBlocked.some(b => t >= b.start - 30 && t <= b.end + 30);
-      for (const interval of usableIntervals(len, blocked)) {
-        let cursor = interval.start;
-        let leftover = interval.end - cursor;
-        const rowCabs: PlacedItem[] = [];
+      const abutsTall = (t: number) => tallSpans.some(s =>
+        Math.abs(s.start - t) <= END_JOIN_TOLERANCE_MM
+        || Math.abs(s.end - t) <= END_JOIN_TOLERANCE_MM,
+      );
+      const abutsReserve = (t: number) => wallCornerBlocked.some(b =>
+        Math.abs(t - b.start) <= END_JOIN_TOLERANCE_MM
+        || Math.abs(t - b.end) <= END_JOIN_TOLERANCE_MM,
+      );
+      const intervals = usableIntervals(len, blocked);
+      const usableWidth = intervals.reduce((sum, interval) => sum + interval.end - interval.start, 0);
+      const coverageRatio = Math.max(0, Math.min(1, run.upperPlan?.coverageRatio ?? 1));
+      const openShelfRatio = Math.max(0, Math.min(1, run.upperPlan?.openShelfRatio ?? 0));
+      let coverageRemaining = usableWidth * coverageRatio;
+      let openShelfRemaining = coverageRemaining * openShelfRatio;
+      const directionalIntervals = run.fromEnd ? [...intervals].reverse() : [...intervals];
+      const finishesAtWindow = (interval: Interval) => windowBlocks.some(blockedInterval =>
+        Math.abs(blockedInterval.start - interval.end) <= END_JOIN_TOLERANCE_MM);
+      const startsAfterWindow = (interval: Interval) => windowBlocks.some(blockedInterval =>
+        Math.abs(blockedInterval.end - interval.start) <= END_JOIN_TOLERANCE_MM);
+      const finishesAtUpperCorner = (interval: Interval) => wallCornerBlocked.some(blockedInterval =>
+        Math.abs(blockedInterval.start - interval.end) <= END_JOIN_TOLERANCE_MM);
+      const startsAfterUpperCorner = (interval: Interval) => wallCornerBlocked.some(blockedInterval =>
+        Math.abs(blockedInterval.end - interval.start) <= END_JOIN_TOLERANCE_MM);
+      const joinsUpperCorner = (interval: Interval) =>
+        finishesAtUpperCorner(interval) || startsAfterUpperCorner(interval);
+      const closesRangehood = (interval: Interval) => Boolean(cooktopSeg && (
+        Math.abs(interval.end - cooktopSeg.startMm) <= END_JOIN_TOLERANCE_MM
+        || Math.abs(interval.start - (cooktopSeg.startMm + cooktopSeg.widthMm)) <= END_JOIN_TOLERANCE_MM
+      ));
+      const closesAtNormalWallFiller = (interval: Interval) => selectedWallToWall && (
+        (normalUpperFillerAtStart
+          && Math.abs(interval.start - NORMAL_UPPER_WALL_FILLER_MM) <= END_JOIN_TOLERANCE_MM)
+        || (normalUpperFillerAtEnd
+          && Math.abs(interval.end - (len - NORMAL_UPPER_WALL_FILLER_MM)) <= END_JOIN_TOLERANCE_MM)
+      );
+      const leftWindowGroups = directionalIntervals.filter(finishesAtWindow);
+      const omitRightOfWindow = spec.style.variantId !== 'storage' && leftWindowGroups.length > 0;
+      const eligibleIntervals = omitRightOfWindow
+        ? directionalIntervals.filter(interval => !startsAfterWindow(interval))
+        : directionalIntervals;
+      // A selective overhead composition reads as one intentional group. Fill
+      // the left group back to the window and omit the isolated group on its
+      // right; maximum-storage mode may use both sides.
+      const intervalPriority = (interval: Interval) => {
+        // The visual run beside extraction is non-negotiable. If selective
+        // upper coverage has to lose a group, lose an outer/return group
+        // before breaking the cabinets immediately beside the rangehood.
+        if (closesRangehood(interval)) return 0;
+        if (joinsUpperCorner(interval) && finishesAtWindow(interval)) return 1;
+        if (joinsUpperCorner(interval)) return 2;
+        if (finishesAtWindow(interval)) return 3;
+        return 4;
+      };
+      const orderedIntervals = [...eligibleIntervals].sort((a, b) =>
+        intervalPriority(a) - intervalPriority(b));
+      for (let intervalIndex = 0; intervalIndex < orderedIntervals.length; intervalIndex++) {
+        const interval = orderedIntervals[intervalIndex];
+        if (coverageRemaining < 300) break;
+        // Keep the joinery tight to the rangehood. Any unavoidable sub-300mm
+        // remainder belongs at the outer end of the overhead group, never as a
+        // visible slot beside the hood.
+        const closesLeftOfRangehood = Boolean(cooktopSeg
+          && Math.abs(interval.end - cooktopSeg.startMm) <= END_JOIN_TOLERANCE_MM);
+        const closesRightOfRangehood = Boolean(cooktopSeg
+          && Math.abs(interval.start - (cooktopSeg.startMm + cooktopSeg.widthMm)) <= END_JOIN_TOLERANCE_MM);
+        const fillFromEnd = closesLeftOfRangehood
+          ? true
+          : closesRightOfRangehood
+            ? false
+            : finishesAtUpperCorner(interval)
+              ? true
+              : startsAfterUpperCorner(interval)
+                ? false
+            : finishesAtWindow(interval)
+              ? true
+              : Boolean(run.fromEnd);
+        let cursor = fillFromEnd ? interval.end : interval.start;
+        const laterRequiredGroups = orderedIntervals
+          .slice(intervalIndex + 1)
+          .filter(candidate => closesRangehood(candidate) || joinsUpperCorner(candidate))
+          .length;
+        // Keep enough of the style's upper allowance for every later required
+        // join. This prevents the first rangehood group from consuming the
+        // last 300mm needed to complete a shared upper corner (and vice versa).
+        // Only after those anchors exist may coverage spill into optional wall
+        // sections or return legs.
+        const reservedForLaterRequiredMm = laterRequiredGroups * 300;
+        const closesIntoTallPanel = abutsTall(interval.start) || abutsTall(interval.end);
+        const completesPrimarySpan = closesRangehood(interval)
+          && (joinsUpperCorner(interval) || finishesAtWindow(interval) || closesIntoTallPanel);
+        const intervalWidth = interval.end - interval.start;
+        const plannedCoverageMm = Math.min(
+          intervalWidth,
+          Math.max(0, coverageRemaining - reservedForLaterRequiredMm),
+        );
+        // A wall-to-wall upper group must not stop with an unusable sliver at
+        // the room wall. If the style budget gets within one minimum module of
+        // the normal 50mm scribe, redistribute the prompt-sized cabinets to
+        // close that final span exactly. Larger optional wall sections still
+        // obey the Style DNA coverage target.
+        const unfilledToAnchorMm = intervalWidth - plannedCoverageMm;
+        const closesSmallWallGap = closesRangehood(interval)
+          && closesAtNormalWallFiller(interval)
+          && unfilledToAnchorMm > 0
+          && unfilledToAnchorMm < 300;
+        let leftover = completesPrimarySpan || closesSmallWallGap
+          ? intervalWidth
+          : plannedCoverageMm;
+        const rowCabs: { item: PlacedItem; start: number; end: number }[] = [];
         while (leftover >= 300) {
-          const w = WALL_CAB.widths.find(mm => mm <= leftover);
+          const w = nextWallCabinetWidth(leftover);
           if (!w) break;
-          const pos = wallToWorld(run.wall, cursor, w, dims.wallDepth, room);
-          rowCabs.push(push({
-            definitionId: w <= 450 ? WALL_CAB.narrowId : WALL_CAB.definitionId,
+          const start = fillFromEnd ? cursor - w : cursor;
+          const pos = wallToWorld(run.wall, start, w, dims.wallDepth, room);
+          const useOpenShelf = openShelfRemaining >= 300;
+          const item = push({
+            definitionId: useOpenShelf
+              ? OPEN_WALL_CAB.definitionId
+              : w <= 450 ? WALL_CAB.narrowId : WALL_CAB.definitionId,
             itemType: 'Cabinet',
-            x: pos.x, y: dims.wallMountHeight, z: pos.z, rotation: pos.rotation,
+            layoutRole: useOpenShelf ? 'open-shelf' : 'wall-cabinet',
+            x: pos.x, y: upperMountHeight, z: pos.z, rotation: pos.rotation,
             width: w, height: dims.wallHeight, depth: dims.wallDepth,
-          }));
-          cursor += w;
+          });
+          rowCabs.push({ item, start, end: start + w });
+          cursor = fillFromEnd ? start : start + w;
           leftover -= w;
+          coverageRemaining -= w;
+          if (useOpenShelf) openShelfRemaining = Math.max(0, openShelfRemaining - w);
         }
         // finished ends on exposed wall-row extremes (not at room corners,
         // not where a tall cabinet or the adjacent run continues the row)
         if (rowCabs.length > 0) {
-          if (interval.start > 25 && !abutsTall(interval.start) && !abutsReserve(interval.start)) {
-            rowCabs[0].endPanelLeft = true;
+          rowCabs.sort((a, b) => a.start - b.start);
+          const runUpperRows = upperRowsByRun.get(runIdx) ?? [];
+          runUpperRows.push(...rowCabs);
+          upperRowsByRun.set(runIdx, runUpperRows);
+          const rowStart = rowCabs[0].start;
+          const rowEnd = rowCabs[rowCabs.length - 1].end;
+          const abutsNormalWallFiller = (t: number) =>
+            (normalUpperFillerAtStart && Math.abs(t - NORMAL_UPPER_WALL_FILLER_MM) <= END_JOIN_TOLERANCE_MM)
+            || (normalUpperFillerAtEnd && Math.abs(t - (len - NORMAL_UPPER_WALL_FILLER_MM)) <= END_JOIN_TOLERANCE_MM);
+          if (normalUpperFillerAtStart
+            && Math.abs(rowStart - NORMAL_UPPER_WALL_FILLER_MM) <= END_JOIN_TOLERANCE_MM) {
+            rowCabs[0].item.fillerLeft = NORMAL_UPPER_WALL_FILLER_MM;
           }
-          if (cursor < len - 25 && !abutsTall(cursor) && !abutsReserve(cursor)) {
-            rowCabs[rowCabs.length - 1].endPanelRight = true;
+          if (normalUpperFillerAtEnd
+            && Math.abs(rowEnd - (len - NORMAL_UPPER_WALL_FILLER_MM)) <= END_JOIN_TOLERANCE_MM) {
+            rowCabs[rowCabs.length - 1].item.fillerRight = NORMAL_UPPER_WALL_FILLER_MM;
+          }
+          if (rowStart > END_JOIN_TOLERANCE_MM && !abutsTall(rowStart)
+            && !abutsReserve(rowStart) && !abutsNormalWallFiller(rowStart)) {
+            rowCabs[0].item.endPanelLeft = true;
+          }
+          if (rowEnd < len - END_JOIN_TOLERANCE_MM && !abutsTall(rowEnd)
+            && !abutsReserve(rowEnd) && !abutsNormalWallFiller(rowEnd)) {
+            rowCabs[rowCabs.length - 1].item.endPanelRight = true;
           }
         }
       }
@@ -240,7 +870,7 @@ export function compileSpec(
           definitionId: RANGEHOOD_ID,
           itemType: 'Appliance',
           layoutRole: 'rangehood',
-          x: pos.x, y: dims.wallMountHeight, z: pos.z, rotation: pos.rotation,
+          x: pos.x, y: upperMountHeight, z: pos.z, rotation: pos.rotation,
           width: rangehoodWidth, height: dims.wallHeight, depth: dims.wallDepth,
         });
 
@@ -248,39 +878,253 @@ export function compileSpec(
     }
   }
 
+  for (const plan of upperCornerPlans) {
+    const owner = effectiveRuns[plan.ownerRunIndex];
+    const ownerLength = wallLength(owner.wall, room);
+    const adjoining = effectiveRuns[plan.adjoiningRunIndex];
+    const adjoiningLength = wallLength(adjoining.wall, room);
+    const touchesReservedCorner = (
+      runIndex: number,
+      at: 'start' | 'end',
+      length: number,
+    ) => (upperRowsByRun.get(runIndex) ?? []).some(span => at === 'start'
+      ? Math.abs(span.start - upperCornerSizeMm) <= END_JOIN_TOLERANCE_MM
+      : Math.abs(span.end - (length - upperCornerSizeMm)) <= END_JOIN_TOLERANCE_MM);
+    const ownerReturns = touchesReservedCorner(plan.ownerRunIndex, plan.ownerAt, ownerLength);
+    const adjoiningReturns = touchesReservedCorner(
+      plan.adjoiningRunIndex,
+      plan.adjoiningAt,
+      adjoiningLength,
+    );
+    if (!ownerReturns || !adjoiningReturns) {
+      const active = ownerReturns
+        ? { run: owner, at: plan.ownerAt, length: ownerLength }
+        : adjoiningReturns
+          ? { run: adjoining, at: plan.adjoiningAt, length: adjoiningLength }
+          : null;
+      if (active) {
+        const straightWidthMm = upperCornerSizeMm - NORMAL_UPPER_WALL_FILLER_MM;
+        const startMm = active.at === 'start'
+          ? NORMAL_UPPER_WALL_FILLER_MM
+          : active.length - upperCornerSizeMm;
+        const pos = wallToWorld(active.run.wall, startMm, straightWidthMm, dims.wallDepth, room);
+        push({
+          definitionId: WALL_CAB.definitionId,
+          itemType: 'Cabinet',
+          layoutRole: 'wall-cabinet',
+          x: pos.x,
+          y: upperMountHeight,
+          z: pos.z,
+          rotation: pos.rotation,
+          width: straightWidthMm,
+          height: dims.wallHeight,
+          depth: dims.wallDepth,
+          ...(active.at === 'start'
+            ? { fillerLeft: NORMAL_UPPER_WALL_FILLER_MM }
+            : { fillerRight: NORMAL_UPPER_WALL_FILLER_MM }),
+        });
+      }
+      continue;
+    }
+    const startMm = plan.ownerAt === 'start' ? 0 : ownerLength - upperCornerSizeMm;
+    const pos = wallToWorld(
+      owner.wall,
+      startMm,
+      upperCornerSizeMm,
+      upperCornerSizeMm,
+      room,
+    );
+    push({
+      definitionId: 'wall_corner_pie_cut_2_door',
+      itemType: 'Cabinet',
+      layoutRole: 'wall-corner',
+      x: pos.x,
+      y: upperMountHeight,
+      z: pos.z,
+      rotation: pos.rotation,
+      width: upperCornerSizeMm,
+      height: dims.wallHeight,
+      depth: upperCornerSizeMm,
+      cornerReturnSide: plan.ownerAt === 'start' ? 'Left' : 'Right',
+    });
+  }
+
   // island
   if (spec.island) {
     const { lengthMm, depthMm } = spec.island;
-    const count = Math.max(1, Math.floor(lengthMm / 600));
-    const rowWidth = count * 600;
-    const startX = room.width / 2 - rowWidth / 2;
-    // island sits centered on x, offset off the N run toward the front
-    const islandZ = wallsWithRuns.has('N')
-      ? dims.baseDepth + 1200 + depthMm / 2
-      : room.depth / 2;
-    for (let i = 0; i < count; i++) {
-      // Island ends are always exposed → finished end panels on both extremes.
-      // Row runs along +x and cabinets face -z (rotation 180), so the +x
-      // extreme is the cabinets' local LEFT and the -x extreme their RIGHT.
-      push({
-        definitionId: 'base_2_door',
-        itemType: 'Cabinet',
-        x: startX + i * 600 + 300, y: 0, z: islandZ, rotation: 180,
-        width: 600, height: dims.baseHeight, depth: Math.min(depthMm, 650),
-        // An island's back faces the room, so it gets a finished panel rather
-        // than the carcase backing board.
-        finishedBack: true,
-        ...(i === count - 1 ? { endPanelLeft: true } : {}),
-        ...(i === 0 ? { endPanelRight: true } : {}),
+    const requestedCount = Math.max(1, Math.floor(lengthMm / 600));
+    const workWall = rolePositions.cooktop?.wall ?? rolePositions.sink?.wall;
+    // Island storage opens toward the working run on all four wall directions.
+    // Side-wall kitchens therefore turn the island row through 90 degrees;
+    // the old N/S-only placement left the island across the side-wall aisle.
+    const islandRotation = workWall === 'S'
+      ? 0
+      : workWall === 'W'
+        ? 90
+        : workWall === 'E'
+          ? 270
+          : 180;
+    const islandEdgeOverhang = dims.benchtopOverhang;
+    // Generated islands are breakfast benches as well as storage: the room
+    // side always receives the normal 300mm stool/seating overhang.
+    const islandBackOverhang = 300;
+    // Position from the deepest possible working-run unit (the 580mm tall
+    // housing), rather than the 575mm base cabinet. This keeps the permitted
+    // 900mm aisle exact when a fridge overlaps the island in plan.
+    const workingRunDepth = Math.max(dims.baseDepth, dims.tallDepth);
+    const workingAisleMm = 900;
+    const rearClearanceMm = 900;
+    const rowAlongX = workWall === 'N' || workWall === 'S' || workWall === undefined;
+    const crossRoomMm = rowAlongX ? room.depth : room.width;
+    const requiredCrossRoomMm = workingRunDepth
+      + islandEdgeOverhang
+      + workingAisleMm
+      + islandEdgeOverhang
+      + depthMm
+      + islandBackOverhang
+      + rearClearanceMm;
+    if (crossRoomMm < requiredCrossRoomMm) {
+      notes.push(`Left out the island — ${Math.round(crossRoomMm)}mm is not enough for a ${workingAisleMm}mm clear working aisle and ${rearClearanceMm}mm seating-side clearance`);
+    } else {
+      const count = requestedCount;
+      const rowWidth = count * 600;
+      const localXTracksRow = islandRotation === 0 || islandRotation === 90;
+      const alongRoomMm = rowAlongX ? room.width : room.depth;
+      const lowSideWall: Wall = rowAlongX ? 'W' : 'N';
+      const highSideWall: Wall = rowAlongX ? 'E' : 'S';
+      const sideInset = workingRunDepth
+        + dims.benchtopOverhang
+        + workingAisleMm
+        + islandEdgeOverhang;
+      const plainEndInset = rearClearanceMm + islandEdgeOverhang;
+      const rowStartMin = effectiveRuns.some(run => run.wall === lowSideWall)
+        ? sideInset
+        : plainEndInset;
+      const rowStartMax = alongRoomMm
+        - (effectiveRuns.some(run => run.wall === highSideWall) ? sideInset : plainEndInset)
+        - rowWidth;
+      const islandFitsAlong = rowStartMin <= rowStartMax;
+      const rowStart = Math.max(
+        rowStartMin,
+        Math.min(alongRoomMm / 2 - rowWidth / 2, rowStartMax),
+      );
+      const islandCentreFromWorkingWall = workingRunDepth
+        + islandEdgeOverhang
+        + workingAisleMm
+        + islandEdgeOverhang
+        + depthMm / 2;
+      const islandPosition = (index: number) => {
+        return {
+          x: rowAlongX
+            ? rowStart + index * 600 + 300
+            : workWall === 'W'
+              ? islandCentreFromWorkingWall
+              : room.width - islandCentreFromWorkingWall,
+          z: rowAlongX
+            ? workWall === 'S'
+              ? room.depth - islandCentreFromWorkingWall
+              : islandCentreFromWorkingWall
+            : rowStart + index * 600 + 300,
+        };
+      };
+      const prospectiveIsland = Array.from({ length: count }, (_, index) => {
+        const { x, z } = islandPosition(index);
+        const endPanelLeft = localXTracksRow ? index === 0 : index === count - 1;
+        const endPanelRight = localXTracksRow ? index === count - 1 : index === 0;
+        return {
+          instanceId: `prospective-island-${index}`,
+          definitionId: 'base_2_door',
+          itemType: 'Cabinet' as const,
+          layoutRole: 'island',
+          x, y: 0, z, rotation: islandRotation,
+          width: 600, height: dims.baseHeight, depth: Math.min(depthMm, 650),
+          benchtopFrontOverhang: islandEdgeOverhang,
+          benchtopBackOverhang: islandBackOverhang,
+          ...(endPanelLeft ? { benchtopLeftOverhang: islandEdgeOverhang } : {}),
+          ...(endPanelRight ? { benchtopRightOverhang: islandEdgeOverhang } : {}),
+        } satisfies PlacedItem;
       });
+      const floorItems = items.filter(item => item.y === 0);
+      const narrowAtReturn = !islandFitsAlong || prospectiveIsland.some(islandItem => {
+        const islandRect = benchtopRect(islandItem);
+        return floorItems.some(other => {
+          const otherRect = other.height <= 1000 ? benchtopRect(other) : itemRect(other);
+          const overlapsX = islandRect.minX < otherRect.maxX && islandRect.maxX > otherRect.minX;
+          const overlapsZ = islandRect.minZ < otherRect.maxZ && islandRect.maxZ > otherRect.minZ;
+          const gap = overlapsX
+            ? Math.max(otherRect.minZ - islandRect.maxZ, islandRect.minZ - otherRect.maxZ)
+            : overlapsZ
+              ? Math.max(otherRect.minX - islandRect.maxX, islandRect.minX - otherRect.maxX)
+              : Number.POSITIVE_INFINITY;
+          return gap > 0 && gap < workingAisleMm;
+        });
+      });
+      if (narrowAtReturn) {
+        notes.push(`Left out the island — the perpendicular cabinet run leaves less than a ${workingAisleMm}mm walk-around aisle`);
+      } else {
+        for (let i = 0; i < count; i++) {
+          // Island ends are always exposed → finished end panels on both extremes.
+          // The local left/right end swaps when the row turns from 180° to 0°.
+          const endPanelLeft = localXTracksRow ? i === 0 : i === count - 1;
+          const endPanelRight = localXTracksRow ? i === count - 1 : i === 0;
+          // The first cabinet anchors one continuous decorative panel. Its local
+          // X axis reverses when the island row turns 180 degrees.
+          const finishedBackOffset = localXTracksRow
+            ? (rowWidth - 600) / 2
+            : -(rowWidth - 600) / 2;
+          const { x, z } = islandPosition(i);
+          push({
+            definitionId: 'base_2_door',
+            itemType: 'Cabinet',
+            layoutRole: 'island',
+            x, y: 0, z, rotation: islandRotation,
+            width: 600, height: dims.baseHeight, depth: Math.min(depthMm, 650),
+            // An island's back faces the room. Render one panel across the complete
+            // run instead of exposing each cabinet's backing board (or its seams).
+            ...(i === 0 ? {
+              finishedBack: true,
+              finishedBackFullHeight: true,
+              finishedBackWidth: rowWidth,
+              finishedBackOffset,
+            } : {}),
+            suppressStandardBack: true,
+            // All island edges are exposed. Seating gets a deeper stool-side top.
+            benchtopFrontOverhang: islandEdgeOverhang,
+            benchtopBackOverhang: islandBackOverhang,
+            endPanelsFullHeight: true,
+            ...(endPanelLeft ? { benchtopLeftOverhang: islandEdgeOverhang } : {}),
+            ...(endPanelRight ? { benchtopRightOverhang: islandEdgeOverhang } : {}),
+            ...(endPanelLeft ? { endPanelLeft: true } : {}),
+            ...(endPanelRight ? { endPanelRight: true } : {}),
+          });
+        }
+      }
+    }
+  }
+
+  // The cooking answer describes an oven even when a preferred tall tower is
+  // squeezed out. Resolve that fallback to the same `base_oven` Microvellum
+  // product used by the trade planner; never leave a generic two-door cabinet
+  // beneath the oven or call the under-bench housing a tower.
+  const ovenTowerPlaced = items.some(item => item.layoutRole === 'oven-tower');
+  if (!ovenTowerPlaced) {
+    const underBenchOvenRequested = effectiveRuns.some(run => run.segments.some(segment =>
+      segment.kind === 'cabinet'
+      && segment.role === 'cooktop'
+      && segment.applianceHousing === 'oven'));
+    if (underBenchOvenRequested) {
+      for (const item of items) {
+        if (item.layoutRole === 'cooktop') item.definitionId = 'base_oven';
+      }
     }
   }
 
   return {
     items,
     notes,
-    runWalls: spec.runs.map(run => run.wall),
-    runRanges: spec.runs.map(run => ({ wall: run.wall, ...runRange(run, wallLength(run.wall, room)) })),
+    runWalls: effectiveRuns.map(run => run.wall),
+    runRanges: effectiveRuns.map(run => ({ wall: run.wall, ...runRange(run, wallLength(run.wall, room)) })),
     rolePositions,
+    sourceSpec: spec,
   };
 }

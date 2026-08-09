@@ -22,6 +22,8 @@ export interface PlacedItem {
   instanceId: string;
   definitionId: string;
   itemType: ItemType;
+  /** Human-readable catalogue name retained for quotes and workshop PDFs. */
+  productName?: string;
 
   // Locked cabinet reference (C01, C02...) stored ON the item.
   cabinetNumber?: string;
@@ -40,11 +42,29 @@ export interface PlacedItem {
   handingOverride?: HandingOverride;
   endPanelLeft?: boolean;
   endPanelRight?: boolean;
+  /** Floor-length decorative end panels used on exposed island ends and as
+   *  structural supports beside an exposed dishwasher opening. */
+  endPanelsFullHeight?: boolean;
   /** Island and peninsula cabinets have their back on show. Without this the
    *  3mm carcase backing board faces the room, set back behind the gables —
    *  which is what "no back panel on the island" looks like. Renders a
    *  finished panel in the door material, flush with the carcase. */
   finishedBack?: boolean;
+  /** Suppress the normal recessed backing board when this cabinet is covered
+   *  by a neighbouring island anchor's continuous decorative back. */
+  suppressStandardBack?: boolean;
+  /** Extend an exposed decorative back down over the kick recess. */
+  finishedBackFullHeight?: boolean;
+  /** A continuous decorative back may span a complete island run. Values are
+   *  millimetres in the cabinet's local X axis. */
+  finishedBackWidth?: number;
+  finishedBackOffset?: number;
+  /** Per-item benchtop extensions in millimetres. Islands expose all four
+   *  edges and seating islands need a deeper back overhang. */
+  benchtopFrontOverhang?: number;
+  benchtopBackOverhang?: number;
+  benchtopLeftOverhang?: number;
+  benchtopRightOverhang?: number;
   /** Dishwasher/appliance openings: render benchtop-support top rails.
    *  Defaults to on (undefined) — set false to leave the opening topless. */
   topRail?: boolean;
@@ -66,6 +86,9 @@ export interface PlacedItem {
   handleColor?: string;
   hinge?: 'Left' | 'Right';
   blindSide?: 'Left' | 'Right';
+  /** Which end of a square pie-cut cabinet returns into the adjoining wall.
+   *  This is separate from door hinging and blind-corner handing. */
+  cornerReturnSide?: 'Left' | 'Right';
   panelOverhang?: number;
   rightCarcaseDepth?: number;
   leftCarcaseDepth?: number;
@@ -79,8 +102,8 @@ export interface PlacedItem {
    *  than pattern-matching the definitionId SKU string. */
   layoutRole?: string;
   /** Source coordinates in KitchenSpec for homeowner cabinet editing.
-   * Auto-filled cupboards, upper cabinets and appliance overlays omit these
-   * fields because they are derived rather than directly editable units. */
+   * Auto-filled cupboards retain their run index for grouping but omit the
+   * segment index; upper cabinets and appliance overlays may omit both. */
   layoutRunIndex?: number;
   layoutSegmentIndex?: number;
 
@@ -151,12 +174,21 @@ export interface Opening {
   swing?: 'in-left' | 'in-right' | 'out' | 'slider';
 }
 
-/** Fixed service location (plumbing / power / gas / ducting) on a wall. */
+/** Fixed service location (plumbing / power / gas / ducting).
+ * Legacy points are wall-mounted. Floor points retain `wall`/`offsetMm` as a
+ * backwards-compatible fallback and add exact plan coordinates measured from
+ * the room's left and back walls. */
 export interface ServicePoint {
   id: string;
   wall: WallId;
   type: 'water-supply' | 'drain' | 'gpo' | 'gas' | 'hood-duct';
   offsetMm: number;
+  /** Omitted means `wall`, preserving every existing saved room. */
+  placement?: 'wall' | 'floor';
+  /** Floor connection distance from the room's left wall. */
+  xMm?: number;
+  /** Floor connection distance from the room's back wall. */
+  zMm?: number;
   /** height above floor (mm), e.g. GPO at 1050. */
   heightMm?: number;
 }

@@ -47,12 +47,12 @@ export const HOMEOWNER_CABINET_CATALOG_VERSION = CATALOG_VERSION;
 
 export const HOMEOWNER_CABINET_FAMILIES: readonly HomeownerCabinetFamily[] = [
   { id: 'base-doors', name: 'Door base cabinet', purpose: 'General storage with shelves', category: 'Base', defaultWidthMm: 600, tags: ['storage', 'shelves'], variants: [
-    { definitionId: 'base_1_door', label: 'Single door', widthsMm: [300, 450, 600] },
+    { definitionId: 'base_1_door', label: 'Single door', widthsMm: [300, 450] },
     { definitionId: 'base_2_door', label: 'Double door', widthsMm: [600, 750, 900] },
   ] },
   { id: 'base-drawers', name: 'Drawer base cabinet', purpose: 'Easy-access pots, plates, and everyday storage', category: 'Base', defaultWidthMm: 600, tags: ['drawers', 'storage'], variants: [
-    { definitionId: 'base_3_drawer', label: 'Three drawers', widthsMm: [450, 600, 750, 900] },
-    { definitionId: 'base_4_drawer', label: 'Four drawers', widthsMm: [450, 600, 750, 900] },
+    { definitionId: 'base_3_drawer', label: 'Three drawers', widthsMm: [450, 500, 600, 750, 900] },
+    { definitionId: 'base_4_drawer', label: 'Four drawers', widthsMm: [500] },
   ] },
   { id: 'sink-base', name: 'Sink cabinet', purpose: 'Sink bowl and plumbing storage', category: 'Base', defaultWidthMm: 900, tags: ['sink', 'plumbing'], variants: [
     { definitionId: 'sink_base_1_door', label: 'Compact sink cabinet', widthsMm: [600] },
@@ -73,9 +73,9 @@ export const HOMEOWNER_CABINET_FAMILIES: readonly HomeownerCabinetFamily[] = [
   { id: 'dishwasher-opening', name: 'Dishwasher opening', purpose: 'Correct opening and benchtop support for a dishwasher', category: 'Base', defaultWidthMm: 600, tags: ['dishwasher', 'appliance'], variants: [
     { definitionId: 'dishwasher_opening', label: '600 mm dishwasher', widthsMm: [600] },
   ] },
-  { id: 'blind-corner', name: 'Blind corner cabinet', purpose: 'Turns an L or U corner with usable storage', category: 'Base', defaultWidthMm: 900, tags: ['corner', 'l-shape', 'u-shape'], variants: [
-    { definitionId: 'base_corner_blind_left', label: 'Left blind', widthsMm: [900, 1000], handing: 'left' },
-    { definitionId: 'base_corner_blind_right', label: 'Right blind', widthsMm: [900, 1000], handing: 'right' },
+  { id: 'blind-corner', name: 'Blind corner cabinet', purpose: 'Fallback when the preferred 900mm bi-fold return cannot clear required adjoining cabinets', category: 'Base', defaultWidthMm: 1075, tags: ['corner', 'l-shape', 'u-shape'], variants: [
+    { definitionId: 'base_corner_blind_left', label: 'Left blind', widthsMm: [1075, 1100, 1150, 1200], handing: 'left' },
+    { definitionId: 'base_corner_blind_right', label: 'Right blind', widthsMm: [1075, 1100, 1150, 1200], handing: 'right' },
   ] },
   { id: 'pie-cut-corner', name: 'Corner cabinet', purpose: 'Two-door corner storage', category: 'Base', defaultWidthMm: 900, tags: ['corner', 'storage'], variants: [
     { definitionId: 'base_corner_pie_cut_2_door', label: 'Two-door corner', widthsMm: [900] },
@@ -99,9 +99,10 @@ export const HOMEOWNER_CABINET_FAMILIES: readonly HomeownerCabinetFamily[] = [
     { definitionId: 'fridge_top_cabinet', label: 'Fridge-top storage', widthsMm: [800, 900, 1000] },
   ] },
   { id: 'wall-corner', name: 'Wall corner cabinet', purpose: 'Continues wall storage around a corner', category: 'Wall', defaultWidthMm: 600, tags: ['wall', 'corner'], variants: [
+    { definitionId: 'wall_corner_pie_cut_2_door', label: 'Two-door bi-fold corner', widthsMm: [600] },
     { definitionId: 'wall_corner_blind_left', label: 'Left blind', widthsMm: [600, 750], handing: 'left' },
     { definitionId: 'wall_corner_blind_right', label: 'Right blind', widthsMm: [600, 750], handing: 'right' },
-    { definitionId: 'wall_corner_diagonal', label: 'Diagonal corner', widthsMm: [600] },
+    { definitionId: 'wall_corner_diagonal', label: 'Angled design corner', widthsMm: [600] },
   ] },
   { id: 'pantry', name: 'Tall pantry', purpose: 'Full-height food and appliance storage', category: 'Tall', defaultWidthMm: 600, tags: ['pantry', 'storage'], variants: [
     { definitionId: 'tall_1_door_pantry', label: 'Single door', widthsMm: [450, 600] },

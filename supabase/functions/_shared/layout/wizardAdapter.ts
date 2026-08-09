@@ -38,7 +38,7 @@ export function briefFromWizard(input: WizardLayoutInput, room?: Partial<RoomCon
     room: roomSpec,
     household: {},
     priorities: input.layoutStyle === 'full-storage' ? ['storage'] : input.layoutStyle === 'minimal' ? ['bench-space'] : [],
-    appliances: { dishwasher: input.layoutStyle !== 'minimal', fridgeWidthMm: 940 },
+    appliances: { dishwasher: input.layoutStyle !== 'minimal', fridgeWidthMm: 900 },
     island: 'no',
     ...(input.cabinetWalls?.length ? { allowedWalls: input.cabinetWalls } : {}),
     ...(input.cabinetWallRanges && Object.keys(input.cabinetWallRanges).length

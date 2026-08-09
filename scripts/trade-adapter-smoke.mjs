@@ -17,7 +17,7 @@ const OUT = path.join(ROOT, '.tmp-snap-test', 'trade-adapter');
 mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 
-const LAYOUT = ['types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'catalogRoles', 'solveRun', 'compileSpec', 'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'index'];
+const LAYOUT = ['types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'blindCorner', 'catalogRoles', 'catalogCapabilities', 'styleDNA', 'solveRun', 'compileSpec', 'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'index'];
 const TRADE = ['cabinetPlacedItem', 'proposalToTradeRoom'];
 
 writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, { get: () => undefined });\n');
@@ -119,6 +119,8 @@ check('round trip preserves identity, geometry and materials', () => {
       assert(r[f] === original[f], `${original.definitionId}.${f}: ${original[f]} -> ${r[f]}`);
     }
     assert(r.itemType === original.itemType, `${original.definitionId} itemType changed`);
+    assert(r.cornerReturnSide === original.cornerReturnSide,
+      `${original.definitionId} corner return changed: ${original.cornerReturnSide} -> ${r.cornerReturnSide}`);
   }
 });
 

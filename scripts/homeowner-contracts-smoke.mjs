@@ -37,6 +37,12 @@ for (const family of families) {
   }
 }
 
+const wallCornerFamily = families.find(family => family.id === 'wall-corner');
+assert.equal(wallCornerFamily?.variants[0]?.definitionId, 'wall_corner_pie_cut_2_door',
+  'the normal upper-corner choice must be the linked two-door bi-fold');
+assert.ok(wallCornerFamily?.variants.some(variant => variant.definitionId === 'wall_corner_diagonal'),
+  'the angled upper-corner option must remain available as a design choice');
+
 assert.equal(constants.FINISH_OPTIONS.length, 10);
 assert.equal(constants.BENCHTOP_OPTIONS.length, 8);
 for (const material of [...constants.FINISH_OPTIONS, ...constants.BENCHTOP_OPTIONS]) {
@@ -47,11 +53,27 @@ for (const material of [...constants.FINISH_OPTIONS, ...constants.BENCHTOP_OPTIO
   assert.ok(material.textureRepeatMm?.width > 0 && material.textureRepeatMm?.height > 0);
 }
 
-assert.equal(catalog.HOMEOWNER_CABINET_CATALOG_VERSION, 'homeowner-catalog-v1');
+assert.equal(catalog.HOMEOWNER_CABINET_CATALOG_VERSION, 'homeowner-catalog-v2');
 assert.ok(!wizardSource.includes('function LeadGate('), '3D design must not be hidden behind contact capture');
-assert.ok(wizardSource.includes('{state.step === 5 && ('), 'Design step must render directly at step 5');
+assert.ok(
+  wizardSource.includes('{state.step === 4 && (')
+    && wizardSource.includes('{designStudioEnabled && (')
+    && wizardSource.includes('{!designStudioEnabled && state.step === 5 && ('),
+  'Design must render in the flagged Studio step 4 and retain rollback step 5',
+);
 assert.ok(wizardSource.includes('Request my free quote'), 'contact capture belongs at the quote request');
 assert.ok(designStepSource.includes('OptionPlanPreview'), 'AI alternatives require a visual plan preview');
+assert.ok(
+  designStepSource.includes('Custom kitchen')
+    && designStepSource.includes('Selected appliances')
+    && designStepSource.includes('Combined estimate'),
+  'Design preview must separate the custom-kitchen and appliance prices',
+);
+assert.ok(
+  wizardSource.includes('Your estimate at a glance')
+    && wizardSource.includes('Kept separate for easy comparison'),
+  'Review estimate must preserve the kitchen/appliance split',
+);
 assert.ok(appSource.includes('<Navigate to="/wizard" replace />'), 'public root must enter the homeowner planner');
 assert.ok(
   authSource.includes("navigate(isAdmin ? '/admin' : '/trade/dashboard', { replace: true })"),

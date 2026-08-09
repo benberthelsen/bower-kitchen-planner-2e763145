@@ -133,6 +133,102 @@ export function filterApplianceProducts(
   });
 }
 
+/**
+ * Bower-reviewed launch picks for the homeowner kitchen shortlist. Supplier
+ * sort order is a catalogue/navigation concern, not a recommendation signal:
+ * it previously put a laundry tub, a wall mixer and a vanity basin tap in the
+ * first three cards simply because their rows came first.
+ *
+ * Keep these as supplier item codes rather than database UUIDs so a catalogue
+ * refresh can replace rows without silently changing the approved products.
+ * Products not listed here remain available through "View all".
+ */
+const KITCHEN_RECOMMENDATION_CODES: Partial<Record<ApplianceCategory, readonly string[]>> = {
+  sink: [
+    '567.33.116', // practical 1 3/4 bowl undermount
+    '567.33.250', // compact double bowl, surface or undermount
+    'P-01582749', // full-size single bowl with drainer
+  ],
+  tap: [
+    'P-01581837', // gooseneck with pull-out vegetable spray
+    '569.40.200', // pull-out vegetable spray
+    '566.58.220', // kitchen gooseneck
+  ],
+};
+
+function kitchenSuitabilityScore(
+  category: ApplianceCategory,
+  product: ApplianceProductRecord,
+): number {
+  const text = normaliseApplianceSearch([
+    product.name,
+    product.subcategory,
+    product.description,
+    product.installation,
+  ].filter(Boolean).join(' '));
+
+  if (category === 'sink') {
+    let score = 0;
+    if (/\blaundry\b/.test(text)) score -= 500;
+    if (/\bround bowl\b/.test(text)) score -= 200;
+    if (product.bowl_count === 1.75) score += 120;
+    if (product.bowl_count === 2) score += 110;
+    if (/\bdrainer\b/.test(text)) score += 40;
+    if (/\bundermount\b/.test(text)) score += 20;
+    if ((product.width_mm ?? 0) >= 700 && (product.width_mm ?? 0) <= 900) score += 15;
+    if (product.bowl_count === 1 && !/\bdrainer\b/.test(text)) score -= 20;
+    return score;
+  }
+
+  if (category === 'tap') {
+    let score = 0;
+    if (/\bwall mixer\b|\bbasin\b|\bvanity\b/.test(text)) score -= 500;
+    if (/pull ?out|pullout|vegie spray|veggie spray|sprayer/.test(text)) score += 120;
+    if (/\bgooseneck\b/.test(text)) score += 80;
+    if (/\bmixer\b/.test(text)) score += 20;
+    return score;
+  }
+
+  return 0;
+}
+
+/**
+ * Return the compact customer-facing shortlist without removing anything from
+ * the full supplier catalogue. Sink and tap picks use Bower-approved SKUs with
+ * a kitchen-suitability fallback for future catalogue rows; other categories
+ * retain their existing supplier order.
+ */
+export function recommendApplianceProducts(
+  category: ApplianceCategory,
+  products: ApplianceProductRecord[],
+  limit = 3,
+): ApplianceProductRecord[] {
+  if (limit <= 0 || products.length === 0) return [];
+  const approved = KITCHEN_RECOMMENDATION_CODES[category];
+  if (!approved) return products.slice(0, limit);
+
+  const approvedRank = new Map(approved.map((code, index) => [code.toLowerCase(), index]));
+  return products
+    .map((product, sourceIndex) => {
+      const pinnedIndex = approvedRank.get((product.item_code ?? '').toLowerCase());
+      return {
+        product,
+        sourceIndex,
+        pinnedIndex,
+        score: kitchenSuitabilityScore(category, product),
+      };
+    })
+    .sort((a, b) => {
+      const aPinned = a.pinnedIndex !== undefined;
+      const bPinned = b.pinnedIndex !== undefined;
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      if (aPinned && bPinned) return a.pinnedIndex! - b.pinnedIndex!;
+      return (b.score - a.score) || (a.sourceIndex - b.sourceIndex);
+    })
+    .slice(0, limit)
+    .map(entry => entry.product);
+}
+
 /** Group active products by wizard category, dropping ones with no category. */
 export function groupAppliancesByCategory(
   products: ApplianceProductRecord[] | undefined,
@@ -373,8 +469,10 @@ export function tapOptionIdForFinish(finish: string | null | undefined): string 
 
 /**
  * Build the appliance items that sit on or in the benchtop for the customer's
- * chosen products. Returns `[]` when nothing applies — no chosen products, no
- * catalog, or the engine placed no matching slot.
+ * chosen products. Until the customer chooses products, the engine's sink,
+ * cooktop and oven positions receive zero-price visual markers so the proposed
+ * work zones remain understandable. A microwave is not guessed without a
+ * chosen product because its position is not guaranteed outside a tower.
  *
  * Append the result to `compiled.items` for rendering, AR export and the
  * enquiry payload. Do not feed it back into the rules engine or pricing.
@@ -385,8 +483,8 @@ export function synthesiseApplianceOverlays(
   products: ApplianceProductRecord[] | undefined,
   dims: GlobalDimensions = DEFAULT_GLOBAL_DIMENSIONS,
 ): PlacedItem[] {
-  if (!compiled?.rolePositions || !chosen || !products?.length) return [];
-  const byId = new Map(products.map(p => [p.id, p]));
+  if (!compiled?.rolePositions) return [];
+  const byId = new Map((products ?? []).map(p => [p.id, p]));
   const out: PlacedItem[] = [];
 
   // The tap has no item of its own — the gooseneck is drawn inside
@@ -395,16 +493,23 @@ export function synthesiseApplianceOverlays(
   const tapId = tapOptionIdForFinish(tapProduct?.finish);
 
   for (const slot of OVERLAY_SLOTS) {
-    const productId = chosen[slot.category];
-    if (!productId) continue;
-    const product = byId.get(productId);
-    if (!product) continue;
+    const productId = chosen?.[slot.category];
+    const product = productId ? byId.get(productId) : undefined;
+    const isPositionMarker = !product;
+    if (isPositionMarker && slot.category === 'microwave') continue;
     const host = compiled.rolePositions[slot.role]
       ?? (slot.fallbackRole ? compiled.rolePositions[slot.fallbackRole] : undefined);
     if (!host) continue;
     const inTower = !!compiled.rolePositions[slot.role];
 
     const cab = host.item;
+    // Never draw an oven through the sides of a narrower cabinet. Automatic
+    // v1.4 plans provide a 900mm under-bench host for a 900mm oven; an older
+    // customer-edited plan is preserved, but the incompatible overlay stays
+    // out of the scene and is reported by `undrawnApplianceCategories`.
+    if (slot.category === 'oven'
+      && product?.width_mm
+      && product.width_mm > cab.width + 20) continue;
     // There is no benchtop-height constant in this codebase; it is always
     // derived. With the wizard's defaults this is 730 + 33 = 763 mm.
     const benchtopTopMm = cab.y + cab.height + dims.benchtopThickness;
@@ -414,9 +519,9 @@ export function synthesiseApplianceOverlays(
     // microwaves get sensible appliance-sized defaults so the procedural
     // fallback still draws something the right shape when a row is bare.
     const defaultHeight = slot.category === 'oven' ? 595 : slot.category === 'microwave' ? 455 : 200;
-    const width = product.width_mm ?? Math.min(cab.width, 600);
-    const depth = product.depth_mm ?? Math.min(cab.depth, 500);
-    const height = product.height_mm ?? defaultHeight;
+    const width = product?.width_mm ?? Math.min(cab.width, 600);
+    const depth = product?.depth_mm ?? Math.min(cab.depth, 500);
+    const height = product?.height_mm ?? defaultHeight;
 
     let y: number;
     if (slot.category === 'sink') {
@@ -452,7 +557,7 @@ export function synthesiseApplianceOverlays(
       instanceId: `appl-${slot.category}`,
       // Must resolve in useCatalog or the procedural renderer draws nothing.
       // `appliance:<uuid>` is the catalog key for an appliance_products row.
-      definitionId: `appliance:${product.id}`,
+      definitionId: product ? `appliance:${product.id}` : `${slot.category}_position`,
       itemType: 'Appliance',
       x: cab.x,
       y,
@@ -461,12 +566,19 @@ export function synthesiseApplianceOverlays(
       width,
       height,
       depth,
-      applianceProductId: product.id,
+      ...(product ? { applianceProductId: product.id } : {}),
       ...((slot.category === 'oven' && !inTower) || slot.category === 'sink'
         ? { applianceHostInstanceId: cab.instanceId }
         : {}),
-      applianceSnapshot: snapshotFromProduct(product),
-      supplyWithOrder: true,
+      applianceSnapshot: product ? snapshotFromProduct(product) : {
+        itemCode: null,
+        name: `${slot.category === 'cooktop' ? 'Cooktop' : slot.category[0].toUpperCase() + slot.category.slice(1)} position`,
+        category: slot.category,
+        unitPrice: 0,
+        isPlaceholderPrice: false,
+        finish: slot.category === 'cooktop' ? 'Black Glass' : 'Stainless Steel',
+      },
+      supplyWithOrder: !!product,
       ...(slot.category === 'sink' && tapId ? { tapId } : {}),
     } as PlacedItem);
   }

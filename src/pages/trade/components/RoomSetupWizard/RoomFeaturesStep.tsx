@@ -18,8 +18,9 @@ export default function RoomFeaturesStep({ config, updateConfig }: Props) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-trade-muted">
-        Mark doors, windows, open walkways and services (plumbing, power, gas,
-        ducting). The planner avoids openings when placing cabinetry and warns
+        Mark doors, windows, open walkways and existing services. Plumbing,
+        power and gas can enter through a wall or the floor for an island;
+        extraction duct means an existing duct or outside vent. The planner avoids openings when placing cabinetry and warns
         about conflicts — a check measure still confirms everything before
         manufacture.
       </p>

@@ -1,0 +1,61 @@
+/**
+ * The blind-corner product carries its own return past the adjoining 575mm
+ * base-carcase depth. This is part of the corner unit, not a separate filler.
+ */
+export const BLIND_CORNER_RETURN_MM = 50;
+
+/** Backwards-compatible name used by the geometry/compiler. */
+export const BLIND_CORNER_CLEARANCE_MM = BLIND_CORNER_RETURN_MM;
+
+/** Smallest useful accessible door/opening on Bower's mapped blind-corner unit. */
+export const BLIND_CORNER_MIN_ACCESS_MM = 450;
+
+/** Microvellum prompt limits for Bower's mapped Base Blind Corner product. */
+// 575mm adjoining carcase + 50mm integral return + 450mm usable door.
+export const BLIND_CORNER_MIN_WIDTH_MM = 1075;
+export const BLIND_CORNER_MAX_WIDTH_MM = 1200;
+
+export interface BlindCornerFrontLayout {
+  blindPanelWidthMm: number;
+  blindPanelCenterMm: number;
+  accessWidthMm: number;
+  accessCenterMm: number;
+  /** The accessible door hinges beside the fixed blind panel, so it opens away from the return. */
+  hingeLeft: boolean;
+}
+
+/**
+ * Resolve a blind-corner front inside its cabinet bounding box.
+ *
+ * The fixed blind panel must cover the entire adjoining-run reserve. Dividing
+ * the front 50/50 only works for a 1200 mm cabinet; on the old 900 mm unit it
+ * let the accessible door project 150 mm into the return cabinet. Centres are
+ * in cabinet-local X coordinates, matching CabinetAssembler.
+ */
+export function blindCornerFrontLayout(
+  cabinetWidthMm: number,
+  cornerReserveMm: number,
+  blindSide: 'Left' | 'Right',
+): BlindCornerFrontLayout {
+  const safeWidth = Math.max(1, cabinetWidthMm);
+  const blindPanelWidthMm = Math.min(
+    Math.max(0, cornerReserveMm),
+    Math.max(0, safeWidth - 300),
+  );
+  const accessWidthMm = Math.max(0, safeWidth - blindPanelWidthMm);
+  const blindIsLeft = blindSide === 'Left';
+  const blindPanelCenterMm = blindIsLeft
+    ? -safeWidth / 2 + blindPanelWidthMm / 2
+    : safeWidth / 2 - blindPanelWidthMm / 2;
+  const accessCenterMm = blindIsLeft
+    ? safeWidth / 2 - accessWidthMm / 2
+    : -safeWidth / 2 + accessWidthMm / 2;
+
+  return {
+    blindPanelWidthMm,
+    blindPanelCenterMm,
+    accessWidthMm,
+    accessCenterMm,
+    hingeLeft: blindIsLeft,
+  };
+}

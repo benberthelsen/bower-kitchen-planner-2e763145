@@ -16,6 +16,7 @@ import React from 'react';
 import { Check, ChevronDown, ChevronUp, Loader2, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApplianceCatalog } from '@/hooks/useApplianceCatalog';
+import { sinkCabinetMinimumWidthMm } from '@/lib/homeowner/kitchenEditor';
 import type { ApplianceProductRecord } from '@/lib/pricing/types';
 import {
   APPLIANCE_CATEGORY_ORDER,
@@ -24,6 +25,7 @@ import {
   filterApplianceProducts,
   groupAppliancesByCategory,
   filterCatalogToCooking,
+  recommendApplianceProducts,
   type ApplianceCategory,
   type CookingAnswers,
 } from '../applianceSelection';
@@ -35,6 +37,15 @@ interface Props {
    *  had just said they didn't want one. */
   cooking?: CookingAnswers;
   onChange: (chosen: Record<string, string>) => void;
+  /** Size the manufactured sink base before any layout candidate is built. */
+  onSinkCabinetWidthChange?: (widthMm: number | undefined) => void;
+  /** Keep the generated opening in sync with the selected model. Catalog
+   * cut-out width is authoritative when supplied; otherwise the engine uses
+   * its conservative freestanding allowance. */
+  onFridgeDimensionsChange?: (dimensions: {
+    bodyWidthMm: number;
+    openingWidthMm?: number;
+  }) => void;
 }
 
 function money(n: number): string {
@@ -165,14 +176,24 @@ function CategoryBlock({
   const noneActive = chosenId === '__none__';
   const [expanded, setExpanded] = React.useState(false);
   const [query, setQuery] = React.useState('');
-  const recommendedIds = new Set(products.slice(0, 3).map(product => product.id));
+  const recommendedProducts = React.useMemo(
+    () => recommendApplianceProducts(category, products),
+    [category, products],
+  );
+  const recommendedIds = React.useMemo(
+    () => new Set(recommendedProducts.map(product => product.id)),
+    [recommendedProducts],
+  );
   const matchingProducts = React.useMemo(
     () => filterApplianceProducts(products, query),
     [products, query],
   );
   const visibleProducts = expanded
     ? matchingProducts
-    : products.filter(product => recommendedIds.has(product.id) || product.id === chosenId);
+    : [
+        ...recommendedProducts,
+        ...products.filter(product => product.id === chosenId && !recommendedIds.has(product.id)),
+      ];
   const resultsId = `appliance-results-${category}`;
   const toggleExpanded = () => {
     setExpanded(value => {
@@ -188,7 +209,7 @@ function CategoryBlock({
           <p className="text-xs text-slate-500 mt-0.5">
             {expanded
               ? `${matchingProducts.length} of ${products.length} available`
-              : `${Math.min(3, products.length)} recommended · ${products.length} available`}
+              : `${recommendedProducts.length} recommended · ${products.length} available`}
           </p>
         </div>
         {products.length > 3 && (
@@ -307,7 +328,13 @@ function CategoryBlock({
   );
 }
 
-export default function StepAppliances({ chosen, cooking, onChange }: Props) {
+export default function StepAppliances({
+  chosen,
+  cooking,
+  onChange,
+  onSinkCabinetWidthChange,
+  onFridgeDimensionsChange,
+}: Props) {
   const { byCategory, isLoading, error } = useApplianceCatalog({ activeOnly: true });
   const [showAll, setShowAll] = React.useState(false);
   const allGrouped = React.useMemo(() => {
@@ -326,6 +353,31 @@ export default function StepAppliances({ chosen, cooking, onChange }: Props) {
     if (id === undefined) delete next[cat];
     else next[cat] = id;
     onChange(next);
+    if (cat === 'sink') {
+      const selected = id && id !== '__none__'
+        ? allGrouped.sink.find(product => product.id === id)
+        : undefined;
+      onSinkCabinetWidthChange?.(selected
+        ? sinkCabinetMinimumWidthMm(selected.width_mm, selected.cutout_width_mm)
+        : undefined);
+    } else if (cat === 'fridge' && id && id !== '__none__') {
+      const selected = allGrouped.fridge.find(product => product.id === id);
+      const widthMm = selected?.width_mm;
+      if (widthMm && widthMm >= 500 && widthMm <= 1400) {
+        const cutoutWidthMm = selected?.cutout_width_mm;
+        const exactOpening = cutoutWidthMm
+          && cutoutWidthMm >= widthMm
+          && cutoutWidthMm <= 1800
+          ? Math.round(cutoutWidthMm)
+          : undefined;
+        onFridgeDimensionsChange?.({
+          bodyWidthMm: Math.round(widthMm),
+          ...(exactOpening ? { openingWidthMm: exactOpening } : {}),
+        });
+      }
+    } else if (cat === 'fridge') {
+      onFridgeDimensionsChange?.({ bodyWidthMm: cooking?.fridgeWidthMm ?? 900 });
+    }
   };
 
   const visibleCategories = APPLIANCE_CATEGORY_ORDER.filter(c => (grouped[c]?.length ?? 0) > 0);
@@ -382,7 +434,7 @@ export default function StepAppliances({ chosen, cooking, onChange }: Props) {
           Your chosen sink, tap, cooktop, oven, dishwasher, fridge and rangehood appear as the
           actual product in the 3D preview. A microwave — and a rangehood in a layout with no
           wall cabinets above the cooktop — is priced and listed on your quote, with placement
-          confirmed with your consultant.
+          confirmed with your consultant. The sink cabinet is sized automatically to the selected sink.
 
         </div>
       )}

@@ -11,6 +11,9 @@ export * from './schemas';
 export * from './geometry';
 export * from './briefConstraints';
 export * from './catalogRoles';
+export * from './catalogCapabilities';
+export * from './styleDNA';
+export * from './blindCorner';
 export { solveRun } from './solveRun';
 export { compileSpec, type CompiledDesign } from './compileSpec';
 export { validate } from './validate';
@@ -41,9 +44,17 @@ export {
 export { defaultSpecFor, inferLayoutShapeFromWalls, type LayoutShape } from './defaultSpec';
 export { priceDesign } from './priceDesign';
 export { toRoomSpec, briefFromWizard } from './wizardAdapter';
-export { scoreDesign, type DesignScore, type DesignScoreParts } from './designScore';
+export {
+  scoreDesign,
+  meetsProfessionalThreshold,
+  PROFESSIONAL_SCORE_MINIMUM,
+  PROFESSIONAL_CATEGORY_MINIMUMS,
+  type DesignScore,
+  type DesignScoreParts,
+} from './designScore';
 export {
   generateCandidatePool,
+  candidateDifference,
   candidateSummaryFor,
   type CandidateEmphasis,
   type CandidatePool,
