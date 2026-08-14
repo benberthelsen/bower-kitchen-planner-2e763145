@@ -155,7 +155,7 @@ export default function AdminLeads() {
   const dd = (lead: Lead) => lead.design_data as Record<string, unknown> | null;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -230,8 +230,8 @@ export default function AdminLeads() {
 
             return (
               <Card key={lead.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-4">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
                     {/* Left: contact info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -260,12 +260,12 @@ export default function AdminLeads() {
                     </div>
 
                     {/* Right: estimate + actions */}
-                    <div className="text-right flex-shrink-0 space-y-2">
+                    <div className="w-full sm:w-auto text-left sm:text-right flex-shrink-0 space-y-2">
                       {lead.cost_incl_tax != null && (
                         <p className="text-lg font-bold text-gray-900">{AUD(lead.cost_incl_tax)}</p>
                       )}
                       <p className="text-xs text-gray-400">est. inc. GST</p>
-                      <div className="flex items-center gap-2 justify-end mt-2">
+                      <div className="flex items-center gap-2 sm:justify-end mt-2">
                         <Button
                           size="sm"
                           variant="outline"

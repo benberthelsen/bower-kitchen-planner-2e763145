@@ -224,7 +224,7 @@ export default function AdminDashboard() {
   const AUD = (n: number) => new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(n);
 
   return (
-    <div className="p-6 bg-gray-100 min-h-full space-y-6">
+    <div className="p-4 sm:p-6 bg-gray-100 min-h-full space-y-6">
 
       {/* KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -449,15 +449,15 @@ export default function AdminJobDetail() {
   const safeStatus: TradeJobStatus = isTradeJobStatus(job.status) ? job.status : 'draft';
 
   return (
-    <div className="p-6">
-      <div className="flex items-center gap-4 mb-6">
+    <div className="p-4 sm:p-6">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-6">
         <Link to="/admin/jobs">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Jobs
           </Button>
         </Link>
-        <h1 className="text-2xl font-bold">Job #{job.job_number}</h1>
+        <h1 className="text-xl sm:text-2xl font-bold">Job #{job.job_number}</h1>
         <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(safeStatus)}`}>
           {TRADE_JOB_STATUS_LABELS[safeStatus]}
         </span>
@@ -465,12 +465,13 @@ export default function AdminJobDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Info */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6 min-w-0">
           <Card>
             <CardHeader>
               <CardTitle>Job Details</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
               <div>
                 <p className="text-sm text-gray-500">Job Name</p>
                 <p className="font-medium">{job.name}</p>
@@ -498,7 +499,7 @@ export default function AdminJobDetail() {
                 </p>
               </div>
               {job.notes && (
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <p className="text-sm text-gray-500">Notes</p>
                   <p className="font-medium">{job.notes}</p>
                 </div>
@@ -594,7 +595,7 @@ export default function AdminJobDetail() {
                 <CardTitle>Production Cost Breakdown</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                   {[
                     ['Materials', quoteBOM.grandTotal.materials],
                     ['Edge Tape', quoteBOM.grandTotal.edging],
@@ -698,7 +699,7 @@ export default function AdminJobDetail() {
                   This job needs your approval before it can proceed to production.
                 </p>
                 <Button
-                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  className="w-full min-h-11 bg-green-600 hover:bg-green-700 text-white"
                   disabled={actionLoading}
                   onClick={handleApprove}
                 >
@@ -707,7 +708,7 @@ export default function AdminJobDetail() {
                 </Button>
                 {!showRequestChanges ? (
                   <Button
-                    className="w-full"
+                    className="w-full min-h-11"
                     variant="outline"
                     onClick={() => setShowRequestChanges(true)}
                   >
@@ -777,7 +778,7 @@ export default function AdminJobDetail() {
                     : 'This job has not been sent to Build Flow yet.'}
               </p>
               <Button
-                className="w-full"
+                className="w-full min-h-11"
                 variant={job.buildflow_status === 'published' ? 'outline' : 'default'}
                 onClick={syncBuildFlowLead}
                 disabled={syncingLead}
@@ -821,7 +822,7 @@ export default function AdminJobDetail() {
               {/* Shop PDFs — admin only */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button className="w-full" variant="outline" disabled={!quoteBOM}>
+                  <Button className="w-full min-h-11" variant="outline" disabled={!quoteBOM}>
                     <FileText className="h-4 w-4 mr-2" />
                     Production PDFs
                     <ChevronDown className="h-3 w-3 ml-auto" />
@@ -862,7 +863,7 @@ export default function AdminJobDetail() {
 
               {/* Microvellum XML — gated on approved status */}
               <Button
-                className={`w-full ${safeStatus === 'approved' ? 'bg-navy-50 border-navy-200' : ''}`}
+                className={`w-full min-h-11 ${safeStatus === 'approved' ? 'bg-navy-50 border-navy-200' : ''}`}
                 variant="outline"
                 onClick={exportToXML}
                 disabled={exporting || safeStatus !== 'approved'}
