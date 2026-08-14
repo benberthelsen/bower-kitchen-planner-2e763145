@@ -338,12 +338,29 @@ export default function AdminJobDetail() {
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
 
-  /** A design can only be sent to Build Flow once it carries a job total. */
-  const designIsPriced = useMemo(() => {
-    const totals = (designData.jobTotals ?? {}) as Record<string, unknown>;
-    const total = typeof totals.total === 'string' ? Number(totals.total) : totals.total;
-    return typeof total === 'number' && Number.isFinite(total);
-  }, [designData]);
+  /** A design can only be sent to Build Flow once it carries a price. */
+  const designIsPriced = useMemo(
+    () => designIsPricedFor(designData, job?.cost_incl_tax),
+    [designData, job],
+  );
+
+  /** Homeowner wizard enquiries store a different design_data shape. */
+  const isEnquiry = useMemo(() => isWizardEnquiry(designData), [designData]);
+  const priceBand = useMemo(() => readPriceBand(designData), [designData]);
+  const notesContact = useMemo(() => parseContactFromNotes(job?.notes), [job]);
+
+  const enquiryItems = useMemo(
+    () => ((designData.items as Array<Record<string, unknown>> | undefined) ?? []),
+    [designData],
+  );
+  const enquiryAppliances = useMemo(
+    () => ((designData.applianceItems as Array<Record<string, unknown>> | undefined) ?? []),
+    [designData],
+  );
+  const optionName = (
+    options: ReadonlyArray<{ id: string; name: string }>,
+    id: unknown,
+  ) => (typeof id === 'string' ? options.find(o => o.id === id)?.name ?? id : '—');
 
 
   /** Stored trade cabinets have `category`, not `itemType` — treat rows without
