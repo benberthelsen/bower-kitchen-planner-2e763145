@@ -189,6 +189,39 @@ export function RoomFeaturesEditor({
     zMm: snap(Math.max(0, Math.min(depthMm, (py - y0) / scale))),
   });
 
+  /**
+   * Shrinking the room after features were placed used to strand an opening
+   * outside its wall, which the room contract rejects at quote time. Re-clamp
+   * every feature whenever the dimensions change.
+   */
+  React.useEffect(() => {
+    const clampedOpenings = openings.map(o => {
+      const len = o.wall === 'N' || o.wall === 'S' ? widthMm : depthMm;
+      const width = Math.min(o.widthMm, len);
+      const offsetMm = Math.max(0, Math.min(len - width, o.offsetMm));
+      return width === o.widthMm && offsetMm === o.offsetMm ? o : { ...o, widthMm: width, offsetMm };
+    });
+    const clampedServices = services.map(s => {
+      const len = s.wall === 'N' || s.wall === 'S' ? widthMm : depthMm;
+      const offsetMm = Math.max(0, Math.min(len, s.offsetMm));
+      const xMm = s.xMm === undefined ? undefined : Math.max(0, Math.min(widthMm, s.xMm));
+      const zMm = s.zMm === undefined ? undefined : Math.max(0, Math.min(depthMm, s.zMm));
+      return offsetMm === s.offsetMm && xMm === s.xMm && zMm === s.zMm
+        ? s
+        : { ...s, offsetMm, ...(xMm === undefined ? {} : { xMm }), ...(zMm === undefined ? {} : { zMm }) };
+    });
+    const openingsChanged = clampedOpenings.some((o, i) => o !== openings[i]);
+    const servicesChanged = clampedServices.some((s, i) => s !== services[i]);
+    if (openingsChanged || servicesChanged) {
+      onChange({
+        ...(openingsChanged ? { openings: clampedOpenings } : {}),
+        ...(servicesChanged ? { services: clampedServices } : {}),
+      });
+    }
+    // Dimensions are the trigger; feature edits clamp themselves at the setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widthMm, depthMm]);
+
   const serviceKind = (type: ServicePoint['type']) => SERVICE_KINDS.find(kind => kind.id === type)!;
   const modeAllowsFloor = !isOpeningKind(mode) && serviceKind(mode).allowFloor;
 
