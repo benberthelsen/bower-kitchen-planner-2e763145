@@ -449,15 +449,15 @@ export default function AdminJobDetail() {
   const safeStatus: TradeJobStatus = isTradeJobStatus(job.status) ? job.status : 'draft';
 
   return (
-    <div className="p-6">
-      <div className="flex items-center gap-4 mb-6">
+    <div className="p-4 sm:p-6">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-6">
         <Link to="/admin/jobs">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Jobs
           </Button>
         </Link>
-        <h1 className="text-2xl font-bold">Job #{job.job_number}</h1>
+        <h1 className="text-xl sm:text-2xl font-bold">Job #{job.job_number}</h1>
         <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(safeStatus)}`}>
           {TRADE_JOB_STATUS_LABELS[safeStatus]}
         </span>
@@ -465,12 +465,13 @@ export default function AdminJobDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Info */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-6 min-w-0">
           <Card>
             <CardHeader>
               <CardTitle>Job Details</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
               <div>
                 <p className="text-sm text-gray-500">Job Name</p>
                 <p className="font-medium">{job.name}</p>
