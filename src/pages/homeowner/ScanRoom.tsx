@@ -40,6 +40,30 @@ import {
   type ManualOpeningType,
 } from '@/lib/roomScan/manualEntry';
 
+/**
+ * How far a tap is allowed to move when it snaps to detected geometry.
+ *
+ * These are deliberately shared between the live ghost preview and the commit
+ * path. They used to differ (preview 0.55, commit 0.3 in the four-point
+ * fallback), so the pillar showed a lock the commit would not perform.
+ *
+ * Previous values were 0.3 / 0.55 with a corner gate of 1.5x on top, i.e. a
+ * committed corner could sit 450 mm — or 825 mm in hidden mode — from where
+ * the customer aimed, with no feedback beyond a green tick. The two-wall lock
+ * was worse: it accepted an intersection up to 2 m away.
+ */
+const CORNER_SNAP_TOL_M = 0.15;
+/** Hidden mode aims at a wall face rather than the corner, so it needs a
+ *  little more room — but nothing like the old 0.55. */
+const HIDDEN_SNAP_TOL_M = 0.3;
+/** Maximum distance between where the customer aimed and the corner computed
+ *  by intersecting two locked wall planes. Two 3 m walls each off by 3 deg
+ *  already intersect ~300 mm from truth, so 2 m accepted near-nonsense. */
+const HIDDEN_CORNER_MAX_M = 0.6;
+/** A corner tap must land near the floor. local-floor reference space puts
+ *  y = 0 at the floor, so this rejects taps that hit a benchtop or island. */
+const FLOOR_TOLERANCE_M = 0.25;
+
 export const PENDING_SCAN_KEY = 'bower.pendingScan';
 
 type Support = 'checking' | 'insecure' | 'no-xr' | 'no-ar' | 'ready';
@@ -215,8 +239,11 @@ export default function ScanRoom() {
       ...(heightRef.current !== null ? { heightMm: heightRef.current } : {}),
       openings: openingsRef.current,
     });
-    await endSession();
+    // Keep the AR session alive until the fit is known to be good. Ending it
+    // first meant a single mis-ordered or mis-snapped corner threw away the
+    // whole capture — corners, height and openings — with no way back.
     if ('reason' in result) { setError(result.reason); return; }
+    await endSession();
     if (!storeAndGo(result.scan)) {
       setError('could not store the scan — your browser may be blocking storage');
     }
@@ -407,7 +434,7 @@ export default function ScanRoom() {
           if (hiddenModeRef.current) {
             if (hiddenCaptureModeRef.current === 'smart') {
               const aimedAt = { x: hit.x, z: hit.z };
-              const planeSnap = snapToPlanes(aimedAt, planeState.lines, 0.55);
+              const planeSnap = snapToPlanes(aimedAt, planeState.lines, HIDDEN_SNAP_TOL_M);
               currentPlaneSnapRef.current = planeSnap;
 
               if (planeSnap.kind === 'corner') {
@@ -422,7 +449,7 @@ export default function ScanRoom() {
                     lockedWallLineRef.current,
                     planeSnap.line,
                     aimedAt,
-                    2,
+                    HIDDEN_CORNER_MAX_M,
                   );
                   if (corner) {
                     completeHiddenCorner(corner, 'Hidden corner calculated from two wall locks ✓');
@@ -436,7 +463,7 @@ export default function ScanRoom() {
             } else {
               // Compatibility fallback for devices that expose hit testing but
               // not vertical plane detection: two points on each wall.
-              const tapSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines);
+              const tapSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, HIDDEN_SNAP_TOL_M);
               wallTapsRef.current = [...wallTapsRef.current, tapSnap.point];
               setWallTaps(wallTapsRef.current);
               if (wallTapsRef.current.length === 4) {
@@ -452,12 +479,32 @@ export default function ScanRoom() {
               }
             }
           } else {
-            const cornerSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines);
+            // The ray returns the NEAREST hit of any orientation, so aiming at
+            // a floor corner across a kitchen often lands on a benchtop front,
+            // an island or a bin — several hundred mm out. y is already known
+            // to be floor-relative here (local-floor reference space).
+            if (Math.abs(hit.y) > FLOOR_TOLERANCE_M) {
+              setHiddenHint('That is not floor level — aim at the floor, or use "Corner blocked?" for a hidden corner.');
+              setTimeout(() => setHiddenHint(null), 3000);
+              return;
+            }
+            const cornerSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, CORNER_SNAP_TOL_M);
             cornersRef.current = [...cornersRef.current, cornerSnap.point];
             setCorners(cornersRef.current);
             if (cornerSnap.kind !== 'none') {
-              setHiddenHint(cornerSnap.kind === 'corner' ? 'Snapped to detected wall corner ✓' : 'Snapped to detected wall ✓');
-              setTimeout(() => setHiddenHint(null), 2000);
+              // Report HOW FAR the point moved. A 20 mm snap and a 450 mm snap
+              // previously produced identical feedback, which is what made bad
+              // corners impossible to notice until the fit failed at the end.
+              const movedMm = Math.round(
+                Math.hypot(cornerSnap.point.x - hit.x, cornerSnap.point.z - hit.z) * 1000,
+              );
+              const what = cornerSnap.kind === 'corner' ? 'wall corner' : 'wall';
+              setHiddenHint(
+                movedMm >= 5
+                  ? `Snapped ${movedMm}mm to a detected ${what} ✓`
+                  : `On a detected ${what} ✓`,
+              );
+              setTimeout(() => setHiddenHint(null), 2500);
             }
           }
         } else if (p === 'height') {
@@ -521,7 +568,8 @@ export default function ScanRoom() {
         }
 
         // Plane detection: harvest vertical planes into wall lines (keyed by
-        // plane object; refreshed when ARCore refines them, never discarded).
+        // plane object; refreshed when ARCore refines them, and evicted below
+        // when ARCore drops them).
         const detected = (frame as XRFrame & { detectedPlanes?: Set<XRPlaneLike> }).detectedPlanes;
         if (detected) {
           detected.forEach((plane) => {
@@ -553,6 +601,16 @@ export default function ScanRoom() {
               }
             }
           });
+          // ARCore removes planes when it merges them into a larger one. Left
+          // in the map they stayed as snap targets and stayed drawn, so the
+          // customer saw walls the scanner no longer believed in and taps could
+          // lock onto lines that had drifted out of date.
+          for (const key of [...planeState.map.keys()]) {
+            if (!(detected as unknown as Set<object>).has(key)) {
+              planeState.map.delete(key);
+              planeState.dirty = true;
+            }
+          }
           if (planeState.dirty) {
             planeState.dirty = false;
             rebuildPlanes();
@@ -594,7 +652,7 @@ export default function ScanRoom() {
         let currentSnap: PlaneSnap | null = null;
         let nextAimTarget: AimTarget = hit ? 'surface' : 'searching';
         if (hit && p === 'corners') {
-          currentSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, hiddenModeRef.current ? 0.55 : 0.3);
+          currentSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, hiddenModeRef.current ? HIDDEN_SNAP_TOL_M : CORNER_SNAP_TOL_M);
           currentPlaneSnapRef.current = currentSnap;
           nextAimTarget = currentSnap.kind === 'corner'
             ? 'corner'

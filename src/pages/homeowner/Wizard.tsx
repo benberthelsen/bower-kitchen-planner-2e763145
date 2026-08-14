@@ -1361,26 +1361,36 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
   );
 }
 
-/** "Scan my room" entry — only rendered on devices that can actually run the
- *  WebXR capture (master plan §10.1: capability check, never UA sniffing). */
+/** "Scan my room" entry.
+ *
+ *  This used to render only when `navigator.xr.isSessionSupported('immersive-ar')`
+ *  resolved true. Safari implements no WebXR on any iOS version, so that check
+ *  is permanently false on every iPhone — and /wizard/scan also hosts the two
+ *  lanes built FOR those devices (Apple RoomPlan JSON import, and manual entry),
+ *  neither of which needs WebXR. The gate therefore hid the whole scanner from
+ *  the majority of Australian customers.
+ *
+ *  The capability check is kept, but it now only chooses the wording. Routing
+ *  is unconditional and the page itself branches on what the device can do. */
 function ScanRoomEntry() {
-  const [supported, setSupported] = useState(false);
+  const [xrSupported, setXrSupported] = useState(false);
   useEffect(() => {
     if (!window.isSecureContext) return;
     const xr = (navigator as unknown as { xr?: { isSessionSupported(m: string): Promise<boolean> } }).xr;
-    xr?.isSessionSupported('immersive-ar').then(setSupported).catch(() => {});
+    xr?.isSessionSupported('immersive-ar').then(setXrSupported).catch(() => {});
   }, []);
-  if (!supported) return null;
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
       <p className="text-xs text-slate-600">
-        Got your phone? Point the camera and tap each corner — the room measures itself.
+        {xrSupported
+          ? 'Got your phone? Point the camera and tap each corner — the room measures itself.'
+          : 'Got measurements or a LiDAR scan? Import a room plan, or enter the room by hand.'}
       </p>
       <Link
         to="/wizard/scan"
         className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium px-3 py-2 hover:bg-slate-700"
       >
-        Scan my room
+        {xrSupported ? 'Scan my room' : 'Add my room'}
       </Link>
     </div>
   );
