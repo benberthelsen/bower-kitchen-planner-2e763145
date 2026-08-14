@@ -27,9 +27,12 @@ import {
   Upload,
   RefreshCw,
   Ruler,
+  Menu,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+
 
 const navItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
