@@ -38,7 +38,7 @@ serve(async (req) => {
 
   const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: job, error: jobError } = await service.from('jobs').select(
-    'id,name,customer_id,status,notes,design_data,buildflow_design_version,buildflow_design_hash',
+    'id,name,customer_id,status,notes,design_data,cost_incl_tax,buildflow_design_version,buildflow_design_hash',
   ).eq('id', jobId).maybeSingle();
   if (jobError || !job) return errorResponse(req, 404, 'job_not_found');
 
@@ -52,12 +52,24 @@ serve(async (req) => {
 
   const designData = asRecord(job.design_data);
   const jobTotals = asRecord(designData.jobTotals);
-  const rawTotal = jobTotals.total;
-  const totalIncGst = typeof rawTotal === 'number'
-    ? rawTotal
-    : typeof rawTotal === 'string'
-      ? Number(rawTotal)
-      : NaN;
+  const toNumber = (value: unknown): number => {
+    const n = typeof value === 'string' ? Number(value) : value;
+    return typeof n === 'number' && Number.isFinite(n) ? n : NaN;
+  };
+  // Trade jobs carry design_data.jobTotals.total. Homeowner wizard enquiries
+  // don't — fall back to the persisted job cost, then the estimate midpoint.
+  let totalIncGst = toNumber(jobTotals.total);
+  if (!Number.isFinite(totalIncGst)) {
+    const cost = toNumber((job as Record<string, unknown>).cost_incl_tax);
+    if (Number.isFinite(cost) && cost > 0) {
+      totalIncGst = cost;
+    } else {
+      const band = asRecord(designData.priceBand);
+      const low = toNumber(band.low ?? band.lowAud);
+      const high = toNumber(band.high ?? band.highAud);
+      if (Number.isFinite(low) && Number.isFinite(high)) totalIncGst = (low + high) / 2;
+    }
+  }
   if (!Number.isFinite(totalIncGst)) {
     return jsonResponse(req, 400, { error: 'design_not_priced' });
   }

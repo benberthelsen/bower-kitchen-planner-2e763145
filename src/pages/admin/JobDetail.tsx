@@ -23,8 +23,14 @@ import { exportOrderingListPdf } from '@/lib/orderingListPdf';
 import { exportPackingListPdf } from '@/lib/packingListPdf';
 import { exportCutSummaryPdf } from '@/lib/cutSummaryPdf';
 import { GlobalDimensions, HardwareOptions } from '@/types';
-import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
+import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS, HANDLE_OPTIONS } from '@/constants';
 import { getSupabaseFunctionErrorMessage } from '@/lib/supabaseFunctionError';
+import {
+  designIsPricedFor,
+  isWizardEnquiry,
+  parseContactFromNotes,
+  readPriceBand,
+} from '@/lib/adminJobEnquiry';
 
 interface Job {
   id: string;
@@ -338,12 +344,29 @@ export default function AdminJobDetail() {
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
 
-  /** A design can only be sent to Build Flow once it carries a job total. */
-  const designIsPriced = useMemo(() => {
-    const totals = (designData.jobTotals ?? {}) as Record<string, unknown>;
-    const total = typeof totals.total === 'string' ? Number(totals.total) : totals.total;
-    return typeof total === 'number' && Number.isFinite(total);
-  }, [designData]);
+  /** A design can only be sent to Build Flow once it carries a price. */
+  const designIsPriced = useMemo(
+    () => designIsPricedFor(designData, job?.cost_incl_tax),
+    [designData, job],
+  );
+
+  /** Homeowner wizard enquiries store a different design_data shape. */
+  const isEnquiry = useMemo(() => isWizardEnquiry(designData), [designData]);
+  const priceBand = useMemo(() => readPriceBand(designData), [designData]);
+  const notesContact = useMemo(() => parseContactFromNotes(job?.notes), [job]);
+
+  const enquiryItems = useMemo(
+    () => ((designData.items as Array<Record<string, unknown>> | undefined) ?? []),
+    [designData],
+  );
+  const enquiryAppliances = useMemo(
+    () => ((designData.applianceItems as Array<Record<string, unknown>> | undefined) ?? []),
+    [designData],
+  );
+  const optionName = (
+    options: ReadonlyArray<{ id: string; name: string }>,
+    id: unknown,
+  ) => (typeof id === 'string' ? options.find(o => o.id === id)?.name ?? id : '—');
 
 
   /** Stored trade cabinets have `category`, not `itemType` — treat rows without
@@ -507,7 +530,118 @@ export default function AdminJobDetail() {
             </CardContent>
           </Card>
 
+          {/* Homeowner wizard enquiry summary */}
+          {isEnquiry && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Design Summary</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-500">Design</p>
+                  <p className="font-medium">{(designData.designName as string) || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Layout</p>
+                  <p className="font-medium">
+                    {(designData.layoutPreference as string) || '—'}
+                    {designData.layoutStyle ? ` · ${designData.layoutStyle as string}` : ''}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Room</p>
+                  <p className="font-medium">
+                    {Number(designData.roomWidth ?? 0)} × {Number(designData.roomDepth ?? 0)} × {Number(designData.roomHeight ?? 0)} mm
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {(designData.roomGeometryShape as string) || 'Rectangle'} ·{' '}
+                    {((designData.openings as unknown[] | undefined) ?? []).length} opening(s) ·{' '}
+                    {((designData.services as unknown[] | undefined) ?? []).length} service point(s) ·{' '}
+                    {designData.roomScan ? 'room scan attached' : 'no room scan'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Finishes</p>
+                  <p className="font-medium">{optionName(FINISH_OPTIONS, designData.finishId)}</p>
+                  <p className="text-xs text-gray-500">
+                    Benchtop: {optionName(BENCHTOP_OPTIONS, designData.benchtopId)}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Handle: {optionName(HANDLE_OPTIONS, designData.handleId)}
+                  </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-gray-500">Estimate band (inc GST)</p>
+                  <p className="font-medium text-lg">
+                    {priceBand ? `${AUD(priceBand.low)} – ${AUD(priceBand.high)}` : '—'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {isEnquiry && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Items ({enquiryItems.length} item{enquiryItems.length !== 1 ? 's' : ''})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {enquiryItems.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No items captured in this enquiry.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-gray-400 text-xs">
+                          <th className="pb-1 font-medium">#</th>
+                          <th className="pb-1 font-medium">Product</th>
+                          <th className="pb-1 font-medium text-right">Width</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {enquiryItems.map((item, i) => (
+                          <tr key={(item.instanceId as string) || i} className="border-b last:border-0">
+                            <td className="py-1.5 text-gray-500">{(item.cabinetNumber as string) || `C${i + 1}`}</td>
+                            <td className="py-1.5">
+                              {(item.productName as string) || (item.definitionId as string) || '—'}
+                            </td>
+                            <td className="py-1.5 text-right text-gray-500">
+                              {item.width != null ? `${Number(item.width)} mm` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {isEnquiry && enquiryAppliances.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Appliances</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-sm">
+                {enquiryAppliances.map((line, i) => (
+                  <div key={(line.productId as string) || i} className="flex justify-between gap-3">
+                    <span>{(line.name as string) || '—'}</span>
+                    <span className="text-gray-500">{AUD(Number(line.lineTotal ?? line.unitPrice ?? 0))}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between pt-2 mt-1 border-t font-medium">
+                  <span>Appliance subtotal</span>
+                  <span>{AUD(Number(designData.appliancesTotal ?? 0))}</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Rooms & Cabinets */}
+          {!isEnquiry && (
           <Card>
             <CardHeader>
               <CardTitle>
@@ -587,6 +721,7 @@ export default function AdminJobDetail() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Shop Cost Breakdown from live pricing engine */}
           {quoteBOM && (
@@ -676,12 +811,31 @@ export default function AdminJobDetail() {
               <CardTitle>Customer</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="font-medium">{job.profiles?.full_name || 'Unknown'}</p>
-              {job.profiles?.company_name && (
-                <p className="text-sm text-gray-500">{job.profiles.company_name}</p>
+              {job.profiles ? (
+                <>
+                  <p className="font-medium">{job.profiles.full_name || 'Unknown'}</p>
+                  {job.profiles.company_name && (
+                    <p className="text-sm text-gray-500">{job.profiles.company_name}</p>
+                  )}
+                  <p className="text-sm">{job.profiles.email}</p>
+                  {job.profiles.phone && <p className="text-sm">{job.profiles.phone}</p>}
+                </>
+              ) : (
+                <>
+                  <p className="font-medium">{notesContact.name || 'Unknown'}</p>
+                  {notesContact.email && (
+                    <p className="text-sm">
+                      <a className="underline" href={`mailto:${notesContact.email}`}>{notesContact.email}</a>
+                    </p>
+                  )}
+                  {notesContact.phone && (
+                    <p className="text-sm">
+                      <a className="underline" href={`tel:${notesContact.phone.replace(/\s+/g, '')}`}>{notesContact.phone}</a>
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500">From enquiry details — no trade account linked.</p>
+                </>
               )}
-              <p className="text-sm">{job.profiles?.email}</p>
-              {job.profiles?.phone && <p className="text-sm">{job.profiles.phone}</p>}
             </CardContent>
           </Card>
 
@@ -919,7 +1073,9 @@ export default function AdminJobDetail() {
 
               {!quoteBOM && pricingData && (
                 <p className="text-xs text-gray-400 text-center">
-                  No cabinets in job — PDFs unavailable.
+                  {isEnquiry
+                    ? 'Homeowner enquiry — production documents become available once this is converted to a trade job.'
+                    : 'No cabinets in job — PDFs unavailable.'}
                 </p>
               )}
               {!pricingData && (
