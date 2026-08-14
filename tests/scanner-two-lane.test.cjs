@@ -98,6 +98,39 @@ if (cap.ok) {
   ok('capture: openings field user-marked', cap.scan.confidence.fields.openings === 'user-marked');
 }
 
+// Wall-offset convention, all four walls. Canonical offsets run clockwise:
+// N from the W corner, E from the N corner, S from the E corner, W from the S
+// corner (src/lib/layout/geometry.ts). Room here is 4000 x 3000.
+{
+  const quad = buildScanFromCapture(rect, {
+    openings: [
+      { a: { x: 1.0, z: 0.01 }, b: { x: 1.9, z: 0.01 }, type: 'door' },    // N
+      { a: { x: 3.99, z: 0.5 }, b: { x: 3.99, z: 1.1 }, type: 'window' },  // E
+      { a: { x: 1.0, z: 2.99 }, b: { x: 1.9, z: 2.99 }, type: 'walkway' }, // S
+      { a: { x: 0.01, z: 1.0 }, b: { x: 0.01, z: 2.2 }, type: 'door' },    // W
+    ],
+  }, '2026-07-23T00:00:00.000Z');
+  ok('walls: capture ok', quad.ok === true, quad.ok ? '' : quad.reason);
+  if (quad.ok) {
+    const by = {};
+    for (const o of quad.scan.room.openings) by[o.wall] = o;
+    const near = (a, b) => Math.abs(a - b) <= 25;
+    ok('walls: N offset 1000 (from W corner)',
+      by.N && near(by.N.offsetMm, 1000) && near(by.N.widthMm, 900), JSON.stringify(by.N));
+    ok('walls: E offset 500 (from N corner)',
+      by.E && near(by.E.offsetMm, 500) && near(by.E.widthMm, 600), JSON.stringify(by.E));
+    ok('walls: S offset 2100 (from E corner, mirrored)',
+      by.S && near(by.S.offsetMm, 2100) && near(by.S.widthMm, 900), JSON.stringify(by.S));
+    ok('walls: W offset 800 (from S corner, mirrored)',
+      by.W && near(by.W.offsetMm, 800) && near(by.W.widthMm, 1200), JSON.stringify(by.W));
+    // Every span must sit inside its wall.
+    for (const o of quad.scan.room.openings) {
+      const len = o.wall === 'N' || o.wall === 'S' ? 4000 : 3000;
+      ok('walls: ' + o.wall + ' span within wall', o.offsetMm >= 0 && o.offsetMm + o.widthMm <= len, JSON.stringify(o));
+    }
+  }
+}
+
 // Bad height falls back with warning, scan still ok.
 const badH = buildScanFromCapture(rect, { heightMm: 900 }, '2026-07-23T00:00:00.000Z');
 ok('capture: implausible height → 2700 + warning', badH.ok && badH.scan.room.height === 2700 && badH.warnings.some(w => w.includes('looked wrong')));
