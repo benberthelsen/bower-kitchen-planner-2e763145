@@ -11,7 +11,7 @@ import {
   DENO_PATH,
   WEBSITE_CONTRACT_REL,
   WEBSITE_LOCK_REL,
-  WEBSITE_REPO_DEFAULT,
+  resolveWebsiteRepo,
   denoOutput,
   readCanonical,
   sha256,
@@ -27,9 +27,10 @@ writeFileSync(resolve(DENO_PATH), deno, 'utf8');
 console.log(`wrote ${DENO_PATH} (zod pinned @${pin})`);
 
 if (process.argv.includes('--website')) {
-  const siteRepo = process.env.WEBSITE_REPO || WEBSITE_REPO_DEFAULT;
-  if (!existsSync(siteRepo)) {
+  const { siteRepo, looksLikeRepo } = resolveWebsiteRepo();
+  if (!looksLikeRepo) {
     console.error(`website repo not found at ${siteRepo} (set WEBSITE_REPO)`);
+    console.error('refusing to write the contract into a directory that is not a repository');
     process.exit(1);
   }
 
