@@ -417,14 +417,21 @@ export function buildScanFromCapture(
       const dv = Math.min(Math.abs(p.v - minV), Math.abs(p.v - maxV));
       worst = Math.max(worst, Math.min(du, dv) * 1000);
     }
-    if (worst > RECT_REJECT_MM) {
-      return {
-        ok: false,
-        reason: 'this scan is not rectangular enough for automatic fitting — use manual room entry or request a designer review',
-      };
-    }
+    // A capture is NEVER thrown away for being non-rectangular. It used to
+    // hard-reject above RECT_REJECT_MM, which meant an open-plan kitchen —
+    // where the walked outline is nothing like a rectangle — lost the whole
+    // capture after the customer had already done corners, height AND
+    // openings. A loudly-flagged approximate outline they can correct beats
+    // no outline at all. The severity is carried in the warning and in the
+    // confidence score so nothing is simplified silently.
+    heavilySimplified = worst > RECT_REJECT_MM;
     if (worst > RECT_WARN_MM) {
-      warnings.push(`room shape simplified — corners deviate up to ${Math.round(worst)}mm from a rectangle`);
+      const off = Math.round(worst);
+      warnings.push(
+        heavilySimplified
+          ? `this room is not rectangular — corners sit up to ${off}mm off the fitted rectangle, so the outline below is approximate. Check every dimension before ordering.`
+          : `room shape simplified — corners deviate up to ${off}mm from a rectangle`,
+      );
     }
     if (corners.length === 6) {
       warnings.push('six corners captured but the room did not fit a clean L-shape — simplified to a rectangle; adjust it in the plan editor');
