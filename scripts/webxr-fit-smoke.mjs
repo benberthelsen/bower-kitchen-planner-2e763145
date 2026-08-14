@@ -45,12 +45,29 @@ const apply = (m, p) => ({ x: m[0] * p.x + m[1] * p.z + m[2], z: m[3] * p.x + m[
   }
 }
 
-// 3. Noisy corner within tolerance → clean; a non-rectangular capture is rejected.
+// 3. Noisy corner within tolerance -> clean. A non-rectangular capture is KEPT
+// and loudly flagged, not rejected.
+//
+// POLICY CHANGE (deliberate). This previously asserted `!rough.ok` — a
+// non-rectangular capture was discarded outright. That behaviour lost the
+// entire capture, after the customer had already marked corners, height and
+// openings, for the most common real case: a kitchen inside an open-plan
+// living space, where the walked outline is nothing like a rectangle. The
+// contract's §3.7 rule is "never SILENTLY simplify", not "always reject", so
+// the capture is now kept, the warning names the deviation in mm, and the
+// confidence drops to 0.3 (below manual entry) so staff triage catches it.
+// The warning is rendered in Step1Room; it is no longer invisible.
 {
   const mild = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4.02, z: 3 }, { x: 0, z: 3 }]);
   check('20mm noise stays clean', mild.ok && mild.warnings.length === 0, mild.ok ? JSON.stringify(mild.warnings) : mild.reason);
   const rough = buildScanFromCorners([{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0.4, z: 1.5 }, { x: 0, z: 3 }]);
-  check('L-ish shape is rejected rather than inflated to a rectangle', !rough.ok, rough.ok ? JSON.stringify(rough.scan.room) : '');
+  check('L-ish shape is kept, not discarded', rough.ok === true, rough.ok ? '' : rough.reason);
+  check('L-ish shape is flagged as not rectangular',
+    rough.ok && rough.warnings.some(w => w.includes('not rectangular')),
+    rough.ok ? JSON.stringify(rough.warnings) : '');
+  check('L-ish shape scores low confidence',
+    rough.ok && rough.scan.confidence.overall <= 0.3,
+    rough.ok ? String(rough.scan.confidence.overall) : '');
 }
 
 // 4. Failure modes.
