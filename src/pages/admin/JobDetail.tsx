@@ -242,7 +242,7 @@ export default function AdminJobDetail() {
   };
 
   const exportToXML = async () => {
-    if (!job) return;
+    if (!job || isEnquiry) return;
     setExportError(null);
     setExportWarnings([]);
 
