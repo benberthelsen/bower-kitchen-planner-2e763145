@@ -87,10 +87,17 @@ export function nearestWall(
   widthMm: number,
   depthMm: number,
 ): { wall: Wall; along: number; distMm: number } {
+  // Canonical wall offsets run CLOCKWISE round the perimeter — see the header
+  // of src/lib/layout/geometry.ts and sharedCornerAt():
+  //   N t0 = W corner, E t0 = N corner, S t0 = E corner, W t0 = S corner.
+  // The canonical plan measures u from the west edge and v from the north
+  // edge, so S and W must be mirrored. Returning the raw u/v here placed every
+  // opening on those two walls reflected about the wall's centre, and the
+  // layout engine then kept cabinets clear of the wrong end of the wall.
   const candidates: { wall: Wall; along: number; distMm: number }[] = [
     { wall: 'N', along: u, distMm: Math.abs(v) },
-    { wall: 'S', along: u, distMm: Math.abs(depthMm - v) },
-    { wall: 'W', along: v, distMm: Math.abs(u) },
+    { wall: 'S', along: widthMm - u, distMm: Math.abs(depthMm - v) },
+    { wall: 'W', along: depthMm - v, distMm: Math.abs(u) },
     { wall: 'E', along: v, distMm: Math.abs(widthMm - u) },
   ];
   candidates.sort((a, b) => a.distMm - b.distMm);
