@@ -610,6 +610,7 @@ export default function AdminJobDetail() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Shop Cost Breakdown from live pricing engine */}
           {quoteBOM && (
