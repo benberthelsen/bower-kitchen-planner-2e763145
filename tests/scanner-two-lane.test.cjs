@@ -87,7 +87,11 @@ if (cap.ok) {
   ok('capture: door span ~1000-1900', door && Math.abs(door.offsetMm - 1000) <= 25 && Math.abs(door.widthMm - 900) <= 40, JSON.stringify(door));
   const win = r.openings.find(o => o.type === 'window');
   ok('capture: window on W', win && win.wall === 'W');
-  ok('capture: window span ~1000+1200', win && Math.abs(win.offsetMm - 1000) <= 25 && Math.abs(win.widthMm - 1200) <= 40, JSON.stringify(win));
+  // W-wall offsets are measured from the SOUTH corner (see the clockwise
+  // convention in src/lib/layout/geometry.ts), so marks at z=1.0..2.2 in a
+  // 3000mm-deep room sit at 3000-2200 = 800, not 1000.
+  ok('capture: window span ~800+1200 (W wall measured from S corner)', win && Math.abs(win.offsetMm - 800) <= 25 && Math.abs(win.widthMm - 1200) <= 40, JSON.stringify(win));
+
   const narrow = r.openings.find(o => o.type === 'door' && o.offsetMm >= 2000);
   ok('capture: narrow door widened to min 300', narrow && narrow.widthMm === 300, JSON.stringify(narrow));
   ok('capture: skip produced a warning', cap.warnings.some(w => w.includes('not near any wall')));
