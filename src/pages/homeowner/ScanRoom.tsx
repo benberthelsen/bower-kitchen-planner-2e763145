@@ -239,8 +239,11 @@ export default function ScanRoom() {
       ...(heightRef.current !== null ? { heightMm: heightRef.current } : {}),
       openings: openingsRef.current,
     });
-    await endSession();
+    // Keep the AR session alive until the fit is known to be good. Ending it
+    // first meant a single mis-ordered or mis-snapped corner threw away the
+    // whole capture — corners, height and openings — with no way back.
     if ('reason' in result) { setError(result.reason); return; }
+    await endSession();
     if (!storeAndGo(result.scan)) {
       setError('could not store the scan — your browser may be blocking storage');
     }
@@ -565,7 +568,8 @@ export default function ScanRoom() {
         }
 
         // Plane detection: harvest vertical planes into wall lines (keyed by
-        // plane object; refreshed when ARCore refines them, never discarded).
+        // plane object; refreshed when ARCore refines them, and evicted below
+        // when ARCore drops them).
         const detected = (frame as XRFrame & { detectedPlanes?: Set<XRPlaneLike> }).detectedPlanes;
         if (detected) {
           detected.forEach((plane) => {
@@ -597,6 +601,16 @@ export default function ScanRoom() {
               }
             }
           });
+          // ARCore removes planes when it merges them into a larger one. Left
+          // in the map they stayed as snap targets and stayed drawn, so the
+          // customer saw walls the scanner no longer believed in and taps could
+          // lock onto lines that had drifted out of date.
+          for (const key of [...planeState.map.keys()]) {
+            if (!(detected as unknown as Set<object>).has(key)) {
+              planeState.map.delete(key);
+              planeState.dirty = true;
+            }
+          }
           if (planeState.dirty) {
             planeState.dirty = false;
             rebuildPlanes();
