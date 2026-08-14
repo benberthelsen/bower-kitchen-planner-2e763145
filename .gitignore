@@ -41,7 +41,15 @@ build-out.txt
 /Bower Building - Templates/
 /New folder/
 /New folder (2)/
-.tmp-candidate-test/ 
+.tmp-candidate-test/
+
+# Transient test/build scratch (esbuild bundles, harness output)
+.tmp-rules-test/
+.tmp-trade-adapter-test/
+outputs/
+
+# Supabase CLI local scratch — machine-specific, never shared
+supabase/.temp/
 
 backups/
 
