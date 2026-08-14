@@ -178,6 +178,21 @@ export const roomSpecV1Schema = z
           message: `service "${s.id}" height exceeds room height`,
         });
       }
+      // Absent placement means 'wall' (backwards compatible with stored scans).
+      if ((s.placement ?? 'wall') === 'floor') {
+        if (s.xMm !== undefined && s.xMm > room.width) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `service "${s.id}" floor position ${s.xMm}mm from the left wall exceeds room width ${room.width}`,
+          });
+        }
+        if (s.zMm !== undefined && s.zMm > room.depth) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `service "${s.id}" floor position ${s.zMm}mm from the back wall exceeds room depth ${room.depth}`,
+          });
+        }
+      }
     }
   });
 export type RoomSpecV1 = z.infer<typeof roomSpecV1Schema>;
