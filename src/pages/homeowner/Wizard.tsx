@@ -1811,8 +1811,8 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
           shape: state.roomGeometryShape,
           cutoutWidth: state.roomCutoutWidth,
           cutoutDepth: state.roomCutoutDepth,
-          openings: state.openings,
-          services: state.services,
+          openings: state.openings.map(cleanFeature),
+          services: state.services.map(cleanFeature),
         },
         confidence: incoming
           ? {
