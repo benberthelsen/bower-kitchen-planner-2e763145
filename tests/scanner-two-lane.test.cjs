@@ -131,6 +131,38 @@ if (cap.ok) {
   }
 }
 
+// An open-plan capture is NOT rectangular. It must still produce a usable
+// scan, loudly flagged — never a hard rejection that discards the capture
+// after the customer has already marked corners, height and openings.
+{
+  // Kitchen along one wall with the far side open: the walked outline has a
+  // corner ~900mm inside the bounding rectangle.
+  const openPlan = [
+    { x: 0, z: 0 }, { x: 4.2, z: 0 }, { x: 4.2, z: 3.0 },
+    { x: 2.0, z: 2.1 }, { x: 0, z: 3.0 },
+  ];
+  const res = buildScanFromCapture(openPlan, { heightMm: 2550 }, '2026-07-23T00:00:00.000Z');
+  ok('open-plan: capture survives instead of being rejected', res.ok === true, res.ok ? '' : res.reason);
+  if (res.ok) {
+    ok('open-plan: warns that the room is not rectangular',
+      res.warnings.some(w => w.includes('not rectangular')), JSON.stringify(res.warnings));
+    ok('open-plan: warning states the deviation in mm',
+      res.warnings.some(w => /\d+mm off the fitted rectangle/.test(w)), JSON.stringify(res.warnings));
+    ok('open-plan: confidence drops below manual entry',
+      res.scan.confidence.overall <= 0.3, String(res.scan.confidence.overall));
+    ok('open-plan: still emits usable dimensions',
+      res.scan.room.width >= 1200 && res.scan.room.depth >= 1200, JSON.stringify(res.scan.room));
+    ok('open-plan: warnings are carried on the scan',
+      Array.isArray(res.scan.normalizationWarnings) && res.scan.normalizationWarnings.length > 0);
+  }
+  // A near-rectangular capture must NOT be flagged as non-rectangular.
+  const clean = buildScanFromCapture(rect, { heightMm: 2550 }, '2026-07-23T00:00:00.000Z');
+  ok('clean rect: no non-rectangular warning',
+    clean.ok === true && !clean.warnings.some(w => w.includes('not rectangular')), JSON.stringify(clean.warnings));
+  ok('clean rect: confidence unchanged at 0.7',
+    clean.ok === true && clean.scan.confidence.overall === 0.7, clean.ok ? String(clean.scan.confidence.overall) : '');
+}
+
 // Bad height falls back with warning, scan still ok.
 const badH = buildScanFromCapture(rect, { heightMm: 900 }, '2026-07-23T00:00:00.000Z');
 ok('capture: implausible height → 2700 + warning', badH.ok && badH.scan.room.height === 2700 && badH.warnings.some(w => w.includes('looked wrong')));

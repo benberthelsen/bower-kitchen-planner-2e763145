@@ -1217,8 +1217,37 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
     toast.success('Suggested room details applied. Your design will be recreated for the new room.');
   };
 
+  // Everything the scanner adjusted, dropped or approximated. These were
+  // generated, carried through state and re-attached at submit — but never
+  // rendered anywhere, so a customer confirmed a silently-simplified room with
+  // a door quietly discarded and no way to know. Now that a non-rectangular
+  // capture is kept rather than rejected, showing them is not optional.
+  const scanWarnings = state.incomingScan?.normalizationWarnings ?? [];
+  const scanConfidence = state.incomingScan?.confidence?.overall;
+  const lowConfidence = typeof scanConfidence === 'number' && scanConfidence <= 0.4;
+
   return (
     <div className="space-y-4 sm:space-y-5">
+      {scanWarnings.length > 0 && (
+        <div
+          className={lowConfidence
+            ? 'border border-red-300 bg-red-50 rounded-lg p-4 space-y-2'
+            : 'border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-2'}
+          role="alert"
+        >
+          <p className={lowConfidence ? 'text-sm font-semibold text-red-900' : 'text-sm font-semibold text-amber-900'}>
+            {lowConfidence
+              ? 'Check this room carefully — the scan is approximate'
+              : 'The scan adjusted a few things'}
+          </p>
+          <ul className={lowConfidence ? 'text-xs text-red-800 space-y-1 list-disc pl-4' : 'text-xs text-amber-800 space-y-1 list-disc pl-4'}>
+            {scanWarnings.map(w => <li key={w}>{w}</li>)}
+          </ul>
+          <p className={lowConfidence ? 'text-xs text-red-800' : 'text-xs text-amber-800'}>
+            Correct anything below before you continue. Measurements from a scan are indicative — we check them on site before anything is made.
+          </p>
+        </div>
+      )}
       {pending && (
         <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3" role="status">
           <div>
