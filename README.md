@@ -6,7 +6,13 @@ cabinet products, editable 3D designs, indicative pricing and an AI-assisted
 Design Studio.
 
 The repository and GitHub history are the source of truth. Production is hosted
-on Cloudflare Pages; this project does not use Lovable for editing or deployment.
+on Cloudflare Pages, built from `main`.
+
+The repo is also connected to a Lovable project, which two-way-syncs `main` and
+publishes its own preview at `bower-plan-precise.lovable.app`. As of 14 August
+2026 the Lovable agent is not used to author code — changes are written and
+reviewed in this repository. Anything committed from the Lovable chat lands
+directly on `main` and reaches production without review.
 
 ## Live services
 
@@ -67,5 +73,10 @@ designer. It records the professional rules, architecture, evidence workflow,
 test gates and the safest way to teach the planner another kitchen-design
 lesson without losing earlier knowledge.
 
-The current implementation handoff is
-[Unified AI Kitchen Design Studio v5](docs/AI-DESIGN-STUDIO-v5-HANDOFF.md).
+Start at [docs/README.md](docs/README.md) — it is the index and the only
+document that states what is current.
+
+Note that [Unified AI Kitchen Design Studio v5](docs/AI-DESIGN-STUDIO-v5-HANDOFF.md)
+describes a feature that is **off in the live build** (`designStudio` in
+`src/lib/featureFlags.ts`). It is a design document, not a description of what
+users see.
