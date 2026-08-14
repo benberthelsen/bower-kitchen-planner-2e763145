@@ -154,6 +154,23 @@ const IDENTITY_FRAME: CoordinateFrameV1 = {
   originDescription: 'north-west-corner-in-canonical-plan',
 };
 
+/**
+ * The room contract is `.strict()` with integer millimetres. Feature editors
+ * can leave explicitly-undefined keys behind (e.g. switching a service point
+ * from floor back to wall clears `xMm`/`zMm`) and fractional values from typed
+ * input, so normalise before validating: drop undefined keys and round mm.
+ */
+const cleanFeature = <T extends Record<string, unknown>>(feature: T): T => {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(feature)) {
+    if (value === undefined) continue;
+    out[key] = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : value;
+  }
+  return out as T;
+};
+
+
+
 const DEFAULTS: Pick<WizardState, 'layoutPreference' | 'roomWidth' | 'roomDepth' | 'roomHeight' | 'roomGeometryShape' | 'roomCutoutWidth' | 'roomCutoutDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId' | 'styleFamilyId' | 'styleFamilyVersion' | 'styleVariantId'> = {
   layoutPreference: 'single-wall',
   roomWidth:   3600,
