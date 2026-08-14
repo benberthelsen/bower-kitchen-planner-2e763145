@@ -242,7 +242,14 @@ export default function ScanRoom() {
     // Keep the AR session alive until the fit is known to be good. Ending it
     // first meant a single mis-ordered or mis-snapped corner threw away the
     // whole capture — corners, height and openings — with no way back.
-    if ('reason' in result) { setError(result.reason); return; }
+    if ('reason' in result) {
+      // The reason MUST go to scanHint, not just error: `error` renders only on
+      // the lobby screen, which sits behind the immersive session. Setting it
+      // alone made a failed fit look like the Finish button doing nothing.
+      setScanHint(`${result.reason} — undo a corner and re-mark it, or Cancel to enter the room by hand.`);
+      setError(result.reason);
+      return;
+    }
     await endSession();
     if (!storeAndGo(result.scan)) {
       setError('could not store the scan — your browser may be blocking storage');
