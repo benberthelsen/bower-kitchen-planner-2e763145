@@ -376,6 +376,8 @@ export function buildScanFromCapture(
   let cutoutDepthMm = 0;
   let shape: 'Rectangle' | 'LShape' = 'Rectangle';
   let quarterTurnDegrees: 0 | 90 | 180 | 270 = 0;
+  /** True when the walked outline is a poor fit for the rectangle we emit. */
+  let heavilySimplified = false;
 
   const lfit = corners.length === 6 ? tryFitLShape(rotated) : null;
   if (lfit) {
