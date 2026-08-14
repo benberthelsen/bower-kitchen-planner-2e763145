@@ -154,6 +154,23 @@ const IDENTITY_FRAME: CoordinateFrameV1 = {
   originDescription: 'north-west-corner-in-canonical-plan',
 };
 
+/**
+ * The room contract is `.strict()` with integer millimetres. Feature editors
+ * can leave explicitly-undefined keys behind (e.g. switching a service point
+ * from floor back to wall clears `xMm`/`zMm`) and fractional values from typed
+ * input, so normalise before validating: drop undefined keys and round mm.
+ */
+const cleanFeature = <T extends object>(feature: T): T => {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(feature)) {
+    if (value === undefined) continue;
+    out[key] = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : value;
+  }
+  return out as T;
+};
+
+
+
 const DEFAULTS: Pick<WizardState, 'layoutPreference' | 'roomWidth' | 'roomDepth' | 'roomHeight' | 'roomGeometryShape' | 'roomCutoutWidth' | 'roomCutoutDepth' | 'layoutStyle' | 'finishId' | 'benchtopId' | 'handleId' | 'styleFamilyId' | 'styleFamilyVersion' | 'styleVariantId'> = {
   layoutPreference: 'single-wall',
   roomWidth:   3600,
@@ -1794,8 +1811,8 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
           shape: state.roomGeometryShape,
           cutoutWidth: state.roomCutoutWidth,
           cutoutDepth: state.roomCutoutDepth,
-          openings: state.openings,
-          services: state.services,
+          openings: state.openings.map(cleanFeature),
+          services: state.services.map(cleanFeature),
         },
         confidence: incoming
           ? {
@@ -1822,7 +1839,13 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       const scanParse = confirmedRoomScanV1Schema.safeParse(scanCandidate);
       if (!scanParse.success) {
         console.error('[wizard] room confirmation invalid:', scanParse.error.issues);
-        toast.error('Please review the room measurements and openings before requesting a quote.');
+        // Name the actual problem so a failure is diagnosable from the screen.
+        const issue = scanParse.error.issues[0];
+        const where = issue?.path?.length ? ` (${issue.path.join('.')})` : '';
+        toast.error(
+          `Please review the room measurements and openings before requesting a quote — ${issue?.message ?? 'the room details look invalid'}${where}.`,
+          { duration: 10000 },
+        );
         return;
       }
 

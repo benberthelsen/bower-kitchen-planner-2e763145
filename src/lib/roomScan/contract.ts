@@ -101,6 +101,12 @@ export const servicePointV1Schema = z
     wall: wallIdV1Schema,
     type: z.enum(['water-supply', 'drain', 'gpo', 'gas', 'hood-duct']),
     offsetMm: mmInt(0),
+    /** Absent means 'wall' — every stored scan predates this field. */
+    placement: z.enum(['wall', 'floor']).optional(),
+    /** Floor connection: distance from the room's left (W) wall. */
+    xMm: mmInt(0).max(LIMITS.maxRoomMm).optional(),
+    /** Floor connection: distance from the room's back (N) wall. */
+    zMm: mmInt(0).max(LIMITS.maxRoomMm).optional(),
     heightMm: mmInt(0).max(LIMITS.maxRoomMm).optional(),
   })
   .strict();
@@ -171,6 +177,21 @@ export const roomSpecV1Schema = z
           code: z.ZodIssueCode.custom,
           message: `service "${s.id}" height exceeds room height`,
         });
+      }
+      // Absent placement means 'wall' (backwards compatible with stored scans).
+      if ((s.placement ?? 'wall') === 'floor') {
+        if (s.xMm !== undefined && s.xMm > room.width) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `service "${s.id}" floor position ${s.xMm}mm from the left wall exceeds room width ${room.width}`,
+          });
+        }
+        if (s.zMm !== undefined && s.zMm > room.depth) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `service "${s.id}" floor position ${s.zMm}mm from the back wall exceeds room depth ${room.depth}`,
+          });
+        }
       }
     }
   });

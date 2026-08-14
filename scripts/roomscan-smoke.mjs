@@ -141,6 +141,35 @@ for (const junk of [null, 42, 'scan', [], { nested: { deep: true } }]) {
   check('prog/confirmed-state preserved', r2.ok && r2.scan.state === 'confirmed' && r2.scan.confirmedRevision === r2.scan.roomRevision);
 }
 
+// Service points: wall/floor placement variants (live bug 2026-08-14 — the
+// contract rejected the placement/xMm/zMm keys RoomFeaturesEditor emits).
+{
+  const conf = loadFixtures('valid.json').find((f) => f.name === 'manual-confirmed-rectangle');
+  const withServices = (services) => {
+    const data = JSON.parse(JSON.stringify(conf.data));
+    data.room.services = services;
+    return C.parseRoomScan(data);
+  };
+  const room = conf.data.room;
+
+  const wallPoint = { id: 'sv-1', wall: 'N', type: 'drain', offsetMm: 900, placement: 'wall', heightMm: 400 };
+  const floorPoint = { id: 'sv-2', wall: 'N', type: 'gpo', offsetMm: 1200, placement: 'floor', xMm: 1200, zMm: 900, heightMm: 0 };
+  const undefKeys = { id: 'sv-3', wall: 'E', type: 'gas', offsetMm: 500, placement: 'wall', xMm: undefined, zMm: undefined, heightMm: 250 };
+
+  let r = withServices([wallPoint]);
+  check('prog/service wall placement accepted', r.ok === true, r.ok ? '' : r.reason);
+  r = withServices([floorPoint]);
+  check('prog/service floor placement accepted', r.ok === true, r.ok ? '' : r.reason);
+  r = withServices([undefKeys]);
+  check('prog/service undefined xMm/zMm keys accepted', r.ok === true, r.ok ? '' : r.reason);
+  r = withServices([{ ...floorPoint, xMm: room.width + 500 }]);
+  check('prog/service floor xMm beyond room width rejected', r.ok === false);
+  r = withServices([{ ...floorPoint, zMm: room.depth + 500 }]);
+  check('prog/service floor zMm beyond room depth rejected', r.ok === false);
+  r = withServices([{ id: 'sv-4', wall: 'N', type: 'drain', offsetMm: 100, bogus: 1 }]);
+  check('prog/service unknown key still rejected', r.ok === false);
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────
 console.log(`roomscan smoke: ${pass} passed, ${fail} failed`);
 if (bad.length) {
