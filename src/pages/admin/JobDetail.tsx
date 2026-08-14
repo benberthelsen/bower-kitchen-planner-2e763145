@@ -811,12 +811,31 @@ export default function AdminJobDetail() {
               <CardTitle>Customer</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="font-medium">{job.profiles?.full_name || 'Unknown'}</p>
-              {job.profiles?.company_name && (
-                <p className="text-sm text-gray-500">{job.profiles.company_name}</p>
+              {job.profiles ? (
+                <>
+                  <p className="font-medium">{job.profiles.full_name || 'Unknown'}</p>
+                  {job.profiles.company_name && (
+                    <p className="text-sm text-gray-500">{job.profiles.company_name}</p>
+                  )}
+                  <p className="text-sm">{job.profiles.email}</p>
+                  {job.profiles.phone && <p className="text-sm">{job.profiles.phone}</p>}
+                </>
+              ) : (
+                <>
+                  <p className="font-medium">{notesContact.name || 'Unknown'}</p>
+                  {notesContact.email && (
+                    <p className="text-sm">
+                      <a className="underline" href={`mailto:${notesContact.email}`}>{notesContact.email}</a>
+                    </p>
+                  )}
+                  {notesContact.phone && (
+                    <p className="text-sm">
+                      <a className="underline" href={`tel:${notesContact.phone.replace(/\s+/g, '')}`}>{notesContact.phone}</a>
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500">From enquiry details — no trade account linked.</p>
+                </>
               )}
-              <p className="text-sm">{job.profiles?.email}</p>
-              {job.profiles?.phone && <p className="text-sm">{job.profiles.phone}</p>}
             </CardContent>
           </Card>
 
