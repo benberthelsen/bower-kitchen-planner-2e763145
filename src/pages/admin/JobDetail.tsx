@@ -1073,7 +1073,9 @@ export default function AdminJobDetail() {
 
               {!quoteBOM && pricingData && (
                 <p className="text-xs text-gray-400 text-center">
-                  No cabinets in job — PDFs unavailable.
+                  {isEnquiry
+                    ? 'Homeowner enquiry — production documents become available once this is converted to a trade job.'
+                    : 'No cabinets in job — PDFs unavailable.'}
                 </p>
               )}
               {!pricingData && (
