@@ -1,7 +1,5 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-
-/** Dev-only local AI ranker endpoint used by the Vite middleware. */
+/** Dev-only local AI ranker used by the Vite middleware. */
 export function handleLocalAiRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<boolean> | boolean;
+  raw: unknown,
+  options?: { apiKey?: string; model?: string },
+): Promise<unknown>;
