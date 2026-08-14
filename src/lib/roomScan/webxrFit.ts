@@ -169,8 +169,13 @@ function projectOntoLine(p: XrCorner, line: WallLine): { point: XrCorner; distM:
   const dx = line.b.x - line.a.x, dz = line.b.z - line.a.z;
   const len2 = dx * dx + dz * dz;
   let t = len2 > 0 ? ((p.x - line.a.x) * dx + (p.z - line.a.z) * dz) / len2 : 0;
-  // Allow a little slack past the detected extent — planes grow as ARCore
-  // refines them, and real walls extend beyond what is detected so far.
+  // Allow slack past the detected extent — planes grow as ARCore refines them,
+  // and real walls extend beyond what is detected so far. This is load-bearing
+  // for the hidden-corner flow: when a benchtop blocks the floor corner ARCore
+  // never sees the last ~0.5 m of either wall, so there is nothing to
+  // intersect. Do NOT reduce this to control snap distance — that is what
+  // snapToPlanes' tolM and CORNER_SNAP_FACTOR are for. Reducing it to 0.12
+  // made `snapToPlanes` return kind:'none' at a real corner.
   const len = Math.sqrt(len2);
   const slack = len > 0 ? 0.5 / len : 0;
   t = Math.max(-slack, Math.min(1 + slack, t));
@@ -207,15 +212,24 @@ export function intersectDetectedWallLines(
 /** Snap a tapped point onto detected wall geometry: the intersection of the
  *  two nearest (sufficiently angled) walls when both are close — a corner —
  *  else the nearest wall line, else the raw point. */
-export function snapToPlanes(p: XrCorner, lines: WallLine[], tolM = 0.3): PlaneSnap {
+/** A corner snap must never be LOOSER than a wall snap. It is derived from two
+ *  intersecting lines, so it amplifies each line's bearing error — yet this was
+ *  previously 1.5x the wall tolerance (0.45 m at the old default, 0.825 m in
+ *  hidden mode). Equal tolerance is the conservative choice: it cuts the old
+ *  budget by a factor of three without inventing a threshold we have no field
+ *  data for. Tighten further only with real measurements to justify it. */
+export const CORNER_SNAP_FACTOR = 1;
+
+export function snapToPlanes(p: XrCorner, lines: WallLine[], tolM = 0.15): PlaneSnap {
   const near = lines
     .map(line => ({ line, ...projectOntoLine(p, line) }))
     .filter(h => h.distM <= tolM)
     .sort((x, y) => x.distM - y.distM);
   if (near.length >= 2) {
+    const cornerTol = tolM * CORNER_SNAP_FACTOR;
     for (let j = 1; j < near.length; j++) {
-      const corner = intersectDetectedWallLines(near[0].line, near[j].line, p, tolM * 1.5);
-      if (corner && Math.hypot(corner.x - p.x, corner.z - p.z) <= tolM * 1.5) {
+      const corner = intersectDetectedWallLines(near[0].line, near[j].line, p, cornerTol);
+      if (corner && Math.hypot(corner.x - p.x, corner.z - p.z) <= cornerTol) {
         return { point: corner, kind: 'corner', cornerLines: [near[0].line, near[j].line] };
       }
     }
@@ -456,17 +470,24 @@ export function buildScanFromCapture(
       warnings.push(`a marked ${mark.type} was not near any wall and was skipped — re-mark it in the plan editor`);
       continue;
     }
-    const alongA = hit.wall === 'N' || hit.wall === 'S' ? pa.u : pa.v;
-    const alongB = hit.wall === 'N' || hit.wall === 'S' ? pb.u : pb.v;
+    // Raw plan coordinates first: the L-shape cut-away test below is written
+    // against these, and mirroring before it would invert its meaning.
+    const rawA = hit.wall === 'N' || hit.wall === 'S' ? pa.u : pa.v;
+    const rawB = hit.wall === 'N' || hit.wall === 'S' ? pb.u : pb.v;
     let wallLen = hit.wall === 'N' || hit.wall === 'S' ? widthMm : depthMm;
     if (shape === 'LShape') {
       if (hit.wall === 'E') wallLen = depthMm - cutoutDepthMm;
       if (hit.wall === 'S') wallLen = widthMm - cutoutWidthMm;
-      if (Math.min(alongA, alongB) >= wallLen) {
+      if (Math.min(rawA, rawB) >= wallLen) {
         warnings.push(`a marked ${mark.type} sits on the cut-away part of the room and was skipped — re-mark it in the plan editor`);
         continue;
       }
     }
+    // Same clockwise convention as nearestWall: S runs from the E corner and W
+    // from the S corner, so both are measured back from the far end.
+    const mirrored = hit.wall === 'S' || hit.wall === 'W';
+    const alongA = mirrored ? wallLen - rawA : rawA;
+    const alongB = mirrored ? wallLen - rawB : rawB;
     const span = clampSpan(Math.min(alongA, alongB), Math.abs(alongB - alongA), wallLen);
     if (!span) {
       warnings.push(`a marked ${mark.type} was too narrow to keep — re-mark both sides of the opening`);
