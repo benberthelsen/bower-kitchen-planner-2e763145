@@ -1839,7 +1839,13 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
       const scanParse = confirmedRoomScanV1Schema.safeParse(scanCandidate);
       if (!scanParse.success) {
         console.error('[wizard] room confirmation invalid:', scanParse.error.issues);
-        toast.error('Please review the room measurements and openings before requesting a quote.');
+        // Name the actual problem so a failure is diagnosable from the screen.
+        const issue = scanParse.error.issues[0];
+        const where = issue?.path?.length ? ` (${issue.path.join('.')})` : '';
+        toast.error(
+          `Please review the room measurements and openings before requesting a quote — ${issue?.message ?? 'the room details look invalid'}${where}.`,
+          { duration: 10000 },
+        );
         return;
       }
 
