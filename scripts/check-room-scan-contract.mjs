@@ -8,7 +8,7 @@ import {
   DENO_PATH,
   WEBSITE_CONTRACT_REL,
   WEBSITE_LOCK_REL,
-  WEBSITE_REPO_DEFAULT,
+  resolveWebsiteRepo,
   denoOutput,
   readCanonical,
   sha256,
@@ -31,10 +31,10 @@ if (!existsSync(resolve(DENO_PATH))) {
   }
 }
 
-// Website copy (only when the sibling repo is available)
-const siteRepo = process.env.WEBSITE_REPO || WEBSITE_REPO_DEFAULT;
+// Website copy (only when the sibling repo is actually present)
+const { siteRepo, explicit, looksLikeRepo } = resolveWebsiteRepo();
 const sitePath = join(siteRepo, WEBSITE_CONTRACT_REL);
-if (!existsSync(siteRepo)) {
+if (!explicit && !looksLikeRepo) {
   console.log(`website repo not present at ${siteRepo} — skipped (website CI checks its lock hash)`);
 } else if (!existsSync(sitePath)) {
   console.error(`DRIFT: website contract copy missing at ${sitePath} — run npm run roomscan:sync -- --website`);

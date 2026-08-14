@@ -1,17 +1,40 @@
 // Shared logic for the room-scan contract sync/check scripts.
 // Canonical source: src/lib/roomScan/contract.ts (master plan §5.5).
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 export const CANONICAL_PATH = 'src/lib/roomScan/contract.ts';
 export const DENO_PATH = 'supabase/functions/_shared/roomScan/contract.ts';
-// The planner is nested directly inside the website repository. The previous
-// path appended the website folder name a second time and made CI skip the
-// real contract with a false green result.
+// The planner is normally nested directly inside the website repository, so the
+// sibling default is the parent directory. An earlier version of this default
+// appended the website folder name twice, which made CI skip the real contract
+// and report a false green; the fix below must not reintroduce that.
 export const WEBSITE_REPO_DEFAULT = resolve('..');
 export const WEBSITE_CONTRACT_REL = 'src/lib/roomScan/contract.ts';
 export const WEBSITE_LOCK_REL = 'src/lib/roomScan/contract.lock.json';
+
+/**
+ * Resolve where the website contract consumer lives.
+ *
+ * Three cases must all behave correctly:
+ *  - CI sets WEBSITE_REPO explicitly -> always enforce (a missing contract is
+ *    real drift and must fail; this is what prevents the old false green).
+ *  - The planner is checked out inside the website repo -> the parent has a
+ *    package.json, so enforce.
+ *  - A standalone clone anywhere else -> the parent is just a directory, not a
+ *    repo, so skip. Testing `existsSync(siteRepo)` alone can never skip,
+ *    because a parent directory always exists.
+ */
+export function resolveWebsiteRepo() {
+  const explicit = process.env.WEBSITE_REPO;
+  const siteRepo = explicit || WEBSITE_REPO_DEFAULT;
+  return {
+    siteRepo,
+    explicit: Boolean(explicit),
+    looksLikeRepo: existsSync(join(siteRepo, 'package.json')),
+  };
+}
 
 export const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 
