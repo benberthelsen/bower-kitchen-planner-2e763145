@@ -499,7 +499,7 @@ export default function AdminJobDetail() {
                 </p>
               </div>
               {job.notes && (
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <p className="text-sm text-gray-500">Notes</p>
                   <p className="font-medium">{job.notes}</p>
                 </div>
