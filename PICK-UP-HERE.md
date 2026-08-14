@@ -1,64 +1,75 @@
-# Bower Kitchen Planner — Pick-Up Brief (Go-Live Beta)
+# Pick up here
 
-**Project:** AI kitchen planner + room scanner → bowercabinets.com beta
-**Owner:** Ben Berthelsen (benberthelsen@gmail.com)
-**Repo on Ben's machine:** `C:\Users\bench\Claude\Projects\kitchen online planner\bower-kitchen-planner`
-**Written:** 19 July 2026, reconstructed after the previous Claude conversations were lost in an app reinstall. The repo's `docs/` folder is the real memory — read it before doing anything.
+Entry point for anyone — human or AI — starting work on this repo.
 
-## Read these repo docs first (in this order)
+## How this project is developed (changed 14 August 2026)
 
-1. `docs/PRE-LIVE-AUDIT-2026-07-16.md` — latest full status + prioritized findings
-2. `docs/GO-LIVE-BETA-PLAN.md` — the Cloudflare go-live checklist
-3. `docs/HANDOVER-2026-07-14.md` — architecture pointers + working constraints
-4. `docs/workstreams/WS1–WS11` — per-area status
+**The Lovable agent is no longer used to author code.** Changes are written and
+reviewed in this Git repository. (The agent was used once, on 14 August 2026,
+purely as a transport to land a pre-verified patch when direct push access was
+unavailable. That is the exception, not the process.)
 
-## Stack & environment
+**Production is Cloudflare Pages, building from `main`.** Lovable is a second
+consumer of the same branch that publishes its own preview copy at
+`bower-plan-precise.lovable.app`. It is not the production deploy path and is
+not required for one.
 
-Vite + React + TS + Tailwind + shadcn + three.js (react-three-fiber). Dev on :8081. Supabase project `bower-cabinet-ai`, ref `ehtwywctledgkxexztbh` (Sydney), RLS on, Deno edge functions. AI designer edge function uses OpenAI function-calling (model `gpt-5.6-terra` at audit time, with `reasoning_effort: 'none'` workaround). Deterministic layout engine in `src/lib/layout/`; regenerate shared copies with `node scripts/sync-ai-shared.mjs`. Pricing engine `src/lib/pricing/` (×1.35 commercial layer + GST).
+Practically:
 
-## Status as of the 2026-07-16 audit
+1. Branch off `main`, make the change, open a PR.
+2. `.github/workflows/ci.yml` runs `npm run test:ci` on every PR and on push to `main`.
+3. Merge to `main`. Cloudflare Pages builds and deploys production.
+4. **Do not type in the Lovable chat.** There is no setting that locks the
+   agent out — the only control is not using it. An agent commit lands
+   straight on the synced branch and will reach production via Cloudflare.
 
-The full pipeline works end-to-end in production for the first time: wizard → AI generation (3 validated options) → selection → enquiry → Admin Leads → promote to draft job (#495 verified). Automated suite fully green (placement sweep of 45,360 combos: 0 bugs). Verdict: **GO for gated beta once P1 items 1–2 are fixed.**
+## Getting a green build locally
 
-### P1 (fix before/during beta)
-1. **Analytics inserts 403 in production** — fix migration `20260716090000_funnel_events_hardening.sql` written; *pending: apply to production + re-test*.
-2. **Lead alert emails never send** — server-side send implemented in `submit-planner-enquiry`; *pending: deploy + set production secrets `RESEND_API_KEY`, `ADMIN_EMAIL`, `FROM_EMAIL` (Ben must create a Resend account + verified sender domain — no email can send until then)*.
-3. `send-email` hardening implemented; *pending deploy*.
-4. `staff` role second-class (fine while Ben is sole operator; fix before adding staff).
-
-Rate-limit migration `20260716090100_edge_rate_limits.sql` also pending apply + deploy. Deploy commands (after applying migrations via SQL Editor):
-
-```powershell
-supabase functions deploy ai-designer --use-api --no-verify-jwt
-supabase functions deploy submit-planner-enquiry --use-api --no-verify-jwt
-supabase functions deploy send-email --use-api --no-verify-jwt
+```bash
+npm ci          # npm, not bun — see "Package manager" below
+npm run test:ci # 39 sequential checks, ~2 minutes, ends with build + bundle budget
 ```
 
-Ben should also set a hard OpenAI monthly spend cap in the OpenAI dashboard.
+`test:ci` is a single `&&` chain in `package.json`, so it stops at the first
+failure and everything after it is skipped. When something fails, read the
+*last* passing step to know how far it got.
 
-## Go-live checklist (from GO-LIVE-BETA-PLAN.md) — Ben's side
+## Package manager
 
-1. Cloudflare free account → add domain `bowercabinets.com` → change GoDaddy nameservers.
-2. Cloudflare Pages: planner repo → `planner.bowercabinets.com`; website repo → `www.` + bare domain. Vite preset, `npm run build`, output `dist`, env vars from each repo's `.env` (+ `VITE_PLANNER_URL=https://planner.bowercabinets.com` on the website project — without it the planner links fall back to localhost).
-3. Cloudflare Zero Trust Access gate over `*.bowercabinets.com`, one-time PIN, email allowlist.
-4. `supabase secrets set SCANNER_ALLOWED_ORIGINS=...` + Supabase Auth redirect URLs.
-5. Phone smoke test of the room scanner over real HTTPS (the whole point of the beta).
+**npm.** `bun.lock` was removed on 14 August 2026. The repo had both `bun.lock`
+and `package-lock.json` committed, while `README.md`, `NOTES.md` and CI all use
+npm — so the bun lockfile was an orphan that could only cause drift. `npm ci`
+installs clean in ~20 s and the full 39-step suite passes.
 
-## Working constraints (IMPORTANT — from the handover)
+## What is not deployed by the front-end build
 
-- Cowork sandbox file mounts have served **stale/truncated file content** for this repo. Verify with host-side reads; **Ben commits and deploys**, not the agent.
-- Generated `supabase/functions/_shared/layout/*` files must be produced by running `sync-ai-shared.mjs` on the host, then checked with `git status` before deploy.
-- Public bundle must never carry raw supplier costs — costs come from the DB (`material_pricing`, authenticated-only RLS).
-- Supabase writes are approval-gated; don't retry-spam denied writes.
+Two things are separate from the Cloudflare Pages build and always have been.
+They are the usual cause of "the code shipped but the behaviour didn't change":
 
-## Known deferred work
+- **Supabase edge functions** — `deploy-functions.ps1` / `deploy-planner-functions.ps1`, via the Supabase CLI.
+- **Database migrations** — `supabase/migrations/`, applied separately.
 
-- AI planner needs a bigger rework (Ben's words: "needs a lot more work"); trade-side AI panel (JobEditor has no "Design with AI" button yet — reuse `StepDesign` + `useAiDesigner` + `handoffBrief`).
-- RLS decision on `microvellum_products` anon readability (WS6).
-- Bundle size (~3 MB main chunk) — code-split later, not a beta blocker.
+Check both before concluding a release is done.
 
-## First actions for a new session
+## Where the real status lives
 
-1. Ask Ben to connect the repo folder (and the website repo if the session touches the handoff).
-2. Confirm with Ben what's already done from the pending list above — the audit is 3 days old.
-3. Drive the P1 fixes and the Cloudflare checklist to done, then the phone scanner beta test.
+`docs/README.md` is the index and the only document that states what is
+current. Read it before any planning document, several of which are stale and
+contradict each other.
+
+## Known open issues
+
+The highest-value items as at 14 August 2026:
+
+- `nearestWall()` in `src/lib/roomScan/webxrFit.ts` mirrors opening offsets on
+  the **S and W walls** — the canonical convention in `src/lib/layout/geometry.ts`
+  measures those from the E and S corners respectively. `tests/scanner-two-lane.test.cjs`
+  currently asserts the wrong value, so fix the test first.
+- The scan entry in `Wizard.tsx` is gated on `navigator.xr.isSessionSupported('immersive-ar')`,
+  which is never true on iOS — so iPhone users cannot reach the RoomPlan import
+  or manual entry lanes that exist for them.
+- Scanner snap tolerances (0.3–0.55 m, corner gate ×1.5) are looser than the
+  0.18 m clustering `tryFitLShape` needs, so L-shaped rooms almost never fit
+  and everything falls back to a rectangle.
+- Bundle is **4292 KiB against a 4394 KiB budget** — 97.7% used. The next
+  feature will break `test:bundle-budget`.
