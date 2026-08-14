@@ -160,7 +160,7 @@ const IDENTITY_FRAME: CoordinateFrameV1 = {
  * from floor back to wall clears `xMm`/`zMm`) and fractional values from typed
  * input, so normalise before validating: drop undefined keys and round mm.
  */
-const cleanFeature = <T extends Record<string, unknown>>(feature: T): T => {
+const cleanFeature = <T extends object>(feature: T): T => {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(feature)) {
     if (value === undefined) continue;
