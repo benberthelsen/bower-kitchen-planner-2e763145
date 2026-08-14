@@ -595,7 +595,7 @@ export default function AdminJobDetail() {
                 <CardTitle>Production Cost Breakdown</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                   {[
                     ['Materials', quoteBOM.grandTotal.materials],
                     ['Edge Tape', quoteBOM.grandTotal.edging],
