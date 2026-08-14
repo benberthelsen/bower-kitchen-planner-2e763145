@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bower — two-tap run capture (WebXR test)</title>
+<style>
+:root{--ink:#14120f;--ink2:#4a443c;--ink3:#7d756a;--bg:#f7f4f0;--card:#fff;
+  --line:#e4ded5;--accent:#8a5a2b;--good:#2f6b45;--bad:#9b2f2f;--chip:#efe9e1;}
+@media (prefers-color-scheme:dark){:root{--ink:#f4efe9;--ink2:#c6bdb2;--ink3:#8e867b;
+  --bg:#141210;--card:#1d1a16;--line:#302b24;--accent:#d9a066;--good:#7ec59a;
+  --bad:#e08a8a;--chip:#262119;}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);
+  font:16px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;overscroll-behavior:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+/* ---------- lobby ---------- */
+.lobby{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;
+  padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
+h1{font-size:1.1rem;margin:0 0 3px;letter-spacing:-.01em}
+.sub{font-size:.8rem;color:var(--ink3);margin:0 0 16px}
+.status{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:11px 13px;margin:0 0 14px;font-size:.82rem}
+.status div{display:flex;justify-content:space-between;gap:10px;padding:5px 0}
+.ok{color:var(--good);font-weight:640}.no{color:var(--bad);font-weight:640}
+.note{font-size:.79rem;color:var(--ink3);line-height:1.6}
+.note b{color:var(--ink2)}
+.btn{display:block;width:100%;border:0;border-radius:13px;padding:16px;font-size:1rem;
+  font-weight:640;background:var(--accent);color:#fff;font-family:inherit;cursor:pointer}
+.btn:active{transform:scale(.985)}
+.btn[disabled]{opacity:.4}
+.btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line);font-weight:500}
+.spacer{flex:1}
+.row{display:flex;gap:9px;margin-top:9px}
+.saved{margin:14px 0 0;padding:0;list-style:none;font-size:.87rem;color:var(--ink2)}
+.saved li{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
+.saved li:last-child{border:0}
+.tot{font-weight:640;color:var(--ink)}
+
+/* ---------- in-AR overlay ---------- */
+#overlay{position:fixed;inset:0;display:none;flex-direction:column;
+  justify-content:space-between;pointer-events:none;
+  font:16px/1.4 ui-sans-serif,-apple-system,Roboto,sans-serif;color:#fff}
+#overlay.on{display:flex}
+.top{padding:calc(10px + env(safe-area-inset-top)) 14px 0;text-align:center}
+.pill{display:inline-block;background:rgba(0,0,0,.55);padding:6px 14px;border-radius:99px;
+  font-size:.78rem;backdrop-filter:blur(8px)}
+.reticle{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;
+  border:2px solid rgba(255,255,255,.92);border-radius:50%;transition:border-color .15s}
+.reticle.hot{border-color:#5fe0a0;border-width:3px}
+.reticle.cold{border-color:rgba(255,255,255,.35)}
+.reticle:after{content:'';position:absolute;left:50%;top:50%;width:2px;height:14px;
+  margin:-7px 0 0 -1px;background:rgba(255,255,255,.92)}
+.live{position:absolute;left:0;right:0;top:calc(50% + 44px);text-align:center;
+  font-size:1.9rem;font-weight:700;letter-spacing:-.02em;text-shadow:0 2px 8px rgba(0,0,0,.7)}
+.bottom{padding:0 14px calc(16px + env(safe-area-inset-bottom));pointer-events:auto}
+.hintbar{text-align:center;font-size:.82rem;margin:0 0 10px;
+  text-shadow:0 1px 4px rgba(0,0,0,.8)}
+.arbtn{border:0;border-radius:14px;padding:17px;font-size:1rem;font-weight:700;
+  background:#fff;color:#14120f;font-family:inherit;width:100%;cursor:pointer}
+.arbtn.dark{background:rgba(0,0,0,.55);color:#fff;backdrop-filter:blur(8px);font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="lobby" id="lobby">
+  <h1>Two-tap run capture</h1>
+  <p class="sub">Real WebXR. Real metres. Android Chrome. No room required.</p>
+
+  <div class="status">
+    <div><span>Secure context (https)</span><span id="s-sec">—</span></div>
+    <div><span>navigator.xr</span><span id="s-xr">—</span></div>
+    <div><span>immersive-ar</span><span id="s-ar">—</span></div>
+    <div><span>hit-test</span><span id="s-hit">—</span></div>
+  </div>
+
+  <ul class="saved" id="saved"></ul>
+
+  <p class="note" id="note">
+    <b>What this tests.</b> You capture <i>runs</i>, not a room. A run is anything
+    joinery sits along — a back wall, a peninsula, an island, a return. Tap its two
+    ends and walk between them; it never has to fit on screen and it does not have
+    to touch a wall. Length comes from device pose, which is genuinely metric.<br><br>
+    <b>Why runs and not rooms.</b> Most kitchens are part of a bigger open-plan space.
+    There is no room to close, and the far walls are irrelevant — what matters is the
+    length of each run, what is on it, and the gap between runs. Capture two runs and
+    the walkway clearance falls out for free; it is listed below.<br><br>
+    <b>How to read it.</b> Tape-measure one run first, then capture it here and compare.
+    That number is the whole point of the exercise.<br><br>
+    <b>Deliberately missing.</b> No plane detection, no snapping, no room shape, no
+    corner solving. If two-tap capture is not accurate and quick on its own, none of
+    the rest is worth building.
+  </p>
+
+  <div class="spacer"></div>
+  <button class="btn" id="enter" disabled>Checking device…</button>
+  <div class="row"><button class="btn ghost" id="clear">Clear readings</button></div>
+</div>
+
+<div id="overlay">
+  <div class="top"><span class="pill" id="pill">tracking…</span></div>
+  <div class="reticle cold" id="ret"></div>
+  <div class="live" id="live"></div>
+  <div class="bottom">
+    <p class="hintbar" id="hint">Aim at the floor where the run starts</p>
+    <button class="arbtn" id="mark">Mark start of run</button>
+    <div class="row">
+      <button class="arbtn dark" id="undo" style="flex:1">Undo</button>
+      <button class="arbtn dark" id="exit" style="flex:1">Finish</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const runs = [];           // { a, b, len }  — a run is any line joinery sits along
+let session=null, gl=null, refSpace=null, hitSource=null, canvas=null;
+let lastHit=null;          // {x,y,z} in refSpace
+let pendingStart=null;     // first tap of the current run
+
+// ---------- capability probe ----------
+(async () => {
+  $('s-sec').innerHTML = window.isSecureContext
+    ? '<span class="ok">yes</span>' : '<span class="no">no</span>';
+  if(!window.isSecureContext){
+    $('enter').textContent = 'Needs https';
+    $('s-xr').innerHTML = $('s-ar').innerHTML = $('s-hit').innerHTML = '<span class="no">n/a</span>';
+    return;
+  }
+  if(!navigator.xr){
+    $('s-xr').innerHTML = '<span class="no">missing</span>';
+    $('s-ar').innerHTML = $('s-hit').innerHTML = '<span class="no">n/a</span>';
+    $('enter').textContent = 'No WebXR on this browser';
+    return;
+  }
+  $('s-xr').innerHTML = '<span class="ok">present</span>';
+  let ok = false;
+  try { ok = await navigator.xr.isSessionSupported('immersive-ar'); } catch(e){}
+  $('s-ar').innerHTML = ok ? '<span class="ok">supported</span>' : '<span class="no">not supported</span>';
+  $('s-hit').innerHTML = ok
+    ? '<span class="ok">requested at session start</span>'
+    : '<span class="no">n/a</span>';
+  $('enter').disabled = !ok;
+  $('enter').textContent = ok ? 'Start capture' : 'immersive-ar unavailable';
+})();
+
+// ---------- session ----------
+$('enter').addEventListener('click', async () => {
+  try{
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test', 'local-floor'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: $('overlay') },
+    });
+  }catch(e){
+    $('enter').textContent = 'Could not start: ' + (e.name || e.message);
+    return;
+  }
+
+  canvas = document.createElement('canvas');
+  document.body.appendChild(canvas);
+  gl = canvas.getContext('webgl', { xrCompatible: true, alpha: true, antialias: false });
+  gl.clearColor(0, 0, 0, 0);
+  await gl.makeXRCompatible?.();
+  session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+
+  refSpace = await session.requestReferenceSpace('local-floor');
+  const viewerSpace = await session.requestReferenceSpace('viewer');
+  hitSource = await session.requestHitTestSource({ space: viewerSpace });
+
+  // A tap on an overlay button must not ALSO fire a world select.
+  $('overlay').addEventListener('beforexrselect', e => e.preventDefault());
+  session.addEventListener('select', markPoint);
+  session.addEventListener('end', cleanup);
+
+  $('lobby').style.display = 'none';
+  $('overlay').classList.add('on');
+  session.requestAnimationFrame(onFrame);
+});
+
+function onFrame(t, frame){
+  if(!session) return;
+  session.requestAnimationFrame(onFrame);
+  const layer = session.renderState.baseLayer;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  const pose = frame.getViewerPose(refSpace);
+  $('pill').textContent = pose ? 'tracking' : 'move the phone slowly to start tracking';
+
+  const results = frame.getHitTestResults(hitSource);
+  if(results.length){
+    const p = results[0].getPose(refSpace).transform.position;
+    lastHit = { x: p.x, y: p.y, z: p.z };
+    $('ret').className = 'reticle hot';
+  } else {
+    lastHit = null;
+    $('ret').className = 'reticle cold';
+  }
+
+  if(pendingStart && lastHit){
+    const d = dist(pendingStart, lastHit);
+    $('live').textContent = fmt(d);
+  } else {
+    $('live').textContent = '';
+  }
+}
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) * 1000;   // mm, floor plane only
+const fmt = mm => mm >= 1000 ? (mm/1000).toFixed(3) + ' m' : Math.round(mm) + ' mm';
+
+function markPoint(){
+  if(!lastHit){ $('hint').textContent = 'No surface yet — aim at the floor and move slowly'; return; }
+  if(navigator.vibrate) navigator.vibrate(25);
+  if(!pendingStart){
+    pendingStart = lastHit;
+    $('mark').textContent = 'Mark end of run';
+    $('hint').textContent = 'Walk to the other end and tap again — it can be out of sight';
+    return;
+  }
+  const len = dist(pendingStart, lastHit);
+  const a = pendingStart;
+  pendingStart = null;
+  $('mark').textContent = 'Mark start of run';
+  if(len < 300){
+    $('hint').textContent = 'Too short to be a run — start again';
+    return;
+  }
+  runs.push({ a, b: lastHit, len });
+  $('hint').textContent = `Run ${runs.length}: ${fmt(len)} — next run, or Finish`;
+  renderList();
+}
+
+$('mark').addEventListener('click', markPoint);
+$('undo').addEventListener('click', () => {
+  if(pendingStart){
+    pendingStart = null; $('mark').textContent = 'Mark start of run';
+    $('hint').textContent = 'Start point cleared'; return;
+  }
+  if(runs.length){ runs.pop(); renderList(); $('hint').textContent = 'Removed the last run'; }
+});
+$('exit').addEventListener('click', () => session && session.end());
+
+function cleanup(){
+  try{ hitSource?.cancel(); }catch(e){}
+  session = null; hitSource = null; pendingStart = null; lastHit = null;
+  canvas?.remove(); canvas = null;
+  $('overlay').classList.remove('on');
+  $('lobby').style.display = '';
+  $('enter').textContent = 'Capture more runs';
+  renderList();
+}
+
+/** Shortest floor-plane distance between two run segments — the walkway
+ *  clearance between, say, a back bench and an island. Open-plan kitchens live
+ *  or die on this number and no room polygon is needed to get it. */
+function gapBetween(p, q){
+  const seg = (s, e) => ({ x: s.x, z: s.z, dx: e.x - s.x, dz: e.z - s.z });
+  const A = seg(p.a, p.b), B = seg(q.a, q.b);
+  const pointSeg = (px, pz, S) => {
+    const L = S.dx*S.dx + S.dz*S.dz;
+    let t = L > 0 ? ((px - S.x)*S.dx + (pz - S.z)*S.dz) / L : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (S.x + t*S.dx), pz - (S.z + t*S.dz));
+  };
+  return Math.min(
+    pointSeg(p.a.x, p.a.z, B), pointSeg(p.b.x, p.b.z, B),
+    pointSeg(q.a.x, q.a.z, A), pointSeg(q.b.x, q.b.z, A),
+  ) * 1000;
+}
+
+function renderList(){
+  const el = $('saved');
+  if(!runs.length){ el.innerHTML = ''; return; }
+  let html = runs.map((r, i) =>
+    `<li><span>Run ${i+1}</span><span>${fmt(r.len)}</span></li>`).join('');
+  for(let i = 0; i < runs.length; i++){
+    for(let j = i + 1; j < runs.length; j++){
+      const g = gapBetween(runs[i], runs[j]);
+      if(g < 6000){
+        html += `<li><span>Clearance ${i+1} ↔ ${j+1}</span><span>${fmt(g)}</span></li>`;
+      }
+    }
+  }
+  const total = runs.reduce((s, r) => s + r.len, 0);
+  html += `<li><span class="tot">Total run length</span><span class="tot">${fmt(total)}</span></li>`;
+  el.innerHTML = html;
+}
+
+$('clear').addEventListener('click', () => { runs.length = 0; renderList(); });
+</script>
+</body>
+</html>
