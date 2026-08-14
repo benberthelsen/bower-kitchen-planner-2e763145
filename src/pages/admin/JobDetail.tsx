@@ -708,7 +708,7 @@ export default function AdminJobDetail() {
                 </Button>
                 {!showRequestChanges ? (
                   <Button
-                    className="w-full"
+                    className="w-full min-h-11"
                     variant="outline"
                     onClick={() => setShowRequestChanges(true)}
                   >
@@ -778,7 +778,7 @@ export default function AdminJobDetail() {
                     : 'This job has not been sent to Build Flow yet.'}
               </p>
               <Button
-                className="w-full"
+                className="w-full min-h-11"
                 variant={job.buildflow_status === 'published' ? 'outline' : 'default'}
                 onClick={syncBuildFlowLead}
                 disabled={syncingLead}
@@ -822,7 +822,7 @@ export default function AdminJobDetail() {
               {/* Shop PDFs — admin only */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button className="w-full" variant="outline" disabled={!quoteBOM}>
+                  <Button className="w-full min-h-11" variant="outline" disabled={!quoteBOM}>
                     <FileText className="h-4 w-4 mr-2" />
                     Production PDFs
                     <ChevronDown className="h-3 w-3 ml-auto" />
@@ -863,7 +863,7 @@ export default function AdminJobDetail() {
 
               {/* Microvellum XML — gated on approved status */}
               <Button
-                className={`w-full ${safeStatus === 'approved' ? 'bg-navy-50 border-navy-200' : ''}`}
+                className={`w-full min-h-11 ${safeStatus === 'approved' ? 'bg-navy-50 border-navy-200' : ''}`}
                 variant="outline"
                 onClick={exportToXML}
                 disabled={exporting || safeStatus !== 'approved'}
