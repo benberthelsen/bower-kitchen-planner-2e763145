@@ -1020,8 +1020,8 @@ export default function AdminJobDetail() {
                 className={`w-full min-h-11 ${safeStatus === 'approved' ? 'bg-navy-50 border-navy-200' : ''}`}
                 variant="outline"
                 onClick={exportToXML}
-                disabled={exporting || safeStatus !== 'approved'}
-                title={safeStatus !== 'approved' ? 'Job must be approved before exporting to Microvellum' : 'Export to Microvellum XML'}
+                disabled={exporting || isEnquiry || safeStatus !== 'approved'}
+                title={isEnquiry ? 'Homeowner enquiry — production documents are unavailable' : safeStatus !== 'approved' ? 'Job must be approved before exporting to Microvellum' : 'Export to Microvellum XML'}
               >
                 {exporting ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
