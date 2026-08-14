@@ -543,7 +543,9 @@ export function buildScanFromCapture(
       services: [],
     },
     confidence: {
-      overall: warnings.length ? 0.5 : 0.7,
+      // A heavily simplified outline is a sketch, not a measurement. Keep this
+      // below the manual-entry score so staff triage catches it.
+      overall: heavilySimplified ? 0.3 : warnings.length ? 0.5 : 0.7,
       fields: {
         height: heightField,
         openings: kept.length ? ('user-marked' as const) : ('none-captured' as const),
