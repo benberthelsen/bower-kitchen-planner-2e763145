@@ -23,7 +23,7 @@ import { exportOrderingListPdf } from '@/lib/orderingListPdf';
 import { exportPackingListPdf } from '@/lib/packingListPdf';
 import { exportCutSummaryPdf } from '@/lib/cutSummaryPdf';
 import { GlobalDimensions, HardwareOptions } from '@/types';
-import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
+import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS, HANDLE_OPTIONS } from '@/constants';
 import { getSupabaseFunctionErrorMessage } from '@/lib/supabaseFunctionError';
 
 interface Job {
