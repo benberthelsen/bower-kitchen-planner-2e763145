@@ -699,7 +699,7 @@ export default function AdminJobDetail() {
                   This job needs your approval before it can proceed to production.
                 </p>
                 <Button
-                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  className="w-full min-h-11 bg-green-600 hover:bg-green-700 text-white"
                   disabled={actionLoading}
                   onClick={handleApprove}
                 >
