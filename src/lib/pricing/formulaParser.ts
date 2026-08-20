@@ -25,9 +25,17 @@ export function parseFormula(formula: string | null, vars: FormulaVariables): nu
     // Remove any whitespace
     expression = expression.replace(/\s/g, '');
     
-    // Validate expression contains only allowed characters
+    // Validate expression contains only allowed characters. Anything left that
+    // looks like an identifier is a variable this parser does not define — that
+    // silently produced a 0-area part (and so a $0 panel), so name it loudly.
     if (!/^[\d+\-*/().]+$/.test(expression)) {
-      console.warn(`Invalid formula expression: ${formula} -> ${expression}`);
+      const unknown = [...new Set(expression.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])];
+      if (unknown.length) {
+        console.warn(
+          `Formula "${formula}" references undefined variable(s): ${unknown.join(', ')} — part sized 0`);
+      } else {
+        console.warn(`Invalid formula expression: ${formula} -> ${expression}`);
+      }
       return 0;
     }
     
@@ -141,15 +149,36 @@ export function createFormulaVariables(
     carcaseThickness?: number;
     backThickness?: number;
     drawerHeight?: number;
+    /** Corner cabinets: second wall run (MV "Cabinet Depth Left/Right"). */
+    rightWidth?: number;
+    rightDepth?: number;
+    /** Drawer runner geometry from the selected hardware_pricing row. */
+    drawerRunnerHeight?: number;
+    drawerRunnerDepth?: number;
   } = {}
 ): FormulaVariables {
+  const carcaseThick = options.carcaseThickness ?? 16;
+  // Corner arms default to the cabinet's own footprint, which is correct for
+  // every non-corner product and a safe fallback for corners whose second run
+  // was not supplied.
+  const rightWidth = options.rightWidth ?? cabinetDims.width;
+  const rightDepth = options.rightDepth ?? cabinetDims.depth;
   return {
     CabWidth: cabinetDims.width,
     CabHeight: cabinetDims.height,
     CabDepth: cabinetDims.depth,
     CabLeftWidth: cabinetDims.width, // For L-shaped corners
     CabLeftDepth: cabinetDims.depth,
-    CarcaseThick: options.carcaseThickness ?? 16,
+    CabRightWidth: rightWidth,
+    CabRightDepth: rightDepth,
+    // Corner drawer bank: half the clear opening (parts use LsCabDrawerWidth*2).
+    LsCabDrawerWidth: Math.max(0, (cabinetDims.width - carcaseThick * 2) / 2),
+    // Runner depth defaults to the deepest runner that fits the carcase, in
+    // 50mm steps, which is what the shop actually orders.
+    DrawerRunnerDepth:
+      options.drawerRunnerDepth ?? Math.max(250, Math.floor((cabinetDims.depth - 55) / 50) * 50),
+    DrawerRunnerHeight: options.drawerRunnerHeight ?? (options.drawerHeight ?? 140),
+    CarcaseThick: carcaseThick,
     ShelfOffset: globalDims.shelfSetback,
     DoorGap: globalDims.doorGap,
     DrawerGap: globalDims.drawerGap,

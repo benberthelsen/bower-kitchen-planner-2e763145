@@ -126,8 +126,18 @@ export default function RoomPlanner() {
   // Convert ConfiguredCabinets to PlacedItems for UnifiedScene
   const { materials: pricedMaterials } = useMaterialsCatalog();
   const placedItems: PlacedItem[] = useMemo(() => {
-    const findUrl = (id?: string) => {
-      const m = id ? pricedMaterials.find((x) => x.id === id) : undefined;
+    // Match the way the PRICING engine resolves a material (resolveMaterialId:
+    // id -> item_code -> exact name). Matching on `id` alone meant a finish
+    // stored as an item_code (e.g. "POLY940") priced correctly but found no
+    // texture, so the 3D quietly showed the default finish while the quote
+    // charged for the chosen board.
+    const findUrl = (sel?: string) => {
+      if (!sel) return null;
+      const key = String(sel).toLowerCase().trim();
+      const m =
+        pricedMaterials.find((x) => x.id === sel) ??
+        pricedMaterials.find((x) => (x as { item_code?: string }).item_code === sel) ??
+        pricedMaterials.find((x) => (x.name ?? '').toLowerCase().trim() === key);
       return m ? (m.textureImageUrl || m.sampleImageUrl || null) : null;
     };
     return cabinets.filter(c => c.isPlaced && c.position).map(cabinet => {

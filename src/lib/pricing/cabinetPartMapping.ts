@@ -356,8 +356,27 @@ export const CABINET_PART_MAP: Record<string, CabinetPartDefinition> = {
 /**
  * Get the cabinet configuration and part list for a cabinet definition ID
  */
-export function getCabinetPartMapping(definitionId: string): CabinetPartDefinition | null {
-  return CABINET_PART_MAP[definitionId] || buildGenericCabinetMapping(definitionId);
+/** A definitionId that carries no semantics — a uuid or a Microvellum LinkID. */
+const OPAQUE_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9A-Z]{10,14}$/i;
+
+export function getCabinetPartMapping(
+  definitionId: string,
+  /**
+   * Product name to fall back on when the id is opaque. Placing a real
+   * Microvellum product gives a uuid definitionId, which contains no "door" or
+   * "drawer" text — so every such cabinet inferred 0 doors and 0 drawers and
+   * priced as an empty box, silently. The catalog name ("Upper 3 Door") does
+   * carry that information and is already passed into generateCabinetBOM.
+   */
+  fallbackName?: string,
+): CabinetPartDefinition | null {
+  const direct = CABINET_PART_MAP[definitionId];
+  if (direct) return direct;
+  if (fallbackName && OPAQUE_ID_RE.test((definitionId ?? '').trim())) {
+    return buildGenericCabinetMapping(fallbackName);
+  }
+  return buildGenericCabinetMapping(definitionId);
 }
 
 /**
@@ -366,13 +385,82 @@ export function getCabinetPartMapping(definitionId: string): CabinetPartDefiniti
  * corner parts, drawer box parts, rails, shelves). This makes EVERY catalog
  * product priceable without a hardcoded entry per id.
  */
+/**
+ * Flat boards: fillers, scribes, applied/end/return panels. Real product, one
+ * panel, no carcass. Shared with bomGenerator so both agree on what is flat.
+ */
+export const FLAT_PANEL_RE = /filler|scribe|applied|panel$|end.?panel/;
+
+/** Items with no fronts at all — kicks, rails, trims, openings. */
+const NO_FRONT_RE = /kick|rail|trim|splash|opening/;
+
+/**
+ * Single source of truth for how many doors and drawers an item has, derived
+ * from its id or its Microvellum product name.
+ *
+ * There were FOUR independent implementations of this: the pricing mapper, the
+ * catalog's inferStaticMetadata (which drives the 3D render), the dead
+ * microvellumParser, and the microvellum_products columns. They disagreed —
+ * the render fell through to `return 2` for anything it did not recognise, so
+ * fillers, toe kicks, light rails and applied panels all DREW as two-door
+ * cabinets while pricing gave them no doors at all.
+ */
+export function inferFrontCounts(idOrName: string): { doors: number; drawers: number } {
+  const s = (idOrName || '').toLowerCase();
+  if (!s) return { doors: 0, drawers: 0 };
+  // Flat boards and trims have no fronts, whatever else the name says.
+  if (FLAT_PANEL_RE.test(s) || NO_FRONT_RE.test(s)) return { doors: 0, drawers: 0 };
+
+  // Accept "3_door", "3-door" and "3 Door" alike.
+  const doorMatch = s.match(/(\d+)\s*[_-]?\s*door/);
+  const drawerMatch = s.match(/(\d+)\s*[_-]?\s*drawer/);
+  let drawers = drawerMatch ? parseInt(drawerMatch[1], 10) : (/\bdrawer/.test(s) ? 1 : 0);
+  let doors = doorMatch ? parseInt(doorMatch[1], 10) : 0;
+
+  if (!doorMatch) {
+    // Open units never have doors.
+    if (/\bopen\b|open_|_open/.test(s)) doors = 0;
+    else if (/\bdoor/.test(s)) doors = 1;
+    else if (drawers > 0) doors = 0;
+    else if (/sink/.test(s)) doors = 2;
+  }
+  return { doors: Math.max(0, doors), drawers: Math.max(0, drawers) };
+}
+
 export function buildGenericCabinetMapping(definitionId: string): CabinetPartDefinition | null {
   const id = (definitionId || '').toLowerCase();
   if (!id) return null;
   // Non-carcass items aren't priced through the parts engine.
   // Exception: 'ladder_kick' IS priced as a cabinet (mini-cabinet frame structure).
   // Plain 'kick' (adjustable-leg panels) are calculated in generateQuoteBOM from stock lengths.
-  if (/oven|fridge|dishwasher|rangehood|microwave|appliance|filler|panel$|applied/.test(id)) {
+  //
+  // NOTE: this used to exclude anything matching oven|fridge|dishwasher|
+  // rangehood|microwave. Those are APPLIANCE HOUSINGS - real carcasses with
+  // sides, bottom, back and rails - so a 600 "Base Under Counter Oven" and a
+  // 600 "Upper Rangehood Cabinet" were both being priced at $0.
+  //
+  // Fillers and panels are NOT carcasses, but they ARE real cut, edged boards
+  // with a Microvellum product behind them ("Base Return Filler", "Upper
+  // Return Filler"), so they price as a single flat panel rather than $0.
+  // calculatePartDimensions sizes these height x WIDTH, not height x depth -
+  // a 16mm filler measured across its depth would bill 35x the board.
+  if (FLAT_PANEL_RE.test(id)) {
+    const partType = /applied|end.?panel/.test(id)
+      ? 'Applied Panel'
+      : /return/.test(id)
+        ? 'Return Panel'
+        : 'Filler';
+    return {
+      config: {
+        numDoors: 0, numDrawers: 0, numShelves: 0,
+        hasSides: false, hasBack: false, hasBottom: false, hasTop: false,
+        hasRails: false, isSinkCabinet: false, isCorner: /corner/.test(id), isBlind: false,
+      },
+      parts: [{ partType, quantity: 1 }],
+    };
+  }
+  // True appliance openings have no carcass of their own.
+  if (/opening/.test(id)) {
     return null;
   }
   if (/kick/.test(id) && !/ladder/.test(id)) {
@@ -385,10 +473,12 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
   const isBlind = id.includes('blind');
   const isSink = id.includes('sink');
 
-  const doorMatch = id.match(/(\d)[_-]?door/);
-  let numDoors = doorMatch ? parseInt(doorMatch[1], 10) : (id.includes('door') ? 1 : 0);
-  const drawerMatch = id.match(/(\d)[_-]?drawer/);
-  const numDrawers = drawerMatch ? parseInt(drawerMatch[1], 10) : (id.includes('drawer') ? 1 : 0);
+  // One shared implementation — see inferFrontCounts. Accepts "base_3_drawer",
+  // "base-3-drawer" and "Base 3 Drawer" alike; Microvellum product names use a
+  // space, which the old `(\d)[_-]?door` pattern missed entirely.
+  const counts = inferFrontCounts(id);
+  let numDoors = counts.doors;
+  const numDrawers = counts.drawers;
   if (isSink && numDoors === 0) numDoors = 2;
 
   const numShelves = isTall ? 4 : isWall ? 2 : (numDrawers > 0 && numDoors === 0 ? 0 : 1);

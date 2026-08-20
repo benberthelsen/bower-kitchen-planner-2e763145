@@ -6,6 +6,16 @@ export interface FormulaVariables {
   CabDepth: number;
   CabLeftWidth: number;
   CabLeftDepth: number;
+  /** Corner cabinets: the second (right) wall run. parts_pricing uses these in
+   *  28 Carcase/Cabinet Top formulas; before they existed those parts silently
+   *  evaluated to 0 and were priced at zero area. */
+  CabRightWidth: number;
+  CabRightDepth: number;
+  /** Corner drawer bank width (parts_pricing: "LsCabDrawerWidth*2"). */
+  LsCabDrawerWidth: number;
+  /** Drawer runner geometry, from the selected runner in hardware_pricing. */
+  DrawerRunnerHeight: number;
+  DrawerRunnerDepth: number;
   CarcaseThick: number;
   ShelfOffset: number;
   DoorGap: number;
@@ -129,8 +139,20 @@ export interface CabinetBOM {
 export interface CommercialOptions {
   marginPct?: number;       // workshop margin on cost, e.g. 0.30
   designFeePct?: number;    // design fee on (cost+margin), e.g. 0.05
-  deliveryFlat?: number;    // flat delivery $
-  installFlat?: number;     // flat install $
+  deliveryFlat?: number;    // flat delivery $ (fallback when no distance given)
+  installFlat?: number;     // flat install $ (fallback when no supply mode given)
+  /**
+   * How the job is supplied. When set, shop labour is costed by the
+   * process model in workshopModel.ts instead of the flat per-cabinet
+   * regression, and install is derived rather than taken from installFlat.
+   */
+  supplyMode?: import('./workshopModel').SupplyMode;
+  /** Per-station rate/minute overrides for the workshop model. */
+  workshopRates?: Partial<import('./workshopModel').WorkshopRates>;
+  /** One-way road distance from the workshop, km. Drives banded delivery. */
+  siteDistanceKm?: number;
+  /** Override the delivery bands (defaults in deliveryCalculator.ts). */
+  deliveryBands?: import('./deliveryCalculator').DeliveryBand[];
   clientMarkupPct?: number; // per-client markup, e.g. 0.10
   gstPct?: number;          // default 0.10
   /** Stage 1 appliance catalog: extra margin applied ONLY to appliance line
@@ -211,6 +233,10 @@ export interface QuoteBOM {
   benchtops: BenchtopAllocation[];
   /** Stage 1 — appliance line items included in the quote. Empty by default. */
   applianceItems: ApplianceLineItem[];
+  /** Process-based shop labour breakdown. Null unless a supplyMode was given. */
+  workshop?: import('./workshopModel').WorkshopCost | null;
+  /** Banded delivery working. Null unless siteDistanceKm was given. */
+  delivery?: import('./deliveryCalculator').DeliveryQuote | null;
   /**
    * Deduped pricing-trust warnings across the quote (WS2 guard): materials that
    * didn't resolve (fallback used / $0 board) or resolved with no captured

@@ -8,8 +8,10 @@
 import { PlacedItem, GlobalDimensions } from '@/types';
 import { PricingData, BenchtopAllocation } from './types';
 
-/** Cabinet types that sit under a benchtop (base, corner, sink, pie/blind) */
-const BENCHTOP_CAB_RE = /^(base|corner|sink|pie)/i;
+/** Items that never sit under a benchtop, whatever they are called. */
+const NON_BENCHTOP_RE = /opening|applied|panel$|kick|rail|splash/i;
+/** Wall/upper cabinets carry no benchtop. */
+const WALL_CAB_RE = /^(wall|upper)|[_-](wall|upper)/i;
 
 /** Labels for each wall group in rotation order */
 const WALL_LABELS = 'ABCDEFGHIJKLMNOP';
@@ -29,14 +31,28 @@ export function calculateBenchtops(
 ): BenchtopAllocation[] {
   if (pricingData.benchtop.length === 0) return [];
 
-  const benchtopCabs = items.filter(
-    i => i.itemType === 'Cabinet' && BENCHTOP_CAB_RE.test(i.definitionId ?? '')
-  );
+  // A cabinet carries benchtop if it stands on the floor and is not a wall unit
+  // or a non-carcass item. The old test whitelisted ids STARTING WITH
+  // base|corner|sink|pie, which silently dropped 'open_base' (starts with
+  // "open") and every Microvellum product name — on the Donkin kitchen that
+  // lost 632mm of run from the sink side.
+  const benchtopCabs = items.filter((i) => {
+    if (i.itemType !== 'Cabinet') return false;
+    const id = i.definitionId ?? '';
+    if (NON_BENCHTOP_RE.test(id) || WALL_CAB_RE.test(id)) return false;
+    return (i.y ?? 0) <= 1; // floor-standing
+  });
 
   if (benchtopCabs.length === 0) return [];
 
-  // Default to first available material (Phase 2 will add a per-room selector)
-  const material = pricingData.benchtop[0];
+  // Honour the material flagged is_default. Taking benchtop[0] from an
+  // unordered select meant the row order decided the price: it returned
+  // "Hafele Impact Laminate 38mm" ($105.51/lm) while the default is
+  // "Meganite Snow White" ($493/sheet), so solid-surface jobs were quoted as
+  // laminate. (Phase 2 will add a per-room selector; until then, default wins.)
+  const material =
+    pricingData.benchtop.find((b) => (b as { is_default?: boolean }).is_default) ??
+    pricingData.benchtop[0];
   const overhang = globalDims.benchtopOverhang ?? 25;
   const method = material.pricing_method ?? 'per_sqm';
 

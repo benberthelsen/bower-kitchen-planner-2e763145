@@ -53,9 +53,19 @@ export function calculateHardware(
   config: CabinetConfig,
   cabinetHeight: number,
   hardwareOptions: HardwareOptions,
-  hardwarePricing: HardwarePricingRecord[]
+  hardwarePricing: HardwarePricingRecord[],
+  /**
+   * Collects "priced at a made-up rate" notices. Materials have always warned
+   * loudly when they fall back; hardware silently used $8 a hinge / $45 a
+   * runner / $2.50 a plate, which is the worst failure mode in the engine
+   * because hardware is the part of the quote that is otherwise trustworthy.
+   */
+  warnings?: string[]
 ): HardwareItem[] {
   const items: HardwareItem[] = [];
+  const warnFallback = (what: string, used: number) => {
+    warnings?.push(`hardware "${what}" not found in pricing — charged at fallback $${used.toFixed(2)}/ea`);
+  };
   const rules = DEFAULT_RULES;
   
   // Determine if tall cabinet (affects hinge count)
@@ -74,6 +84,7 @@ export function calculateHardware(
        h.item_code === hardwareOptions.hingeType)
     );
     
+    if (!hingePricing) warnFallback(`hinge ${hardwareOptions.hingeType}`, 8);
     items.push({
       itemCode: hingePricing?.item_code ?? hardwareOptions.hingeType,
       name: hingePricing?.name ?? hardwareOptions.hingeType,
@@ -88,10 +99,22 @@ export function calculateHardware(
     });
 
     // === HINGE PLATES (separate item — plate type varies by hinge type) ===
-    const platePricing = hardwarePricing.find(h =>
-      /plate/i.test(`${h.hardware_type} ${h.name}`) &&
-      (!hingePricing?.series || h.series === hingePricing.series)
-    ) ?? hardwarePricing.find(h => /plate/i.test(`${h.hardware_type} ${h.name}`));
+    // Deterministic plate choice. This used to take the FIRST row matching
+    // /plate/ — same defect class as the benchtop[0] bug that quoted a
+    // Meganite kitchen as laminate. Prefer the plate from the same series as
+    // the chosen hinge, then the cheapest priced plate, so the result does not
+    // depend on row order.
+    const plateCandidates = hardwarePricing
+      .filter(h => /plate/i.test(`${h.hardware_type} ${h.name}`))
+      .sort((a, b) => (a.unit_cost ?? Infinity) - (b.unit_cost ?? Infinity));
+    const platePricing =
+      plateCandidates.find(h => hingePricing?.series && h.series === hingePricing.series) ??
+      plateCandidates[0];
+    if (!platePricing) warnFallback('hinge plate', 2.5);
+    else if (hingePricing?.series && platePricing.series !== hingePricing.series) {
+      warnings?.push(
+        `no hinge plate matching series "${hingePricing.series}" — using "${platePricing.name}"`);
+    }
 
     items.push({
       itemCode: platePricing?.item_code ?? 'hinge-plate',
@@ -119,6 +142,7 @@ export function calculateHardware(
        h.item_code === hardwareOptions.drawerType)
     );
     
+    if (!runnerPricing) warnFallback(`drawer runner ${hardwareOptions.drawerType}`, 45);
     items.push({
       itemCode: runnerPricing?.item_code ?? hardwareOptions.drawerType,
       name: runnerPricing?.name ?? hardwareOptions.drawerType,

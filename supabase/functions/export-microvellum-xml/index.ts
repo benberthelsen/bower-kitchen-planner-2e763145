@@ -101,8 +101,28 @@ function numberValue(value: unknown, fallback = 0): number {
   return fallback;
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [candidate.message, candidate.details, candidate.hint, candidate.code]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    if (parts.length > 0) return Array.from(new Set(parts)).join(' — ');
+    try {
+      return JSON.stringify(error).slice(0, 1000);
+    } catch {
+      // Continue to the generic fallback.
+    }
+  }
+  return typeof error === 'string' && error.trim() ? error.trim() : 'Unknown error';
+}
+
 function isCornerProduct(cabinet: PersistedCabinet, product?: MicrovellumProductRow | null): boolean {
   return /corner/i.test(product?.cabinet_type || '') || /corner|pie[-_ ]?cut|blind/i.test(cabinet.definitionId || '');
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 serve(async (req) => {
@@ -189,17 +209,61 @@ serve(async (req) => {
     const allCabinets = tradeRooms.flatMap((room) => room.cabinets || []);
     const definitionIds = Array.from(new Set(allCabinets.map((cab) => cab.definitionId).filter(Boolean)));
 
+    const mappingWarnings: string[] = [];
     const productById = new Map<string, MicrovellumProductRow>();
     if (definitionIds.length > 0) {
-      const { data: products, error: productError } = await supabase
-        .from('microvellum_products')
-        .select('id, microvellum_link_id, name, category, cabinet_type, spec_group, room_component_type, default_width, default_depth, default_height, door_count, drawer_count, has_false_front, has_adjustable_shelves')
-        .in('id', definitionIds);
-
+      const productFields = 'id, microvellum_link_id, name, category, cabinet_type, spec_group, room_component_type, default_width, default_depth, default_height, door_count, drawer_count, has_false_front, has_adjustable_shelves';
+      const uuidDefinitionIds = definitionIds.filter(isUuid);
+      const productQueries = [
+        // Planner-native and imported products can persist their public/link ID
+        // rather than the table UUID. This text lookup is valid for both forms.
+        supabase.from('microvellum_products').select(productFields).in('microvellum_link_id', definitionIds),
+        ...(uuidDefinitionIds.length > 0
+          ? [supabase.from('microvellum_products').select(productFields).in('id', uuidDefinitionIds)]
+          : []),
+      ];
+      const productResults = await Promise.all(productQueries);
+      const productError = productResults.find((result) => result.error)?.error;
       if (productError) throw productError;
-      (products || []).forEach((product) => {
-        productById.set(product.id, product as MicrovellumProductRow);
+
+      productResults.flatMap((result) => result.data || []).forEach((rawProduct) => {
+        const product = rawProduct as MicrovellumProductRow;
+        productById.set(product.id, product);
+        if (product.microvellum_link_id) productById.set(product.microvellum_link_id, product);
       });
+
+      // Third resolution tier: the planner's own role ids ('base_1_door',
+      // 'wall_3_door'). These are neither a uuid nor a Microvellum LinkID, so
+      // neither query above can match them, yet they are what every job built
+      // in the trade planner actually stores. planner_definition_map bridges
+      // role -> product; it is populated from the Microvellum library import.
+      const unresolved = definitionIds.filter((id) => !productById.has(id));
+      if (unresolved.length > 0) {
+        const { data: mapRows } = await supabase
+          .from('planner_definition_map')
+          .select('definition_id, product_id, confidence')
+          .in('definition_id', unresolved);
+        const mapped = (mapRows || []).filter((row) => row.product_id);
+        if (mapped.length > 0) {
+          const { data: mappedProducts } = await supabase
+            .from('microvellum_products')
+            .select(productFields)
+            .in('id', mapped.map((row) => row.product_id as string));
+          const byUuid = new Map(
+            (mappedProducts || []).map((p) => [(p as MicrovellumProductRow).id, p as MicrovellumProductRow]),
+          );
+          mapped.forEach((row) => {
+            const product = byUuid.get(row.product_id as string);
+            if (!product) return;
+            productById.set(row.definition_id as string, product);
+            if (row.confidence === 'medium' || row.confidence === 'low') {
+              mappingWarnings.push(
+                `Role "${row.definition_id}" maps to "${product.name}" with ${row.confidence} confidence — verify before importing.`,
+              );
+            }
+          });
+        }
+      }
     }
 
     // ------------------------------------------------------------------
@@ -223,7 +287,7 @@ serve(async (req) => {
     // X along the back wall, Y toward the front of the room, angles CCW.
     // ------------------------------------------------------------------
 
-    const warnings: string[] = [];
+    const warnings: string[] = [...mappingWarnings];
     const specGroupName = designData.specificationGroup || 'Metric Decorative Laminate';
 
     const locationsXml: string[] = [];
@@ -415,7 +479,8 @@ ${productsXml.join('\n')}
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = errorMessage(error);
+    console.error('[export-microvellum-xml]', message);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -54,8 +54,15 @@ export function Preview3D({ cabinet, className = '' }: Preview3DProps) {
   const { materials } = useMaterialsCatalog();
   const item = useMemo(() => {
     const it = toPlacedItem(cabinet);
-    const findUrl = (id?: string) => {
-      const m = id ? materials.find((x) => x.id === id) : undefined;
+    // id -> item_code -> exact name, mirroring the pricing engine's
+    // resolveMaterialId. See the same fix in RoomPlanner.tsx.
+    const findUrl = (sel?: string) => {
+      if (!sel) return null;
+      const key = String(sel).toLowerCase().trim();
+      const m =
+        materials.find((x) => x.id === sel) ??
+        materials.find((x) => (x as { item_code?: string }).item_code === sel) ??
+        materials.find((x) => (x.name ?? '').toLowerCase().trim() === key);
       return m ? (m.textureImageUrl || m.sampleImageUrl || null) : null;
     };
     it.doorTextureUrl = findUrl(cabinet.materials?.exteriorFinish);

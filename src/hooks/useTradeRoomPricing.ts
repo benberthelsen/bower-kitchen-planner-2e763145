@@ -47,17 +47,46 @@ async function fetchBundleMaterials(): Promise<unknown[] | null> {
   return null;
 }
 
+/**
+ * PostgREST caps an unbounded select at 1000 rows. material_pricing has 1999
+ * rows with visibility_status='Available', so a plain select silently returned
+ * half the table and every material in the missing half lost its cost overlay
+ * (the public bundle carries identity only, never cost) — those panels then
+ * priced at $0. Page through instead of trusting the default window.
+ */
+const PAGE = 1000;
+async function selectAll(
+  table: string,
+  apply: (q: any) => any = (q) => q,
+): Promise<{ data: unknown[] | null }> {
+  const rows: unknown[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await apply(
+      (supabase as any).from(table).select('*'),
+    ).range(from, from + PAGE - 1);
+    if (error) {
+      if (from === 0) throw error;
+      break;
+    }
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return { data: rows };
+}
+
 export async function fetchPricingData(): Promise<PricingData> {
   const bundleMaterials = await fetchBundleMaterials();
+  const available = (q: any) => q.eq('visibility_status', 'Available');
   const [parts, materials, edges, hardware, labor, doorDrawer, benchtop, appliances] = await Promise.all([
-    supabase.from('parts_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('material_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('edge_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('hardware_pricing').select('*').eq('visibility_status', 'Available'),
-    supabase.from('labor_rates').select('*'),
-    supabase.from('door_drawer_pricing').select('*').eq('visibility_status', 'Available'),
-    (supabase as any).from('benchtop_pricing').select('*'),
-    (supabase as any).from('appliance_products').select('*').eq('is_active', true),
+    selectAll('parts_pricing', available),
+    selectAll('material_pricing', available),
+    selectAll('edge_pricing', available),
+    selectAll('hardware_pricing', available),
+    selectAll('labor_rates'),
+    selectAll('door_drawer_pricing', available),
+    selectAll('benchtop_pricing'),
+    selectAll('appliance_products', (q: any) => q.eq('is_active', true)),
   ]);
 
   // The public bundle is the source of material IDENTITY (names, images,
