@@ -37,6 +37,16 @@ export function toPlacedItems(cabinets: ConfiguredCabinet[], materialDefaults?: 
     blindSide: cabinet.construction?.blindSide,
     cornerReturnSide: cabinet.construction?.cornerReturnSide,
     drawerFrontHeights: cabinet.construction?.drawerFrontHeights,
+    // Corner geometry — PlacedItem has carried these fields all along and
+    // CabinetAssembler already reads them, but nothing populated them, so every
+    // corner cabinet both priced and DREW as if its second wall run matched its
+    // own width.
+    secondWidth: cabinet.construction?.secondWidth,
+    leftCarcaseDepth: cabinet.construction?.cabinetDepthLeft,
+    rightCarcaseDepth: cabinet.construction?.cabinetDepthRight,
+    // Shelf count set in the editor never reached pricing: numShelves was
+    // inferred from the definitionId (tall=4 / wall=2 / base=1) regardless.
+    shelfCount: cabinet.accessories?.shelfCount,
     // Stage 1: catalog appliance passthrough
     applianceProductId: cabinet.applianceProductId,
     applianceSnapshot: cabinet.applianceSnapshot,

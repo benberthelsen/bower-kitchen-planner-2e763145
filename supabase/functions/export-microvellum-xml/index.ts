@@ -209,6 +209,7 @@ serve(async (req) => {
     const allCabinets = tradeRooms.flatMap((room) => room.cabinets || []);
     const definitionIds = Array.from(new Set(allCabinets.map((cab) => cab.definitionId).filter(Boolean)));
 
+    const mappingWarnings: string[] = [];
     const productById = new Map<string, MicrovellumProductRow>();
     if (definitionIds.length > 0) {
       const productFields = 'id, microvellum_link_id, name, category, cabinet_type, spec_group, room_component_type, default_width, default_depth, default_height, door_count, drawer_count, has_false_front, has_adjustable_shelves';
@@ -230,6 +231,39 @@ serve(async (req) => {
         productById.set(product.id, product);
         if (product.microvellum_link_id) productById.set(product.microvellum_link_id, product);
       });
+
+      // Third resolution tier: the planner's own role ids ('base_1_door',
+      // 'wall_3_door'). These are neither a uuid nor a Microvellum LinkID, so
+      // neither query above can match them, yet they are what every job built
+      // in the trade planner actually stores. planner_definition_map bridges
+      // role -> product; it is populated from the Microvellum library import.
+      const unresolved = definitionIds.filter((id) => !productById.has(id));
+      if (unresolved.length > 0) {
+        const { data: mapRows } = await supabase
+          .from('planner_definition_map')
+          .select('definition_id, product_id, confidence')
+          .in('definition_id', unresolved);
+        const mapped = (mapRows || []).filter((row) => row.product_id);
+        if (mapped.length > 0) {
+          const { data: mappedProducts } = await supabase
+            .from('microvellum_products')
+            .select(productFields)
+            .in('id', mapped.map((row) => row.product_id as string));
+          const byUuid = new Map(
+            (mappedProducts || []).map((p) => [(p as MicrovellumProductRow).id, p as MicrovellumProductRow]),
+          );
+          mapped.forEach((row) => {
+            const product = byUuid.get(row.product_id as string);
+            if (!product) return;
+            productById.set(row.definition_id as string, product);
+            if (row.confidence === 'medium' || row.confidence === 'low') {
+              mappingWarnings.push(
+                `Role "${row.definition_id}" maps to "${product.name}" with ${row.confidence} confidence — verify before importing.`,
+              );
+            }
+          });
+        }
+      }
     }
 
     // ------------------------------------------------------------------
@@ -253,7 +287,7 @@ serve(async (req) => {
     // X along the back wall, Y toward the front of the room, angles CCW.
     // ------------------------------------------------------------------
 
-    const warnings: string[] = [];
+    const warnings: string[] = [...mappingWarnings];
     const specGroupName = designData.specificationGroup || 'Metric Decorative Laminate';
 
     const locationsXml: string[] = [];

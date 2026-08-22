@@ -144,8 +144,11 @@ export function resolvedBenchtopThicknessM(
   globalDimensions: Pick<GlobalDimensions, 'benchtopThickness'> | undefined,
   recipeThicknessMm?: number,
 ): number {
-  const thicknessMm = recipeThicknessMm && recipeThicknessMm > 0
-    ? recipeThicknessMm
-    : (globalDimensions?.benchtopThickness ?? 33);
+  // The ROOM's setting wins; the recipe is only the fallback. This was the
+  // other way round, so a job specified at 20mm rendered at the recipe's
+  // thickness regardless — while the reveals in CabinetAssembler already
+  // (correctly) let globalDimensions win. Same inconsistency, opposite answer.
+  const thicknessMm = globalDimensions?.benchtopThickness
+    ?? (recipeThicknessMm && recipeThicknessMm > 0 ? recipeThicknessMm : 33);
   return thicknessMm / 1000;
 }

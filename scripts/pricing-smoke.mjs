@@ -270,9 +270,27 @@ for (const [id, w, h, d] of families) {
   }
 }
 
-// 7. Appliances/fillers/panels intentionally produce empty BOMs (not priced via parts)
+// 7. What is and is not priced through the parts engine.
+//
+// UPDATED: this used to assert that ovens, fillers and end panels all produced
+// an empty BOM. Two of those were wrong:
+//   - an appliance HOUSING ("Base Under Counter Oven") is a real carcass with
+//     sides, bottom, back and rails, and was being quoted at $0;
+//   - a filler / end panel is a real cut, edged board with a Microvellum
+//     product behind it ("Base Return Filler"), also quoted at $0.
+// Only a true appliance OPENING has no carcass of its own.
 {
-  for (const id of ['oven_600', 'dishwasher_opening', 'base_filler', 'end_panel']) {
+  // genuinely no carcass -> still empty
+  for (const id of ['dishwasher_opening']) {
+    const bom = generateCabinetBOM(cab(id, 600, 870, 575), dims, hw, pricingData);
+    check(`${id}: opening has no carcass`, bom.parts.length === 0 && bom.totalCost === 0, `${bom.parts.length} parts, $${bom.totalCost}`);
+  }
+  // real boards -> must now be priced
+  for (const id of ['oven_600', 'base_filler', 'end_panel']) {
+    const bom = generateCabinetBOM(cab(id, 600, 870, 575), dims, hw, pricingData);
+    check(`${id}: real board is priced`, bom.parts.length > 0 && bom.totalCost > 0, `${bom.parts.length} parts, $${bom.totalCost}`);
+  }
+  for (const id of []) {
     const bom = generateCabinetBOM(cab(id, 600, 870, 575), dims, hw, pricingData);
     check(`${id}: intentionally empty BOM`, bom.parts.length === 0 && bom.totalCost === 0, `${bom.parts.length} parts, $${bom.totalCost}`);
   }

@@ -23,6 +23,12 @@ import {
 import FoldingDoor from './cabinet-parts/FoldingDoor';
 import CornerBiFold from './cabinet-parts/CornerBiFold';
 import { useOptionalTexture } from './materials/useOptionalTexture';
+
+/**
+ * Assumed physical coverage of a supplier decor texture, in mm, when the
+ * material does not state one. Only affects apparent grain scale.
+ */
+const DEFAULT_SUPPLIER_TEXTURE_MM = { width: 1200, height: 1200 };
 import { withOptionalSurfaceTexture } from './materials/physicalTexture';
 import {
   cabinetBodyMaterialForRole,
@@ -114,11 +120,18 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   // item, so the texture reliably follows the selected finish. useOptionalTexture
   // only loads an image — no data hooks — so it's safe inside the canvas.
   const doorTextureUrl = item.doorTextureUrl || finishMaterial.textureUrl || null;
+  // Physical size drives real-world texture repeat. Supplier materials carry a
+  // texture image but no stated repeat, and passing null sends
+  // cloneTextureForSurface down its fallback branch (repeatX = 1), which
+  // STRETCHES the image to each panel's width — so a 300mm door and a 900mm
+  // door render at different grain scale. A shared default keeps the scale
+  // consistent; add a real per-material repeat to the supplier catalogue and
+  // it will be used instead.
   const doorTextureSize = doorTextureUrl === finishMaterial.textureUrl
     ? finishMaterial.textureRepeatMm
-    : null;
+    : DEFAULT_SUPPLIER_TEXTURE_MM;
   const doorTex = useOptionalTexture(doorTextureUrl, doorTextureSize);
-  const carcaseTex = useOptionalTexture(item.carcaseTextureUrl || null);
+  const carcaseTex = useOptionalTexture(item.carcaseTextureUrl || null, DEFAULT_SUPPLIER_TEXTURE_MM);
   const benchTex = useOptionalTexture(benchtopMaterial.textureUrl || null, benchtopMaterial.textureRepeatMm);
 
   // Get construction recipe from product name
@@ -169,9 +182,11 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
   const bottomThickness = CONSTRUCTION_STANDARDS.bottomPanelThickness / 1000;
   
   // Toe kick from recipe or global dimensions
-  const kickHeight = recipe?.toeKick.enabled 
-    ? (recipe.toeKick.height / 1000) 
-    : ((globalDimensions?.toeKickHeight || 135) / 1000);
+  // Toe kick: the ROOM's setting wins, recipe is the fallback. Reversed, a room
+  // configured with a 150mm kick still drew 135 because the recipe supplied one.
+  const kickHeight = (globalDimensions?.toeKickHeight
+    ?? recipe?.toeKick.height
+    ?? 135) / 1000;
 
   // Wall cabinets should never render base/tall toe-kick construction even if recipe data is noisy
   const recipeKickEnabled = recipe?.toeKick.enabled ?? (config.category === 'Base' || config.category === 'Tall');
@@ -188,9 +203,9 @@ const CabinetAssembler: React.FC<CabinetAssemblerProps> = ({
     globalDimensions,
     recipe?.benchtop.thickness,
   );
-  const btOverhang = recipe?.benchtop.frontOverhang 
-    ? (recipe.benchtop.frontOverhang / 1000)
-    : ((globalDimensions?.benchtopOverhang || 0) / 1000);
+  const btOverhang = (globalDimensions?.benchtopOverhang
+    ?? recipe?.benchtop.frontOverhang
+    ?? 0) / 1000;
   
   // Reveals (gaps around doors/drawers) - priority: global dimensions > recipe > defaults
   // Recipe reveals allow per-cabinet-type customization

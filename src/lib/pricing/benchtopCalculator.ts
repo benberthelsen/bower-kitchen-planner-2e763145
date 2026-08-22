@@ -302,8 +302,23 @@ export function calculateBenchtops(
   const activeMaterials = pricingData.benchtop.filter(material => material.is_active !== false);
   if (activeMaterials.length === 0) return [];
 
+  // A cabinet carries benchtop if it stands on the floor and is not a wall unit
+  // or a non-carcass item. BENCHTOP_CAB_RE alone whitelisted ids STARTING WITH
+  // base|corner|sink|pie, which silently dropped 'open_base' (starts with
+  // "open") and every Microvellum product name — on the reference kitchen that
+  // lost 632mm of run from the sink side.
+  const carriesBenchtop = (i: PlacedItem): boolean => {
+    if (i.itemType !== 'Cabinet') return false;
+    const id = i.definitionId ?? '';
+    if (BENCHTOP_CAB_RE.test(id)) return true;
+    if ((i.y ?? 0) > 1) return false;                       // wall/stacked unit
+    if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
+    if (/filler|panel|opening|kick|rail|splash|scribe|applied/i.test(id)) return false;
+    return true;
+  };
+
   const benchtopCabs = items.filter(i =>
-    (i.itemType === 'Cabinet' && BENCHTOP_CAB_RE.test(i.definitionId ?? ''))
+    carriesBenchtop(i)
     || (
       i.itemType === 'Appliance'
       && (i.layoutRole === 'dishwasher' || BENCHTOP_APPLIANCE_RE.test(i.definitionId ?? ''))

@@ -9,6 +9,7 @@ import {
   type HomeownerCabinetFamilyId,
   type HomeownerCabinetVariant,
 } from '@/lib/homeowner/catalog';
+import { inferFrontCounts, FLAT_PANEL_RE } from '@/lib/pricing/cabinetPartMapping';
 
 /** Prefix used on ExtendedCatalogItem.id for appliance catalog products. */
 export const APPLIANCE_CATALOG_ID_PREFIX = 'appliance:';
@@ -205,28 +206,24 @@ function inferStaticMetadata(item: StaticCatalogTemplate) {
   const idLower = item.id.toLowerCase();
   const dims = inferStaticDimensions(item.specGroup, item.id);
 
+  // Shared with the pricing engine so the cabinet DRAWS with the same fronts it
+  // is CHARGED for. The previous local version matched only 1_door/2_door/
+  // 3_door and fell through to `return 2`, so fillers, toe kicks, light rails
+  // and applied panels rendered as two-door cabinets; drawers capped at 4, so a
+  // 5/6/7-drawer bank drew with none.
+  const inferred = inferFrontCounts(idLower);
   const doorCount = (() => {
-    if (idLower.includes('1_door')) return 1;
-    if (idLower.includes('2_door')) return 2;
-    if (idLower.includes('3_door')) return 3;
-    // Open shelves/units — no door regardless of category
-    if (idLower.includes('open_') || idLower.includes('_open_') || idLower.includes('_open')) return 0;
-    if (nameLower.includes('open shelf') || nameLower.includes('open unit') || nameLower.match(/\bopen\b/) && !nameLower.includes('opening')) return 0;
-    if (idLower.includes('drawer') && !idLower.includes('door')) return 0;
-    if (idLower.includes('opening')) return 0;
-    if (idLower.includes('bin_pullout') || idLower.includes('spice_pullout') || idLower.includes('bottle_pullout') || idLower.includes('tray')) return 1;
-    if (dims.category === 'Wall') return 2;
-    if (dims.category === 'Tall') return 2;
+    if (inferred.doors > 0 || inferred.drawers > 0) return inferred.doors;
+    if (FLAT_PANEL_RE.test(idLower) || /kick|rail|trim|opening/.test(idLower)) return 0;
+    if (nameLower.includes('open shelf') || nameLower.includes('open unit')) return 0;
+    if (idLower.includes('bin_pullout') || idLower.includes('spice_pullout')
+        || idLower.includes('bottle_pullout') || idLower.includes('tray')) return 1;
+    if (/rangehood|microwave|oven/.test(idLower)) return 1;
+    if (/fridge/.test(idLower)) return 0; // surround, not a doored cabinet
     return 2;
   })();
 
-  const drawerCount = (() => {
-    if (idLower.includes('4_drawer')) return 4;
-    if (idLower.includes('3_drawer')) return 3;
-    if (idLower.includes('2_drawer')) return 2;
-    if (idLower.includes('1_drawer')) return 1;
-    return 0;
-  })();
+  const drawerCount = inferred.drawers;
 
   const isCorner = idLower.includes('corner');
   const isBlind = idLower.includes('blind');

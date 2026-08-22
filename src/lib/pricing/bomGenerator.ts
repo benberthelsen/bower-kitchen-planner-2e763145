@@ -2,13 +2,15 @@
 
 import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem, KickboardAllocation } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
-import { getCabinetPartMapping, getPartQuantities } from './cabinetPartMapping';
+import { getCabinetPartMapping, getPartQuantities, FLAT_PANEL_RE } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
 import { calculateLaborCost, resolveLaborRates } from './laborCalculator';
 import { calculateBuildHours } from './timeModel';
 import { calculateBenchtops, BenchtopPricingSelection } from './benchtopCalculator';
+import { calculateWorkshopCost, type WorkshopCost } from './workshopModel';
+import { calculateDelivery } from './deliveryCalculator';
 import { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 import { distributeDrawerHeights, drawerBoxHeightFromFace } from '@/lib/drawerHeights';
 import { roundMoney } from './money';
@@ -24,13 +26,18 @@ export function generateCabinetBOM(
   pricingData: PricingData,
   catalogItemName?: string
 ): CabinetBOM {
-  const mapping = getCabinetPartMapping(cabinet.definitionId);
-  
+  const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName);
+
   if (!mapping) {
     return createEmptyBOM(cabinet, catalogItemName ?? 'Unknown');
   }
-  
-  const config = mapping.config;
+
+  // The mapping infers shelves from the definitionId (tall=4 / wall=2 / base=1).
+  // An explicit shelf count from the editor is real information and must win —
+  // it was previously dropped, so a 3-shelf base still priced a single shelf.
+  const config: CabinetConfig = typeof cabinet.shelfCount === 'number'
+    ? { ...mapping.config, numShelves: Math.max(0, cabinet.shelfCount) }
+    : mapping.config;
   const partRequirements = getPartQuantities(mapping.parts, config);
 
   const warnings: string[] = [];
@@ -225,7 +232,15 @@ function calculatePartDimensions(
   const vars = createFormulaVariables(
     { width: cabinet.width, height: cabinet.height, depth: cabinet.depth },
     globalDims,
-    { numDoors: config.numDoors, numDrawers: config.numDrawers, numShelves: config.numShelves }
+    {
+      numDoors: config.numDoors,
+      numDrawers: config.numDrawers,
+      numShelves: config.numShelves,
+      // corner second run — drives CabRightWidth / CabRightDepth, which 28
+      // parts_pricing formulas depend on
+      rightWidth: cabinet.secondWidth,
+      rightDepth: cabinet.rightCarcaseDepth,
+    }
   );
   
   const parts: PartDimension[] = [];
@@ -272,6 +287,15 @@ function calculatePartDimensions(
   };
 
   for (const req of partRequirements) {
+    // Flat boards (fillers, scribes, applied/return panels) are a single panel
+    // the size of the item's own face: height x WIDTH. The default fallback is
+    // height x DEPTH, which for a 16mm filler on a 573 deep run would bill
+    // 0.50 m2 instead of 0.014 m2 — 35x the board.
+    if (FLAT_PANEL_RE.test((cabinet.definitionId ?? '').toLowerCase())) {
+      pushPart(req, vars, '', req.quantity, cabinet.height, cabinet.width);
+      continue;
+    }
+
     const isDrawerPart = /^drawer/i.test(req.partType);
 
     // Expand per-drawer parts so each drawer prices at its own face height.
@@ -334,7 +358,15 @@ function carriesKickFace(item: PlacedItem): boolean {
   if (item.layoutRole === 'dishwasher') return true;
   if (item.itemType !== 'Cabinet') return false;
   if (item.layoutRole && KICKABLE_ROLE.has(item.layoutRole)) return true;
-  return /^(base|tall|corner|sink|pie)/i.test(item.definitionId ?? '');
+  // Final fallback for items with no layoutRole. Whitelisting ids that START
+  // WITH base|tall|corner|sink|pie missed 'open_base' (starts with "open") and
+  // every Microvellum product name ("Base Open", "Upper 3 Door"), so those
+  // cabinets contributed no kick run. The y<=1 floor test above already did the
+  // real work; here we only need to exclude wall units and non-carcass items.
+  const id = item.definitionId ?? '';
+  if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
+  if (/filler|panel|opening|kick|rail|splash|scribe|applied/i.test(id)) return false;
+  return true;
 }
 
 function cutKickRun(runLengthMm: number, stockLengthMm: number): number[] {
@@ -544,10 +576,59 @@ export function generateQuoteBOM(
   const matTotal = consolidatedSheets.reduce((s, sh) => s + sh.totalMaterialCost, 0);
   const edgeTotal = consolidatedEdgeTape.reduce((s, e) => s + e.totalCost, 0);
   const hwTotal = consolidatedHardware.reduce((s, h) => s + h.totalCost, 0);
+  const regressionLaborTotal = cabinets.reduce((s, c) => s + c.subtotals.labor, 0);
+
+  // -- Workshop model (supply mode) -------------------------------------------
+  // When a supply mode is given, shop labour comes from the process model
+  // (minutes per part / metre / product at station rates) instead of the flat
+  // per-cabinet regression, and the difference is pushed back onto each cabinet
+  // pro-rata so per-cabinet lines still add up to the job total.
+  let laborTotal = regressionLaborTotal;
+  let workshop: WorkshopCost | null = null;
+  if (commercial.supplyMode) {
+    const benchtopLm = benchtops.reduce((s, b) => s + (b.runLengthMm ?? 0), 0) / 1000;
+    // edgeCalculator already bills tape application via
+    // edge_pricing.application_cost; don't charge the Edgebanding station too.
+    const edgeApplicationAlreadyPriced = consolidatedEdgeTape.some(
+      (e) => (e.applicationCost ?? 0) > 0,
+    );
+    workshop = calculateWorkshopCost(cabinets, {
+      mode: commercial.supplyMode,
+      rates: commercial.workshopRates,
+      benchtopLm,
+      edgeApplicationAlreadyPriced,
+      extraParts: kickboards.length,
+      extraCutLengthM: kickboards.reduce((s, k) => s + (k.runLengthMm ?? 0), 0) / 1000,
+      extraInstallProducts: kickboards.length
+        + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0),
+    });
+    laborTotal = workshop.shopCost;
+    // parts_pricing handling / machining / assembly cover the SAME work as the
+    // Part handling, Panel cutting, Vertical drilling and Shop part assembly
+    // stations, so charging both bills it twice. The stations supersede them: a
+    // fixed per-part charge cannot express supply mode, whereas the stations
+    // drop out correctly for flat pack.
+    for (const cab of cabinets) {
+      const superseded =
+        cab.subtotals.handling + cab.subtotals.machining + cab.subtotals.assembly;
+      cab.totalCost -= superseded;
+      cab.subtotals.handling = 0;
+      cab.subtotals.machining = 0;
+      cab.subtotals.assembly = 0;
+    }
+    if (regressionLaborTotal > 0) {
+      for (const cab of cabinets) {
+        const share = cab.subtotals.labor / regressionLaborTotal;
+        const next = workshop.shopCost * share;
+        cab.totalCost += next - cab.subtotals.labor;
+        cab.subtotals.labor = next;
+      }
+    }
+  }
+
   const handlingTotal = cabinets.reduce((s, c) => s + c.subtotals.handling, 0);
   const machiningTotal = cabinets.reduce((s, c) => s + c.subtotals.machining, 0);
   const assemblyTotal = cabinets.reduce((s, c) => s + c.subtotals.assembly, 0);
-  const laborTotal = cabinets.reduce((s, c) => s + c.subtotals.labor, 0);
 
   // Cost -> commercial layers -> sell price. Defaults are pass-through.
   // The complete category sum is the cost authority. Cabinet totals do not
@@ -557,8 +638,21 @@ export function generateQuoteBOM(
     + assemblyTotal + laborTotal + benchtopTotal + appliancesTotal;
   const marginPct = commercial.marginPct ?? 0;
   const designFeePct = commercial.designFeePct ?? 0;
-  const deliveryFlat = commercial.deliveryFlat ?? 0;
-  const installFlat = commercial.installFlat ?? 0;
+  // -- Delivery ---------------------------------------------------------------
+  // Banded by road distance from the workshop, scaled by vehicle loads.
+  // Falls back to deliveryFlat when no distance is supplied.
+  const packedVolumeCuM = items
+    .filter((i) => i.itemType === 'Cabinet')
+    .reduce((s, i) => s + (i.width * i.depth * i.height) / 1e9, 0);
+  const deliveryQuote = commercial.siteDistanceKm != null
+    ? calculateDelivery({
+        distanceKm: commercial.siteDistanceKm,
+        volumeCuM: packedVolumeCuM,
+        bands: commercial.deliveryBands,
+      })
+    : null;
+  const deliveryFlat = deliveryQuote ? deliveryQuote.total : (commercial.deliveryFlat ?? 0);
+  const installFlat = workshop ? workshop.installCost : (commercial.installFlat ?? 0);
   const clientMarkupPct = commercial.clientMarkupPct ?? 0;
   const gstPct = commercial.gstPct ?? 0.1;
   const cm = commercial.categoryMarkups;

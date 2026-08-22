@@ -3,6 +3,8 @@
  * Defines how cabinets should be constructed based on product name patterns
  */
 
+import { MV_GENERATED_RECIPES } from './generatedRecipes';
+
 // ============= TYPE DEFINITIONS =============
 
 export type FrontType = 'DOORS' | 'DRAWERS' | 'COMBO' | 'SINK' | 'CORNER' | 'OPEN' | 'APPLIANCE_OPENING';
@@ -1145,14 +1147,52 @@ function calculateMatchScore(name1: string, name2: string): number {
  * Get construction recipe for a product by name
  * Uses improved fuzzy matching with scoring to find the best recipe
  */
+/**
+ * Fillers, scribes, applied/end panels, toe kicks, rails and trims. There was
+ * no recipe for ANY of these, so the fuzzy matcher handed them the nearest door
+ * cabinet: "Base Return Filler" resolved to a DOORS recipe with
+ * toeKick.enabled and benchtop.enabled, and a 16mm filler was drawn with a
+ * door, a toe kick and a benchtop over it.
+ */
+const FLAT_PANEL_RECIPE: ConstructionRecipe = {
+  category: 'Accessory',
+  carcass: {
+    hasBottomPanel: false, hasTopPanel: false,
+    gableThickness: 16, backPanelThickness: 0, backPanelSetback: 0,
+    topReveal: 0, bottomReveal: 0, sideReveal: 0,
+  },
+  shelves: { count: 0, adjustable: false, setback: 0, thickness: 0 },
+  toeKick: NO_TOEKICK,
+  fronts: { type: 'OPEN' },
+  benchtop: NO_BENCHTOP,
+};
+
+/** Matches the pricing engine's flat-board classification (FLAT_PANEL_RE). */
+const FLAT_OR_TRIM_RE = /filler|scribe|applied|panel$|end.?panel|toe.?kick|kick|light rail|top rail|rail|trim/i;
+
 export function getConstructionRecipe(
   productName: string,
   recipes: Record<string, ConstructionRecipe> = MV_CONSTRUCTION_RECIPES
 ): ConstructionRecipe | null {
   if (!productName) return null;
-  
+
+  // Flat boards and trims short-circuit: no fronts, no kick, no benchtop.
+  if (FLAT_OR_TRIM_RE.test(productName)) {
+    return FLAT_PANEL_RECIPE;
+  }
+
   // Normalize product name
   const normalizedName = normalizeProductName(productName);
+
+  // 0. Exact recipes generated from the real Microvellum workbooks, covering
+  //    every product the planner can place. They carry MV's own panel
+  //    thicknesses, reveals and kick geometry, so they take priority over both
+  //    the hand-written map and the fuzzy matcher.
+  if (recipes === MV_CONSTRUCTION_RECIPES) {
+    for (const [key, recipe] of Object.entries(MV_GENERATED_RECIPES)) {
+      if (normalizeProductName(key) === normalizedName) return recipe;
+    }
+  }
   
   // 1. Try exact match first (case-insensitive, normalized)
   for (const [key, recipe] of Object.entries(recipes)) {
@@ -1165,8 +1205,22 @@ export function getConstructionRecipe(
   // 2. Try best fuzzy match with scoring
   let bestMatch: { recipe: ConstructionRecipe; score: number; key: string } | null = null;
   
+  // Constrained by cabinet FAMILY. The scorer only compares words, so
+  // "Base Under Counter Oven" scored highest against a *Tall* oven recipe and
+  // an 876-high base unit was drawn with Tall reveals and Tall geometry.
+  const familyOf = (str: string): 'Base' | 'Wall' | 'Tall' | null => {
+    if (/^(base|sink)/.test(str)) return 'Base';
+    if (/^(upper|wall)/.test(str)) return 'Wall';
+    if (/^tall/.test(str)) return 'Tall';
+    return null;
+  };
+  const wantFamily = familyOf(normalizedName);
+
   for (const [key, recipe] of Object.entries(recipes)) {
     const normalizedKey = normalizeProductName(key);
+    if (wantFamily && recipe.category !== 'Accessory' && recipe.category !== wantFamily) {
+      continue;
+    }
     const score = calculateMatchScore(normalizedName, normalizedKey);
     
     // Also check if either contains the other (for partial matches)
@@ -1190,16 +1244,27 @@ export function getConstructionRecipe(
  * Generate a recipe based on name patterns when no exact match is found
  */
 function getRecipeFromPatterns(name: string): ConstructionRecipe {
-  const isBase = name.includes('base') || (!name.includes('upper') && !name.includes('wall') && !name.includes('tall'));
-  const isWall = name.includes('upper') || name.includes('wall');
-  const isTall = name.includes('tall') || name.includes('pantry') || name.includes('oven') || name.includes('broom');
-  
-  // Detect front type
-  const hasSink = name.includes('sink');
-  const hasCorner = name.includes('corner') || name.includes('blind') || name.includes('diagonal');
-  const hasDrawer = name.includes('drawer') || name.includes('dr');
-  const hasDoor = name.includes('door') || name.includes('d ') || name.endsWith(' d');
-  const isOpen = name.includes('open') || name.includes('shelf');
+  // An explicit family prefix always wins. This used to treat ANY name
+  // containing "oven" as Tall, so "Base Under Counter Oven" — an 876mm base
+  // unit — was built with Tall geometry and Tall reveals.
+  const startsBase = /^(base|sink)\b/.test(name);
+  const startsWall = /^(upper|wall)\b/.test(name);
+  const startsTall = /^tall\b/.test(name);
+  const isWall = startsWall || (!startsBase && !startsTall && /\b(upper|wall)\b/.test(name));
+  const isTall = startsTall || (!startsBase && !startsWall &&
+    /\b(tall|pantry|broom|oven tower|linen)\b/.test(name));
+  const isBase = startsBase || (!isWall && !isTall);
+
+  // Detect front type.
+  const hasSink = /\bsink\b/.test(name);
+  const hasCorner = /\b(corner|blind|diagonal)\b/.test(name);
+  // `includes('dr')` matched any substring "dr" — "Dryer" became a drawer bank.
+  const hasDrawer = /\bdrawer/.test(name);
+  // `includes('d ')` matched any word ending in d, e.g. "Fixed Shelf".
+  const hasDoor = /\bdoor/.test(name);
+  // A cabinet with a FIXED SHELF still has doors — "shelf" alone never means
+  // open, or "Tall 2 Door With Fixed Shelf" loses both its doors.
+  const isOpen = /\bopen\b|\bopen /.test(name) && !/opening/.test(name);
   const isAppliance = name.includes('dishwasher') || name.includes('fridge') || name.includes('oven') || 
                       name.includes('rangehood') || name.includes('microwave');
   
