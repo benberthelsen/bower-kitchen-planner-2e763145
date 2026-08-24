@@ -1168,7 +1168,7 @@ const FLAT_PANEL_RECIPE: ConstructionRecipe = {
 };
 
 /** Matches the pricing engine's flat-board classification (FLAT_PANEL_RE). */
-const FLAT_OR_TRIM_RE = /filler|scribe|applied|panel$|end.?panel|toe.?kick|kick|light rail|top rail|rail|trim/i;
+const FLAT_OR_TRIM_RE = /filler|scribe|applied|panel$|end.?panel|toe.?kick|\bkick\b|light rail|top rail|\brail\b|trim/i;
 
 export function getConstructionRecipe(
   productName: string,
@@ -1209,9 +1209,9 @@ export function getConstructionRecipe(
   // "Base Under Counter Oven" scored highest against a *Tall* oven recipe and
   // an 876-high base unit was drawn with Tall reveals and Tall geometry.
   const familyOf = (str: string): 'Base' | 'Wall' | 'Tall' | null => {
-    if (/^(base|sink)/.test(str)) return 'Base';
-    if (/^(upper|wall)/.test(str)) return 'Wall';
-    if (/^tall/.test(str)) return 'Tall';
+    if (/^(base|sink)\b/.test(str)) return 'Base';
+    if (/^(upper|wall)\b/.test(str)) return 'Wall';
+    if (/^tall\b/.test(str)) return 'Tall';
     return null;
   };
   const wantFamily = familyOf(normalizedName);
