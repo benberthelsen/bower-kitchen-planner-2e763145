@@ -28,6 +28,7 @@ import {
   RefreshCw,
   Ruler,
   Menu,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -189,6 +190,20 @@ function AdminLayoutInner() {
             ← Back to Planner
           </Button>
         </Link>
+        <a
+          href="https://app.bowercabinets.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => setMobileOpen(false)}
+        >
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start text-gray-400 hover:text-white hover:bg-gray-800 mt-2"
+          >
+            <ExternalLink className="h-5 w-5 mr-3" />
+            Build Flow
+          </Button>
+        </a>
       </div>
     </>
   );
