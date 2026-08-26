@@ -175,6 +175,44 @@ export default function AdminJobDetail() {
       if (error) throw error;
       await addSystemNote(job.id, 'Job approved — proceeding to production.');
       setJob({ ...job, status: 'approved', design_data: updatedDesignData });
+
+      // Approval is the hand-off point into Build Flow: the lead must exist,
+      // then the design goes with it. bf-design-intake creates the Build Flow
+      // job, links it to the lead and raises a "Review kitchen design" task, so
+      // an approved kitchen lands in the morning action queue by itself instead
+      // of waiting for someone to remember two buttons on this page.
+      //
+      // Both calls are idempotent (keyed on planner-lead:<job> and
+      // planner-design:<job>:v<n>), so re-approving costs nothing. Neither can
+      // fail the approval — the planner record is already saved, and a failed
+      // handoff is recorded on the job for retry.
+      void (async () => {
+        try {
+          const { error: leadError } = await supabase.functions.invoke('sync-buildflow-lead', {
+            body: { jobId: job.id },
+          });
+          if (leadError) throw leadError;
+
+          const { data, error: designError } = await supabase.functions.invoke('sync-buildflow-design', {
+            body: { jobId: job.id },
+          });
+          if (designError) throw designError;
+
+          const payload = (data ?? {}) as { designVersion?: number; duplicate?: boolean };
+          toast.success(
+            payload.duplicate
+              ? 'Build Flow already had this design'
+              : `Sent to Build Flow for review — design v${payload.designVersion ?? 1}`,
+          );
+          await loadJob();
+        } catch (handoffError) {
+          console.error('Build Flow handoff on approval failed:', handoffError);
+          toast.warning('Approved, but the Build Flow handoff needs attention', {
+            description: 'The planner copy is safe. Retry from the Build Flow panel below.',
+          });
+          await loadJob();
+        }
+      })();
       // Notify trade user
       if (job.profiles?.email) {
         supabase.functions.invoke('send-email', {
