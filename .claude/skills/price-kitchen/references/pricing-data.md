@@ -37,13 +37,25 @@ from hardware_pricing;
 
 -- labour -> "labor"  (fallback only; the workshop model prices labour)
 select id, name, rate_type, rate from labor_rates;
+
+-- markup -> "commercial"
+select name, markup_type, material_markup, hardware_markup, labor_markup,
+       parts_markup, edge_markup, stone_markup, delivery_markup, is_default
+from client_markup_settings
+order by is_default desc;
 ```
+
+The markup is the difference between cost and what the client pays, so it
+belongs with the catalogue rather than in a script default. Confirm the figure
+with Ben before quoting — the stored default has been out of step with what he
+actually charges.
 
 ## Assembling the file
 
 ```json
 {
   "parts": [], "materials": [], "edges": [], "hardware": [], "labor": [],
+  "commercial": { "name": "Bower standard", "overheadPct": 0, "markupPct": 0.40 },
   "hardwareOptions": {
     "hingeType": "<hardware_pricing.item_code for the hinge>",
     "drawerType": "<item_code for the runner>",
@@ -71,6 +83,19 @@ without complaining, because every row it used was valid.
 - `expected_yield_factor` is set. Missing yield falls back to 85% with a warning.
 - The hinge, runner and handle item codes exist in `hardware_pricing`, otherwise
   the engine falls back to a default price and warns.
+
+## Never let the markup default silently
+
+`price-kitchen.mjs` used to default to Microvellum's +10% overhead then +40%,
+copied from the source report. That is a competitor's business margin, and it
+quoted a job roughly 18% over what Bower's own settings said. If `commercial` is
+missing the script now prints the assumption it fell back to — read that line
+rather than skimming past it, and say in your summary which markup was applied
+and where it came from.
+
+Install is billed at cost. `generateQuoteBOM` adds it after the margin layer and
+`client_markup_settings` has no install category, so marking it up charges a
+margin the business does not apply.
 
 ## Why not just use the anon key
 

@@ -1,6 +1,6 @@
 ---
 name: price-kitchen
-description: Price a kitchen or joinery job through the BowerOS pricing engine from a Microvellum Cost Based Estimating Report, and emit an .xlsx that Build Flow imports via Quote -> Import from Microvellum. Use this whenever the ask is about what a job should cost - pricing or quoting a kitchen, re-pricing or cross-checking a Microvellum quote with Bower's own numbers, running a job through the pricing engine, checking a quote looks right, or just dropping in a Microvellum estimating report and wanting numbers back - even when BowerOS, pricing engine or skill are never said. This one is about the money - costs, labour, sell prices, variance against Microvellum. It is not for turning a drawing into a client specification document, shop drawings, or renders - use bower-client-spec or bower-shop-drawings for those, even though they take a Microvellum quote too.
+description: Price a kitchen or joinery job through the BowerOS pricing engine from a Microvellum Cost Based Estimating Report, and emit an .xlsx that Build Flow imports through its Import from Microvellum screen. Use this whenever the ask is about what a job should cost - pricing or quoting a kitchen, re-pricing or cross-checking a Microvellum quote with Bower's own numbers, running a job through the pricing engine, checking a quote looks right, or just dropping in a Microvellum estimating report and wanting numbers back - even when BowerOS, pricing engine or skill are never said. This one is about the money - costs, labour, sell prices, variance against Microvellum. It is not for turning a drawing into a client specification document, shop drawings, or renders - use bower-client-spec or bower-shop-drawings for those, even though they take a Microvellum quote too.
 ---
 
 # Price a kitchen through BowerOS
@@ -86,9 +86,14 @@ npx esbuild scripts/pricing-smoke-entry.ts --bundle --format=esm \
 node scripts/price-kitchen.mjs schedule.json pricing-data.json bower-quote.xlsx
 ```
 
+The markup comes from the `commercial` block in `pricing-data.json`. Check the
+`markup applied` line in the output and say in your summary what it was and
+where it came from — a quote at the wrong margin looks exactly like a quote at
+the right one.
+
 Options:
 
-- `--overhead 0.10 --markup 0.40` — the commercial layer. Defaults shown.
+- `--markup 0.40 --overhead 0` — override the catalogue's markup for this run.
 - `--no-install` — supply assembled, client installs.
 - `--flat-pack` — flat pack; the assembly and hardware-fitting stations drop out.
 - `BOWER_PROJECT`, `BOWER_CONTACT`, `BOWER_QUOTE_NO`, `BOWER_ROOM` — header
@@ -100,6 +105,11 @@ Options:
 calibration period. Always carry `mv_total` through into `schedule.json` so this
 runs.** It fires automatically whenever the schedule has those figures, and
 appends a row to `docs/pricing-crosscheck-log.md`.
+
+This compares at **cost**, not sell. Microvellum's line figures carry its own
++10%/+40%; ours carry Bower's, and those differ. Comparing sell prices measures
+the gap between two business margins and says nothing about whether the engine
+is right — it read -17% on a job that was actually within 3.5% at cost.
 
 Read the result as follows:
 
@@ -156,6 +166,9 @@ double-counted markup on every quote as a result.
   through `buildGenericCabinetMapping`. Fix the generic path, not the map. The
   two also use different part names (`Drawer Box Side` vs `Drawer Left Side`),
   so routing names to the map would break part lookups.
+- **The stored markup has been wrong.** `client_markup_settings` held 30% when
+  Ben was charging 40%. Confirm the margin rather than trusting the row, and say
+  which one you used.
 - **Benchtops** are passed through from the source report. The cabinet engine
   doesn't price stone; `benchtopCalculator` does, and it needs a stone catalogue
   selection this skill doesn't collect.
