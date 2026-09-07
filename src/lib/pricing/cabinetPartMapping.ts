@@ -511,8 +511,19 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
   let numDoors = counts.doors;
   const numDrawers = counts.drawers;
   if (isSink && numDoors === 0) numDoors = 2;
+  // Names that describe the cabinet's job rather than its fronts still have
+  // fronts. "Base Blind Corner" and "Upper Undermount Rangehood Cabinet" carry
+  // no door word, so both inferred zero and priced as open boxes. Bower's own
+  // SKU definitions settle it: base-1000-bc is 1 door, wall-600-rh is 2.
+  const isRangehood = /rangehood|range.?hood|canopy/.test(id);
+  if (isBlind && numDoors === 0 && numDrawers === 0) numDoors = 1;
+  if (isRangehood && numDoors === 0 && numDrawers === 0) numDoors = 2;
 
-  const numShelves = isTall ? 4 : isWall ? 2 : (numDrawers > 0 && numDoors === 0 ? 0 : 1);
+  // A rangehood cabinet is a shell around the hood — it carries no shelves.
+  // The generic wall default of 2 was giving it shelves it cannot physically
+  // hold (wall-600-rh and wall-900-rh both specify none).
+  const numShelves = isRangehood ? 0
+    : isTall ? 4 : isWall ? 2 : (numDrawers > 0 && numDoors === 0 ? 0 : 1);
   const prefix = isWall ? 'Upper' : isTall ? 'Tall' : 'Base';
 
   const config: CabinetConfig = {
@@ -558,6 +569,33 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
       { partType: 'Door', quantity: 'perDoor' },
     );
     config.numDoors = Math.max(1, numDoors);
+    return { config, parts };
+  }
+
+  if (isBlind) {
+    // A blind corner is two cabinets' worth of carcass. Past the accessible
+    // section, the run continues into the corner behind the neighbouring
+    // cabinets: that blind length still needs a back, a return panel closing
+    // it off, and a filler so the adjacent door clears the corner.
+    //
+    // It used to fall past both pie-corner branches (they require !isBlind) to
+    // the standard carcass and be billed the same seven parts as a 600 single
+    // door base — on a cabinet twice the width. The pattern here mirrors
+    // base-900-lc, which already doubles the back and rails for a corner.
+    parts.push(
+      { partType: `${prefix} Left Side`, quantity: 1 },
+      { partType: `${prefix} Right Side`, quantity: 1 },
+      { partType: `${prefix} Bottom`, quantity: 1 },
+      { partType: `${prefix} Back`, quantity: 2 },
+    );
+    if (isWall || isTall) parts.push({ partType: `${prefix} Top`, quantity: 1 });
+    else parts.push({ partType: 'Rail On Flat', quantity: 2 });
+    parts.push(
+      { partType: 'Return Panel', quantity: 1 },
+      { partType: 'Filler', quantity: 1 },
+    );
+    if (numShelves > 0) parts.push({ partType: 'Adjustable Shelf', quantity: 'perShelf' });
+    if (config.numDoors > 0) parts.push({ partType: 'Door', quantity: 'perDoor' });
     return { config, parts };
   }
 

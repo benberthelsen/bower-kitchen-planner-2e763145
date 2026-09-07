@@ -114,9 +114,9 @@ Read the result as follows:
   part-mapping gap than a genuine pricing difference.
 - **Lines more than 25% under** — the script names them. Two different causes,
   and they need telling apart:
-  - *Our gap.* A cabinet type mapped to a plain box when it has more parts —
-    blind corners, rangehood cabinets, broom cupboards. Real under-pricing; fix
-    the mapping.
+  - *Our gap.* A cabinet type getting fewer parts than it really has, or
+    inferring no doors from a name with no door word in it. Real under-pricing;
+    fix `buildGenericCabinetMapping`. Both failures were found this way.
   - *Their inflation.* Microvellum bills per part, so single flat boards
     (panels, kicks, pelmets, under panels) come out wildly high — anywhere from
     $88 to $416 for one board on the same job. Ours is right; theirs isn't.
@@ -148,10 +148,20 @@ double-counted markup on every quote as a result.
 
 ## Known gaps — state these, don't paper over them
 
-- **Blind corners, undermount rangehood cabinets and tall broom cabinets price
-  low.** `buildGenericCabinetMapping` gives them a plain box, missing the return
-  panel and filler a real blind corner has. Worth $700–900 on a kitchen with all
-  three. Needs real per-type part definitions.
+- **Tall broom cabinets price about 25% under Microvellum.** Unexplained — a
+  broom cupboard's part list looks right (carcass, shelves, door) and no missing
+  component has been identified, so nothing was invented to close it. Watch the
+  cross-check log: if broom cabinets read low across several jobs it is a real
+  gap worth chasing; on one job it is noise. Blind corners and rangehood
+  cabinets had the same symptom and were fixed in Sep 2026 — the blind corner
+  was missing its return panel, filler and second back, and both were inferring
+  zero doors from names that carry no door word.
+- **`CABINET_PART_MAP` is effectively dead code.** Its 27 SKU-keyed definitions
+  are only reached on an exact `definitionId` match, and real placed products
+  carry opaque uuids while Microvellum sends product names — so everything goes
+  through `buildGenericCabinetMapping`. Fix the generic path, not the map. The
+  two also use different part names (`Drawer Box Side` vs `Drawer Left Side`),
+  so routing names to the map would break part lookups.
 - **Benchtops** are passed through from the source report. The cabinet engine
   doesn't price stone; `benchtopCalculator` does, and it needs a stone catalogue
   selection this skill doesn't collect.
