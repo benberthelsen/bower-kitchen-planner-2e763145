@@ -1,4 +1,15 @@
-// Labor cost calculator
+// Labor cost calculator — FALLBACK ONLY.
+//
+// Quotes price shop labour through the process model in workshopModel.ts
+// (minutes per part / metre / product at station rates). This flat regression
+// is used only when a caller passes supplyMode: 'none', and when a single
+// cabinet is costed outside a quote.
+//
+// Treat its rates with suspicion: they were fitted against the LINE TOTALS of
+// Microvellum cost reports, which carry +10% overhead and +40% markup, so they
+// express marked-up labour rather than cost. Measured on the "erin and matt
+// shed house" job, this model returned 0.97x Microvellum's sell labour and
+// 1.49x its cost. That double-markup is why it no longer prices quotes.
 //
 // Rates are calibrated against real Microvellum "Cost Based Estimating"
 // reports from completed, well-priced jobs (82 line items across 3 jobs;
@@ -66,7 +77,13 @@ export function calculateLaborCost(
   cabinetWidthMm: number,
   isTall: boolean,
   rates: LaborRates = DEFAULT_LABOR_RATES,
+  isFlatPanel = false,
 ): number {
+  // A panel, filler, scribe or pelmet is one cut and edged board. It takes the
+  // single panel rate — not the per-cabinet base plus a width allowance for a
+  // carcass that was never assembled.
+  if (isFlatPanel) return rates.panelOrFiller;
+
   const widthM = Math.max(0, cabinetWidthMm) / 1000;
   return (
     rates.basePerCabinet +

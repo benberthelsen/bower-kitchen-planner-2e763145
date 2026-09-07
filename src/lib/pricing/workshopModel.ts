@@ -24,7 +24,9 @@ export type SupplyMode =
   | 'assembled_installed'
   | 'assembled'
   | 'flat_pack'
-  | 'flat_pack_hw_loose';
+  | 'flat_pack_hw_loose'
+  /** Opt out of the process model and fall back to the flat regression. */
+  | 'none';
 
 export interface WorkshopRates {
   // ---- station rates, $/hr (MV: Drafting 98, machining 250, edge/assembly/

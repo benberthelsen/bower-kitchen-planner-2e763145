@@ -389,7 +389,20 @@ export function getCabinetPartMapping(
  * Flat boards: fillers, scribes, applied/end/return panels. Real product, one
  * panel, no carcass. Shared with bomGenerator so both agree on what is flat.
  */
-export const FLAT_PANEL_RE = /filler|scribe|applied|panel$|end.?panel/;
+export const FLAT_PANEL_RE = /filler|scribe|applied|panel$|end.?panel|pelmet|bulkhead|valance/;
+
+/**
+ * True for anything that is one cut and edged board rather than a carcass —
+ * panels, fillers, scribes, pelmets and kicks. A 'ladder_kick' is excluded: it
+ * is a mini-cabinet frame, not a board. Use this for costing decisions; use
+ * FLAT_PANEL_RE only where the kick exclusion has already been handled.
+ */
+export function isFlatBoardProduct(idOrName: string): boolean {
+  const s = (idOrName || '').toLowerCase();
+  if (!s) return false;
+  if (/ladder/.test(s)) return false;
+  return FLAT_PANEL_RE.test(s) || /kick/.test(s);
+}
 
 /** Items with no fronts at all — kicks, rails, trims, openings. */
 const NO_FRONT_RE = /kick|rail|trim|splash|opening/;
@@ -445,6 +458,10 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
   // calculatePartDimensions sizes these height x WIDTH, not height x depth -
   // a 16mm filler measured across its depth would bill 35x the board.
   if (FLAT_PANEL_RE.test(id)) {
+    // A pelmet or bulkhead is a strip of board fixed under or over a run of
+    // cabinets. It used to fall through to the carcass branch and be billed
+    // sides, back, bottom and rails, which priced a 2152mm pelmet at more than
+    // the wall cabinet it hangs off.
     const partType = /applied|end.?panel/.test(id)
       ? 'Applied Panel'
       : /return/.test(id)
@@ -463,8 +480,22 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
   if (/opening/.test(id)) {
     return null;
   }
+  // A kick is normally inferred from where the base cabinets sit, and priced as
+  // job-level runs from stock lengths (see calculateKickboardRuns). But a
+  // schedule can also carry kicks as explicit products — every Microvellum
+  // export does, as "Toe Kick Base" — and those used to price at $0, silently
+  // dropping real board and real labour off the quote. Price an explicit kick
+  // as the flat board it is; generateQuoteBOM skips the inferred runs when it
+  // sees explicit ones, so the two paths never both charge.
   if (/kick/.test(id) && !/ladder/.test(id)) {
-    return null;
+    return {
+      config: {
+        numDoors: 0, numDrawers: 0, numShelves: 0,
+        hasSides: false, hasBack: false, hasBottom: false, hasTop: false,
+        hasRails: false, isSinkCabinet: false, isCorner: false, isBlind: false,
+      },
+      parts: [{ partType: 'Filler', quantity: 1 }],
+    };
   }
 
   const isWall = id.startsWith('wall') || id.includes('upper');

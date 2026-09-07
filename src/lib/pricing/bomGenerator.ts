@@ -2,7 +2,7 @@
 
 import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem, KickboardAllocation } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
-import { getCabinetPartMapping, getPartQuantities, FLAT_PANEL_RE } from './cabinetPartMapping';
+import { getCabinetPartMapping, getPartQuantities, FLAT_PANEL_RE, isFlatBoardProduct } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
@@ -113,10 +113,14 @@ export function generateCabinetBOM(
     warnings.push('No labour-rate catalogue rows loaded — using calibrated labour defaults');
   }
 
-  // Labor (calibrated against real MV cost reports; tunable via labor_rates)
-  const isTall = cabinet.height >= 1500 || /tall|pantry|broom|linen/i.test(cabinet.definitionId ?? '');
+  // Fallback labour only. generateQuoteBOM replaces this with the process model
+  // unless the caller opts out with supplyMode: 'none'; it is kept per-cabinet
+  // so a single cabinet costed on its own still has a labour figure.
+  const isFlatPanel = isFlatBoardProduct(catalogItemName ?? cabinet.definitionId ?? '');
+  const isTall = !isFlatPanel &&
+    (cabinet.height >= 1500 || /tall|pantry|broom|linen/i.test(cabinet.definitionId ?? ''));
   const laborRates = resolveLaborRates(pricingData.labor as never);
-  const labor = calculateLaborCost(config, cabinet.width, isTall, laborRates);
+  const labor = calculateLaborCost(config, cabinet.width, isTall, laborRates, isFlatPanel);
 
   // Production build hours (scheduling + cross-check vs calibrated labor)
   const buildHours = calculateBuildHours(sheets, edgeTape, config, isTall, cabinet.definitionId);
@@ -481,7 +485,14 @@ export function generateQuoteBOM(
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
   const jobLevelWarnings: string[] = [];
-  const kickboards = hardwareOptions.adjustableLegs === false
+  // Explicit kick products beat inferred runs: when the schedule already lists
+  // its kicks (as a Microvellum export does), pricing the geometry-derived runs
+  // as well would charge the same board twice.
+  const hasExplicitKicks = items.some(
+    (i) => i.itemType === 'Cabinet' && /kick/i.test(i.definitionId ?? '') &&
+           !/ladder/i.test(i.definitionId ?? ''),
+  );
+  const kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks
     ? []
     : calculateKickboardRuns(items, globalDims);
 
@@ -578,14 +589,21 @@ export function generateQuoteBOM(
   const hwTotal = consolidatedHardware.reduce((s, h) => s + h.totalCost, 0);
   const regressionLaborTotal = cabinets.reduce((s, c) => s + c.subtotals.labor, 0);
 
-  // -- Workshop model (supply mode) -------------------------------------------
-  // When a supply mode is given, shop labour comes from the process model
-  // (minutes per part / metre / product at station rates) instead of the flat
-  // per-cabinet regression, and the difference is pushed back onto each cabinet
-  // pro-rata so per-cabinet lines still add up to the job total.
+  // -- Workshop model ---------------------------------------------------------
+  // Shop labour comes from the process model — minutes per part, per metre and
+  // per product, each at its station's hourly rate — not from the flat
+  // per-cabinet regression in laborCalculator. The regression cannot express
+  // what a cabinet actually is: it charged the same base whether the box had
+  // one door or six drawers, and it could not drop the assembly stations for a
+  // flat-pack job. It survives only as the fallback when a caller explicitly
+  // opts out with supplyMode: 'none'.
+  //
+  // The process cost is pushed back onto each cabinet pro-rata so per-cabinet
+  // lines still add up to the job total.
+  const supplyMode = commercial.supplyMode ?? 'assembled_installed';
   let laborTotal = regressionLaborTotal;
   let workshop: WorkshopCost | null = null;
-  if (commercial.supplyMode) {
+  if (supplyMode !== 'none') {
     const benchtopLm = benchtops.reduce((s, b) => s + (b.runLengthMm ?? 0), 0) / 1000;
     // edgeCalculator already bills tape application via
     // edge_pricing.application_cost; don't charge the Edgebanding station too.
@@ -593,7 +611,7 @@ export function generateQuoteBOM(
       (e) => (e.applicationCost ?? 0) > 0,
     );
     workshop = calculateWorkshopCost(cabinets, {
-      mode: commercial.supplyMode,
+      mode: supplyMode,
       rates: commercial.workshopRates,
       benchtopLm,
       edgeApplicationAlreadyPriced,
@@ -616,10 +634,18 @@ export function generateQuoteBOM(
       cab.subtotals.machining = 0;
       cab.subtotals.assembly = 0;
     }
-    if (regressionLaborTotal > 0) {
+    // Spread the job's shop cost across cabinets by what actually drives shop
+    // time — parts to cut, edge and assemble, and hardware to fit — rather than
+    // by the regression figure it just replaced. Weighting by the regression
+    // would put its distortion straight back into the per-cabinet lines: a
+    // pelmet would still carry a full cabinet's share of the shop.
+    const workWeight = (cab: CabinetBOM) =>
+      cab.parts.reduce((s, p) => s + Math.max(1, p.quantity ?? 1), 0)
+      + cab.hardware.reduce((s, h) => s + Math.max(0, h.quantity ?? 0), 0);
+    const totalWeight = cabinets.reduce((s, c) => s + workWeight(c), 0);
+    if (totalWeight > 0) {
       for (const cab of cabinets) {
-        const share = cab.subtotals.labor / regressionLaborTotal;
-        const next = workshop.shopCost * share;
+        const next = workshop.shopCost * (workWeight(cab) / totalWeight);
         cab.totalCost += next - cab.subtotals.labor;
         cab.subtotals.labor = next;
       }
@@ -695,6 +721,11 @@ export function generateQuoteBOM(
     benchtops,
     kickboards,
     applianceItems,
+    // Both are declared on QuoteBOM but were never actually returned, so a
+    // quote could never show or store the working behind its labour, install
+    // and delivery figures — only the single rolled-up number.
+    workshop,
+    delivery: deliveryQuote,
     grandTotal: {
       materials: matTotal,
       edging: edgeTotal,
