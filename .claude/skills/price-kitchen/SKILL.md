@@ -1,6 +1,6 @@
 ---
 name: price-kitchen
-description: Price a kitchen through the BowerOS pricing engine from a Microvellum estimating report, and emit a workbook Build Flow can import via its Microvellum importer. Use when asked to price a job, quote a kitchen, re-price a Microvellum quote with Bower's own numbers, or check what a job should cost.
+description: Price a kitchen or joinery job through the BowerOS pricing engine from a Microvellum Cost Based Estimating Report, and emit an .xlsx that Build Flow imports via Quote -> Import from Microvellum. Use this whenever the ask is about what a job should cost - pricing or quoting a kitchen, re-pricing or cross-checking a Microvellum quote with Bower's own numbers, running a job through the pricing engine, checking a quote looks right, or just dropping in a Microvellum estimating report and wanting numbers back - even when "BowerOS", "pricing engine" or "skill" are never said. This one is about the money: costs, labour, sell prices, variance against Microvellum. It is not for turning a drawing into a client specification document, shop drawings, or renders - use bower-client-spec or bower-shop-drawings for those, even though they take a Microvellum quote too.
 ---
 
 # Price a kitchen through BowerOS
@@ -11,6 +11,9 @@ Flow's existing **Quote → Import from Microvellum** reads.
 
 The output carries Microvellum's *schedule* (what cabinets, what sizes) and
 BowerOS's *prices*. Microvellum's own figures are discarded.
+
+Run from the `bower-kitchen-planner` repo — the pricing engine is compiled from
+its `src/`, and every script below lives in its `scripts/`.
 
 ## Which source to use
 
@@ -58,26 +61,17 @@ rather than pricing bad input.
 
 ### 2. Pull the live catalogue
 
-Cost data is not publicly readable, so fetch it with the Supabase MCP against
-project `ehtwywctledgkxexztbh` (bower-cabinet-ai) and write `pricing-data.json`:
+Cost data is authenticated-read only, so fetch it with the Supabase MCP against
+project `ehtwywctledgkxexztbh` (bower-cabinet-ai) and write `pricing-data.json`.
 
-```json
-{
-  "parts": [], "materials": [], "edges": [], "hardware": [], "labor": [],
-  "hardwareOptions": { "hingeType": "...", "drawerType": "...",
-                       "cabinetTop": "rail", "supplyHardware": true,
-                       "adjustableLegs": true, "handleId": "..." },
-  "defaults": { "carcaseMaterialId": "...", "exteriorMaterialId": "...",
-                "edgeId": "..." }
-}
-```
+**Read `references/pricing-data.md`** — it has the five queries with the exact
+columns the engine reads, the shape of the file, and the checks worth doing
+before you price anything.
 
-Select every column the engine reads — for `parts_pricing` that is
-`name, part_type, length_function, width_function, edging,
-handling_cost, area_handling_cost, machining_cost, area_machining_cost,
-assembly_cost, area_assembly_cost, visibility_status`; for `materials_pricing`
-the `area_cost`, sheet size and yield fields. Confirm the board and finish the
-client actually chose, and set `defaults` to those material ids.
+The part that needs a human answer rather than a query: which board, finish,
+hinge, runner and handle this job actually uses. The engine will price a whole
+kitchen in the wrong finish without a murmur, because every row it used was
+valid. Ask if you don't know.
 
 ### 3. Build the engine bundle
 
