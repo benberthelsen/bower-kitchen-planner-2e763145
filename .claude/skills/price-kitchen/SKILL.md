@@ -49,9 +49,8 @@ Rows are grouped under `Room Name: <name>` headers. Write
    "w": 896.5, "h": 880, "d": 555, "mv_total": 960.24 }]
 ```
 
-`mv_total` is optional — carry it when present so benchtops and other items the
-cabinet engine doesn't price can pass through, and so the run can be compared
-against Microvellum.
+Carry `mv_total` on every row. Benchtops and other items the cabinet engine
+does not price pass through on it, and step 5's cross-check depends on it.
 
 **Verify before going on:** the parsed material and labour columns must sum to
 the report's own stated totals. If they don't, the extraction is wrong — fix it
@@ -101,7 +100,41 @@ Options:
 - `BOWER_PROJECT`, `BOWER_CONTACT`, `BOWER_QUOTE_NO`, `BOWER_ROOM` — header
   fields the importer picks up.
 
-### 5. Check the result before handing it over
+### 5. Cross-check against the source quote
+
+**Ben is supplying the Microvellum quote alongside each job for now, as a
+calibration period. Always carry `mv_total` through into `schedule.json` so this
+runs.** It fires automatically whenever the schedule has those figures, and
+appends a row to `docs/pricing-crosscheck-log.md`.
+
+Read the result as follows:
+
+- **Job variance within ±5%** — expected on a normal kitchen. Report it and move on.
+- **Outside ±5%** — investigate before sending. It is far more likely to be a
+  part-mapping gap than a genuine pricing difference.
+- **Lines more than 25% under** — the script names them. Two different causes,
+  and they need telling apart:
+  - *Our gap.* A cabinet type mapped to a plain box when it has more parts —
+    blind corners, rangehood cabinets, broom cupboards. Real under-pricing; fix
+    the mapping.
+  - *Their inflation.* Microvellum bills per part, so single flat boards
+    (panels, kicks, pelmets, under panels) come out wildly high — anywhere from
+    $88 to $416 for one board on the same job. Ours is right; theirs isn't.
+
+Use `scripts/mv-per-part-check.mjs` to tell them apart. On real cabinets the two
+engines agree on cost per part within a few percent; where they don't, look at
+whether the part *count* is wrong rather than the rate.
+
+Watch the log across jobs. A single outlier is noise; the same cabinet type
+reading low on several jobs is a mapping worth fixing, and that is the point of
+collecting them.
+
+**Never tune rates to close a gap with Microvellum.** The engine prices
+bottom-up from real quantities and station rates, and that is deliberate — the
+old flat regression was fitted to Microvellum's marked-up line totals and
+double-counted markup on every quote as a result.
+
+### 6. Check the result before handing it over
 
 - **Read the warnings.** "no part mapping" means a product priced at $0 and the
   quote is short by whatever that cabinet was worth. Never pass a quote on with
@@ -126,12 +159,10 @@ Options:
   Flow's `width >= 100` test and is read as a buyout item. The money is right,
   the W/H/D show as 0. Microvellum's own reports import the same way.
 
-## Cross-checking against Microvellum
+## Deeper comparison tools
 
-`scripts/mv-job-runthrough.mjs` compares line by line, and
-`scripts/mv-per-part-check.mjs` compares cost per part. Both take the same
-`schedule.json`. Use them when a total looks wrong — they show whether the gap
-is in the rates or in the part mapping.
-
-Microvellum is a reference, never a calibration target. Do not tune rates to
-match it.
+`scripts/mv-job-runthrough.mjs` compares line by line and splits labour against
+Microvellum's own figures; `scripts/mv-per-part-check.mjs` compares cost per
+part and shows the spread. Both take the same `schedule.json`. Reach for them
+when step 5 flags something and you need to see whether the gap is in the rates
+or in the part count.

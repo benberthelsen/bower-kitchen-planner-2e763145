@@ -229,6 +229,83 @@ console.log('  ' + pad(`sell ex GST (+${(OVERHEAD * 100).toFixed(0)}% / +${(MARK
 console.log('  ' + pad('GST', 26) + lpad(fmt(gst), 12));
 console.log('  ' + pad('TOTAL inc GST', 26) + lpad(fmt(grandSell + gst), 12));
 
+// ---------------------------------------------------------------------------
+// Cross-check against the source quote, when the schedule carries its figures.
+//
+// Microvellum is a REFERENCE, not a calibration target — its per-part billing
+// inflates flat boards badly. The point of this check is to catch modelling
+// gaps in our own engine (a product that priced at $0, a cabinet type mapped to
+// a plain box), not to tune rates until the two agree.
+//
+// Every run appends to docs/pricing-crosscheck-log.md so a pattern across jobs
+// becomes visible: one job's outlier is noise, the same cabinet type reading
+// low on five jobs is a part mapping worth fixing.
+const priced = cabinetRows.filter((r) => Number(r.mv_total) > 0);
+if (priced.length) {
+  const mvTotal = schedule.reduce((s, r) => s + (Number(r.mv_total) || 0), 0);
+  const variance = ((grandSell - mvTotal) / mvTotal) * 100;
+
+  // Microvellum spreads install across its line items; ours is a separate line.
+  // Push ours back across the cabinets so per-line comparison is like for like.
+  const installShare = installCost * UPLIFT / Math.max(1, cabinetCost);
+  const lineSell = (idx) => lineCost[idx] * UPLIFT * (1 + installShare);
+
+  console.log('\n=== CROSS-CHECK vs SOURCE QUOTE ===\n');
+  console.log('  ' + pad('BowerOS sell ex GST', 26) + lpad(fmt(grandSell), 12));
+  console.log('  ' + pad('Source sell ex GST', 26) + lpad(fmt(mvTotal), 12));
+  console.log('  ' + pad('variance', 26) +
+              lpad((variance >= 0 ? '+' : '') + variance.toFixed(1) + '%', 12) +
+              (Math.abs(variance) <= 5 ? '   within tolerance'
+                : '   OUTSIDE ±5% — investigate before sending'));
+
+  const diffs = cabinetRows
+    .map((r, idx) => ({ name: r.name, w: r.w, ours: lineSell(idx),
+                        theirs: Number(r.mv_total) || 0 }))
+    .filter((d) => d.theirs > 0)
+    .map((d) => ({ ...d, diff: d.ours - d.theirs,
+                   pct: ((d.ours - d.theirs) / d.theirs) * 100 }))
+    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+  console.log('\n  Largest line differences (ours vs theirs):');
+  for (const d of diffs.slice(0, 8)) {
+    console.log('    ' + pad(d.name.slice(0, 34), 36) + lpad(fmt(d.ours), 11) +
+                lpad(fmt(d.theirs), 11) +
+                lpad((d.diff >= 0 ? '+' : '') + d.pct.toFixed(0) + '%', 8));
+  }
+  const low = diffs.filter((d) => d.pct < -25);
+  if (low.length) {
+    console.log(`\n  ${low.length} line(s) more than 25% under the source quote.`);
+    console.log('  Check the part mapping for these before assuming we are just cheaper:');
+    for (const n of [...new Set(low.map((d) => d.name))].slice(0, 6)) {
+      console.log('    - ' + n);
+    }
+  }
+
+  const logPath = 'docs/pricing-crosscheck-log.md';
+  try {
+    fs.mkdirSync('docs', { recursive: true });
+    if (!fs.existsSync(logPath)) {
+      fs.writeFileSync(logPath,
+        '# Pricing cross-check log\n\n' +
+        'Each row is one job priced by BowerOS and compared against the quote it\n' +
+        'came from. Microvellum is a reference only — repeated divergence on the\n' +
+        'same cabinet type points at a part mapping to fix, not a rate to tune.\n\n' +
+        '| Date | Project | Cabs | BowerOS ex GST | Source ex GST | Var | Worst lines |\n' +
+        '| --- | --- | --- | --- | --- | --- | --- |\n', 'utf8');
+    }
+    const worst = diffs.slice(0, 3)
+      .map((d) => `${d.name} ${d.pct >= 0 ? '+' : ''}${d.pct.toFixed(0)}%`).join('; ');
+    fs.appendFileSync(logPath,
+      `| ${new Date().toISOString().slice(0, 10)} ` +
+      `| ${process.env.BOWER_PROJECT ?? path.basename(schedulePath, '.json')} ` +
+      `| ${items.length} | ${fmt(grandSell)} | ${fmt(mvTotal)} ` +
+      `| ${variance >= 0 ? '+' : ''}${variance.toFixed(1)}% | ${worst} |\n`, 'utf8');
+    console.log(`\n  Logged to ${logPath}`);
+  } catch (e) {
+    console.error('  (could not write the cross-check log: ' + e.message + ')');
+  }
+}
+
 if (bom.warnings?.length) {
   console.log('\n=== WARNINGS — check these before sending ===');
   for (const w of bom.warnings.slice(0, 15)) console.log('  - ' + w);
