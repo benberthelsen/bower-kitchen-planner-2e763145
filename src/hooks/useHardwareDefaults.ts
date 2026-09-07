@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
+import { applyHafeleTradeCost, fetchHafeleTradePrices } from '@/lib/pricing/hafeleTradePrices';
 
 const STORAGE_KEY = 'trade.hardware.selectedSku';
 
@@ -27,8 +28,10 @@ export function useHardwareDefaults() {
         unit_cost: number | null;
       }>('hardware_pricing', { visibility_status: 'Available' });
 
+      const priced = applyHafeleTradeCost(data, await fetchHafeleTradePrices());
+
       setHardware(
-        data
+        priced
           .map((row) => ({
             id: row.id,
             sku: row.item_code,

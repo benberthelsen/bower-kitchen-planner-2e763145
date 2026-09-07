@@ -12,6 +12,7 @@ import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { toPlacedItems } from '@/lib/trade/cabinetPlacedItem';
 import { allocateQuotedTotal } from '@/lib/trade/pricingPersistence';
 import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
+import { applyHafeleTradeCost, fetchHafeleTradePrices } from '@/lib/pricing/hafeleTradePrices';
 
 export interface TradeRoomPricingInput {
   cabinets: ConfiguredCabinet[];
@@ -52,6 +53,7 @@ async function fetchBundleMaterials(): Promise<unknown[] | null> {
 
 export async function fetchPricingData(): Promise<PricingData> {
   const bundleMaterials = await fetchBundleMaterials();
+  const hafelePricesPromise = fetchHafeleTradePrices();
   const [parts, materials, edges, hardware, labor, doorDrawer, benchtop, appliances] = await Promise.all([
     fetchAllPricingRows<PricingData['parts'][number]>('parts_pricing', { visibility_status: 'Available' }),
     fetchAllPricingRows<PricingData['materials'][number]>('material_pricing', { visibility_status: 'Available' }),
@@ -96,11 +98,19 @@ export async function fetchPricingData(): Promise<PricingData> {
     mergedMaterials = [...withCost, ...dbMaterials.filter((m) => !seen.has(m.id))];
   }
 
+  // Hardware COST falls back to the Häfele price book (Bower's buy price,
+  // ex GST) wherever a hardware_pricing row carries no usable cost, so a
+  // cabinet is never quoted on a hardcoded guess.
+  const hardwareWithCost = applyHafeleTradeCost(
+    hardware as PricingData['hardware'],
+    await hafelePricesPromise,
+  );
+
   return {
     parts: parts as PricingData['parts'],
     materials: mergedMaterials,
     edges: edges as PricingData['edges'],
-    hardware: hardware as PricingData['hardware'],
+    hardware: hardwareWithCost as PricingData['hardware'],
     labor: labor as PricingData['labor'],
     doorDrawer: doorDrawer as PricingData['doorDrawer'],
     benchtop: benchtop as PricingData['benchtop'],

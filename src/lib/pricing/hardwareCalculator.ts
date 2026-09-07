@@ -46,6 +46,27 @@ const CONSTRUCTION_CONSUMABLES: ConsumableRule[] = [
   { stage: 'install', name: '70mm Screws (wall fixing)', match: '70mm screw', qtyPerCabinet: 2, fallbackUnitCost: 0.07 },
 ];
 
+/**
+ * hardware_pricing.hardware_type is not written consistently — the catalogue
+ * holds "Drawer Runner", "Hinge", "Handle", "Shelf Pin" alongside "runner",
+ * "hinge". Matching the raw string meant 2,500 runner rows and every handle
+ * row were skipped and the cabinet priced on the hardcoded fallback instead.
+ * Compare on a normalised form so the catalogue is actually used.
+ */
+export function normaliseHardwareType(value: string | null | undefined): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/^drawer_runner$/, 'runner')
+    .replace(/^drawer_slide$/, 'runner')
+    .replace(/^knob$/, 'handle')
+    .replace(/^handle_profile$/, 'handle')
+    .replace(/^pull$/, 'handle');
+}
+
+const isType = (h: { hardware_type: string | null }, type: string) =>
+  normaliseHardwareType(h.hardware_type) === type;
+
 function resolvePositiveUnitCost(
   pricing: HardwarePricingRecord | undefined,
   fallback: number,
@@ -80,7 +101,7 @@ export function calculateHardware(
     const hingePricing = hardwarePricing.find(h =>
       h.id === hardwareOptions.hingeType || h.item_code === hardwareOptions.hingeType
     ) ?? hardwarePricing.find(h =>
-      h.hardware_type === 'hinge' &&
+      isType(h, 'hinge') &&
       (h.name.toLowerCase().includes(hardwareOptions.hingeType.toLowerCase()) ||
        h.item_code === hardwareOptions.hingeType)
     );
@@ -129,7 +150,7 @@ export function calculateHardware(
     const runnerPricing = hardwarePricing.find(h =>
       h.id === hardwareOptions.drawerType || h.item_code === hardwareOptions.drawerType
     ) ?? hardwarePricing.find(h =>
-      h.hardware_type === 'runner' &&
+      isType(h, 'runner') &&
       (h.name.toLowerCase().includes(hardwareOptions.drawerType.toLowerCase()) ||
        h.item_code === hardwareOptions.drawerType)
     );
@@ -157,7 +178,7 @@ export function calculateHardware(
     
     if (handleCount > 0) {
       const handlePricing = hardwarePricing.find(h => 
-        h.hardware_type === 'handle' && 
+        isType(h, 'handle') && 
         (h.id === hardwareOptions.handleId || h.item_code === hardwareOptions.handleId)
       );
       const handleCost = resolvePositiveUnitCost(handlePricing, 15);
@@ -179,7 +200,7 @@ export function calculateHardware(
   
   // === ADJUSTABLE LEGS ===
   if (hardwareOptions.adjustableLegs) {
-    const legPricing = hardwarePricing.find(h => h.hardware_type === 'leg');
+    const legPricing = hardwarePricing.find(h => isType(h, 'leg'));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     
     items.push({
@@ -198,7 +219,7 @@ export function calculateHardware(
   // === SHELF PINS ===
   if (config.numShelves > 0) {
     const pinCount = config.numShelves * rules.shelfPinsPerShelf;
-    const pinPricing = hardwarePricing.find(h => h.hardware_type === 'shelf_pin');
+    const pinPricing = hardwarePricing.find(h => isType(h, 'shelf_pin'));
     const pinCost = resolvePositiveUnitCost(pinPricing, 0.20);
     
     items.push({
