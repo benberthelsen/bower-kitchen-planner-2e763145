@@ -37,14 +37,30 @@ const lpad = (s, n) => String(s).padStart(n);
 const fmt = (n) => '$' + money(n).toFixed(2);
 
 // ---------------------------------------------------------------------------
-// Commercial layer. Cost -> sell. Override per job with --margin / --markup.
-// Defaults mirror what Microvellum applied: 10% overhead then 40% markup.
+// Commercial layer. Cost -> sell.
+//
+// This comes from client_markup_settings, carried in pricing-data.json as
+// `commercial`, because the markup is Bower's business setting and belongs
+// with the rest of the catalogue — not baked into a script. Earlier this
+// defaulted to Microvellum's own +10% overhead / +40% markup, which quoted a
+// job 18% over what Bower's own settings say. Copying a competitor's margin by
+// accident is an expensive kind of bug, so there is no silent default now: if
+// the markup is missing you get a loud warning naming the assumption.
 const arg = (flag, dflt) => {
   const i = process.argv.indexOf(flag);
   return i > 0 ? Number(process.argv[i + 1]) : dflt;
 };
-const OVERHEAD = arg('--overhead', 0.10);
-const MARKUP = arg('--markup', 0.40);
+const commercial = pricing.commercial ?? {};
+let markupSource = `client_markup_settings "${commercial.name ?? 'unnamed'}"`;
+let OVERHEAD = arg('--overhead', commercial.overheadPct ?? 0);
+let MARKUP = arg('--markup', commercial.markupPct ?? null);
+if (MARKUP === null) {
+  MARKUP = 0.30;
+  markupSource = 'ASSUMED 30% — no commercial block in pricing-data.json';
+}
+if (process.argv.includes('--markup') || process.argv.includes('--overhead')) {
+  markupSource = 'command line';
+}
 const UPLIFT = (1 + OVERHEAD) * (1 + MARKUP);
 const SUPPLY_MODE = process.argv.includes('--flat-pack') ? 'flat_pack'
   : process.argv.includes('--no-install') ? 'assembled'
@@ -172,7 +188,10 @@ for (const [room, idxs] of byRoom) {
   }
   // Install is a job-level charge; it sits in the largest room.
   if (room === biggestRoom && installCost > 0) {
-    const total = money(installCost * UPLIFT);
+    // Install is billed at cost. generateQuoteBOM adds installFlat after the
+    // margin layer, and client_markup_settings carries no install category, so
+    // marking it up here would charge a margin the business does not apply.
+    const total = money(installCost);
     roomSell += total;
     rows.push([1, 'Installation — onsite', 0, 0, 0, 0, 0, total, total]);
   }
@@ -224,8 +243,10 @@ for (const [label, v] of [['board', g.materials], ['edge tape', g.edging],
 console.log('  ' + pad('cabinet cost', 26) + lpad(fmt(cabinetCost), 12));
 console.log('  ' + pad('install cost', 26) + lpad(fmt(installCost), 12));
 console.log('  ' + '-'.repeat(38));
-console.log('  ' + pad(`sell ex GST (+${(OVERHEAD * 100).toFixed(0)}% / +${(MARKUP * 100).toFixed(0)}%)`, 26) +
-            lpad(fmt(grandSell), 12));
+console.log('  ' + pad(`markup applied`, 26) +
+            lpad((OVERHEAD ? `+${(OVERHEAD * 100).toFixed(0)}% then ` : '') +
+                 `+${(MARKUP * 100).toFixed(0)}%`, 12) + '   ' + markupSource);
+console.log('  ' + pad('sell ex GST', 26) + lpad(fmt(grandSell), 12));
 console.log('  ' + pad('GST', 26) + lpad(fmt(gst), 12));
 console.log('  ' + pad('TOTAL inc GST', 26) + lpad(fmt(grandSell + gst), 12));
 
@@ -242,21 +263,35 @@ console.log('  ' + pad('TOTAL inc GST', 26) + lpad(fmt(grandSell + gst), 12));
 // low on five jobs is a part mapping worth fixing.
 const priced = cabinetRows.filter((r) => Number(r.mv_total) > 0);
 if (priced.length) {
-  const mvTotal = schedule.reduce((s, r) => s + (Number(r.mv_total) || 0), 0);
-  const variance = ((grandSell - mvTotal) / mvTotal) * 100;
+  // Compare at COST, not sell. Microvellum's line figures carry its own +10%
+  // overhead and +40% markup; ours carry Bower's. Comparing the two sell prices
+  // measures the difference in business margin, not in the engine, and would
+  // flag a false problem every time the two markups differ. Stripping both back
+  // to cost asks the only question that matters: are we modelling the same
+  // cabinets the same way?
+  const MV_UPLIFT = 1.1 * 1.4;
+  const mvSell = schedule.reduce((s, r) => s + (Number(r.mv_total) || 0), 0);
+  const mvCost = mvSell / MV_UPLIFT;
+  const benchCost = otherRows.reduce((s, r) => s + (Number(r.mv_total) || 0), 0) / MV_UPLIFT;
+  const bowerCost = cabinetCost + installCost + benchCost;
+  const variance = ((bowerCost - mvCost) / mvCost) * 100;
 
   // Microvellum spreads install across its line items; ours is a separate line.
   // Push ours back across the cabinets so per-line comparison is like for like.
-  const installShare = installCost * UPLIFT / Math.max(1, cabinetCost);
-  const lineSell = (idx) => lineCost[idx] * UPLIFT * (1 + installShare);
+  const installShare = installCost / Math.max(1, cabinetCost);
+  const lineSell = (idx) => lineCost[idx] * (1 + installShare) * MV_UPLIFT;
 
   console.log('\n=== CROSS-CHECK vs SOURCE QUOTE ===\n');
-  console.log('  ' + pad('BowerOS sell ex GST', 26) + lpad(fmt(grandSell), 12));
-  console.log('  ' + pad('Source sell ex GST', 26) + lpad(fmt(mvTotal), 12));
+  console.log('  Compared at cost. The two carry different markups, so their');
+  console.log('  sell prices are not the same question.\n');
+  console.log('  ' + pad('BowerOS cost ex GST', 26) + lpad(fmt(bowerCost), 12));
+  console.log('  ' + pad('Source cost ex GST', 26) + lpad(fmt(mvCost), 12));
   console.log('  ' + pad('variance', 26) +
               lpad((variance >= 0 ? '+' : '') + variance.toFixed(1) + '%', 12) +
               (Math.abs(variance) <= 5 ? '   within tolerance'
-                : '   OUTSIDE ±5% — investigate before sending'));
+                : '   outside 5% - investigate before sending'));
+  console.log('  ' + pad('our sell at +' + (MARKUP * 100).toFixed(0) + '%', 26) +
+              lpad(fmt(grandSell), 12) + '   their sell ' + fmt(mvSell));
 
   const diffs = cabinetRows
     .map((r, idx) => ({ name: r.name, w: r.w, ours: lineSell(idx),
@@ -298,7 +333,7 @@ if (priced.length) {
     fs.appendFileSync(logPath,
       `| ${new Date().toISOString().slice(0, 10)} ` +
       `| ${process.env.BOWER_PROJECT ?? path.basename(schedulePath, '.json')} ` +
-      `| ${items.length} | ${fmt(grandSell)} | ${fmt(mvTotal)} ` +
+      `| ${items.length} | ${fmt(bowerCost)} | ${fmt(mvCost)} ` +
       `| ${variance >= 0 ? '+' : ''}${variance.toFixed(1)}% | ${worst} |\n`, 'utf8');
     console.log(`\n  Logged to ${logPath}`);
   } catch (e) {
