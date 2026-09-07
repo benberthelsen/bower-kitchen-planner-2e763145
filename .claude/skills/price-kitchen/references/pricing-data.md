@@ -46,9 +46,10 @@ order by is_default desc;
 ```
 
 The markup is the difference between cost and what the client pays, so it
-belongs with the catalogue rather than in a script default. Confirm the figure
-with Ben before quoting — the stored default has been out of step with what he
-actually charges.
+belongs with the catalogue rather than in a script default. The default row was
+set to 40% across every category on 7 Sep 2026, with delivery left at 0%. It had
+previously read 30% while Ben was charging 40%, so confirm the figure rather
+than assuming the row is current.
 
 ## Assembling the file
 

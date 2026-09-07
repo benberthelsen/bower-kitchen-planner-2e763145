@@ -166,9 +166,10 @@ double-counted markup on every quote as a result.
   through `buildGenericCabinetMapping`. Fix the generic path, not the map. The
   two also use different part names (`Drawer Box Side` vs `Drawer Left Side`),
   so routing names to the map would break part lookups.
-- **The stored markup has been wrong.** `client_markup_settings` held 30% when
-  Ben was charging 40%. Confirm the margin rather than trusting the row, and say
-  which one you used.
+- **Confirm the markup rather than trusting the row.** `client_markup_settings`
+  held 30% while Ben was charging 40% — corrected to 40% on 7 Sep 2026. Say which
+  figure you used in your summary; a quote at the wrong margin looks exactly like
+  a quote at the right one.
 - **Benchtops** are passed through from the source report. The cabinet engine
   doesn't price stone; `benchtopCalculator` does, and it needs a stone catalogue
   selection this skill doesn't collect.
