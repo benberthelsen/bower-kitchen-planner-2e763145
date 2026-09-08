@@ -35,7 +35,15 @@ one from the same drawing. Don't attempt to parse the DWG.
 
 ### 1. Parse the report into a schedule
 
-For a PDF, extract with `extraction_mode="layout"`. Plain extraction runs the
+Use the shared parser, not a hand read:
+
+```bash
+python <skills>/bower-shop-drawings/scripts/parse_mv_quote.py job/quote.pdf --out job/quote.json
+```
+
+`job/quote.json` **is** the schedule — its `items` already carry `name`, `w`, `h`, `d`, `mv_total` (and the shop-drawings view `dwg_item`, `desc`, `quote_w/h/d`), so pass it straight to `price-kitchen.mjs` (it reads `items` when the file has that key). The parser reconciles line totals to the report's stated ex-GST total and exits non-zero on mismatch — that replaces the manual sum check below. If `job/quote.json` already exists and is newer than the PDF (check with `job_status.py`), do not parse again.
+
+Only if the parser refuses: extract with `extraction_mode="layout"`. Plain extraction runs the
 numeric columns together and silently corrupts dimensions and costs.
 
 Each product row is:

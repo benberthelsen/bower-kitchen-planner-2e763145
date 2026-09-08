@@ -28,7 +28,19 @@ if (!schedulePath || !pricingPath) {
 }
 const outPath = outPathArg ?? 'bower-quote.xlsx';
 
-const schedule = JSON.parse(fs.readFileSync(schedulePath, 'utf8'));
+// Accept either the bare schedule array or the shared job digest's quote.json
+// ({ items: [...] } from bower-shop-drawings/scripts/parse_mv_quote.py). The
+// parser's items already carry name/w/h/d/mv_total, so nothing is re-keyed.
+const scheduleRaw = JSON.parse(fs.readFileSync(schedulePath, 'utf8'));
+const schedule = Array.isArray(scheduleRaw) ? scheduleRaw : (scheduleRaw.items ?? []);
+if (!Array.isArray(schedule) || schedule.length === 0) {
+  console.error(`No schedule items found in ${schedulePath}`);
+  process.exit(1);
+}
+if (!Array.isArray(scheduleRaw) && scheduleRaw.reconciled === false) {
+  console.error('quote.json is NOT reconciled against the report totals - fix the parse before pricing.');
+  process.exit(2);
+}
 const pricing = JSON.parse(fs.readFileSync(pricingPath, 'utf8'));
 
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
