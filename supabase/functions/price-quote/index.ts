@@ -65,22 +65,36 @@ function numify<T extends Record<string, unknown>>(rows: T[], keys: string[]): T
 }
 
 serve(async (req) => {
-  const gated = gate(req);
-  if (gated) return gated;
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders(req) });
 
+  // Secret first, so a missing key is a clean 401 rather than whatever the
+  // method gate says. The shared gate() is POST-only; the catalogue read is a
+  // GET (or POST {catalog:true} through the Build Flow proxy), so it is checked
+  // here and skips the gate.
   const expected = Deno.env.get('BOWER_PRICING_KEY');
   if (!expected || req.headers.get('x-bower-pricing-key') !== expected) {
     return errorResponse(req, 401, 'unauthorized');
+  }
+  const url = new URL(req.url);
+  let wantsCatalog = req.method === 'GET' && Boolean(url.searchParams.get('catalog'));
+  let postBody: Record<string, unknown> | null = null;
+  if (req.method === 'POST') {
+    const gated = gate(req);
+    if (gated) return gated;
+    const body = await readJsonBody(req);
+    if (body instanceof Response) return body;
+    postBody = body as Record<string, unknown>;
+    if (postBody.catalog) wantsCatalog = true;
+  } else if (!wantsCatalog) {
+    return errorResponse(req, 405, 'method_not_allowed');
   }
 
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
   try {
     const cat = await loadCatalogue(sb);
-    const url = new URL(req.url);
 
-    if (req.method === 'GET' && url.searchParams.get('catalog')) {
+    if (wantsCatalog) {
       const pick = (rows: Record<string, unknown>[], keys: string[]) =>
         rows.filter((r) => (r.visibility_status ?? 'Available') === 'Available')
             .map((r) => Object.fromEntries(keys.map((k) => [k, r[k]])));
@@ -95,10 +109,7 @@ serve(async (req) => {
       });
     }
 
-    if (req.method !== 'POST') return errorResponse(req, 405, 'method_not_allowed');
-    const body = await readJsonBody(req);
-    if (body instanceof Response) return body;
-    const b = body as Record<string, unknown>;
+    const b = postBody as Record<string, unknown>;
     const schedule = Array.isArray(b.schedule) ? b.schedule : (b.schedule as Record<string, unknown> | undefined)?.items;
     const selections = b.selections as Record<string, string> | undefined;
     if (!Array.isArray(schedule) || schedule.length === 0) return errorResponse(req, 400, 'no_schedule');
