@@ -40,3 +40,8 @@ verify_jwt = true
 
 [functions.scheduled-supplier-import]
 verify_jwt = false
+
+# Server-to-server: Build Flow prices quotes against the live catalogue here.
+# Gated by the x-bower-pricing-key shared secret, not a planner user JWT.
+[functions.price-quote]
+verify_jwt = false
