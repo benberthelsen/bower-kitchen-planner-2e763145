@@ -25,7 +25,7 @@ interface SheetPiece {
   depthMm: number;
 }
 
-interface PackedSheet {
+export interface PackedSheet {
   shelves: Array<{ depthMm: number; usedLengthMm: number }>;
   usedDepthMm: number;
 }
@@ -220,7 +220,7 @@ function applyFabricationMatrix(
  * are split into stock-sized pieces before nesting. Rotation is deliberately
  * disabled so directional finishes and finished front edges remain correct.
  */
-function packWholeSheetCuts(
+export function packWholeSheetCuts(
   runs: Array<{ runLengthMm: number; depthMm: number }>,
   stockLengthMm: number,
   stockDepthMm: number,

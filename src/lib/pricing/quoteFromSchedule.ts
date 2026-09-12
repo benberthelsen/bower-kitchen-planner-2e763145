@@ -14,7 +14,13 @@
 import { generateQuoteBOM } from './bomGenerator';
 import type { PricingData } from './types';
 import type { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
-import type { SupplyMode } from './workshopModel';
+import { calculateWorkshopCost, type SupplyMode, type WorkshopCost, type WorkshopLine } from './workshopModel';
+import {
+  priceLaminatedBenchtops,
+  type BenchtopCutouts,
+  type BenchtopPiece,
+  type LaminatedBenchtopSheet,
+} from './benchtopLaminate';
 
 export interface ScheduleItem {
   /** Microvellum product name, e.g. "Base 3 Drawer". Drives the part mapping. */
@@ -30,6 +36,23 @@ export interface ScheduleItem {
   carcaseMaterialId?: string;
   exteriorMaterialId?: string;
   edgeId?: string;
+
+  // ---- laminated benchtop rows (name matches /countertop|benchtop/i) --------
+  // A benchtop row is ENGINE-PRICED only when it resolves to a priced sheet
+  // (this field, else selections.benchtopMaterialId). Without one it passes
+  // through at mv_total exactly as before.
+  /** material_pricing.id or item_code of the SHEET the top is laminated from, e.g. 'MEGM12HACS3607'. */
+  benchtopMaterialId?: string;
+  /** Finished thickness, mm. Default selections.benchtopThickness ?? dimensions.benchtopThickness ?? 24. */
+  benchtopThickness?: number;
+  /** Blank sizes per unit, mm, when w x d is not the top (L-shape arms, waterfall legs). Default [{ l: w, w: d }]. */
+  benchtopPieces?: BenchtopPiece[];
+  /** Each end adds a leg { l: h - thickness, w: d } and one join — only when benchtopPieces is absent. */
+  benchtopWaterfallEnds?: number;
+  /** Mitres / field joins per unit. Joins forced by stock size are added automatically. */
+  benchtopJoins?: number;
+  /** Cut-out counts per unit. */
+  benchtopCutouts?: BenchtopCutouts;
 }
 
 export interface QuoteSelections {
@@ -41,6 +64,49 @@ export interface QuoteSelections {
   handleId?: string;
   cabinetTop?: 'rail' | 'top';
   adjustableLegs?: boolean;
+  /** Default sheet for benchtop rows that carry no benchtopMaterialId of their own. */
+  benchtopMaterialId?: string;
+  /** Default finished thickness (mm) for benchtop rows. */
+  benchtopThickness?: number;
+}
+
+/** One engine-priced laminated benchtop row — the working behind its PricedLine. */
+export interface PricedBenchtop {
+  /** Position in the input schedule. */
+  index: number;
+  name: string;
+  sheet: LaminatedBenchtopSheet;
+  layers: number;
+  /** layers x sheet.thickness, mm. */
+  nominalThickness: number;
+  /** Requested finished thickness, mm. */
+  thickness: number;
+  pieces: BenchtopPiece[];
+  areaSqm: number;
+  edgeLm: number;
+  benchtopLm: number;
+  /** Declared mitres/field joins + joins forced by stock size (stockJoins), x layers for the latter. */
+  joins: number;
+  stockJoins: number;
+  cutouts: { sink: number; cooktop: number; tapHole: number };
+  /** Fractional share of jobSheets attributed to this row. */
+  sheetsShare: number;
+  /** Whole sheets bought for every benchtop row sharing this sheet. */
+  jobSheets: number;
+  /** Sheet share + adhesive — what the line's materialCost carries. */
+  materialCost: number;
+  sheetCost: number;
+  adhesiveCartridges: number;
+  adhesiveCost: number;
+  /** Row share of the benchtop shop stations (install is in the job install line). */
+  laborCost: number;
+  /** Shop minutes for this row alone. */
+  laborMinutes: number;
+  installMinutes: number;
+  costPrice: number;
+  /** Sell ex GST after uplift. */
+  total: number;
+  warnings: string[];
 }
 
 export interface QuoteCommercial {
@@ -114,6 +180,8 @@ export interface PricedQuote {
   /** For quote_mv_workshop_costing — schedule time allowances, budget, POs. */
   workshopCosting: WorkshopCosting;
   lines: PricedLine[];
+  /** Engine-priced laminated benchtop rows. Passthrough rows are not listed here (see warnings). */
+  benchtops: PricedBenchtop[];
   totals: {
     cabinetCost: number;
     installCost: number;
@@ -154,6 +222,28 @@ function roomOf(item: ScheduleItem, fallback: string): string {
   return !raw || /^\(?unnamed\)?$/i.test(raw) ? fallback : raw;
 }
 
+/**
+ * Merge two station lists by station name (cabinet workshop + benchtop
+ * workshop). Returns `a` untouched when there is nothing to merge so a
+ * cabinet-only job is byte-identical.
+ */
+function mergeStations(a: WorkshopLine[], b: WorkshopLine[]): WorkshopLine[] {
+  if (b.length === 0) return a;
+  const out = a.map((l) => ({ ...l }));
+  for (const l of b) {
+    const hit = out.find((x) => x.station === l.station);
+    if (hit) {
+      hit.units += l.units;
+      hit.minutes += l.minutes;
+      hit.hours += l.hours;
+      hit.cost += l.cost;
+    } else {
+      out.push({ ...l });
+    }
+  }
+  return out;
+}
+
 export function quoteFromSchedule(
   schedule: ScheduleItem[],
   pricing: PricingData,
@@ -167,7 +257,9 @@ export function quoteFromSchedule(
   const uplift = (1 + (commercial.overheadPct ?? 0)) * (1 + commercial.markupPct);
 
   const cabinetRows = schedule.filter((r) => !BENCHTOP_RE.test(r.name));
-  const otherRows = schedule.filter((r) => BENCHTOP_RE.test(r.name));
+  const benchtopRows = schedule
+    .map((r, index) => ({ r, index }))
+    .filter(({ r }) => BENCHTOP_RE.test(r.name));
 
   // One PlacedItem per unit so a qty-3 line prices as three cabinets.
   const items: PlacedItem[] = [];
@@ -212,8 +304,80 @@ export function quoteFromSchedule(
     lineSplit[idx].labor += c.subtotals.labor + c.subtotals.handling + c.subtotals.machining + c.subtotals.assembly;
   });
 
-  const installCost = bom.workshop?.installCost ?? 0;
-  const cabinetCost = lineCost.reduce((a, b) => a + b, 0);
+  // ---- laminated benchtops --------------------------------------------------
+  // Rows that resolve to a priced sheet are engine-priced: whole-sheet nest
+  // across every row sharing the sheet, plus the benchtop stations through the
+  // SAME workshop model as the cabinets. They run as a second workshop call
+  // rather than inside generateQuoteBOM so their labour lands on the benchtop
+  // lines, not spread pro-rata over the cabinets.
+  const lam = priceLaminatedBenchtops(
+    benchtopRows.map(({ r, index }) => ({
+      index, name: r.name, qty: r.qty, w: r.w, h: r.h, d: r.d, mv_total: r.mv_total,
+      benchtopMaterialId: r.benchtopMaterialId,
+      benchtopThickness: r.benchtopThickness,
+      benchtopPieces: r.benchtopPieces,
+      benchtopWaterfallEnds: r.benchtopWaterfallEnds,
+      benchtopJoins: r.benchtopJoins,
+      benchtopCutouts: r.benchtopCutouts,
+    })),
+    pricing.materials,
+    {
+      defaultMaterialId: selections.benchtopMaterialId,
+      defaultThickness: selections.benchtopThickness ?? dims.benchtopThickness ?? 24,
+    },
+  );
+  const btWorkshop: WorkshopCost | null = lam.rows.length
+    ? calculateWorkshopCost([], { mode: supplyMode, benchtops: lam.fabrication })
+    : null;
+  // Row labour = row share of the job's benchtop shop cost, weighted by what
+  // the same model says each row costs on its own (linear, so shares are exact
+  // up to per-line rounding; the last row takes the remainder).
+  const btRowWorkshop = lam.rows.map((row) => calculateWorkshopCost([], { mode: supplyMode, benchtops: row.fabrication }));
+  const btWeightTotal = btRowWorkshop.reduce((s, w) => s + w.shopCost, 0);
+  const btShopCost = btWorkshop?.shopCost ?? 0;
+  let btLaborAssigned = 0;
+  const pricedBenchtops: PricedBenchtop[] = lam.rows.map((row, i) => {
+    const isLast = i === lam.rows.length - 1;
+    const share = btWeightTotal > 0 ? btRowWorkshop[i].shopCost / btWeightTotal : 1 / lam.rows.length;
+    const laborCost = isLast ? money(btShopCost - btLaborAssigned) : money(btShopCost * share);
+    btLaborAssigned = money(btLaborAssigned + laborCost);
+    const materialCost = money(row.materialCost + row.adhesiveCost);
+    const costPrice = money(materialCost + laborCost);
+    return {
+      index: row.index,
+      name: row.name,
+      sheet: row.sheet,
+      layers: row.layers,
+      nominalThickness: row.nominalThickness,
+      thickness: row.thickness,
+      pieces: row.pieces,
+      areaSqm: row.areaSqm,
+      edgeLm: row.edgeLm,
+      benchtopLm: row.benchtopLm,
+      joins: row.joins,
+      stockJoins: row.stockJoins,
+      cutouts: row.cutouts,
+      sheetsShare: row.sheetsShare,
+      jobSheets: row.jobSheets,
+      materialCost,
+      sheetCost: row.materialCost,
+      adhesiveCartridges: row.adhesiveCartridges,
+      adhesiveCost: row.adhesiveCost,
+      laborCost,
+      laborMinutes: btRowWorkshop[i].shopMinutes,
+      installMinutes: btRowWorkshop[i].installMinutes,
+      costPrice,
+      total: money(costPrice * uplift),
+      warnings: row.warnings,
+    };
+  });
+  const benchtopByIndex = new Map(pricedBenchtops.map((b) => [b.index, b]));
+  const passthroughRows = benchtopRows.filter(({ index }) => !benchtopByIndex.has(index));
+  const benchtopCost = pricedBenchtops.reduce((s, b) => s + b.costPrice, 0);
+  const benchtopMaterial = lam.sheets.reduce((s, sh) => s + sh.materialCost, 0);
+
+  const installCost = (bom.workshop?.installCost ?? 0) + (btWorkshop?.installCost ?? 0);
+  const cabinetCost = lineCost.reduce((a, b) => a + b, 0) + benchtopCost;
   const marginPercent = money(commercial.markupPct * 100);
 
   const lines: PricedLine[] = cabinetRows.map((r, idx) => {
@@ -235,9 +399,30 @@ export function quoteFromSchedule(
     };
   });
 
-  // Stone and other items the cabinet engine does not price pass through at the
-  // source quote's figure so nothing silently vanishes from the client's quote.
-  for (const r of otherRows) {
+  // Benchtop rows, in schedule order. Engine-priced rows get a 'bower' line
+  // with the uplift applied like a cabinet; anything the engine could not
+  // price (no sheet, or an unpriced one) passes through at the source quote's
+  // figure so nothing silently vanishes from the client's quote.
+  for (const { r, index } of benchtopRows) {
+    const b = benchtopByIndex.get(index);
+    if (b) {
+      const qty = Math.max(1, Math.round(r.qty ?? 1));
+      lines.push({
+        description: r.name,
+        quantity: qty,
+        unit: 'ea',
+        unitPrice: money(b.total / qty),
+        total: b.total,
+        costPrice: b.costPrice,
+        materialCost: b.materialCost,
+        laborCost: b.laborCost,
+        marginPercent,
+        category: 'cabinetry',
+        roomName: roomOf(r, defaultRoom),
+        source: 'bower',
+      });
+      continue;
+    }
     const total = money(r.mv_total ?? 0);
     if (total <= 0) continue;
     lines.push({
@@ -285,6 +470,19 @@ export function quoteFromSchedule(
     markupCost: money(sh.totalMaterialCost * mk),
     cost: money(sh.totalMaterialCost),
   }));
+  // Benchtop sheets: whole sheets bought, in m2 like the cabinet rows above.
+  for (const sh of lam.sheets) {
+    sheetStock.push({
+      material: `${sh.sheet.name} (Benchtop, ${sh.jobSheets} x ${sh.sheet.sheet_length}x${sh.sheet.sheet_width})`,
+      thickness: sh.sheet.thickness,
+      wastePercent: money(sh.wasteFactor * 100),
+      markupPercent: money(mk * 100),
+      units: money(sh.jobSheets * sh.sheetAreaSqm),
+      unitCost: money(sh.sheet.area_cost),
+      markupCost: money(sh.materialCost * mk),
+      cost: money(sh.materialCost),
+    });
+  }
   const edgebanding = bom.consolidatedEdgeTape.map((e) => ({
     color: e.edgeName,
     width: 22,
@@ -302,34 +500,50 @@ export function quoteFromSchedule(
     cost: money(h.totalCost),
     category: hwCategory(h.hardwareType ?? ''),
   }));
-  const st = bom.workshop?.lines ?? [];
+  if (lam.adhesive.quantity > 0) {
+    hardware.push({
+      code: lam.adhesive.code,
+      description: lam.adhesive.name,
+      quantity: lam.adhesive.quantity,
+      unitCost: money(lam.adhesive.unitCost),
+      markupCost: money(lam.adhesive.cost * mk),
+      cost: money(lam.adhesive.cost),
+      category: 'other',
+    });
+  }
+  const st = mergeStations(bom.workshop?.lines ?? [], btWorkshop?.lines ?? []);
   const minutesOf = (re: RegExp) => money(st.filter((l) => re.test(l.station)).reduce((a, l) => a + l.minutes, 0));
+  const installMinutes = (bom.workshop?.installMinutes ?? 0) + (btWorkshop?.installMinutes ?? 0);
+  const installHours = (bom.workshop?.installHours ?? 0) + (btWorkshop?.installHours ?? 0);
   const laborMinutes = {
     drafting: minutesOf(/draft/i),
     machining: minutesOf(/lead|cutting|drill|label/i),
     edgebanding: minutesOf(/edge/i),
     assembly: minutesOf(/assembly/i),
-    finishing: 0,
+    // benchtop lamination / build-up / joins / polishing / cut-outs
+    finishing: minutesOf(/lamination|polish|build-up|joins?|cut-?outs?/i),
     productHandling: minutesOf(/handling|packag|loading/i),
-    installation: money(bom.workshop?.installMinutes ?? 0),
+    installation: money(installMinutes),
     total: 0,
   };
   laborMinutes.total = money(Object.entries(laborMinutes).filter(([k]) => k !== 'total').reduce((a, [, v]) => a + (v as number), 0));
   const labor = st.map((l) => ({ category: l.station, hours: money(l.hours), rate: l.rate, cost: money(l.cost) }));
-  if (bom.workshop) labor.push({ category: 'Installation (onsite)', hours: money(bom.workshop.installHours), rate: 0, cost: money(bom.workshop.installCost) });
-  const shopLaborTotal = money(bom.workshop?.shopCost ?? g0(bom.grandTotal.labor));
-  const totalMaterials = money(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware);
+  if (bom.workshop || btWorkshop) labor.push({ category: 'Installation (onsite)', hours: money(installHours), rate: 0, cost: money(installCost) });
+  const shopLaborTotal = money((bom.workshop?.shopCost ?? g0(bom.grandTotal.labor)) + btShopCost);
+  const totalMaterials = money(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware + benchtopMaterial + lam.adhesive.cost);
   const rooms = new Set(lines.map((l) => l.roomName ?? defaultRoom));
   const workshopCosting: WorkshopCosting = {
     sheetStock, solidStock: [], edgebanding, hardware, labor, laborMinutes,
     fileName: 'BowerOS pricing engine',
     cabinetCount: items.length,
     roomCount: rooms.size,
-    partCount: bom.cabinets.reduce((a, c) => a + c.parts.reduce((b, p) => b + Math.max(1, p.quantity ?? 1), 0), 0),
-    hasStone: otherRows.some((r) => BENCHTOP_RE.test(r.name)),
+    partCount: bom.cabinets.reduce((a, c) => a + c.parts.reduce((b, p) => b + Math.max(1, p.quantity ?? 1), 0), 0) + lam.fabrication.parts,
+    // Any benchtop row flags stone; only rows still carried from the source
+    // quote are buyouts.
+    hasStone: benchtopRows.length > 0,
     hasLaminex: false, hasTwoPack: false,
-    hasBuyout: otherRows.length > 0,
-    buyoutItems: otherRows.map((r) => r.name),
+    hasBuyout: passthroughRows.length > 0,
+    buyoutItems: passthroughRows.map(({ r }) => r.name),
     sheetStockTotal: money(sheetStock.reduce((a, x) => a + x.cost, 0)),
     solidStockTotal: 0,
     edgebandingTotal: money(edgebanding.reduce((a, x) => a + x.cost, 0)),
@@ -348,10 +562,12 @@ export function quoteFromSchedule(
   };
   const gst = money(sellExGst * 0.1);
   const g = bom.grandTotal;
+  const shopMinutes = (bom.workshop?.shopMinutes ?? 0) + (btWorkshop?.shopMinutes ?? 0);
 
   return {
     workshopCosting,
     lines,
+    benchtops: pricedBenchtops,
     totals: {
       cabinetCost: money(cabinetCost),
       installCost: money(installCost),
@@ -363,19 +579,19 @@ export function quoteFromSchedule(
       supplyMode,
     },
     cost: {
-      materials: money(g.materials),
+      materials: money(g.materials + benchtopMaterial),
       edging: money(g.edging),
-      hardware: money(g.hardware),
-      labor: money(g.labor),
+      hardware: money(g.hardware + lam.adhesive.cost),
+      labor: money(g.labor + btShopCost),
       processing: money(g.handling + g.machining + g.assembly),
     },
-    workshop: bom.workshop
+    workshop: bom.workshop || btWorkshop
       ? {
-          shopMinutes: bom.workshop.shopMinutes,
-          installMinutes: bom.workshop.installMinutes,
-          stations: bom.workshop.lines.map((l) => ({ station: l.station, minutes: l.minutes, cost: l.cost })),
+          shopMinutes: money(shopMinutes),
+          installMinutes: money(installMinutes),
+          stations: st.map((l) => ({ station: l.station, minutes: money(l.minutes), cost: money(l.cost) })),
         }
       : null,
-    warnings: bom.warnings ?? [],
+    warnings: [...(bom.warnings ?? []), ...lam.warnings],
   };
 }

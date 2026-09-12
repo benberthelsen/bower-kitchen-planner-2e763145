@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -905,6 +905,181 @@ for (const [id, w, h, d] of families) {
     edgeLine?.unit === 'lm' && edgeLine.quantity === 1.8 && edgeLine.total === 68.74,
     JSON.stringify(edgeLine));
 }
+
+// 10. Laminated benchtops — a solid-surface top built from N sheet layers
+//     (Erin & Matt: two Meganite Hazel Cream tops, 24 mm from the 12 mm sheet)
+{
+  // The only Hazel Cream sheet the catalogue carries is 12 mm 3660 x 760.
+  const hazel = {
+    id: 'uuid-MEGM12HACS3607', item_code: 'MEGM12HACS3607', name: 'MEGANITE Hazel Cream',
+    material_type: 'solid_surface_sheet', brand: 'MEGANITE', finish: 'hazel cream',
+    thickness: 12, sheet_length: 3660, sheet_width: 760, area_cost: 375.32,
+    expected_yield_factor: 1, visibility_status: 'Available',
+  };
+  const mats = [...pricingData.materials, hazel];
+  const pdTop = { ...pricingData, materials: mats };
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, overheadPct: 0.1, markupSource: 'test', supplyMode: 'assembled_installed' };
+
+  // ── 10a: the E&M pair, priced from the schedule ──────────────────────────
+  const emSchedule = [
+    { name: 'Base 3 Drawer', qty: 1, w: 900, h: 880, d: 555, room: 'Kitchen' },
+    {
+      name: 'Countertop Right L Shape', qty: 1, w: 1900, h: 24, d: 600, room: 'Kitchen', mv_total: 1813.69,
+      benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24,
+      benchtopPieces: [{ l: 1350, w: 600 }, { l: 2102, w: 600 }],
+      benchtopJoins: 1, benchtopCutouts: { sink: 1, cooktop: 1 },
+    },
+    {
+      name: 'Countertop With Waterfall Ends', qty: 1, w: 2316, h: 904, d: 900, room: 'Kitchen', mv_total: 2669.22,
+      benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24,
+      benchtopPieces: [{ l: 2316, w: 900 }, { l: 904, w: 900 }],
+      benchtopJoins: 1,
+    },
+  ];
+  const em = quoteFromSchedule(emSchedule, pdTop, sel, comm, { defaultRoom: 'Kitchen' });
+  check('benchtop lam: both tops are engine-priced', em.benchtops?.length === 2, JSON.stringify(em.benchtops?.length));
+  const bL = em.benchtops?.[0], bW = em.benchtops?.[1];
+  check('benchtop lam: 24 mm from a 12 mm sheet = 2 layers', bL?.layers === 2 && bW?.layers === 2, `${bL?.layers}/${bW?.layers}`);
+  check('benchtop lam: nominal thickness matches the ask', bL?.nominalThickness === 24, String(bL?.nominalThickness));
+  const areaL = (1350 * 600 + 2102 * 600) / 1e6;
+  check('benchtop lam: L-shape area is both arms, not w x d', Math.abs((bL?.areaSqm ?? 0) - areaL) < 0.002, `${bL?.areaSqm} vs ${areaL}`);
+  const areaW = (2316 * 900 + 904 * 900) / 1e6;
+  check('benchtop lam: waterfall area includes the leg', Math.abs((bW?.areaSqm ?? 0) - areaW) < 0.002, `${bW?.areaSqm} vs ${areaW}`);
+  // 900-deep pieces exceed the 760 stock width: each layer needs a width join.
+  check('benchtop lam: 900 deep on 760 stock forces width joins', (bW?.stockJoins ?? 0) > 0, String(bW?.stockJoins));
+  check('benchtop lam: L-shape needs no width join on 600 deep', (bL?.stockJoins ?? 0) === 0, String(bL?.stockJoins));
+  check('benchtop lam: declared mitre join is counted', (bL?.joins ?? 0) >= 1, String(bL?.joins));
+  check('benchtop lam: cut-outs carried', bL?.cutouts?.sink === 1 && bL?.cutouts?.cooktop === 1, JSON.stringify(bL?.cutouts));
+  // Whole sheets are bought once for the job, not once per line.
+  check('benchtop lam: both rows share one sheet count', bL?.jobSheets === bW?.jobSheets, `${bL?.jobSheets}/${bW?.jobSheets}`);
+  const sheetArea = (3660 * 760) / 1e6;
+  const layeredArea = (areaL + areaW) * 2;
+  const minSheets = Math.ceil((layeredArea * 1.05) / sheetArea);
+  check('benchtop lam: sheets cover the layered area + waste', (bL?.jobSheets ?? 0) >= minSheets, `${bL?.jobSheets} >= ${minSheets}`);
+  check('benchtop lam: sheet shares add up to the job sheets',
+    Math.abs((bL?.sheetsShare ?? 0) + (bW?.sheetsShare ?? 0) - (bL?.jobSheets ?? 0)) < 0.01,
+    `${bL?.sheetsShare} + ${bW?.sheetsShare} vs ${bL?.jobSheets}`);
+  check('benchtop lam: material is charged for every layer',
+    (bL?.materialCost ?? 0) > areaL * 375.32, `${bL?.materialCost} vs single-layer ${(areaL * 375.32).toFixed(2)}`);
+  check('benchtop lam: fabrication labour is charged', (bL?.laborCost ?? 0) > 0 && (bW?.laborCost ?? 0) > 0, `${bL?.laborCost}/${bW?.laborCost}`);
+  check('benchtop lam: every figure is finite',
+    [bL, bW].every((b) => finite(b?.materialCost) && finite(b?.laborCost) && finite(b?.total) && finite(b?.costPrice)),
+    JSON.stringify([bL?.total, bW?.total]));
+  check('benchtop lam: uplift applied once (total = cost x 1.54)',
+    Math.abs((bL?.total ?? 0) - (bL?.costPrice ?? 0) * 1.54) < 0.02, `${bL?.total} vs ${((bL?.costPrice ?? 0) * 1.54).toFixed(2)}`);
+  const topLines = em.lines.filter((l) => /countertop/i.test(l.description));
+  check('benchtop lam: both tops appear as bower lines, not passthrough',
+    topLines.length === 2 && topLines.every((l) => l.source === 'bower'), JSON.stringify(topLines.map((l) => l.source)));
+  check('benchtop lam: line total equals the benchtop total',
+    Math.abs(topLines[0].total - (bL?.total ?? 0)) < 0.02, `${topLines[0].total} vs ${bL?.total}`);
+  check('benchtop lam: sell includes the tops',
+    em.totals.sellExGst > topLines.reduce((s, l) => s + l.total, 0), String(em.totals.sellExGst));
+  check('benchtop lam: workshop costing carries a benchtop sheet row',
+    (em.workshopCosting?.sheetStock ?? []).some((r) => /hazel/i.test(String(r.material))),
+    JSON.stringify((em.workshopCosting?.sheetStock ?? []).map((r) => r.material)));
+  check('benchtop lam: finishing minutes are no longer zero',
+    (em.workshopCosting?.laborMinutes?.finishing ?? 0) > 0, String(em.workshopCosting?.laborMinutes?.finishing));
+  const lm = em.workshopCosting?.laborMinutes ?? {};
+  const lmSum = ['drafting', 'machining', 'edgebanding', 'assembly', 'finishing', 'productHandling', 'installation']
+    .reduce((s, k) => s + (lm[k] ?? 0), 0);
+  check('benchtop lam: labour minutes total is consistent', Math.abs((lm.total ?? 0) - lmSum) < 0.5, `${lm.total} vs ${lmSum}`);
+  check('benchtop lam: tops are not listed as buy-outs',
+    !(em.workshopCosting?.buyoutItems ?? []).some((n) => /countertop/i.test(String(n))),
+    JSON.stringify(em.workshopCosting?.buyoutItems));
+  console.log(`      [E&M tops] sheets ${bL?.jobSheets} · material $${((bL?.materialCost ?? 0) + (bW?.materialCost ?? 0)).toFixed(2)}` +
+    ` · labour $${((bL?.laborCost ?? 0) + (bW?.laborCost ?? 0)).toFixed(2)}` +
+    ` · sell $${((bL?.total ?? 0) + (bW?.total ?? 0)).toFixed(2)}  (Microvellum sell was $4,482.91)`);
+
+  // ── 10b: no sheet named -> passthrough exactly as before ─────────────────
+  const passSchedule = [
+    { name: 'Base 3 Drawer', qty: 1, w: 900, h: 880, d: 555, room: 'Kitchen' },
+    { name: 'Countertop Right L Shape', qty: 1, w: 1900, h: 24, d: 600, room: 'Kitchen', mv_total: 1813.69 },
+  ];
+  const pass = quoteFromSchedule(passSchedule, pdTop, sel, comm, { defaultRoom: 'Kitchen' });
+  const passLine = pass.lines.find((l) => /countertop/i.test(l.description));
+  check('benchtop lam: no sheet -> passthrough at mv_total',
+    passLine?.source === 'passthrough' && Math.abs(passLine.total - 1813.69) < 0.01, JSON.stringify(passLine));
+  check('benchtop lam: no sheet -> no engine benchtop rows', (pass.benchtops ?? []).length === 0, String(pass.benchtops?.length));
+  check('benchtop lam: passthrough top is still a buy-out',
+    (pass.workshopCosting?.buyoutItems ?? []).some((n) => /countertop/i.test(String(n))),
+    JSON.stringify(pass.workshopCosting?.buyoutItems));
+
+  // A row with neither a sheet nor a figure vanishes, as it always did.
+  const gone = quoteFromSchedule(
+    [{ name: 'Base 3 Drawer', qty: 1, w: 900, h: 880, d: 555 }, { name: 'Benchtop Nothing', qty: 1, w: 1000, h: 24, d: 600 }],
+    pdTop, sel, comm, {},
+  );
+  check('benchtop lam: no sheet and no figure -> no line',
+    !gone.lines.some((l) => /Benchtop Nothing/.test(l.description)), JSON.stringify(gone.lines.map((l) => l.description)));
+
+  // ── 10c: cabinet-only jobs are untouched by the benchtop code ────────────
+  const cabOnly = [{ name: 'Base 3 Drawer', qty: 2, w: 900, h: 880, d: 555, room: 'Kitchen' }];
+  const before = quoteFromSchedule(cabOnly, pricingData, sel, comm, { defaultRoom: 'Kitchen' });
+  const after = quoteFromSchedule(cabOnly, pdTop, sel, comm, { defaultRoom: 'Kitchen' });
+  check('benchtop lam: a cabinet-only job prices identically',
+    JSON.stringify(before.lines) === JSON.stringify(after.lines)
+    && before.totals.sellExGst === after.totals.sellExGst
+    && (before.workshopCosting?.laborMinutes?.total ?? 0) === (after.workshopCosting?.laborMinutes?.total ?? 0),
+    `${before.totals.sellExGst} vs ${after.totals.sellExGst}`);
+  check('benchtop lam: cabinet-only finishing minutes stay 0',
+    (after.workshopCosting?.laborMinutes?.finishing ?? -1) === 0, String(after.workshopCosting?.laborMinutes?.finishing));
+
+  // ── 10d: thickness that is not a multiple of the sheet warns ────────────
+  const odd = quoteFromSchedule(
+    [{
+      name: 'Benchtop Odd', qty: 1, w: 1000, h: 30, d: 600, mv_total: 500,
+      benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 30,
+    }],
+    pdTop, sel, comm, {},
+  );
+  const oddTop = odd.benchtops?.[0];
+  check('benchtop lam: 30 mm from 12 mm rounds up to 3 layers', oddTop?.layers === 3, String(oddTop?.layers));
+  check('benchtop lam: a non-multiple thickness is warned',
+    (oddTop?.warnings ?? []).some((w) => /36|thickness|multiple/i.test(w)), JSON.stringify(oddTop?.warnings));
+
+  // ── 10e: the sheet may be named by uuid or item_code, and qty multiplies ──
+  const byUuid = quoteFromSchedule(
+    [{ name: 'Benchtop Pair', qty: 2, w: 1200, h: 24, d: 600, mv_total: 100, benchtopMaterialId: 'uuid-MEGM12HACS3607', benchtopThickness: 24 }],
+    pdTop, sel, comm, {},
+  );
+  const pairTop = byUuid.benchtops?.[0];
+  check('benchtop lam: sheet resolves by uuid as well as item_code', !!pairTop, JSON.stringify(byUuid.benchtops?.length));
+  check('benchtop lam: qty 2 doubles the blanks',
+    Math.abs((pairTop?.areaSqm ?? 0) - 2 * (1200 * 600) / 1e6) < 0.002, String(pairTop?.areaSqm));
+
+  // A sheet with no price must not silently produce a $0 top.
+  const unpriced = quoteFromSchedule(
+    [{ name: 'Benchtop Unpriced', qty: 1, w: 1200, h: 24, d: 600, mv_total: 700, benchtopMaterialId: 'NOSUCH', benchtopThickness: 24 }],
+    pdTop, sel, comm, {},
+  );
+  const unLine = unpriced.lines.find((l) => /Unpriced/.test(l.description));
+  check('benchtop lam: an unknown sheet falls back to the source figure',
+    unLine?.source === 'passthrough' && Math.abs(unLine.total - 700) < 0.01, JSON.stringify(unLine));
+
+  // ── 10f: selections carry the default sheet for rows that name none ──────
+  const viaSel = quoteFromSchedule(
+    [{ name: 'Countertop Default', qty: 1, w: 1200, h: 24, d: 600, mv_total: 900 }],
+    pdTop,
+    { ...sel, benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24 },
+    comm, {},
+  );
+  check('benchtop lam: selections supply the default sheet', (viaSel.benchtops ?? []).length === 1, String(viaSel.benchtops?.length));
+
+  // ── 10g: PostgREST hands numerics back as strings ────────────────────────
+  const stringy = { ...hazel, id: 'uuid-STR', item_code: 'STR12', thickness: '12', sheet_length: '3660', sheet_width: '760', area_cost: '375.32' };
+  const strTop = quoteFromSchedule(
+    [{ name: 'Benchtop Stringy', qty: 1, w: 1200, h: 24, d: 600, mv_total: 900, benchtopMaterialId: 'STR12', benchtopThickness: 24 }],
+    { ...pdTop, materials: [...mats, stringy] }, sel, comm, {},
+  );
+  const strLine = strTop.lines.find((l) => /Stringy/.test(l.description));
+  check('benchtop lam: string numerics never produce NaN',
+    finite(strLine?.total) && (strLine?.total ?? 0) > 0, JSON.stringify(strLine));
+}
+
 
 console.log(failures === 0 ? '\nAll pricing smoke tests passed.' : '\n' + failures + ' FAULT(S) FOUND.');
 process.exit(failures === 0 ? 0 : 1);

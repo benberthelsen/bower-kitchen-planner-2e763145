@@ -66,6 +66,68 @@ export interface WorkshopRates {
   installTallExtraMin: number;
   installCornerExtraMin: number;
   installBenchtopMinPerM: number;
+
+  // ---- laminated solid-surface benchtops (see benchtopLaminate.ts) ---------
+  // PLACEHOLDER minutes: Microvellum carries no countertop fabrication labour,
+  // so there is no external calibration source. Confirm from shop timing.
+  /** CNC / saw cut per metre of layer-piece perimeter, at machiningRate */
+  benchtopCutMinPerM: number;
+  /** glue-up per m2 per glue line (layers - 1): mix, spread, clamp, cure handling */
+  benchtopLaminateMinPerSqm: number;
+  /** fit and flush build-up strips per metre x (layers - 1) */
+  benchtopBuildUpMinPerM: number;
+  /** per mitre / field / width join: seam glue, clamp, sand flush */
+  benchtopJoinMin: number;
+  /** face sanding and polishing per m2 */
+  benchtopPolishMinPerSqm: number;
+  /** edge profile sand / polish per metre */
+  benchtopEdgePolishMinPerM: number;
+  benchtopSinkCutoutMin: number;
+  benchtopCooktopCutoutMin: number;
+  benchtopTapHoleMin: number;
+}
+
+/**
+ * Fabrication quantities for laminated benchtops priced at schedule level.
+ * Every field is a plain count so a caller can sum rows. All stations no-op
+ * at 0, so a job without benchtops is byte-identical to before this existed.
+ */
+export interface BenchtopFabricationInputs {
+  /** cut pieces across every layer — drafted, labelled, handled */
+  parts: number;
+  /** metres of layer-piece perimeter to cut */
+  cutLm: number;
+  /** m2 of glue line = areaSqm x (layers - 1) */
+  laminateSqm: number;
+  /** metres of build-up strip = edgeLm x (layers - 1) */
+  buildUpLm: number;
+  /** mitres + field joins + width/length joins */
+  joins: number;
+  /** finished face m2 to sand and polish */
+  polishSqm: number;
+  /** finished edge metres to profile and polish */
+  edgePolishLm: number;
+  sink: number;
+  cooktop: number;
+  tapHole: number;
+  /** metres of finished top, for install scribing/fitting */
+  benchtopLm: number;
+  /** finished tops to pack, load and install */
+  products: number;
+}
+
+export const EMPTY_BENCHTOP_FABRICATION: BenchtopFabricationInputs = {
+  parts: 0, cutLm: 0, laminateSqm: 0, buildUpLm: 0, joins: 0,
+  polishSqm: 0, edgePolishLm: 0, sink: 0, cooktop: 0, tapHole: 0,
+  benchtopLm: 0, products: 0,
+};
+
+export function sumBenchtopFabrication(list: BenchtopFabricationInputs[]): BenchtopFabricationInputs {
+  const out: BenchtopFabricationInputs = { ...EMPTY_BENCHTOP_FABRICATION };
+  for (const f of list) {
+    for (const k of Object.keys(out) as Array<keyof BenchtopFabricationInputs>) out[k] += f[k] ?? 0;
+  }
+  return out;
 }
 
 /** Straight from the Microvellum Labor Report for 3 Donkin Lane. */
@@ -100,6 +162,17 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   installTallExtraMin: 15,
   installCornerExtraMin: 10,
   installBenchtopMinPerM: 12,
+
+  // laminated benchtops — DEFAULT placeholders, not calibrated (MV board cut is 0.2/m)
+  benchtopCutMinPerM: 0.6,
+  benchtopLaminateMinPerSqm: 20,
+  benchtopBuildUpMinPerM: 6,
+  benchtopJoinMin: 45,
+  benchtopPolishMinPerSqm: 25,
+  benchtopEdgePolishMinPerM: 8,
+  benchtopSinkCutoutMin: 30,
+  benchtopCooktopCutoutMin: 20,
+  benchtopTapHoleMin: 5,
 };
 
 /**
@@ -224,6 +297,13 @@ export function calculateWorkshopCost(
     extraCutLengthM?: number;
     /** extra products to install (kick runs, benchtop pieces) */
     extraInstallProducts?: number;
+    /**
+     * Laminated solid-surface benchtops priced at schedule level
+     * (benchtopLaminate.ts). Adds the benchtop stations, and folds the cut
+     * pieces into drafting / labelling / handling and the finished tops into
+     * packing / loading / install. Omit (or pass zeros) for no change.
+     */
+    benchtops?: BenchtopFabricationInputs;
   } = {},
 ): WorkshopCost {
   const r: WorkshopRates = { ...DEFAULT_WORKSHOP_RATES, ...(opts.rates ?? {}) };
@@ -262,8 +342,17 @@ export function calculateWorkshopCost(
   parts += Math.max(0, opts.extraParts ?? 0);
   cutLengthM += Math.max(0, opts.extraCutLengthM ?? 0);
 
-  const products = priced.length + Math.max(0, opts.extraInstallProducts ?? 0);
-  const benchtopLm = opts.benchtopLm ?? 0;
+  // Laminated benchtop pieces are drafted, labelled and handled like any part
+  // but are NOT box-assembled and NOT flat-pack wrapped, so they are kept out
+  // of `parts` and added only where they belong. Their cutting has its own
+  // station (solid surface is slower than board), so nothing goes into
+  // cutLengthM either.
+  const bt: BenchtopFabricationInputs = { ...EMPTY_BENCHTOP_FABRICATION, ...(opts.benchtops ?? {}) };
+  const btParts = Math.max(0, bt.parts);
+  const btProducts = Math.max(0, bt.products);
+
+  const products = priced.length + Math.max(0, opts.extraInstallProducts ?? 0) + btProducts;
+  const benchtopLm = (opts.benchtopLm ?? 0) + Math.max(0, bt.benchtopLm);
 
   const lines: WorkshopLine[] = [];
   const add = (station: string, units: number, unitLabel: string, minPerUnit: number, rate: number, crew = 1) => {
@@ -278,15 +367,39 @@ export function calculateWorkshopCost(
   };
 
   // ---- always ---------------------------------------------------------------
-  add('Drafting', parts, 'part', r.draftingMinPerPart, r.draftingRate);
+  add('Drafting', parts + btParts, 'part', r.draftingMinPerPart, r.draftingRate);
   add('Panel lead-in / lead-out', cutLengthM, 'm', r.leadInOutMinPerM, r.machiningRate);
   add('Panel cutting', cutLengthM, 'm', r.cuttingMinPerM, r.machiningRate);
   add('Vertical drilling', verticalHoles, 'hole', r.verticalDrillMinPerHole, r.machiningRate);
-  add('Part labelling', parts, 'part', r.labellingMinPerPart, r.machiningRate);
+  add('Part labelling', parts + btParts, 'part', r.labellingMinPerPart, r.machiningRate);
   if (!opts.edgeApplicationAlreadyPriced) {
     add('Edgebanding', edgeLm, 'm', r.edgebandMinPerM, r.edgebandingRate);
   }
-  add('Part handling', parts, 'part', r.handlingMinPerPart, r.handlingRate);
+  add('Part handling', parts + btParts, 'part', r.handlingMinPerPart, r.handlingRate);
+
+  // ---- laminated benchtops, whatever the supply mode -----------------------
+  // A benchtop cannot be flat-packed: it is fabricated in the shop regardless.
+  // Station names are chosen so quoteFromSchedule's laborMinutes buckets catch
+  // them: 'cutting' -> machining; lamination / build-up / joins / polishing /
+  // cut-outs -> finishing. None contain 'edge' (that bucket is edgebanding) or
+  // 'assembly'.
+  add('Benchtop cutting', bt.cutLm, 'm', r.benchtopCutMinPerM, r.machiningRate);
+  add('Benchtop lamination glue-up', bt.laminateSqm, 'm2', r.benchtopLaminateMinPerSqm, r.assemblyRate);
+  add('Benchtop build-up strips', bt.buildUpLm, 'm', r.benchtopBuildUpMinPerM, r.assemblyRate);
+  add('Benchtop joins', bt.joins, 'join', r.benchtopJoinMin, r.assemblyRate);
+  add('Benchtop face sanding & polishing', bt.polishSqm, 'm2', r.benchtopPolishMinPerSqm, r.assemblyRate);
+  add('Benchtop profile polishing', bt.edgePolishLm, 'm', r.benchtopEdgePolishMinPerM, r.assemblyRate);
+  {
+    // weighted minutes per cut-out type, like Hardware assembly below
+    const cutoutMin = Math.max(0, bt.sink) * r.benchtopSinkCutoutMin
+      + Math.max(0, bt.cooktop) * r.benchtopCooktopCutoutMin
+      + Math.max(0, bt.tapHole) * r.benchtopTapHoleMin;
+    if (cutoutMin > 0) {
+      add('Benchtop cut-outs', cutoutMin, 'min', 1, r.machiningRate);
+      lines[lines.length - 1].units = round2(Math.max(0, bt.sink) + Math.max(0, bt.cooktop) + Math.max(0, bt.tapHole));
+      lines[lines.length - 1].unitLabel = 'cut-out';
+    }
+  }
 
   // ---- assembly, only when the shop assembles ------------------------------
   if (assembles) {
@@ -327,7 +440,7 @@ export function calculateWorkshopCost(
         + (isCorner ? r.installCornerExtraMin : 0);
     }
     // kick runs and benchtop pieces are installed products too
-    installMinutes += Math.max(0, opts.extraInstallProducts ?? 0) * r.installMinPerCabinet;
+    installMinutes += (Math.max(0, opts.extraInstallProducts ?? 0) + btProducts) * r.installMinPerCabinet;
     installMinutes += benchtopLm * r.installBenchtopMinPerM;
   }
   const installHours = installMinutes / 60;
