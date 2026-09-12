@@ -100,8 +100,8 @@ serve(async (req) => {
             .map((r) => Object.fromEntries(keys.map((k) => [k, r[k]])));
       const hw = (types: RegExp) => cat.hardware.filter((r) => types.test(String(r.hardware_type ?? '')) && Number(r.unit_cost) > 0);
       return jsonResponse(req, 200, {
-        materials: pick(cat.materials.filter((m) => Number(m.area_cost) > 0), ['id', 'item_code', 'name', 'brand', 'thickness', 'material_type', 'area_cost']),
-        edges: pick(cat.edges.filter((e) => Number(e.length_cost) > 0), ['id', 'item_code', 'name', 'brand', 'thickness', 'length_cost']),
+        materials: pick(cat.materials.filter((m) => Number(m.area_cost) > 0), ['id', 'item_code', 'name', 'brand', 'thickness', 'material_type', 'area_cost', 'finish', 'substrate']),
+        edges: pick(cat.edges.filter((e) => Number(e.length_cost) > 0), ['id', 'item_code', 'name', 'brand', 'thickness', 'length_cost', 'finish', 'edge_type']),
         hinges: pick(hw(/hinge/i), ['item_code', 'name', 'brand', 'unit_cost']),
         runners: pick(hw(/runner|slide/i), ['item_code', 'name', 'brand', 'unit_cost', 'runner_depth', 'runner_height']),
         handles: pick(hw(/handle|knob|pull/i), ['item_code', 'name', 'brand', 'unit_cost']),
