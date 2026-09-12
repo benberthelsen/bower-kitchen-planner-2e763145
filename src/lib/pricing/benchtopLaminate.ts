@@ -57,6 +57,10 @@ export interface LaminatedBenchtopRowInput {
   benchtopWaterfallEnds?: number;
   /** Mitres / field joins per unit. Width joins forced by stock size are added automatically. */
   benchtopJoins?: number;
+  /** Metres of EXPOSED edge that gets built up, per unit. Default: the front edge of each blank. */
+  benchtopEdgeLm?: number;
+  /** Build-up strip width, mm (default 50). The apron depth when the edge is mitred. */
+  benchtopStripWidth?: number;
   /** Cut-out counts per unit. */
   benchtopCutouts?: BenchtopCutouts;
 }
@@ -152,10 +156,24 @@ export interface LaminatedBenchtopOptions {
 
 export const BENCHTOP_ADHESIVE_CODE = 'SS-ADHESIVE';
 export const DEFAULT_BENCHTOP_WASTE = 0.05;
-export const DEFAULT_ADHESIVE_UNIT_COST = 35;
-/** m2 of glue line one cartridge covers, and metres of build-up strip. */
-const ADHESIVE_SQM_PER_CARTRIDGE = 1.5;
-const ADHESIVE_STRIP_M_PER_CARTRIDGE = 6;
+/** MEGANITE 50 mL joint adhesive inc 2 tips, fabricator price list 1 July 2024. */
+export const DEFAULT_ADHESIVE_UNIT_COST = 15.9;
+/** Metres of glue line one 50 mL cartridge covers. */
+const ADHESIVE_STRIP_M_PER_CARTRIDGE = 2.5;
+
+/**
+ * A benchtop thicker than its sheet is NOT a stack of full slabs - the SHEET stays one layer and the
+ * EDGE is built up with strips on the underside (HIMACS HM2120 "Drop Edges & Downturns" 2-1: "simply
+ * stack layers on the underside of the sheet ... 2 layers (24mm) or 3 layers (36mm) stacking are
+ * general"; the same technique across Meganite / Corian / Staron). Deeper than that and the edge is
+ * a mitred / rebated apron (2-2, 2-3) carried on a substrate packer. So the extra over a plain top
+ * is the strips, the substrate and the labour - never another slab of solid surface.
+ */
+export type BenchtopBuildUp = 'none' | 'stacked' | 'mitred';
+/** Strips stack to this many layers before the edge becomes a mitred apron (HM2120 2-1: 24 and 36 mm). */
+const MAX_STACKED_LAYERS = 3;
+/** Build-up strip width, mm. HM2120 uses 50 mm blocks/strips for edge and corner build-up. */
+const DEFAULT_STRIP_WIDTH_MM = 50;
 
 const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -202,6 +220,13 @@ interface PreparedRow {
   thickness: number;
   layers: number;
   nominalThickness: number;
+  buildUp: BenchtopBuildUp;
+  /** Metres of edge that gets built up - the exposed run, not every blank's perimeter. */
+  builtUpEdgeLm: number;
+  /** Sheet the build-up strips consume: builtUpEdgeLm x strip width x (layers - 1), m2. */
+  stripSqm: number;
+  /** Substrate packer behind a mitred apron, m2 (0 for a stacked edge - the strips carry it). */
+  substrateSqm: number;
   pieces: BenchtopPiece[];
   areaSqm: number;
   edgeLm: number;
@@ -227,10 +252,14 @@ function prepareRow(
       warnings.push(`${row.name}: benchtopThickness ${row.benchtopThickness} is not a positive number - ${thickness} mm used`);
     }
   }
+  // Layers are the EDGE build-up, not the slab. 24 mm off a 12 mm sheet is one sheet with a
+  // 12 mm strip stacked under the edge, so only the strip is extra material (HM2120 2-1).
   const layers = Math.max(1, Math.ceil(thickness / sheet.thickness - 1e-9));
   const nominalThickness = layers * sheet.thickness;
-  if (Math.abs(nominalThickness - thickness) > 0.01) {
-    warnings.push(`${row.name}: ${thickness} mm is not a multiple of the ${sheet.thickness} mm sheet - ${layers} layers (${nominalThickness} mm) priced`);
+  const buildUp: BenchtopBuildUp =
+    layers <= 1 ? 'none' : layers <= MAX_STACKED_LAYERS ? 'stacked' : 'mitred';
+  if (Math.abs(nominalThickness - thickness) > 0.01 && buildUp === 'stacked') {
+    warnings.push(`${row.name}: ${thickness} mm is not a multiple of the ${sheet.thickness} mm sheet - built up to ${nominalThickness} mm (${layers} layers of strip)`);
   }
 
   // Blanks per unit.
@@ -291,8 +320,26 @@ function prepareRow(
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty,
   };
 
+  // The built-up run is the EXPOSED edge, not every blank's perimeter: a top's front edge and its
+  // returns show, the wall edge does not. Default to the front edge of each blank; a job that knows
+  // better passes benchtopEdgeLm.
+  const givenEdge = pos(row.benchtopEdgeLm);
+  const builtUpEdgeLm = buildUp === 'none' ? 0 : (givenEdge > 0 ? givenEdge * qty : benchtopLm);
+  const stripWidthMm = pos(row.benchtopStripWidth) || DEFAULT_STRIP_WIDTH_MM;
+  const stripSqm = buildUp === 'stacked'
+    ? (builtUpEdgeLm * (stripWidthMm / 1000)) * (layers - 1)
+    : buildUp === 'mitred'
+      ? builtUpEdgeLm * (Math.max(thickness, stripWidthMm) / 1000)   // the apron face, folded down
+      : 0;
+  // A mitred apron is carried on a substrate packer; a stacked edge is solid strip and needs none.
+  const substrateSqm = buildUp === 'mitred' ? builtUpEdgeLm * (thickness / 1000) : 0;
+  if (buildUp === 'mitred') {
+    warnings.push(`${row.name}: ${thickness} mm is deeper than ${MAX_STACKED_LAYERS} stacked layers of the ${sheet.thickness} mm sheet - priced as a mitred apron on a substrate packer, not as stacked strip`);
+  }
+
   return {
-    input: row, qty, sheet, thickness, layers, nominalThickness, pieces,
+    input: row, qty, sheet, thickness, layers, nominalThickness, buildUp,
+    builtUpEdgeLm, stripSqm, substrateSqm, pieces,
     areaSqm, edgeLm, benchtopLm, declaredJoins, stockJoins, cutouts, warnings,
   };
 }
@@ -361,13 +408,22 @@ export function priceLaminatedBenchtops(
     const sheet = group[0].sheet;
     const sheetAreaSqm = (sheet.sheet_length / 1000) * (sheet.sheet_width / 1000);
 
-    // One run per piece per layer; remember which row each run belongs to.
+    // ONE run per blank - the slab is a single layer - plus the build-up strips, which are cut
+    // from the same sheet but nest into the offcuts rather than needing a slab of their own.
     const runs: Array<{ runLengthMm: number; depthMm: number }> = [];
     const runRow: number[] = [];
     group.forEach((p, gi) => {
       for (const piece of p.pieces) {
-        for (let layer = 0; layer < p.layers; layer++) {
-          runs.push({ runLengthMm: piece.l, depthMm: piece.w });
+        runs.push({ runLengthMm: piece.l, depthMm: piece.w });
+        runRow.push(gi);
+      }
+      // strips: (layers - 1) runs of the built-up edge at strip width, or the apron face when mitred
+      if (p.stripSqm > 0) {
+        const stripW = Math.max(1, Math.round((p.stripSqm * 1e6) / Math.max(1, p.builtUpEdgeLm * 1000)));
+        const count = p.buildUp === 'stacked' ? Math.max(1, p.layers - 1) : 1;
+        const each = (p.builtUpEdgeLm * 1000) / count;
+        for (let i = 0; i < count; i++) {
+          runs.push({ runLengthMm: each, depthMm: stripW });
           runRow.push(gi);
         }
       }
@@ -376,17 +432,18 @@ export function priceLaminatedBenchtops(
     const partsByRow = group.map(() => 0);
     packed.cutPieces.forEach((n, ri) => { partsByRow[runRow[ri]] += n; });
 
-    const layeredAreaSqm = group.reduce((s, p) => s + p.areaSqm * p.layers, 0);
+    // Sheet area wanted = one slab per blank + the strips. Never area x layers.
+    const layeredAreaSqm = group.reduce((s, p) => s + p.areaSqm + p.stripSqm, 0);
     const packedSheets = packed.sheets.length;
     const areaSheets = Math.ceil((layeredAreaSqm * (1 + wasteFactor)) / sheetAreaSqm - 1e-9);
     const jobSheets = Math.max(1, packedSheets, areaSheets);
     const materialCost = money(jobSheets * sheetAreaSqm * sheet.area_cost);
 
-    // Apportion by layered-area share; the last row takes the rounding remainder
-    // so the row costs always sum to the sheet cost.
+    // Apportion by the area each row actually takes off the sheet; the last row takes the
+    // rounding remainder so the row costs always sum to the sheet cost.
     let assigned = 0;
     group.forEach((p, gi) => {
-      const share = layeredAreaSqm > 0 ? (p.areaSqm * p.layers) / layeredAreaSqm : 1 / group.length;
+      const share = layeredAreaSqm > 0 ? (p.areaSqm + p.stripSqm) / layeredAreaSqm : 1 / group.length;
       const cost = gi === group.length - 1 ? money(materialCost - assigned) : money(materialCost * share);
       assigned = money(assigned + cost);
       rowMaterial.set(p, { materialCost: cost, sheetsShare: r3(jobSheets * share), jobSheets, parts: partsByRow[gi] });
@@ -409,17 +466,22 @@ export function priceLaminatedBenchtops(
   const out: LaminatedBenchtopRow[] = prepared.map((p) => {
     const mat = rowMaterial.get(p)!;
     const joins = p.declaredJoins + p.stockJoins;
-    const buildUpLm = p.edgeLm * (p.layers - 1);
-    const laminateSqm = p.areaSqm * (p.layers - 1);
-    const adhesiveCartridges = p.layers > 1
-      ? (p.layers - 1) * Math.ceil(p.areaSqm / ADHESIVE_SQM_PER_CARTRIDGE - 1e-9) + Math.ceil(buildUpLm / ADHESIVE_STRIP_M_PER_CARTRIDGE - 1e-9)
+    // Glue line = the built-up edge, once per extra layer. Never the whole slab.
+    const buildUpLm = p.buildUp === 'stacked'
+      ? p.builtUpEdgeLm * (p.layers - 1)
+      : p.buildUp === 'mitred' ? p.builtUpEdgeLm : 0;
+    const laminateSqm = 0;   // a top is one slab; nothing is face-laminated
+    const adhesiveCartridges = buildUpLm > 0
+      ? Math.ceil(buildUpLm / ADHESIVE_STRIP_M_PER_CARTRIDGE - 1e-9)
       : 0;
     const fabrication: BenchtopFabricationInputs = {
       ...EMPTY_BENCHTOP_FABRICATION,
       parts: mat.parts,
-      cutLm: r3(p.edgeLm * p.layers),
+      cutLm: r3(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
       laminateSqm: r3(laminateSqm),
       buildUpLm: r3(buildUpLm),
+      mitreLm: p.buildUp === 'mitred' ? r3(p.builtUpEdgeLm) : 0,
+      substrateSqm: r3(p.substrateSqm),
       joins,
       polishSqm: r3(p.areaSqm),
       edgePolishLm: r3(p.edgeLm),

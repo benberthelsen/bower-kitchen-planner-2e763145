@@ -76,6 +76,8 @@ export interface WorkshopRates {
   benchtopLaminateMinPerSqm: number;
   /** fit and flush build-up strips per metre x (layers - 1) */
   benchtopBuildUpMinPerM: number;
+  /** Mitred / rebated apron per metre: 45 deg cut, fold, glue, clamp every 70-80 mm, flush. */
+  benchtopMitreMinPerM: number;
   /** per mitre / field / width join: seam glue, clamp, sand flush */
   benchtopJoinMin: number;
   /** face sanding and polishing per m2 */
@@ -101,6 +103,10 @@ export interface BenchtopFabricationInputs {
   laminateSqm: number;
   /** metres of build-up strip = edgeLm x (layers - 1) */
   buildUpLm: number;
+  /** Metres of mitred / rebated apron edge (HM2120 2-2, 2-3) - deeper than stacked strip. */
+  mitreLm: number;
+  /** Substrate packer behind a mitred apron, m2. */
+  substrateSqm: number;
   /** mitres + field joins + width/length joins */
   joins: number;
   /** finished face m2 to sand and polish */
@@ -117,7 +123,7 @@ export interface BenchtopFabricationInputs {
 }
 
 export const EMPTY_BENCHTOP_FABRICATION: BenchtopFabricationInputs = {
-  parts: 0, cutLm: 0, laminateSqm: 0, buildUpLm: 0, joins: 0,
+  parts: 0, cutLm: 0, laminateSqm: 0, buildUpLm: 0, mitreLm: 0, substrateSqm: 0, joins: 0,
   polishSqm: 0, edgePolishLm: 0, sink: 0, cooktop: 0, tapHole: 0,
   benchtopLm: 0, products: 0,
 };
@@ -167,6 +173,7 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   benchtopCutMinPerM: 0.6,
   benchtopLaminateMinPerSqm: 20,
   benchtopBuildUpMinPerM: 6,
+  benchtopMitreMinPerM: 14,
   benchtopJoinMin: 45,
   benchtopPolishMinPerSqm: 25,
   benchtopEdgePolishMinPerM: 8,
@@ -386,6 +393,7 @@ export function calculateWorkshopCost(
   add('Benchtop cutting', bt.cutLm, 'm', r.benchtopCutMinPerM, r.machiningRate);
   add('Benchtop lamination glue-up', bt.laminateSqm, 'm2', r.benchtopLaminateMinPerSqm, r.assemblyRate);
   add('Benchtop build-up strips', bt.buildUpLm, 'm', r.benchtopBuildUpMinPerM, r.assemblyRate);
+  add('Benchtop mitred apron', bt.mitreLm, 'm', r.benchtopMitreMinPerM, r.assemblyRate);
   add('Benchtop joins', bt.joins, 'join', r.benchtopJoinMin, r.assemblyRate);
   add('Benchtop face sanding & polishing', bt.polishSqm, 'm2', r.benchtopPolishMinPerSqm, r.assemblyRate);
   add('Benchtop profile polishing', bt.edgePolishLm, 'm', r.benchtopEdgePolishMinPerM, r.assemblyRate);

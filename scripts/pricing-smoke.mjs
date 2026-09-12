@@ -957,14 +957,22 @@ for (const [id, w, h, d] of families) {
   // Whole sheets are bought once for the job, not once per line.
   check('benchtop lam: both rows share one sheet count', bL?.jobSheets === bW?.jobSheets, `${bL?.jobSheets}/${bW?.jobSheets}`);
   const sheetArea = (3660 * 760) / 1e6;
-  const layeredArea = (areaL + areaW) * 2;
-  const minSheets = Math.ceil((layeredArea * 1.05) / sheetArea);
-  check('benchtop lam: sheets cover the layered area + waste', (bL?.jobSheets ?? 0) >= minSheets, `${bL?.jobSheets} >= ${minSheets}`);
+  // ONE slab per blank plus the build-up strips - a 24 mm top is not two slabs of Meganite
+  // (HIMACS HM2120 2-1: strips stacked on the underside of the sheet).
+  const slabArea = areaL + areaW;
+  const minSheets = Math.ceil((slabArea * 1.05) / sheetArea);
+  const doubleSlab = Math.ceil((slabArea * 2 * 1.05) / sheetArea);
+  check('benchtop lam: sheets cover one slab + the strips', (bL?.jobSheets ?? 0) >= minSheets, `${bL?.jobSheets} >= ${minSheets}`);
+  check('benchtop lam: a 24 mm top is NOT charged as two full slabs',
+    (bL?.jobSheets ?? 0) < doubleSlab, `${bL?.jobSheets} sheets vs ${doubleSlab} if double-slabbed`);
   check('benchtop lam: sheet shares add up to the job sheets',
     Math.abs((bL?.sheetsShare ?? 0) + (bW?.sheetsShare ?? 0) - (bL?.jobSheets ?? 0)) < 0.01,
     `${bL?.sheetsShare} + ${bW?.sheetsShare} vs ${bL?.jobSheets}`);
-  check('benchtop lam: material is charged for every layer',
-    (bL?.materialCost ?? 0) > areaL * 375.32, `${bL?.materialCost} vs single-layer ${(areaL * 375.32).toFixed(2)}`);
+  // the strips consume sheet, so the row costs more than its bare face area, but nowhere near double
+  check('benchtop lam: the build-up strips consume sheet',
+    (bL?.materialCost ?? 0) > areaL * 375.32, `${bL?.materialCost} vs bare face ${(areaL * 375.32).toFixed(2)}`);
+  check('benchtop lam: the edge build-up is strip, not a second slab',
+    (bL?.materialCost ?? 0) < areaL * 375.32 * 2, `${bL?.materialCost} vs two slabs ${(areaL * 375.32 * 2).toFixed(2)}`);
   check('benchtop lam: fabrication labour is charged', (bL?.laborCost ?? 0) > 0 && (bW?.laborCost ?? 0) > 0, `${bL?.laborCost}/${bW?.laborCost}`);
   check('benchtop lam: every figure is finite',
     [bL, bW].every((b) => finite(b?.materialCost) && finite(b?.laborCost) && finite(b?.total) && finite(b?.costPrice)),

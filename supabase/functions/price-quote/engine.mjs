@@ -1435,6 +1435,8 @@ var EMPTY_BENCHTOP_FABRICATION = {
   cutLm: 0,
   laminateSqm: 0,
   buildUpLm: 0,
+  mitreLm: 0,
+  substrateSqm: 0,
   joins: 0,
   polishSqm: 0,
   edgePolishLm: 0,
@@ -1493,6 +1495,7 @@ var DEFAULT_WORKSHOP_RATES = {
   benchtopCutMinPerM: 0.6,
   benchtopLaminateMinPerSqm: 20,
   benchtopBuildUpMinPerM: 6,
+  benchtopMitreMinPerM: 14,
   benchtopJoinMin: 45,
   benchtopPolishMinPerSqm: 25,
   benchtopEdgePolishMinPerM: 8,
@@ -1597,6 +1600,7 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   add("Benchtop cutting", bt.cutLm, "m", r.benchtopCutMinPerM, r.machiningRate);
   add("Benchtop lamination glue-up", bt.laminateSqm, "m2", r.benchtopLaminateMinPerSqm, r.assemblyRate);
   add("Benchtop build-up strips", bt.buildUpLm, "m", r.benchtopBuildUpMinPerM, r.assemblyRate);
+  add("Benchtop mitred apron", bt.mitreLm, "m", r.benchtopMitreMinPerM, r.assemblyRate);
   add("Benchtop joins", bt.joins, "join", r.benchtopJoinMin, r.assemblyRate);
   add("Benchtop face sanding & polishing", bt.polishSqm, "m2", r.benchtopPolishMinPerSqm, r.assemblyRate);
   add("Benchtop profile polishing", bt.edgePolishLm, "m", r.benchtopEdgePolishMinPerM, r.assemblyRate);
@@ -2288,9 +2292,10 @@ function buildApplianceLineItems(items, pricingData, commercial) {
 // src/lib/pricing/benchtopLaminate.ts
 var BENCHTOP_ADHESIVE_CODE = "SS-ADHESIVE";
 var DEFAULT_BENCHTOP_WASTE = 0.05;
-var DEFAULT_ADHESIVE_UNIT_COST = 35;
-var ADHESIVE_SQM_PER_CARTRIDGE = 1.5;
-var ADHESIVE_STRIP_M_PER_CARTRIDGE = 6;
+var DEFAULT_ADHESIVE_UNIT_COST = 15.9;
+var ADHESIVE_STRIP_M_PER_CARTRIDGE = 2.5;
+var MAX_STACKED_LAYERS = 3;
+var DEFAULT_STRIP_WIDTH_MM = 50;
 var money2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 var r3 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
 var pos = (n) => typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
@@ -2332,8 +2337,9 @@ function prepareRow(row, sheet, defaultThickness) {
   }
   const layers = Math.max(1, Math.ceil(thickness / sheet.thickness - 1e-9));
   const nominalThickness = layers * sheet.thickness;
-  if (Math.abs(nominalThickness - thickness) > 0.01) {
-    warnings.push(`${row.name}: ${thickness} mm is not a multiple of the ${sheet.thickness} mm sheet - ${layers} layers (${nominalThickness} mm) priced`);
+  const buildUp = layers <= 1 ? "none" : layers <= MAX_STACKED_LAYERS ? "stacked" : "mitred";
+  if (Math.abs(nominalThickness - thickness) > 0.01 && buildUp === "stacked") {
+    warnings.push(`${row.name}: ${thickness} mm is not a multiple of the ${sheet.thickness} mm sheet - built up to ${nominalThickness} mm (${layers} layers of strip)`);
   }
   const given = (row.benchtopPieces ?? []).filter((p) => pos(p?.l) > 0 && pos(p?.w) > 0).map((p) => ({ l: p.l, w: p.w }));
   let unitPieces;
@@ -2384,6 +2390,14 @@ function prepareRow(row, sheet, defaultThickness) {
     cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty
   };
+  const givenEdge = pos(row.benchtopEdgeLm);
+  const builtUpEdgeLm = buildUp === "none" ? 0 : givenEdge > 0 ? givenEdge * qty : benchtopLm;
+  const stripWidthMm = pos(row.benchtopStripWidth) || DEFAULT_STRIP_WIDTH_MM;
+  const stripSqm = buildUp === "stacked" ? builtUpEdgeLm * (stripWidthMm / 1e3) * (layers - 1) : buildUp === "mitred" ? builtUpEdgeLm * (Math.max(thickness, stripWidthMm) / 1e3) : 0;
+  const substrateSqm = buildUp === "mitred" ? builtUpEdgeLm * (thickness / 1e3) : 0;
+  if (buildUp === "mitred") {
+    warnings.push(`${row.name}: ${thickness} mm is deeper than ${MAX_STACKED_LAYERS} stacked layers of the ${sheet.thickness} mm sheet - priced as a mitred apron on a substrate packer, not as stacked strip`);
+  }
   return {
     input: row,
     qty,
@@ -2391,6 +2405,10 @@ function prepareRow(row, sheet, defaultThickness) {
     thickness,
     layers,
     nominalThickness,
+    buildUp,
+    builtUpEdgeLm,
+    stripSqm,
+    substrateSqm,
     pieces,
     areaSqm,
     edgeLm,
@@ -2448,8 +2466,15 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
     const runRow = [];
     group.forEach((p, gi) => {
       for (const piece of p.pieces) {
-        for (let layer = 0; layer < p.layers; layer++) {
-          runs.push({ runLengthMm: piece.l, depthMm: piece.w });
+        runs.push({ runLengthMm: piece.l, depthMm: piece.w });
+        runRow.push(gi);
+      }
+      if (p.stripSqm > 0) {
+        const stripW = Math.max(1, Math.round(p.stripSqm * 1e6 / Math.max(1, p.builtUpEdgeLm * 1e3)));
+        const count = p.buildUp === "stacked" ? Math.max(1, p.layers - 1) : 1;
+        const each = p.builtUpEdgeLm * 1e3 / count;
+        for (let i = 0; i < count; i++) {
+          runs.push({ runLengthMm: each, depthMm: stripW });
           runRow.push(gi);
         }
       }
@@ -2459,14 +2484,14 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
     packed.cutPieces.forEach((n, ri) => {
       partsByRow[runRow[ri]] += n;
     });
-    const layeredAreaSqm = group.reduce((s, p) => s + p.areaSqm * p.layers, 0);
+    const layeredAreaSqm = group.reduce((s, p) => s + p.areaSqm + p.stripSqm, 0);
     const packedSheets = packed.sheets.length;
     const areaSheets = Math.ceil(layeredAreaSqm * (1 + wasteFactor) / sheetAreaSqm - 1e-9);
     const jobSheets = Math.max(1, packedSheets, areaSheets);
     const materialCost = money2(jobSheets * sheetAreaSqm * sheet.area_cost);
     let assigned = 0;
     group.forEach((p, gi) => {
-      const share = layeredAreaSqm > 0 ? p.areaSqm * p.layers / layeredAreaSqm : 1 / group.length;
+      const share = layeredAreaSqm > 0 ? (p.areaSqm + p.stripSqm) / layeredAreaSqm : 1 / group.length;
       const cost = gi === group.length - 1 ? money2(materialCost - assigned) : money2(materialCost * share);
       assigned = money2(assigned + cost);
       rowMaterial.set(p, { materialCost: cost, sheetsShare: r3(jobSheets * share), jobSheets, parts: partsByRow[gi] });
@@ -2486,15 +2511,17 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
   const out = prepared.map((p) => {
     const mat = rowMaterial.get(p);
     const joins = p.declaredJoins + p.stockJoins;
-    const buildUpLm = p.edgeLm * (p.layers - 1);
-    const laminateSqm = p.areaSqm * (p.layers - 1);
-    const adhesiveCartridges = p.layers > 1 ? (p.layers - 1) * Math.ceil(p.areaSqm / ADHESIVE_SQM_PER_CARTRIDGE - 1e-9) + Math.ceil(buildUpLm / ADHESIVE_STRIP_M_PER_CARTRIDGE - 1e-9) : 0;
+    const buildUpLm = p.buildUp === "stacked" ? p.builtUpEdgeLm * (p.layers - 1) : p.buildUp === "mitred" ? p.builtUpEdgeLm : 0;
+    const laminateSqm = 0;
+    const adhesiveCartridges = buildUpLm > 0 ? Math.ceil(buildUpLm / ADHESIVE_STRIP_M_PER_CARTRIDGE - 1e-9) : 0;
     const fabrication = {
       ...EMPTY_BENCHTOP_FABRICATION,
       parts: mat.parts,
-      cutLm: r3(p.edgeLm * p.layers),
+      cutLm: r3(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
       laminateSqm: r3(laminateSqm),
       buildUpLm: r3(buildUpLm),
+      mitreLm: p.buildUp === "mitred" ? r3(p.builtUpEdgeLm) : 0,
+      substrateSqm: r3(p.substrateSqm),
       joins,
       polishSqm: r3(p.areaSqm),
       edgePolishLm: r3(p.edgeLm),
