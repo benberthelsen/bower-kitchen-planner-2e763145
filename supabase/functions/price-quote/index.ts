@@ -131,6 +131,8 @@ serve(async (req) => {
     const result = quoteFromSchedule(schedule, pricing, selections, {
       markupPct, markupSource,
       supplyMode: (b.supplyMode as string | undefined) ?? 'assembled_installed',
+      // per-job drafting / CNC minimums; a caller pricing one room of a quote on its own sends false
+      jobMinimums: b.jobMinimums !== false,
     }, { defaultRoom: (b.defaultRoom as string | undefined) ?? 'Kitchen' });
 
     return jsonResponse(req, 200, {

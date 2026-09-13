@@ -167,6 +167,9 @@ export function generateCabinetBOM(
   };
 }
 
+/** A Microvellum ladder base the base cabinets stand on ("Toe Kick Base", "Toe Kick Base With Angled Ends"). */
+export const TOE_KICK_BASE_RE = /toe\s*kick\s*base/i;
+
 /** Parts that take the exterior/door finish rather than carcase board. */
 const EXTERIOR_PART = /door|drawer front|false front|appliance panel|end panel|fascia/i;
 
@@ -406,8 +409,9 @@ function carriesKickFace(item: PlacedItem): boolean {
   const id = item.definitionId ?? '';
   if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
   if (/filler|panel|opening|kick|rail|splash|scribe|applied/i.test(id)) return false;
-  // a floating shelf ("Mitered Shelf" 606 x 32 x 345, Coral Lodge) is fixed to a wall, not stood on a kick
-  if (/\b(mitt?e?red|mitred|floating|wall)\s+shel(f|ves)\b|^shel(f|ves)\b/i.test(id)) return false;
+  // a floating shelf ("Mitered Shelf" 606 x 32 x 345, Coral Lodge) is fixed to a wall, not stood on a kick;
+  // a floor-standing "Shelf Unit" is not caught
+  if (/\b(mitt?e?red|mitred|floating|wall)\s+shel(f|ves)\b/i.test(id)) return false;
   return true;
 }
 
@@ -555,12 +559,14 @@ export function generateQuoteBOM(
   // Adjustable legs only go under a cabinet that stands on the floor on its own legs. calculateHardware gave 4 to
   // every carcase, so wall cabinets and floating shelves were billed legs (and the minutes to fit them), and on a
   // job that stands on Toe Kick Base ladder bases - every Microvellum kitchen at Bower - no cabinet has legs at all
-  // (Erin & Matt was billed 84). carriesKickFace is the same floor test that builds the kick runs.
+  // (Erin & Matt was billed 84). carriesKickFace is the same floor test that builds the kick runs. Only a ladder
+  // BASE means no legs: a planner 'base_kick' / 'return_kick' is a kick board clipped to legs.
   {
     const cabinetItems = items.filter(i => i.itemType === 'Cabinet');
+    const standsOnLadderBases = cabinetItems.some(i => TOE_KICK_BASE_RE.test(`${i.definitionId ?? ''} ${i.productName ?? ''}`));
     cabinets.forEach((cab, idx) => {
       const item = cabinetItems[idx];
-      if (!item || (!hasExplicitKicks && carriesKickFace(item))) return;
+      if (!item || (!standsOnLadderBases && carriesKickFace(item))) return;
       const legs = cab.hardware.filter(h => h.hardwareType === 'leg');
       if (!legs.length) return;
       const cost = legs.reduce((s, h) => s + h.totalCost, 0);
@@ -732,6 +738,7 @@ export function generateQuoteBOM(
         + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0),
       // kick runs are boards: carried, not loaded like a cabinet, and not box-assembled
       extraLooseItems: kickboards.length,
+      jobMinimums: commercial.jobMinimums ?? false,
     });
     laborTotal = workshop.shopCost;
     // parts_pricing handling / machining / assembly cover the SAME work as the

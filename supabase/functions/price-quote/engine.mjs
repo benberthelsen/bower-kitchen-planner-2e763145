@@ -574,7 +574,8 @@ function buildGenericCabinetMapping(definitionId, size) {
         isSinkCabinet: false,
         isCorner: false,
         isBlind: false,
-        toeKick: true
+        // only a ladder base; a planner base_kick / return_kick board keeps the old treatment
+        toeKick: /toe\s*kick\s*base/.test(id)
       },
       parts: [{ partType: "Filler", quantity: 1 }]
     };
@@ -1685,7 +1686,7 @@ function calculateWorkshopCost(cabinets, opts = {}) {
     add("Edgebanding", edgeLm, "m", r.edgebandMinPerM, r.edgebandingRate);
   }
   add("Part handling", parts + btParts, "part", r.handlingMinPerPart, r.handlingRate);
-  if (priced.length > 0) {
+  if (opts.jobMinimums && priced.length > 0) {
     const minutesAt = (re) => lines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
     const drafted = minutesAt(/^Drafting$/);
     if (drafted < r.draftingMinMinutesPerJob) {
@@ -1945,6 +1946,7 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     itemKind: config.facesOnly ? "fronts" : config.flatBoard ? "board" : "cabinet"
   };
 }
+var TOE_KICK_BASE_RE = /toe\s*kick\s*base/i;
 var EXTERIOR_PART = /door|drawer front|false front|appliance panel|end panel|fascia/i;
 function materialLookupTokens(value) {
   return String(value ?? "").normalize("NFKD").toLowerCase().replace(/carcass/g, "carcase").replace(/\b(?:available|unavailable|sheet|board)\b/g, " ").replace(/(\d+(?:\.\d+)?)\s*mm\b/g, "$1").replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter((token) => token.length > 1);
@@ -2107,7 +2109,7 @@ function carriesKickFace(item) {
   const id = item.definitionId ?? "";
   if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
   if (/filler|panel|opening|kick|rail|splash|scribe|applied/i.test(id)) return false;
-  if (/\b(mitt?e?red|mitred|floating|wall)\s+shel(f|ves)\b|^shel(f|ves)\b/i.test(id)) return false;
+  if (/\b(mitt?e?red|mitred|floating|wall)\s+shel(f|ves)\b/i.test(id)) return false;
   return true;
 }
 function cutKickRun(runLengthMm, stockLengthMm) {
@@ -2211,9 +2213,10 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
   );
   {
     const cabinetItems = items.filter((i) => i.itemType === "Cabinet");
+    const standsOnLadderBases = cabinetItems.some((i) => TOE_KICK_BASE_RE.test(`${i.definitionId ?? ""} ${i.productName ?? ""}`));
     cabinets.forEach((cab, idx) => {
       const item = cabinetItems[idx];
-      if (!item || !hasExplicitKicks && carriesKickFace(item)) return;
+      if (!item || !standsOnLadderBases && carriesKickFace(item)) return;
       const legs = cab.hardware.filter((h) => h.hardwareType === "leg");
       if (!legs.length) return;
       const cost2 = legs.reduce((s, h) => s + h.totalCost, 0);
@@ -2332,7 +2335,8 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       extraCutLengthM: kickboards.reduce((s, k) => s + (k.runLengthMm ?? 0), 0) / 1e3,
       extraInstallProducts: kickboards.length + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0),
       // kick runs are boards: carried, not loaded like a cabinet, and not box-assembled
-      extraLooseItems: kickboards.length
+      extraLooseItems: kickboards.length,
+      jobMinimums: commercial.jobMinimums ?? false
     });
     laborTotal = workshop.shopCost;
     for (const cab of cabinets) {
@@ -2848,9 +2852,17 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     handleId: selections.handleId,
     cabinetTop: selections.cabinetTop ?? "rail",
     supplyHardware: true,
-    adjustableLegs: selections.adjustableLegs ?? true
+    // A schedule is a Microvellum job (an MV export, or quote lines imported from one). Bower's MV jobs stand on
+    // Toe Kick Base ladder bases listed as their own rows, and MV lists no adjustable legs in any room - so legs
+    // (and inferred kick runs) are off here unless the caller asks for them. Deciding it from a Toe Kick Base row
+    // in the same request failed when Build Flow priced one room: a bathroom or robe without kick rows got legs.
+    adjustableLegs: selections.adjustableLegs ?? false
   };
-  const bom = generateQuoteBOM(items, dims, hardwareOptions, pricing, { supplyMode });
+  const bom = generateQuoteBOM(items, dims, hardwareOptions, pricing, { supplyMode, jobMinimums: commercial.jobMinimums ?? true });
+  const scheduleWarnings = [];
+  if (!hardwareOptions.adjustableLegs && !cabinetRows.some((r) => /kick/i.test(r.name)) && cabinetRows.some((r) => /^(base|tall|pantry|sink|corner|drawer)/i.test(r.name.trim()) && !/panel|filler|applied|scribe|end\b|pelmet|shelf|faces?\s*only/i.test(r.name))) {
+    scheduleWarnings.push("No toe kick in this schedule and no adjustable legs - no kick board or legs are priced. Add the Toe Kick Base rows, or send adjustableLegs: true for a job on legs.");
+  }
   const lineCost = new Array(cabinetRows.length).fill(0);
   const lineSplit = cabinetRows.map(() => ({ material: 0, labor: 0 }));
   bom.cabinets.forEach((c, i) => {
@@ -3147,7 +3159,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       installMinutes: money3(installMinutes),
       stations: st.map((l) => ({ station: l.station, minutes: money3(l.minutes), cost: money3(l.cost) }))
     } : null,
-    warnings: [...bom.warnings ?? [], ...lam.warnings]
+    warnings: [...bom.warnings ?? [], ...lam.warnings, ...scheduleWarnings]
   };
 }
 export {

@@ -590,7 +590,8 @@ export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize
         numDoors: 0, numDrawers: 0, numShelves: 0,
         hasSides: false, hasBack: false, hasBottom: false, hasTop: false,
         hasRails: false, isSinkCabinet: false, isCorner: false, isBlind: false,
-        toeKick: true,
+        // only a ladder base; a planner base_kick / return_kick board keeps the old treatment
+        toeKick: /toe\s*kick\s*base/.test(id),
       },
       parts: [{ partType: 'Filler', quantity: 1 }],
     };

@@ -165,6 +165,13 @@ export interface CommercialOptions {
   supplyMode?: import('./workshopModel').SupplyMode;
   /** Per-station rate/minute overrides for the workshop model. */
   workshopRates?: Partial<import('./workshopModel').WorkshopRates>;
+  /**
+   * Apply the per-job drafting / CNC minimums (WorkshopRates.draftingMinMinutesPerJob / machiningMinMinutesPerJob).
+   * Only a caller pricing a WHOLE job should turn this on: a room priced on its own and added to other rooms, or
+   * one cabinet priced for the configurator, would pay the floor again. Default false; quoteFromSchedule (the
+   * price-quote / Build Flow whole-quote path) defaults it on.
+   */
+  jobMinimums?: boolean;
   /** One-way road distance from the workshop, km. Drives banded delivery. */
   siteDistanceKm?: number;
   /** Override the delivery bands (defaults in deliveryCalculator.ts). */

@@ -116,6 +116,8 @@ export interface QuoteCommercial {
   supplyMode?: SupplyMode;
   /** Names where the markup came from, printed in the summary. */
   markupSource: string;
+  /** Per-job drafting / CNC minimums. Default true (a whole quote); send false when pricing one room on its own. */
+  jobMinimums?: boolean;
 }
 
 export interface PricedLine {
@@ -289,10 +291,21 @@ export function quoteFromSchedule(
     handleId: selections.handleId,
     cabinetTop: selections.cabinetTop ?? 'rail',
     supplyHardware: true,
-    adjustableLegs: selections.adjustableLegs ?? true,
+    // A schedule is a Microvellum job (an MV export, or quote lines imported from one). Bower's MV jobs stand on
+    // Toe Kick Base ladder bases listed as their own rows, and MV lists no adjustable legs in any room - so legs
+    // (and inferred kick runs) are off here unless the caller asks for them. Deciding it from a Toe Kick Base row
+    // in the same request failed when Build Flow priced one room: a bathroom or robe without kick rows got legs.
+    adjustableLegs: selections.adjustableLegs ?? false,
   } as unknown as HardwareOptions;
 
-  const bom = generateQuoteBOM(items, dims, hardwareOptions, pricing, { supplyMode });
+  // The whole-quote path applies the per-job drafting / CNC minimums unless told not to (a room priced on its own).
+  const bom = generateQuoteBOM(items, dims, hardwareOptions, pricing, { supplyMode, jobMinimums: commercial.jobMinimums ?? true });
+  const scheduleWarnings: string[] = [];
+  if (!hardwareOptions.adjustableLegs && !cabinetRows.some((r) => /kick/i.test(r.name))
+      && cabinetRows.some((r) => /^(base|tall|pantry|sink|corner|drawer)/i.test(r.name.trim())
+        && !/panel|filler|applied|scribe|end\b|pelmet|shelf|faces?\s*only/i.test(r.name))) {
+    scheduleWarnings.push('No toe kick in this schedule and no adjustable legs - no kick board or legs are priced. Add the Toe Kick Base rows, or send adjustableLegs: true for a job on legs.');
+  }
 
   // Fold per-unit costs back onto their schedule line.
   const lineCost = new Array(cabinetRows.length).fill(0) as number[];
@@ -593,6 +606,6 @@ export function quoteFromSchedule(
           stations: st.map((l) => ({ station: l.station, minutes: money(l.minutes), cost: money(l.cost) })),
         }
       : null,
-    warnings: [...(bom.warnings ?? []), ...lam.warnings],
+    warnings: [...(bom.warnings ?? []), ...lam.warnings, ...scheduleWarnings],
   };
 }

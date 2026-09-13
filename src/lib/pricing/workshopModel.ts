@@ -342,6 +342,8 @@ export function calculateWorkshopCost(
      * pieces (extraParts) are not box-assembled. Benchtop pieces stay products.
      */
     extraLooseItems?: number;
+    /** apply the per-job drafting / CNC minimums - only when this call prices a whole job (see CommercialOptions) */
+    jobMinimums?: boolean;
     /**
      * Laminated solid-surface benchtops priced at schedule level
      * (benchtopLaminate.ts). Adds the benchtop stations, and folds the cut
@@ -448,7 +450,7 @@ export function calculateWorkshopCost(
 
   // ---- job minimums (floors, only for a job with cabinets / fronts / boards) -
   // Names keep the laborMinutes buckets: 'Draft' -> drafting, 'cutting' -> machining.
-  if (priced.length > 0) {
+  if (opts.jobMinimums && priced.length > 0) {
     const minutesAt = (re: RegExp) => lines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
     const drafted = minutesAt(/^Drafting$/);
     if (drafted < r.draftingMinMinutesPerJob) {

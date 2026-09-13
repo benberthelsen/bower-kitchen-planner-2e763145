@@ -1307,7 +1307,7 @@ for (const [id, w, h, d] of families) {
     named('Cabinet Faces Only', 600, 769, 0, 1311), named('Cabinet Faces Only', 600, 769, 0, 1312),
     named('Cabinet Faces Only', 399, 769, 0, 1313), named('oven panle', 600, 16, 160, 1314),
   ];
-  const sands = generateQuoteBOM(sandsItems, dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  const sands = generateQuoteBOM(sandsItems, dims, hw, pricingData, { supplyMode: 'assembled_installed', jobMinimums: true });
   const cabLoad = station(sands, 'Loading & unloading');
   const looseLoad = station(sands, 'Loading & unloading (loose fronts & boards)');
   check('doors only: no cabinet loading line (was 4 x 6 min x 2 crew = 48 min)', !cabLoad, JSON.stringify(cabLoad));
@@ -1481,7 +1481,7 @@ for (const [id, w, h, d] of families) {
     cncTop && R.machiningMinMinutesPerJob === 10 && near(minutesOf(sands, /^(Panel lead-in|Panel cutting|Vertical drilling|Part labelling)/), R.machiningMinMinutesPerJob),
     `${minutesOf(sands, /^(Panel lead-in|Panel cutting|Vertical drilling|Part labelling)/)} min`);
   const bigJob = generateQuoteBOM(Array.from({ length: 12 }, (_, i) => named('Base 2 Door', 900, 870, 575, 1390 + i)), dims, noKick, pricingData,
-    { supplyMode: 'assembled_installed' });
+    { supplyMode: 'assembled_installed', jobMinimums: true });
   check('job minimum: a 12-cabinet job already past both minimums gets no top-up lines',
     !station(bigJob, 'Drafting (job minimum top-up)') && !station(bigJob, 'Panel cutting - CNC set-up (job minimum top-up)')
     && minutesOf(bigJob, /^Drafting$/) > R.draftingMinMinutesPerJob,
@@ -1489,6 +1489,57 @@ for (const [id, w, h, d] of families) {
   const btOnly = calculateWorkshopCost([], { mode: 'assembled_installed', benchtops: { parts: 2, cutLm: 6, laminateSqm: 0, buildUpLm: 0, mitreLm: 0, substrateSqm: 0, joins: 0, polishSqm: 1, edgePolishLm: 3, sink: 0, cooktop: 0, tapHole: 0, benchtopLm: 3, products: 1 } });
   check('job minimum: a benchtop-only workshop call (priced beside the cabinets) adds no top-up',
     !btOnly.lines.some(l => /job minimum/.test(l.station)), btOnly.lines.map(l => l.station).join(', '));
+
+  // ── review fixes (14 Sep 2026) ────────────────────────────────────────────
+  const plannerKick = generateQuoteBOM([
+    { ...named('base-600-1d', 600, 870, 575, 1401), x: 300, z: 287.5 }, named('base_kick', 2400, 135, 16, 1402),
+  ], dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  check('legs: a planner base_kick (a kick board on legs) does NOT strip the legs off the cabinets - only a Toe Kick Base does',
+    legsOf(plannerKick, 0) === 4, String(legsOf(plannerKick, 0)));
+  const floorShelf = generateQuoteBOM([
+    { ...named('Base 1 Door', 600, 870, 575, 1403), x: 300, z: 287.5 },
+    { ...named('Mitered Shelf', 606, 32, 345, 1404), x: 1200, z: 172 },
+    { ...named('Base Shelf Unit', 600, 870, 575, 1405), x: 2400, z: 287.5 },
+  ], dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  check('legs: a Mitered Shelf at floor level (y 0, as price-quote sends it) gets no legs and no kick run; a Base Shelf Unit keeps both',
+    legsOf(floorShelf, 1) === 0 && legsOf(floorShelf, 0) === 4 && legsOf(floorShelf, 2) === 4
+    && floorShelf.kickboards.reduce((s, k) => s + k.runLengthMm, 0) === 1200,
+    JSON.stringify({ legs: [0, 1, 2].map(i => legsOf(floorShelf, i)), kicks: floorShelf.kickboards.map(k => k.runLengthMm) }));
+  check('legs: the removed legs come off the hardware subtotal too',
+    floorShelf.cabinets.every(c => near(c.subtotals.hardware, c.hardware.reduce((s, h) => s + h.totalCost, 0))));
+  const bathRoom = quoteFromSchedule([
+    { name: 'Base 3 Drawer', qty: 2, w: 600, h: 870, d: 575, room: 'main bath' },
+    { name: 'Base 1 Door Right', qty: 1, w: 450, h: 870, d: 575, room: 'main bath' },
+  ], pricingData, sel, comm, { defaultRoom: 'main bath' });
+  check('legs: a room priced on its own from a Microvellum schedule (no Toe Kick Base row) gets no legs, and says why',
+    !bathRoom.workshopCosting.hardware.some(h => /leg/i.test(h.description)) && bathRoom.warnings.some(w => /No toe kick/.test(w)),
+    JSON.stringify({ hw: bathRoom.workshopCosting.hardware.map(h => h.description), warnings: bathRoom.warnings }));
+  const onLegs = quoteFromSchedule([{ name: 'Base 3 Drawer', qty: 1, w: 600, h: 870, d: 575, room: 'k' }], pricingData,
+    { ...sel, adjustableLegs: true }, comm, { defaultRoom: 'k' });
+  check('legs: a caller can still ask for a job on legs (selections.adjustableLegs true)',
+    onLegs.workshopCosting.hardware.some(h => /leg/i.test(h.description)), JSON.stringify(onLegs.workshopCosting.hardware.map(h => h.description)));
+
+  const bigTape = bigJob.consolidatedEdgeTape[0];
+  check('edge: past 20 m the tape is bought by the metre - order = ceil(metres used), cost = that x $/m + handling + application',
+    bigTape && bigTape.linearMeters > 20 && bigTape.rollsRequired === 1 && bigTape.rollLengthM === Math.ceil(bigTape.linearMeters)
+    && near(bigTape.totalCost, Math.ceil(bigTape.linearMeters) * bigTape.costPerMeter + bigTape.handlingCost + bigTape.applicationCost)
+    && near(bigJob.cabinets.reduce((s, c) => s + c.subtotals.edging, 0), bigTape.totalCost),
+    JSON.stringify(bigTape));
+
+  const narrowTall = generateQuoteBOM([named('Tall Return Filler', 16, 2200, 598, 1406)], dims, noKick, pricingData, { supplyMode: 'assembled_installed' });
+  check('loading: a 2200 x 100 tall return filler is long but small in area - one person',
+    station(narrowTall, 'Loading & unloading (loose fronts & boards)')?.units === 1 && !station(narrowTall, 'Loading & unloading (large loose panels)'),
+    JSON.stringify((narrowTall.workshop?.lines ?? []).filter(l => /Loading/.test(l.station))));
+
+  const plannerRoom = generateQuoteBOM(sandsItems, dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  check('job minimum: off by default in generateQuoteBOM (a planner room or one configurator cabinet must not pay it again)',
+    !(plannerRoom.workshop?.lines ?? []).some(l => /job minimum/.test(l.station)));
+  const wholeQ = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'k' }], pricingData, sel, comm, { defaultRoom: 'k' });
+  const roomQ = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'k' }], pricingData, sel, { ...comm, jobMinimums: false }, { defaultRoom: 'k' });
+  check('job minimum: on for a whole quote through quoteFromSchedule, off when the caller prices one room (jobMinimums false)',
+    wholeQ.workshopCosting.labor.some(l => /job minimum/.test(l.category)) && !roomQ.workshopCosting.labor.some(l => /job minimum/.test(l.category))
+    && wholeQ.totals.sellExGst > roomQ.totals.sellExGst,
+    `${wholeQ.totals.sellExGst} vs ${roomQ.totals.sellExGst}`);
 
   // ── every shop and install minute reaches a Build Flow schedule bucket ─────
   for (const mode of ['assembled_installed', 'assembled', 'flat_pack', 'flat_pack_hw_loose']) {
