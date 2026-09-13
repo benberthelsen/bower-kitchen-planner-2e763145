@@ -522,7 +522,8 @@ export function quoteFromSchedule(
     assembly: minutesOf(/assembly/i),
     // benchtop lamination / build-up / joins / polishing / cut-outs
     finishing: minutesOf(/lamination|polish|build-up|joins?|cut-?outs?/i),
-    productHandling: minutesOf(/handling|packag|loading/i),
+    // 'Hardware pick & box' (flat_pack_hw_loose) had no bucket, so its minutes never reached Build Flow's schedule
+    productHandling: minutesOf(/handling|packag|loading|pick/i),
     installation: money(installMinutes),
     total: 0,
   };

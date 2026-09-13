@@ -210,7 +210,8 @@ export function calculateHardware(
   // === ADJUSTABLE LEGS ===
   // Replacement fronts hang on cabinets already standing - they bring no legs. Nor does a flat board: a panel,
   // filler or pelmet is fixed to a cabinet, and 10 Sands St's oven panel was billed four legs.
-  if (hardwareOptions.adjustableLegs && !config.facesOnly && !config.flatBoard) {
+  // A toe-kick base IS the base - a ladder frame on the floor - so it has no adjustable legs of its own.
+  if (hardwareOptions.adjustableLegs && !config.facesOnly && !config.flatBoard && !config.toeKick) {
     const legPricing = hardwarePricing.find(h => isType(h, 'leg'));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     

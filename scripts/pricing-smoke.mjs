@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct, boardThinAxis } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, EDGE_ROLL_LENGTH_M } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -200,12 +200,13 @@ for (const [id, w, h, d] of families) {
   check('grandTotal total = subtotal + GST', Math.abs(job.grandTotal.total - (job.grandTotal.subtotalExGst + job.grandTotal.gst)) < 0.01);
   check('grandTotal labor = Σ cabinet labor', Math.abs(job.grandTotal.labor - job.cabinets.reduce((s, c) => s + c.subtotals.labor, 0)) < 0.01);
 
-  // 25m roll rounding
+  // Whole-length rounding (Bower buys edge tape in 20 m lengths - DELIBERATELY changed from 25 m on 14 Sep 2026)
   const tape = job.consolidatedEdgeTape[0];
   if (tape) {
-    check('edge tape: rolls = ceil(LM/25)', tape.rollsRequired === Math.ceil(tape.linearMeters / 25),
+    check('edge tape: the buying length is 20 m', EDGE_ROLL_LENGTH_M === 20 && tape.rollLengthM === 20, `${EDGE_ROLL_LENGTH_M} / ${tape.rollLengthM}`);
+    check('edge tape: rolls = ceil(LM/20)', tape.rollsRequired === Math.ceil(tape.linearMeters / 20),
       `${tape.linearMeters}m → ${tape.rollsRequired} rolls`);
-    const orderedTapeCost = tape.rollsRequired * 25 * tape.costPerMeter;
+    const orderedTapeCost = tape.rollsRequired * 20 * tape.costPerMeter;
     check('edge tape: material charge covers whole ordered rolls',
       tape.totalCost >= orderedTapeCost,
       `${tape.totalCost} vs minimum ${orderedTapeCost}`);
@@ -1276,6 +1277,184 @@ for (const [id, w, h, d] of families) {
     boardOf('Toe Kick Base', 1250, 135, 16, 1229).parts.every(p => p.materialRole === 'carcase'));
   check('flat boards: replacement fronts unchanged by the shape rule',
     boardOf('Cabinet Faces Only', 600, 769, 0, 1230).parts[0]?.name === 'Door');
+}
+
+
+// 13. Doors-only jobs in the workshop model and whole edge lengths (Ben on the 10 Sands price, 14 Sep 2026):
+//     "hardware is charged twice", "loading and unloading is pricing like it is full cabinets not just small doors",
+//     "always charge the whole board ... edge tape comes in 20 lm min size". Install stays as it is.
+{
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const R = DEFAULT_WORKSHOP_RATES;
+  const near = (a, b, tol = 0.02) => finite(a) && finite(b) && Math.abs(a - b) <= tol;
+  const named = (name, w, h, d, n) => ({ ...cab(name, w, h, d, n), productName: name });
+  const station = (bom, name) => (bom.workshop?.lines ?? []).find(l => l.station === name);
+  const fitMinutes = (bom, skip) => bom.cabinets.reduce((s, c) => s + c.hardware
+    .filter(h => !skip(c, h))
+    .reduce((x, h) => x + (h.quantity ?? 0) * hardwareFitMinutes(h.hardwareType ?? '', R.hardwareMinPerItem), 0), 0);
+
+  check('item kind: fronts / board / cabinet',
+    generateCabinetBOM(named('Cabinet Faces Only', 600, 769, 0, 1301), dims, hw, pricingData, 'Cabinet Faces Only').itemKind === 'fronts'
+    && generateCabinetBOM(named('oven panle', 600, 16, 160, 1302), dims, hw, pricingData, 'oven panle').itemKind === 'board'
+    && generateCabinetBOM(named('Base 1 Door', 600, 870, 575, 1303), dims, hw, pricingData, 'Base 1 Door').itemKind === 'cabinet');
+
+  // ── 10 Sands: three replacement fronts and the oven panel ─────────────────
+  const sandsItems = [
+    named('Cabinet Faces Only', 600, 769, 0, 1311), named('Cabinet Faces Only', 600, 769, 0, 1312),
+    named('Cabinet Faces Only', 399, 769, 0, 1313), named('oven panle', 600, 16, 160, 1314),
+  ];
+  const sands = generateQuoteBOM(sandsItems, dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  const cabLoad = station(sands, 'Loading & unloading');
+  const looseLoad = station(sands, 'Loading & unloading (loose fronts & boards)');
+  check('doors only: no cabinet loading line (was 4 x 6 min x 2 crew = 48 min)', !cabLoad, JSON.stringify(cabLoad));
+  check('doors only: loose loading is 4 items x 2 min x 1 person = 8 min',
+    looseLoad?.units === 4 && near(looseLoad?.minutes, 4 * R.looseLoadingMinPerItem) && R.looseLoadingMinPerItem === 2, JSON.stringify(looseLoad));
+  check('doors only: no shop part assembly (fronts and boards are not boxes)', !station(sands, 'Shop part assembly'),
+    JSON.stringify(station(sands, 'Shop part assembly')));
+  const sandsFit = station(sands, 'Hardware assembly');
+  const plates = sands.cabinets.reduce((s, c) => s + c.hardware.filter(h => h.hardwareType === 'hinge-plate').reduce((x, h) => x + h.quantity, 0), 0);
+  check('doors only: the fronts still carry and SUPPLY their 6 hinge plates', plates === 6, String(plates));
+  check('doors only: hinge plates are not timed in the shop (fitted on site, inside install)',
+    near(sandsFit?.minutes, fitMinutes(sands, (c, h) => c.itemKind === 'fronts' && h.hardwareType === 'hinge-plate'))
+    && fitMinutes(sands, () => false) - sandsFit.minutes >= 6 * hardwareFitMinutes('hinge-plate', 0) - 0.01,
+    `${sandsFit?.minutes} min`);
+  check('doors only: install unchanged - 30 min per item', near(sands.workshop?.installMinutes, 4 * R.installMinPerCabinet),
+    String(sands.workshop?.installMinutes));
+
+  // ── a real cabinet keeps every cabinet rule ────────────────────────────────
+  // adjustableLegs off so no kick run joins the job as an extra product / part
+  const noKick = { ...hw, adjustableLegs: false };
+  const box = generateQuoteBOM([named('Base 1 Door', 600, 870, 575, 1321)], dims, noKick, pricingData, { supplyMode: 'assembled_installed' });
+  const boxLoad = station(box, 'Loading & unloading');
+  check('cabinet: loads at 6 min x 2 crew', boxLoad?.units === 1 && near(boxLoad?.minutes, R.loadingMinPerProduct * R.loadingCrew)
+    && !station(box, 'Loading & unloading (loose fronts & boards)'), JSON.stringify(boxLoad));
+  const boxParts = box.cabinets[0].parts.reduce((s, p) => s + Math.max(1, p.quantity ?? 1), 0);
+  check('cabinet: every part is assembled', station(box, 'Shop part assembly')?.units === boxParts,
+    `${station(box, 'Shop part assembly')?.units} vs ${boxParts}`);
+  check('cabinet: its hinge plates are still fitted in the shop',
+    near(station(box, 'Hardware assembly')?.minutes, fitMinutes(box, () => false)), String(station(box, 'Hardware assembly')?.minutes));
+
+  // ── mixed: a cabinet, a replacement front and a filler ─────────────────────
+  const mixed = generateQuoteBOM([
+    named('Base 1 Door', 600, 870, 575, 1331), named('Cabinet Faces Only', 600, 769, 0, 1332), named('Base Applied Panel', 16, 876, 555, 1333),
+  ], dims, noKick, pricingData, { supplyMode: 'assembled_installed' });
+  check('mixed: 1 cabinet loads as a cabinet, the front and the panel as loose items',
+    station(mixed, 'Loading & unloading')?.units === 1 && station(mixed, 'Loading & unloading (loose fronts & boards)')?.units === 2,
+    JSON.stringify([station(mixed, 'Loading & unloading'), station(mixed, 'Loading & unloading (loose fronts & boards)')]));
+  check('mixed: only the cabinet\'s parts are assembled',
+    station(mixed, 'Shop part assembly')?.units === mixed.cabinets[0].parts.reduce((s, p) => s + Math.max(1, p.quantity ?? 1), 0));
+
+  // ── whole edge lengths reach the quote lines ──────────────────────────────
+  const q = quoteFromSchedule([
+    { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+    { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+    { name: 'Cabinet Faces Only', qty: 1, w: 399, h: 769, d: 0, room: 'kitchen' },
+    { name: 'oven panle', qty: 1, w: 600, h: 16, d: 160, room: 'kitchen' },
+  ], pricingData, sel, comm, { defaultRoom: 'kitchen' });
+  const tape = sands.consolidatedEdgeTape[0];
+  check('edge: a doors-only job buys exactly one 20 m length (material 20 x $/m, plus application on the metres used and handling)',
+    tape && tape.rollsRequired === 1 && tape.linearMeters < 20
+    && near(tape.totalCost, 20 * tape.costPerMeter + tape.applicationCost + tape.handlingCost),
+    JSON.stringify(tape));
+  const unusedTape = (tape.rollsRequired * 20 - tape.linearMeters) * tape.costPerMeter;
+  check('edge: the quote lines carry the whole length - cabinet cost = materials + edging + hardware + labour (was short the unused tape)',
+    near(q.totals.cabinetCost, q.cost.materials + q.cost.edging + q.cost.hardware + q.cost.labor, 0.05) && unusedTape > 1,
+    `${q.totals.cabinetCost} vs ${JSON.stringify(q.cost)}; unused tape $${unusedTape.toFixed(2)}`);
+  check('edge: per-cabinet edging adds up to the consolidated edge line',
+    near(sands.cabinets.reduce((s, c) => s + c.subtotals.edging, 0), sands.consolidatedEdgeTape.reduce((s, e) => s + e.totalCost, 0)));
+
+  // ── toe kicks ──────────────────────────────────────────────────────────────
+  // Bower's Microvellum "Toe Kick Base" is a ply ladder base with a laminate front (sleepers, cleats, sub back):
+  // built in the shop and delivered like a product, standing on the floor with no adjustable legs.
+  const kick = generateCabinetBOM(named('Toe Kick Base', 1253, 135, 530, 1341), dims, hw, pricingData, 'Toe Kick Base');
+  const hwQty = (bom, re) => bom.hardware.filter(h => re.test(h.hardwareType)).reduce((s, h) => s + h.quantity, 0);
+  check('toe kick base: no adjustable legs of its own (was 4), still a built product with its construction screws',
+    kick.itemKind === 'cabinet' && hwQty(kick, /^leg$/) === 0 && hwQty(kick, /consumable-carcase/) === 12
+    && kick.parts.every(p => p.materialRole === 'carcase'),
+    JSON.stringify({ kind: kick.itemKind, hw: kick.hardware.map(h => `${h.hardwareType}x${h.quantity}`) }));
+  const mvKitchen = generateQuoteBOM([named('Base 1 Door', 600, 870, 575, 1342), named('Toe Kick Base', 1253, 135, 530, 1343)],
+    dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  check('toe kick base (explicit): loads and is assembled as a product; no inferred kick run as well',
+    station(mvKitchen, 'Loading & unloading')?.units === 2 && !station(mvKitchen, 'Loading & unloading (loose fronts & boards)')
+    && mvKitchen.kickboards.length === 0,
+    JSON.stringify((mvKitchen.workshop?.lines ?? []).filter(l => /Loading|assembly/.test(l.station))));
+
+  // the kick board is spread onto the cabinets the run was built from - never onto a wall cabinet
+  const withUpper = [
+    { ...named('Base 1 Door', 600, 870, 575, 1344), x: 300, z: 287.5 },
+    { ...named('Base 1 Door', 600, 870, 575, 1345), x: 900, z: 287.5 },
+    { ...named('Upper 2 Door', 600, 720, 350, 1346), x: 300, y: 1400, z: 175 },
+  ];
+  const kickJob = generateQuoteBOM(withUpper, dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  const kickSheetCost = kickJob.consolidatedSheets.filter(s => /kick/i.test(s.materialName)).reduce((s, x) => s + x.totalMaterialCost, 0);
+  // a cabinet's kick share = its materials subtotal minus its own (reconciled) sheet cost
+  const kickShare = (c) => c.subtotals.materials - c.sheets.reduce((s, sh) => s + sh.totalMaterialCost, 0);
+  const [b1, b2, up] = kickJob.cabinets.map(kickShare);
+  check('kick board cost lands on the base cabinets the run came from, half each; the wall cabinet carries none',
+    kickJob.kickboards.length === 1 && kickSheetCost > 0 && near(b1, kickSheetCost / 2) && near(b2, kickSheetCost / 2) && near(up, 0),
+    `kick ${kickSheetCost.toFixed(2)}; shares ${[b1, b2, up].map(x => x.toFixed(2)).join(' / ')}`);
+
+  const inferred = [named('Base 1 Door', 600, 870, 575, 1351), named('Base 1 Door', 600, 870, 575, 1352)].map((c, i) => ({ ...c, x: 300 + 600 * i, z: 287.5 }));
+  const inf = generateQuoteBOM(inferred, dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  const infParts = inf.cabinets.reduce((s, c) => s + c.parts.reduce((x, p) => x + Math.max(1, p.quantity ?? 1), 0), 0);
+  check('toe kick (inferred run): its board is not assembled and it loads loose; install still counts it',
+    inf.kickboards.length === 1 && station(inf, 'Shop part assembly')?.units === infParts
+    && station(inf, 'Loading & unloading')?.units === 2 && station(inf, 'Loading & unloading (loose fronts & boards)')?.units === 1
+    && near(inf.workshop?.installMinutes, 3 * R.installMinPerCabinet),
+    JSON.stringify({ kicks: inf.kickboards.length, lines: (inf.workshop?.lines ?? []).filter(l => /Loading|assembly/.test(l.station)), install: inf.workshop?.installMinutes }));
+  const infQ = quoteFromSchedule([
+    { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'kitchen' },
+  ], pricingData, sel, comm, { defaultRoom: 'kitchen' });
+  const kickSheet = infQ.workshopCosting.sheetStock.find(s => /kick/i.test(s.material));
+  check('toe kick (inferred run): its board reaches the quote lines - cabinet cost = materials + edging + hardware + labour',
+    (!kickSheet || kickSheet.cost > 0) && near(infQ.totals.cabinetCost, infQ.cost.materials + infQ.cost.edging + infQ.cost.hardware + infQ.cost.labor, 0.05),
+    `${infQ.totals.cabinetCost} vs ${JSON.stringify(infQ.cost)}; kick sheet ${JSON.stringify(kickSheet)}`);
+
+  // ── catalogue hardware labour is superseded by the stations ───────────────
+  const hinged = generateQuoteBOM([named('Cabinet Faces Only', 600, 769, 0, 1361)], dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  const hingeRow = pricingData.hardware.find(h => h.item_code === 'HNG-S200');
+  const hingeLine = hinged.consolidatedHardware.find(h => h.itemCode === 'HNG-S200');
+  check('hardware: with the process model on, a hinge costs unit x qty - its catalogue machining/assembly cost is not added on top of the stations',
+    hingeRow.machining_cost > 0 && hingeLine && near(hingeLine.totalCost, hingeRow.unit_cost * hingeLine.quantity)
+    && hingeLine.machiningCost === 0 && hingeLine.assemblyCost === 0,
+    JSON.stringify(hingeLine));
+  check('hardware: cabinet hardware subtotal agrees with its items',
+    near(hinged.cabinets[0].subtotals.hardware, hinged.cabinets[0].hardware.reduce((s, h) => s + h.totalCost, 0)));
+  const regression = generateQuoteBOM([named('Cabinet Faces Only', 600, 769, 0, 1362)], dims, hw, pricingData, { supplyMode: 'none' });
+  const regHinge = regression.consolidatedHardware.find(h => h.itemCode === 'HNG-S200');
+  const flatPack = generateQuoteBOM([named('Cabinet Faces Only', 600, 769, 0, 1363)], dims, hw, pricingData, { supplyMode: 'flat_pack' });
+  const fpHinge = flatPack.consolidatedHardware.find(h => h.itemCode === 'HNG-S200');
+  check('hardware: flat pack drops the catalogue machining (drilling still runs) but keeps its fitting (no Hardware assembly station)',
+    fpHinge && near(fpHinge.totalCost, (hingeRow.unit_cost + hingeRow.assembly_cost) * fpHinge.quantity) && !station(flatPack, 'Hardware assembly'),
+    JSON.stringify(fpHinge));
+  check('hardware: supplyMode none (regression fallback) still carries the catalogue hardware labour',
+    regHinge && near(regHinge.totalCost, (hingeRow.unit_cost + hingeRow.machining_cost + hingeRow.assembly_cost) * regHinge.quantity), JSON.stringify(regHinge));
+
+  // ── every shop and install minute reaches a Build Flow schedule bucket ─────
+  for (const mode of ['assembled_installed', 'assembled', 'flat_pack', 'flat_pack_hw_loose']) {
+    for (const [label, rows] of [
+      ['doors only', [
+        { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+        { name: 'oven panle', qty: 1, w: 600, h: 16, d: 160, room: 'kitchen' },
+      ]],
+      ['kitchen', [
+        { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'kitchen' },
+        { name: 'Base 3 Drawer', qty: 1, w: 600, h: 870, d: 575, room: 'kitchen' },
+        { name: 'Toe Kick Base', qty: 1, w: 1800, h: 135, d: 16, room: 'kitchen' },
+        { name: 'Base Applied Panel', qty: 1, w: 16, h: 876, d: 555, room: 'kitchen' },
+      ]],
+    ]) {
+      const r = quoteFromSchedule(rows, pricingData, sel, { ...comm, supplyMode: mode }, { defaultRoom: 'kitchen' });
+      const lm = r.workshopCosting.laborMinutes;
+      check(`labour minutes (${label}, ${mode}): the schedule buckets hold every shop + install minute`,
+        near(lm.total, (r.workshop?.shopMinutes ?? 0) + (r.workshop?.installMinutes ?? 0), 0.1),
+        `${lm.total} vs ${r.workshop?.shopMinutes} + ${r.workshop?.installMinutes}`);
+    }
+  }
 }
 
 

@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { QuoteBOM } from './pricing/types';
+import { EDGE_ROLL_LENGTH_M } from './pricing/edgeCalculator';
 
 const AUD = (n: number) =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n);
@@ -12,7 +13,7 @@ const fmt2 = (n: number) => n.toFixed(2);
  *
  * One document, three sections:
  *  1. Boards — consolidated whole sheets per material, item code, area, cost
- *  2. Edge Tape — by tape type, total LM, rolls (25 m), cost
+ *  2. Edge Tape — by tape type, total LM, whole 20 m lengths (EDGE_ROLL_LENGTH_M), cost
  *  3. Hardware — consolidated item codes, qty, unit cost, total
  *
  * Intended to be sent directly to suppliers without modification.
@@ -89,14 +90,14 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
   doc.text('Edge Tape', 14, y);
   y += 2;
 
-  const ROLL_LENGTH_M = 25;
   const tapeRows = quoteBOM.consolidatedEdgeTape.map((e) => {
-    const rolls = e.rollsRequired ?? Math.ceil(e.linearMeters / ROLL_LENGTH_M);
+    const rollLength = e.rollLengthM ?? EDGE_ROLL_LENGTH_M;
+    const rolls = e.rollsRequired ?? Math.ceil(e.linearMeters / rollLength);
     return [
       e.edgeName,
       e.edgeType,
       `${fmt2(e.linearMeters)} m`,
-      `${ROLL_LENGTH_M} m rolls`,
+      `${rollLength} m rolls`,
       rolls.toString(),
       AUD(e.totalCost),
     ];

@@ -162,7 +162,8 @@ export function generateCabinetBOM(
     subtotals,
     totalCost,
     buildHours,
-    warnings
+    warnings,
+    itemKind: config.facesOnly ? 'fronts' : config.flatBoard ? 'board' : 'cabinet',
   };
 }
 
@@ -515,7 +516,32 @@ export function generateQuoteBOM(
   const cabinets = items
     .filter(i => i.itemType === 'Cabinet')
     .map(cab => generateCabinetBOM(cab, globalDims, hardwareOptions, pricingData, cab.productName));
-  
+
+  // hardware_pricing rows imported from Microvellum carry their own machining_cost / assembly_cost (a hinge
+  // bored and fitted, a runner fitted). The workshop model's Vertical drilling and Hardware assembly stations
+  // time that same work, so with the process model on, both billed it - Ben: "hardware is charged twice".
+  // The stations supersede the per-item figures exactly as they supersede parts_pricing's below; the supplied
+  // item keeps its unit cost x quantity. supplyMode 'none' (the regression fallback) keeps them.
+  // Machining (hinge cup boring) is timed by Vertical drilling in every supply mode; fitting only by Hardware
+  // assembly, which runs only when the shop assembles - a flat-pack job keeps the catalogue fitting figure.
+  const supplyMode = commercial.supplyMode ?? 'assembled_installed';
+  if (supplyMode !== 'none') {
+    const shopFitsHardware = supplyMode === 'assembled' || supplyMode === 'assembled_installed';
+    for (const cab of cabinets) {
+      for (const h of cab.hardware) {
+        const machining = h.machiningCost ?? 0;
+        const fitting = shopFitsHardware ? (h.assemblyCost ?? 0) : 0;
+        const labour = machining + fitting;
+        if (labour === 0) continue;
+        h.totalCost -= labour;
+        h.machiningCost = 0;
+        if (shopFitsHardware) h.assemblyCost = 0;
+        cab.subtotals.hardware -= labour;
+        cab.totalCost -= labour;
+      }
+    }
+  }
+
   const consolidatedSheets = consolidateSheetRequirements(cabinets.map(c => c.sheets));
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
@@ -535,8 +561,8 @@ export function generateQuoteBOM(
   // Redistribute the consolidated sheet cost back to each cabinet as an
   // area-share so per-cabinet material lines reflect bulk-yield savings.
   // Rate = consolidatedCost / consolidatedPartArea ($/m2 of actual part area).
-  // Only cabinet-sourced sheets are considered here; kick panels (added below)
-  // are a job-level line item not attributed to individual cabinets.
+  // Only cabinet-sourced sheets are considered here; inferred kick panels (added
+  // below) are a job-level sheet whose cost is spread onto the kick cabinets there.
   {
     const reconciledRates = new Map<string, number>();
     for (const cs of consolidatedSheets) {
@@ -555,6 +581,24 @@ export function generateQuoteBOM(
       const delta = reconciledMaterials - cab.subtotals.materials;
       cab.subtotals.materials = reconciledMaterials;
       cab.totalCost += delta;
+    }
+  }
+
+  // Edge tape the same way. The consolidated line buys whole lengths (EDGE_ROLL_LENGTH_M), so its cost is
+  // spread back over the metres each cabinet actually edges. Without this the quote lines charged only the
+  // metres used while the ordering list and the cost total charged the whole length.
+  {
+    const consolidatedByType = new Map(consolidatedEdgeTape.map(e => [e.edgeType, e]));
+    for (const cab of cabinets) {
+      let reconciledEdging = 0;
+      for (const e of cab.edgeTape) {
+        const job = consolidatedByType.get(e.edgeType);
+        const share = job && job.linearMeters > 0 ? job.totalCost * (e.linearMeters / job.linearMeters) : e.totalCost;
+        e.totalCost = share;
+        reconciledEdging += share;
+      }
+      cab.totalCost += reconciledEdging - cab.subtotals.edging;
+      cab.subtotals.edging = reconciledEdging;
     }
   }
 
@@ -585,6 +629,18 @@ export function generateQuoteBOM(
       if (kickMat) {
         const areaPer = (KICK_STOCK_MM / 1000) * (kickHeightMm / 1000); // m² per piece
         const rate = kickMat.area_cost ?? 0;
+        // The kick board is bought and cut, so it is charged: spread its cost, by width, over the cabinets the
+        // runs were built from (the same carriesKickFace test - "has legs" would include every upper). It used
+        // to reach the cost total and the ordering list but no quote line, so the sell price left it out.
+        const kickCost = pieces * areaPer * rate;
+        const kickCabinetIds = new Set(items.filter(i => i.itemType === 'Cabinet' && carriesKickFace(i)).map(i => i.instanceId));
+        const onKick = cabinets.filter(c => kickCabinetIds.has(c.cabinetId) && c.parts.length > 0);
+        const kickWidth = onKick.reduce((s, c) => s + Math.max(0, c.dimensions.width), 0);
+        for (const c of onKick) {
+          const share = kickWidth > 0 ? kickCost * (Math.max(0, c.dimensions.width) / kickWidth) : kickCost / onKick.length;
+          c.subtotals.materials += share;
+          c.totalCost += share;
+        }
         consolidatedSheets.push({
           materialId: kickMat.id,
           materialName: `${kickMat.name} (Kick Panels)`,
@@ -635,7 +691,6 @@ export function generateQuoteBOM(
   //
   // The process cost is pushed back onto each cabinet pro-rata so per-cabinet
   // lines still add up to the job total.
-  const supplyMode = commercial.supplyMode ?? 'assembled_installed';
   let laborTotal = regressionLaborTotal;
   let workshop: WorkshopCost | null = null;
   if (supplyMode !== 'none') {
@@ -654,6 +709,8 @@ export function generateQuoteBOM(
       extraCutLengthM: kickboards.reduce((s, k) => s + (k.runLengthMm ?? 0), 0) / 1000,
       extraInstallProducts: kickboards.length
         + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0),
+      // kick runs are boards: carried, not loaded like a cabinet, and not box-assembled
+      extraLooseItems: kickboards.length,
     });
     laborTotal = workshop.shopCost;
     // parts_pricing handling / machining / assembly cover the SAME work as the

@@ -573,7 +573,8 @@ function buildGenericCabinetMapping(definitionId, size) {
         hasRails: false,
         isSinkCabinet: false,
         isCorner: false,
-        isBlind: false
+        isBlind: false,
+        toeKick: true
       },
       parts: [{ partType: "Filler", quantity: 1 }]
     };
@@ -827,6 +828,7 @@ function consolidateSheetRequirements(cabinetSheets) {
 }
 
 // src/lib/pricing/edgeCalculator.ts
+var EDGE_ROLL_LENGTH_M = 20;
 function calculateEdgeTape(parts, edgePricing, selectedEdge) {
   const resolvedEdge = selectedEdge ? edgePricing.find((e) => {
     const sel = String(selectedEdge).toLowerCase();
@@ -885,7 +887,7 @@ function consolidateEdgeTape(cabinetEdges) {
     const totalLinearMeters = allocations.reduce((sum, a) => sum + a.linearMeters, 0);
     const totalHandlingCost = allocations.reduce((sum, a) => sum + a.handlingCost, 0);
     const totalApplicationCost = allocations.reduce((sum, a) => sum + a.applicationCost, 0);
-    const ROLL_LENGTH_M = 25;
+    const ROLL_LENGTH_M = EDGE_ROLL_LENGTH_M;
     const rollsRequired = Math.ceil(totalLinearMeters / ROLL_LENGTH_M);
     consolidated.push({
       edgeType,
@@ -1014,7 +1016,7 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       });
     }
   }
-  if (hardwareOptions.adjustableLegs && !config.facesOnly && !config.flatBoard) {
+  if (hardwareOptions.adjustableLegs && !config.facesOnly && !config.flatBoard && !config.toeKick) {
     const legPricing = hardwarePricing.find((h) => isType(h, "leg"));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     items.push({
@@ -1546,6 +1548,8 @@ var DEFAULT_WORKSHOP_RATES = {
   loadingMinPerProduct: 6,
   // 21 products, 2 crew -> 4:11
   loadingCrew: 2,
+  looseLoadingMinPerItem: 2,
+  // one person; Ben 14 Sep 2026: doors were loading "like full cabinets"
   installMinPerCabinet: 30,
   // 21 products -> 10:30 = $1,029.10
   installTallExtraMin: 15,
@@ -1594,10 +1598,10 @@ function estimateVerticalHoles(cab) {
   const drawerFronts = parts.filter((p) => /drawer front/i.test(p.partType)).reduce((s, p) => s + (p.quantity ?? 0), 0);
   const shelves = parts.filter((p) => /shelf/i.test(p.partType)).reduce((s, p) => s + (p.quantity ?? 0), 0);
   const carcassParts = parts.filter((p) => !/door|drawer|shelf/i.test(p.partType)).reduce((s, p) => s + (p.quantity ?? 0), 0);
+  const hinges = (cab.hardware ?? []).filter((h) => h.hardwareType === "hinge").reduce((s, h) => s + (h.quantity ?? 0), 0);
   return carcassParts * 4 + // cam / dowel construction holes per panel
   shelves * 8 + // pin rows both sides
-  doors * 6 + // cup + plate
-  drawerFronts * 8;
+  (hinges > 0 ? hinges * 3 : doors * 6) + drawerFronts * 8;
 }
 function calculateWorkshopCost(cabinets, opts = {}) {
   const r = { ...DEFAULT_WORKSHOP_RATES, ...opts.rates ?? {} };
@@ -1608,25 +1612,36 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   const installs = mode === "assembled_installed";
   const priced = cabinets.filter((c) => (c.parts?.length ?? 0) > 0);
   let parts = 0;
+  let assembledParts = 0;
+  let looseItems = 0;
   let cutLengthM = 0;
   let verticalHoles = 0;
   let hardwareItems = 0;
+  let fittedItems = 0;
   let edgeLm = 0;
   let hardwareFitMin = 0;
   for (const cab of priced) {
+    const loose = cab.itemKind === "fronts" || cab.itemKind === "board";
+    if (loose) looseItems++;
     for (const p of cab.parts ?? []) {
-      parts += Math.max(1, p.quantity ?? 1);
+      const qty = Math.max(1, p.quantity ?? 1);
+      parts += qty;
+      if (!loose) assembledParts += qty;
       cutLengthM += partCutLengthM(p);
     }
     verticalHoles += estimateVerticalHoles(cab);
     for (const h of cab.hardware ?? []) {
       const qty = h.quantity ?? 0;
       hardwareItems += qty;
+      if (cab.itemKind === "fronts" && h.hardwareType === "hinge-plate") continue;
+      fittedItems += qty;
       hardwareFitMin += qty * hardwareFitMinutes(h.hardwareType ?? "", r.hardwareMinPerItem);
     }
     edgeLm += (cab.edgeTape ?? []).reduce((s, e) => s + (e.linearMeters ?? 0), 0);
   }
   parts += Math.max(0, opts.extraParts ?? 0);
+  const extraLoose = Math.min(Math.max(0, opts.extraLooseItems ?? 0), Math.max(0, opts.extraInstallProducts ?? 0));
+  looseItems += extraLoose;
   cutLengthM += Math.max(0, opts.extraCutLengthM ?? 0);
   const bt = { ...EMPTY_BENCHTOP_FABRICATION, ...opts.benchtops ?? {} };
   const btParts = Math.max(0, bt.parts);
@@ -1673,11 +1688,11 @@ function calculateWorkshopCost(cabinets, opts = {}) {
     }
   }
   if (assembles) {
-    add("Shop part assembly", parts, "part", r.assemblyMinPerPart, r.assemblyRate);
+    add("Shop part assembly", assembledParts, "part", r.assemblyMinPerPart, r.assemblyRate);
   }
   if (fitsHardware && hardwareFitMin > 0) {
     add("Hardware assembly", hardwareFitMin, "min", 1, r.hardwareRate);
-    lines[lines.length - 1].units = round2(hardwareItems);
+    lines[lines.length - 1].units = round2(fittedItems);
     lines[lines.length - 1].unitLabel = "item";
   } else if (suppliesLooseHardware) {
     add("Hardware pick & box", hardwareItems, "item", r.hardwarePickMinPerItem, r.hardwareRate);
@@ -1687,7 +1702,8 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   } else {
     add("Flat pack wrap & label", parts, "part", r.flatPackPackingMinPerPart, r.handlingRate);
   }
-  add("Loading & unloading", products, "product", r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
+  add("Loading & unloading", products - looseItems, "product", r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
+  add("Loading & unloading (loose fronts & boards)", looseItems, "item", r.looseLoadingMinPerItem, r.loadingRate);
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);
   let installMinutes = 0;
@@ -1900,7 +1916,8 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     subtotals,
     totalCost,
     buildHours,
-    warnings
+    warnings,
+    itemKind: config.facesOnly ? "fronts" : config.flatBoard ? "board" : "cabinet"
   };
 }
 var EXTERIOR_PART = /door|drawer front|false front|appliance panel|end panel|fascia/i;
@@ -2146,6 +2163,23 @@ function stockPiecesForKickCuts(allocations) {
 }
 function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, commercial = {}, pricingSelection = {}) {
   const cabinets = items.filter((i) => i.itemType === "Cabinet").map((cab) => generateCabinetBOM(cab, globalDims, hardwareOptions, pricingData, cab.productName));
+  const supplyMode = commercial.supplyMode ?? "assembled_installed";
+  if (supplyMode !== "none") {
+    const shopFitsHardware = supplyMode === "assembled" || supplyMode === "assembled_installed";
+    for (const cab of cabinets) {
+      for (const h of cab.hardware) {
+        const machining = h.machiningCost ?? 0;
+        const fitting = shopFitsHardware ? h.assemblyCost ?? 0 : 0;
+        const labour = machining + fitting;
+        if (labour === 0) continue;
+        h.totalCost -= labour;
+        h.machiningCost = 0;
+        if (shopFitsHardware) h.assemblyCost = 0;
+        cab.subtotals.hardware -= labour;
+        cab.totalCost -= labour;
+      }
+    }
+  }
   const consolidatedSheets = consolidateSheetRequirements(cabinets.map((c) => c.sheets));
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map((c) => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map((c) => c.hardware));
@@ -2174,6 +2208,20 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       cab.totalCost += delta;
     }
   }
+  {
+    const consolidatedByType = new Map(consolidatedEdgeTape.map((e) => [e.edgeType, e]));
+    for (const cab of cabinets) {
+      let reconciledEdging = 0;
+      for (const e of cab.edgeTape) {
+        const job = consolidatedByType.get(e.edgeType);
+        const share = job && job.linearMeters > 0 ? job.totalCost * (e.linearMeters / job.linearMeters) : e.totalCost;
+        e.totalCost = share;
+        reconciledEdging += share;
+      }
+      cab.totalCost += reconciledEdging - cab.subtotals.edging;
+      cab.subtotals.edging = reconciledEdging;
+    }
+  }
   if (hardwareOptions.adjustableLegs !== false) {
     const KICK_STOCK_MM = 2400;
     const kickHeightMm = globalDims.toeKickHeight || 135;
@@ -2191,6 +2239,15 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       if (kickMat) {
         const areaPer = KICK_STOCK_MM / 1e3 * (kickHeightMm / 1e3);
         const rate = kickMat.area_cost ?? 0;
+        const kickCost = pieces * areaPer * rate;
+        const kickCabinetIds = new Set(items.filter((i) => i.itemType === "Cabinet" && carriesKickFace(i)).map((i) => i.instanceId));
+        const onKick = cabinets.filter((c) => kickCabinetIds.has(c.cabinetId) && c.parts.length > 0);
+        const kickWidth = onKick.reduce((s, c) => s + Math.max(0, c.dimensions.width), 0);
+        for (const c of onKick) {
+          const share = kickWidth > 0 ? kickCost * (Math.max(0, c.dimensions.width) / kickWidth) : kickCost / onKick.length;
+          c.subtotals.materials += share;
+          c.totalCost += share;
+        }
         consolidatedSheets.push({
           materialId: kickMat.id,
           materialName: `${kickMat.name} (Kick Panels)`,
@@ -2220,7 +2277,6 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
   const edgeTotal = consolidatedEdgeTape.reduce((s, e) => s + e.totalCost, 0);
   const hwTotal = consolidatedHardware.reduce((s, h) => s + h.totalCost, 0);
   const regressionLaborTotal = cabinets.reduce((s, c) => s + c.subtotals.labor, 0);
-  const supplyMode = commercial.supplyMode ?? "assembled_installed";
   let laborTotal = regressionLaborTotal;
   let workshop = null;
   if (supplyMode !== "none") {
@@ -2235,7 +2291,9 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       edgeApplicationAlreadyPriced,
       extraParts: kickboards.length,
       extraCutLengthM: kickboards.reduce((s, k) => s + (k.runLengthMm ?? 0), 0) / 1e3,
-      extraInstallProducts: kickboards.length + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0)
+      extraInstallProducts: kickboards.length + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0),
+      // kick runs are boards: carried, not loaded like a cabinet, and not box-assembled
+      extraLooseItems: kickboards.length
     });
     laborTotal = workshop.shopCost;
     for (const cab of cabinets) {
@@ -2976,7 +3034,8 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     assembly: minutesOf(/assembly/i),
     // benchtop lamination / build-up / joins / polishing / cut-outs
     finishing: minutesOf(/lamination|polish|build-up|joins?|cut-?outs?/i),
-    productHandling: minutesOf(/handling|packag|loading/i),
+    // 'Hardware pick & box' (flat_pack_hw_loose) had no bucket, so its minutes never reached Build Flow's schedule
+    productHandling: minutesOf(/handling|packag|loading|pick/i),
     installation: money3(installMinutes),
     total: 0
   };

@@ -60,6 +60,11 @@ export interface WorkshopRates {
   flatPackPackingMinPerPart: number;
   loadingMinPerProduct: number;
   loadingCrew: number;
+  /**
+   * Replacement fronts and single boards (CabinetBOM.itemKind 'fronts' / 'board'): one person carries a door
+   * or a panel, so they do not load like a cabinet at loadingMinPerProduct x loadingCrew.
+   */
+  looseLoadingMinPerItem: number;
 
   // ---- install -------------------------------------------------------------
   installMinPerCabinet: number;
@@ -163,6 +168,7 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   flatPackPackingMinPerPart: 0.6,
   loadingMinPerProduct: 6,        // 21 products, 2 crew -> 4:11
   loadingCrew: 2,
+  looseLoadingMinPerItem: 2,      // one person; Ben 14 Sep 2026: doors were loading "like full cabinets"
 
   installMinPerCabinet: 30,       // 21 products -> 10:30 = $1,029.10
   installTallExtraMin: 15,
@@ -272,10 +278,14 @@ function estimateVerticalHoles(cab: CabinetBOM): number {
     .reduce((s, p) => s + (p.quantity ?? 0), 0);
   const carcassParts = parts.filter((p) => !/door|drawer|shelf/i.test(p.partType))
     .reduce((s, p) => s + (p.quantity ?? 0), 0);
+  // cup + plate holes per HINGE when the hinges are known: a tall door hangs on 4, and now that the catalogue's
+  // per-hinge machining cost is superseded by this station, 6 per door under-timed it
+  const hinges = (cab.hardware ?? []).filter((h) => h.hardwareType === 'hinge')
+    .reduce((s, h) => s + (h.quantity ?? 0), 0);
   return (
     carcassParts * 4 +   // cam / dowel construction holes per panel
     shelves * 8 +        // pin rows both sides
-    doors * 6 +          // cup + plate
+    (hinges > 0 ? hinges * 3 : doors * 6) +
     drawerFronts * 8     // runner + front fixing
   );
 }
@@ -305,6 +315,11 @@ export function calculateWorkshopCost(
     /** extra products to install (kick runs, benchtop pieces) */
     extraInstallProducts?: number;
     /**
+     * How many of extraInstallProducts are single boards (kick runs): they load as loose items and their
+     * pieces (extraParts) are not box-assembled. Benchtop pieces stay products.
+     */
+    extraLooseItems?: number;
+    /**
      * Laminated solid-surface benchtops priced at schedule level
      * (benchtopLaminate.ts). Adds the benchtop stations, and folds the cut
      * pieces into drafting / labelling / handling and the finished tops into
@@ -324,29 +339,45 @@ export function calculateWorkshopCost(
   const priced = cabinets.filter((c) => (c.parts?.length ?? 0) > 0);
 
   let parts = 0;
+  /** parts that go into a box in the shop - loose fronts and boards do not */
+  let assembledParts = 0;
+  /** replacement fronts and single boards: carried, not loaded like a cabinet */
+  let looseItems = 0;
   let cutLengthM = 0;
   let verticalHoles = 0;
   let hardwareItems = 0;
+  /** items actually timed at the Hardware assembly station */
+  let fittedItems = 0;
   let edgeLm = 0;
   // fitting time is per hardware TYPE, not per item — see HARDWARE_FIT_MINUTES
   let hardwareFitMin = 0;
 
   for (const cab of priced) {
+    const loose = cab.itemKind === 'fronts' || cab.itemKind === 'board';
+    if (loose) looseItems++;
     for (const p of cab.parts ?? []) {
-      parts += Math.max(1, p.quantity ?? 1);
+      const qty = Math.max(1, p.quantity ?? 1);
+      parts += qty;
+      if (!loose) assembledParts += qty;
       cutLengthM += partCutLengthM(p);
     }
     verticalHoles += estimateVerticalHoles(cab);
     for (const h of cab.hardware ?? []) {
       const qty = h.quantity ?? 0;
       hardwareItems += qty;
+      // Replacement fronts hang on EXISTING cabinets: their hinge plates are screwed to those cabinets on site,
+      // inside the install time, so timing them in the shop as well charged the fitting twice.
+      if (cab.itemKind === 'fronts' && h.hardwareType === 'hinge-plate') continue;
+      fittedItems += qty;
       hardwareFitMin += qty * hardwareFitMinutes(h.hardwareType ?? '', r.hardwareMinPerItem);
     }
     edgeLm += (cab.edgeTape ?? []).reduce((s, e) => s + (e.linearMeters ?? 0), 0);
   }
 
-  // job-level boards (toe kick) still cost labour
+  // job-level boards (toe kick) are drafted, cut, labelled and handled - but not box-assembled
   parts += Math.max(0, opts.extraParts ?? 0);
+  const extraLoose = Math.min(Math.max(0, opts.extraLooseItems ?? 0), Math.max(0, opts.extraInstallProducts ?? 0));
+  looseItems += extraLoose;
   cutLengthM += Math.max(0, opts.extraCutLengthM ?? 0);
 
   // Laminated benchtop pieces are drafted, labelled and handled like any part
@@ -411,12 +442,12 @@ export function calculateWorkshopCost(
 
   // ---- assembly, only when the shop assembles ------------------------------
   if (assembles) {
-    add('Shop part assembly', parts, 'part', r.assemblyMinPerPart, r.assemblyRate);
+    add('Shop part assembly', assembledParts, 'part', r.assemblyMinPerPart, r.assemblyRate);
   }
   if (fitsHardware && hardwareFitMin > 0) {
     // minutes already carry the per-type weighting, so pass 1 min/unit
     add('Hardware assembly', hardwareFitMin, 'min', 1, r.hardwareRate);
-    lines[lines.length - 1].units = round2(hardwareItems);
+    lines[lines.length - 1].units = round2(fittedItems);
     lines[lines.length - 1].unitLabel = 'item';
   } else if (suppliesLooseHardware) {
     add('Hardware pick & box', hardwareItems, 'item', r.hardwarePickMinPerItem, r.hardwareRate);
@@ -429,7 +460,8 @@ export function calculateWorkshopCost(
     add('Flat pack wrap & label', parts, 'part', r.flatPackPackingMinPerPart, r.handlingRate);
   }
 
-  add('Loading & unloading', products, 'product', r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
+  add('Loading & unloading', products - looseItems, 'product', r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
+  add('Loading & unloading (loose fronts & boards)', looseItems, 'item', r.looseLoadingMinPerItem, r.loadingRate);
 
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);

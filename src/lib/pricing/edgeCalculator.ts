@@ -2,6 +2,9 @@
 
 import { PartDimension, EdgeTapeAllocation, EdgePricingRecord } from './types';
 
+/** Bower buys edge tape in 20 m lengths at minimum, and charges the whole length it has to buy (Ben, 14 Sep 2026). */
+export const EDGE_ROLL_LENGTH_M = 20;
+
 /**
  * Calculate edge tape requirements from parts
  */
@@ -107,8 +110,7 @@ export function consolidateEdgeTape(
     const totalHandlingCost = allocations.reduce((sum, a) => sum + a.handlingCost, 0);
     const totalApplicationCost = allocations.reduce((sum, a) => sum + a.applicationCost, 0);
     
-    // Edge tape orders in multiples of 25m rolls
-    const ROLL_LENGTH_M = 25;
+    const ROLL_LENGTH_M = EDGE_ROLL_LENGTH_M;
     const rollsRequired = Math.ceil(totalLinearMeters / ROLL_LENGTH_M);
 
     consolidated.push({

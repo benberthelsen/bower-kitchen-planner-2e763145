@@ -88,7 +88,7 @@ export interface EdgeTapeAllocation {
   totalCost: number;
   /** True when no positive catalogue price matched and a calibrated fallback was used. */
   isFallbackPrice?: boolean;
-  /** consolidated ordering: 25m roll multiples */
+  /** consolidated ordering: whole EDGE_ROLL_LENGTH_M lengths */
   rollsRequired?: number;
   rollLengthM?: number;
 }
@@ -143,6 +143,12 @@ export interface CabinetBOM {
   buildHours: BuildHours;
   /** Pricing-trust warnings for this cabinet (unmatched/unpriced materials — WS2 guard) */
   warnings?: string[];
+  /**
+   * What the workshop model is handling: a box ('cabinet'), replacement fronts for existing cabinets
+   * ('fronts', CabinetConfig.facesOnly) or one cut board ('board', CabinetConfig.flatBoard). Loose fronts and
+   * boards are never box-assembled and are carried by one person, not loaded like a cabinet. Absent = cabinet.
+   */
+  itemKind?: 'cabinet' | 'fronts' | 'board';
 }
 
 /** Per-client commercial layers applied to cost (P3). All optional; defaults = pass-through. */
@@ -614,4 +620,11 @@ export interface CabinetConfig {
    * fixed with end-panel screws; no legs, wall screws, kick run or benchtop.
    */
   flatBoard?: 'name' | 'shape';
+  /**
+   * An explicit toe-kick product ("Toe Kick Base" in every Microvellum export). At Bower it is a plywood ladder
+   * base - sleepers, cleats and sub back with a laminate kick front - that the base cabinets stand on: it is built
+   * in the shop and delivered like a product, but it has no adjustable legs of its own. Kept apart from flatBoard,
+   * which would make it a loose board in the door finish.
+   */
+  toeKick?: boolean;
 }
