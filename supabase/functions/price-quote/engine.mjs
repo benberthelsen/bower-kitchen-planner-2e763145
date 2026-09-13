@@ -459,6 +459,14 @@ function getCabinetPartMapping(definitionId, fallbackName) {
   return buildGenericCabinetMapping(definitionId);
 }
 var FLAT_PANEL_RE = /filler|scribe|applied|panel$|end.?panel|pelmet|bulkhead|valance/;
+var FACES_ONLY_RE = /faces?\s*only|fronts?\s*only|doors?\s*only|replacement\s+(?:doors?|fronts?)/;
+function isFacesOnlyProduct(idOrName) {
+  return FACES_ONLY_RE.test((idOrName || "").toLowerCase());
+}
+function facesOnlyDoorCount(idOrName) {
+  const m = (idOrName || "").toLowerCase().match(/(\d+)\s*[_-]?\s*(?:doors?|faces?|fronts?)/);
+  return m ? Math.max(1, parseInt(m[1], 10)) : 1;
+}
 function isFlatBoardProduct(idOrName) {
   const s = (idOrName || "").toLowerCase();
   if (!s) return false;
@@ -469,6 +477,7 @@ var NO_FRONT_RE = /kick|rail|trim|splash|opening/;
 function inferFrontCounts(idOrName) {
   const s = (idOrName || "").toLowerCase();
   if (!s) return { doors: 0, drawers: 0 };
+  if (FACES_ONLY_RE.test(s)) return { doors: facesOnlyDoorCount(s), drawers: 0 };
   if (FLAT_PANEL_RE.test(s) || NO_FRONT_RE.test(s)) return { doors: 0, drawers: 0 };
   const doorMatch = s.match(/(\d+)\s*[_-]?\s*door/);
   const drawerMatch = s.match(/(\d+)\s*[_-]?\s*drawer/);
@@ -485,6 +494,25 @@ function inferFrontCounts(idOrName) {
 function buildGenericCabinetMapping(definitionId) {
   const id = (definitionId || "").toLowerCase();
   if (!id) return null;
+  if (FACES_ONLY_RE.test(id)) {
+    return {
+      config: {
+        numDoors: facesOnlyDoorCount(id),
+        numDrawers: 0,
+        numShelves: 0,
+        hasSides: false,
+        hasBack: false,
+        hasBottom: false,
+        hasTop: false,
+        hasRails: false,
+        isSinkCabinet: false,
+        isCorner: false,
+        isBlind: false,
+        facesOnly: true
+      },
+      parts: [{ partType: "Door", quantity: "perDoor" }]
+    };
+  }
   if (FLAT_PANEL_RE.test(id)) {
     const partType = /applied|end.?panel/.test(id) ? "Applied Panel" : /return/.test(id) ? "Return Panel" : "Filler";
     return {
@@ -957,7 +985,7 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       });
     }
   }
-  if (hardwareOptions.adjustableLegs) {
+  if (hardwareOptions.adjustableLegs && !config.facesOnly) {
     const legPricing = hardwarePricing.find((h) => isType(h, "leg"));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     items.push({
@@ -988,7 +1016,7 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       isFallbackPrice: pinCost.isFallbackPrice
     });
   }
-  for (const rule of CONSTRUCTION_CONSUMABLES) {
+  for (const rule of config.facesOnly ? [] : CONSTRUCTION_CONSUMABLES) {
     const pricing = hardwarePricing.find(
       (h) => h.name.toLowerCase().includes(rule.match) || h.item_code?.toLowerCase?.() === rule.match
     );
@@ -1297,6 +1325,7 @@ function calculateBenchtops(items, globalDims, pricingData, selection = {}) {
   const carriesBenchtop = (i) => {
     if (i.itemType !== "Cabinet") return false;
     const id = i.definitionId ?? "";
+    if (isFacesOnlyProduct(id)) return false;
     if (BENCHTOP_CAB_RE.test(id)) return true;
     if ((i.y ?? 0) > 1) return false;
     if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
@@ -1759,6 +1788,9 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   const partRequirements = getPartQuantities(mapping.parts, config);
   const warnings = [];
   const cabLabel = cabinet.cabinetNumber || catalogItemName || cabinet.definitionId || "Cabinet";
+  if (config.facesOnly && config.numDoors === 1 && cabinet.width > 650) {
+    warnings.push(`${cabLabel}: replacement front ${cabinet.width} wide priced as ONE door - check whether it is a pair`);
+  }
   const resolveWithGuard = (selection, role) => {
     const matched = resolveMaterialId(selection, pricingData.materials);
     if (matched) return matched;
@@ -1888,11 +1920,11 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
   const numDrawers = config.numDrawers ?? 0;
   const drawerOpening = Math.max(0, cabinet.height - (cabinet.height > 600 ? globalDims.toeKickHeight : 0));
   const drawerFaces = numDrawers > 0 ? distributeDrawerHeights(numDrawers, drawerOpening, cabinet.drawerFrontHeights) : [];
-  const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength = cabinet.height, fallbackWidth = cabinet.depth) => {
+  const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength = cabinet.height, fallbackWidth = cabinet.depth, exact) => {
     const pricing = partsPricing.find((p) => p.part_type === req.partType || p.name === req.partType);
     const isExterior = EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
-    const length = parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength;
-    const width = parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth;
+    const length = exact ? exact.length : parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength;
+    const width = exact ? exact.width : parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth;
     const area = length * width / 1e6;
     parts.push({
       name: (pricing?.name ?? req.partType) + nameSuffix,
@@ -1911,6 +1943,19 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
     });
   };
   for (const req of partRequirements) {
+    if (config.facesOnly) {
+      const n = Math.max(1, config.numDoors);
+      pushPart(
+        req,
+        vars,
+        "",
+        req.quantity,
+        cabinet.height,
+        cabinet.width,
+        { length: cabinet.height, width: n > 1 ? (cabinet.width - globalDims.doorGap * (n - 1)) / n : cabinet.width }
+      );
+      continue;
+    }
     if (FLAT_PANEL_RE.test((cabinet.definitionId ?? "").toLowerCase())) {
       pushPart(req, vars, "", req.quantity, cabinet.height, cabinet.width);
       continue;
@@ -1972,6 +2017,7 @@ var KICKABLE_ROLE = /* @__PURE__ */ new Set([
   "fridge-corner-pantry"
 ]);
 function carriesKickFace(item) {
+  if (isFacesOnlyProduct(item.definitionId ?? "")) return false;
   if ((item.y ?? 0) > 1) return false;
   if (item.layoutRole === "dishwasher") return true;
   if (item.itemType !== "Cabinet") return false;

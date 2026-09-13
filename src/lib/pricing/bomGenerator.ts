@@ -2,7 +2,7 @@
 
 import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem, KickboardAllocation } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
-import { getCabinetPartMapping, getPartQuantities, FLAT_PANEL_RE, isFlatBoardProduct } from './cabinetPartMapping';
+import { getCabinetPartMapping, getPartQuantities, FLAT_PANEL_RE, isFlatBoardProduct, isFacesOnlyProduct } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
@@ -42,6 +42,9 @@ export function generateCabinetBOM(
 
   const warnings: string[] = [];
   const cabLabel = cabinet.cabinetNumber || catalogItemName || cabinet.definitionId || 'Cabinet';
+  if (config.facesOnly && config.numDoors === 1 && cabinet.width > 650) {
+    warnings.push(`${cabLabel}: replacement front ${cabinet.width} wide priced as ONE door - check whether it is a pair`);
+  }
 
   // Resolve which board each part draws from: carcase vs exterior/door finish.
   // WS2 guard: an explicit selection that doesn't match any material never
@@ -265,12 +268,15 @@ function calculatePartDimensions(
     quantity = req.quantity,
     fallbackLength = cabinet.height,
     fallbackWidth = cabinet.depth,
+    exact?: { length: number; width: number },
   ) => {
     const pricing = partsPricing.find(p => p.part_type === req.partType || p.name === req.partType);
     const isExterior = EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
 
-    const length = parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength;
-    const width = parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth;
+    // `exact` bypasses the catalogue formula: a formula written for a door on a carcase takes the kick
+    // off the height, which is wrong for a face that is already the finished door size.
+    const length = exact ? exact.length : (parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength);
+    const width = exact ? exact.width : (parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth);
     const area = (length * width) / 1_000_000; // mm² to m²
 
     parts.push({
@@ -291,6 +297,14 @@ function calculatePartDimensions(
   };
 
   for (const req of partRequirements) {
+    // Replacement fronts: the item's W x H IS the face. One door takes all of it; several share the width.
+    if (config.facesOnly) {
+      const n = Math.max(1, config.numDoors);
+      pushPart(req, vars, '', req.quantity, cabinet.height, cabinet.width,
+        { length: cabinet.height, width: n > 1 ? (cabinet.width - globalDims.doorGap * (n - 1)) / n : cabinet.width });
+      continue;
+    }
+
     // Flat boards (fillers, scribes, applied/return panels) are a single panel
     // the size of the item's own face: height x WIDTH. The default fallback is
     // height x DEPTH, which for a 16mm filler on a 573 deep run would bill
@@ -358,6 +372,8 @@ const KICKABLE_ROLE = new Set([
 ]);
 
 function carriesKickFace(item: PlacedItem): boolean {
+  // Replacement fronts go on cabinets already standing on their own kick - checked before any role test.
+  if (isFacesOnlyProduct(item.definitionId ?? '')) return false;
   if ((item.y ?? 0) > 1) return false;
   if (item.layoutRole === 'dishwasher') return true;
   if (item.itemType !== 'Cabinet') return false;

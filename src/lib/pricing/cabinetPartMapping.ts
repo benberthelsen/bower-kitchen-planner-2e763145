@@ -392,6 +392,26 @@ export function getCabinetPartMapping(
 export const FLAT_PANEL_RE = /filler|scribe|applied|panel$|end.?panel|pelmet|bulkhead|valance/;
 
 /**
+ * Replacement fronts on existing cabinets - Microvellum's "Cabinet Faces Only", or "Doors Only",
+ * "Fronts Only", "Replacement Doors". The product is its door(s) and their hinges and handles.
+ *
+ * With no rule of its own, "Cabinet Faces Only" matched nothing: no door word, so it fell through to a
+ * standard base carcase - two sides, bottom, back, two rails, a shelf, four legs, a kick run and screws - and
+ * got no door at all (10 Sands St, 13 Sep 2026: three doors priced as three phantom cabinets with no hinges).
+ */
+export const FACES_ONLY_RE = /faces?\s*only|fronts?\s*only|doors?\s*only|replacement\s+(?:doors?|fronts?)/;
+
+export function isFacesOnlyProduct(idOrName: string): boolean {
+  return FACES_ONLY_RE.test((idOrName || '').toLowerCase());
+}
+
+/** Doors on a faces-only item: the number in its name ("2 Door Faces Only"), else one. */
+export function facesOnlyDoorCount(idOrName: string): number {
+  const m = (idOrName || '').toLowerCase().match(/(\d+)\s*[_-]?\s*(?:doors?|faces?|fronts?)/);
+  return m ? Math.max(1, parseInt(m[1], 10)) : 1;
+}
+
+/**
  * True for anything that is one cut and edged board rather than a carcass —
  * panels, fillers, scribes, pelmets and kicks. A 'ladder_kick' is excluded: it
  * is a mini-cabinet frame, not a board. Use this for costing decisions; use
@@ -421,6 +441,8 @@ const NO_FRONT_RE = /kick|rail|trim|splash|opening/;
 export function inferFrontCounts(idOrName: string): { doors: number; drawers: number } {
   const s = (idOrName || '').toLowerCase();
   if (!s) return { doors: 0, drawers: 0 };
+  // Replacement fronts are nothing BUT doors.
+  if (FACES_ONLY_RE.test(s)) return { doors: facesOnlyDoorCount(s), drawers: 0 };
   // Flat boards and trims have no fronts, whatever else the name says.
   if (FLAT_PANEL_RE.test(s) || NO_FRONT_RE.test(s)) return { doors: 0, drawers: 0 };
 
@@ -443,6 +465,19 @@ export function inferFrontCounts(idOrName: string): { doors: number; drawers: nu
 export function buildGenericCabinetMapping(definitionId: string): CabinetPartDefinition | null {
   const id = (definitionId || '').toLowerCase();
   if (!id) return null;
+  // Replacement fronts: the door(s) and nothing else. Checked first - "Cabinet Faces Only" contains no word
+  // any later branch recognises, and the carcase branch it fell into billed a whole cabinet with no door.
+  if (FACES_ONLY_RE.test(id)) {
+    return {
+      config: {
+        numDoors: facesOnlyDoorCount(id), numDrawers: 0, numShelves: 0,
+        hasSides: false, hasBack: false, hasBottom: false, hasTop: false,
+        hasRails: false, isSinkCabinet: false, isCorner: false, isBlind: false,
+        facesOnly: true,
+      },
+      parts: [{ partType: 'Door', quantity: 'perDoor' }],
+    };
+  }
   // Non-carcass items aren't priced through the parts engine.
   // Exception: 'ladder_kick' IS priced as a cabinet (mini-cabinet frame structure).
   // Plain 'kick' (adjustable-leg panels) are calculated in generateQuoteBOM from stock lengths.

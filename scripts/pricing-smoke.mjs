@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -1086,6 +1086,71 @@ for (const [id, w, h, d] of families) {
   const strLine = strTop.lines.find((l) => /Stringy/.test(l.description));
   check('benchtop lam: string numerics never produce NaN',
     finite(strLine?.total) && (strLine?.total ?? 0) > 0, JSON.stringify(strLine));
+}
+
+
+// 11. Replacement fronts — "Cabinet Faces Only" (10 Sands St, 13 Sep 2026: three doors on existing cabinets).
+//     It used to fall through to a whole base carcase with no door.
+{
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, overheadPct: 0.1, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const qtyOf = (bom, type) => bom.hardware.filter(x => x.hardwareType === type).reduce((s, x) => s + x.quantity, 0);
+
+  check('faces only: the name is recognised', isFacesOnlyProduct('Cabinet Faces Only') && isFacesOnlyProduct('Replacement Doors')
+    && isFacesOnlyProduct('Doors Only') && !isFacesOnlyProduct('Base 1 Door') && !isFacesOnlyProduct('Base Applied Panel'));
+  const fc = inferFrontCounts('Cabinet Faces Only');
+  check('faces only: one door, no drawer', fc.doors === 1 && fc.drawers === 0, JSON.stringify(fc));
+  check('faces only: a count in the name is honoured', inferFrontCounts('2 Door Faces Only').doors === 2);
+
+  const one = generateCabinetBOM(cab('Cabinet Faces Only', 600, 769, 0, 1101), dims, hw, pricingData, 'Cabinet Faces Only');
+  check('faces only: the only part is the door', one.parts.length === 1 && /door/i.test(one.parts[0].name),
+    one.parts.map(p => p.name).join(', '));
+  check('faces only: the door is the face size, not a carcase door with the kick taken off',
+    one.parts[0]?.length === 769 && one.parts[0]?.width === 600, `${one.parts[0]?.length} x ${one.parts[0]?.width}`);
+  check('faces only: priced in the exterior (door) board', one.parts[0]?.materialRole === 'exterior', one.parts[0]?.materialRole);
+  check('faces only: 2 hinges and 2 plates', qtyOf(one, 'hinge') === 2 && qtyOf(one, 'hinge-plate') === 2,
+    `${qtyOf(one, 'hinge')} / ${qtyOf(one, 'hinge-plate')}`);
+  check('faces only: 1 handle', qtyOf(one, 'handle') === 1, String(qtyOf(one, 'handle')));
+  check('faces only: no legs, shelf pins or carcase / wall screws',
+    qtyOf(one, 'leg') === 0 && qtyOf(one, 'shelf_pin') === 0
+    && one.hardware.every(x => !String(x.hardwareType).startsWith('consumable-')),
+    one.hardware.map(x => `${x.hardwareType}x${x.quantity}`).join(', '));
+  check('faces only: costs finite and board > 0', finite(one.totalCost) && one.subtotals.materials > 0, JSON.stringify(one.subtotals));
+  check('faces only: no width warning at 600', !(one.warnings ?? []).some(w => /ONE door/.test(w)), (one.warnings ?? []).join(' | '));
+
+  const pair = generateCabinetBOM(cab('2 Door Faces Only', 1200, 769, 0, 1102), dims, hw, pricingData, '2 Door Faces Only');
+  check('faces only: a pair is two doors sharing the width with one gap',
+    pair.parts[0]?.quantity === 2 && Math.abs((pair.parts[0]?.width ?? 0) - (1200 - dims.doorGap) / 2) < 0.01,
+    `${pair.parts[0]?.quantity} x ${pair.parts[0]?.width}`);
+  check('faces only: a pair carries 4 hinges and 2 handles', qtyOf(pair, 'hinge') === 4 && qtyOf(pair, 'handle') === 2);
+
+  const wide = generateCabinetBOM(cab('Cabinet Faces Only', 900, 769, 0, 1103), dims, hw, pricingData, 'Cabinet Faces Only');
+  check('faces only: a 900 face priced as one door is warned', (wide.warnings ?? []).some(w => /ONE door/.test(w)), (wide.warnings ?? []).join(' | '));
+
+  // The job as a whole: no kick run, no benchtop, three doors, and still installed.
+  const job = generateQuoteBOM([
+    cab('Cabinet Faces Only', 600, 769, 0, 1111), cab('Cabinet Faces Only', 600, 769, 0, 1112), cab('Cabinet Faces Only', 399, 769, 0, 1113),
+  ], dims, hw, pricingData);
+  check('faces only job: no kick panels', !(job.consolidatedSheets ?? job.sheets ?? []).some(s => /kick/i.test(s.materialName ?? '')),
+    JSON.stringify((job.consolidatedSheets ?? job.sheets ?? []).map(s => s.materialName)));
+  const q = quoteFromSchedule([
+    { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+    { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+    { name: 'Cabinet Faces Only', qty: 1, w: 399, h: 769, d: 0, room: 'kitchen' },
+  ], pricingData, sel, comm, { defaultRoom: 'kitchen' });
+  const wc = q.workshopCosting;
+  check('faces only quote: three lines plus install', q.lines.filter(l => /Faces Only/.test(l.description)).length === 3
+    && q.lines.some(l => /install/i.test(l.description)), q.lines.map(l => l.description).join(', '));
+  check('faces only quote: 3 parts, 6 hinges, 3 handles',
+    wc.partCount === 3
+    && wc.hardware.filter(h => h.category === 'hinge').reduce((s, h) => s + h.quantity, 0) >= 6
+    && wc.hardware.filter(h => h.category === 'handle').reduce((s, h) => s + h.quantity, 0) === 3,
+    JSON.stringify({ parts: wc.partCount, hw: wc.hardware.map(h => [h.category, h.quantity]) }));
+  check('faces only quote: no benchtop', (q.benchtops ?? []).length === 0 && !q.lines.some(l => /benchtop|countertop/i.test(l.description)));
+  check('faces only quote: every line finite and positive', q.lines.every(l => finite(l.total) && l.total > 0), JSON.stringify(q.lines));
 }
 
 

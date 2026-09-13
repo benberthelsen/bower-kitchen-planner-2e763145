@@ -199,7 +199,8 @@ export function calculateHardware(
   }
   
   // === ADJUSTABLE LEGS ===
-  if (hardwareOptions.adjustableLegs) {
+  // Replacement fronts hang on cabinets already standing - they bring no legs.
+  if (hardwareOptions.adjustableLegs && !config.facesOnly) {
     const legPricing = hardwarePricing.find(h => isType(h, 'leg'));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     
@@ -236,7 +237,9 @@ export function calculateHardware(
   }
   
   // === CONSTRUCTION CONSUMABLES (stage-based screws) ===
-  for (const rule of CONSTRUCTION_CONSUMABLES) {
+  // Carcase screws build a box and wall screws fix one; replacement fronts do neither (their hinge plates
+  // carry their own euro screws).
+  for (const rule of config.facesOnly ? [] : CONSTRUCTION_CONSUMABLES) {
     const pricing = hardwarePricing.find(h =>
       h.name.toLowerCase().includes(rule.match) || h.item_code?.toLowerCase?.() === rule.match
     );

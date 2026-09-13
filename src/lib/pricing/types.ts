@@ -603,4 +603,9 @@ export interface CabinetConfig {
   isSinkCabinet: boolean;
   isCorner: boolean;
   isBlind: boolean;
+  /**
+   * Replacement fronts hung on existing carcasses ("Cabinet Faces Only"). The item is its doors and their
+   * hardware and nothing else: no carcase, shelf, legs, kick, benchtop or carcase/wall-fixing screws.
+   */
+  facesOnly?: boolean;
 }
