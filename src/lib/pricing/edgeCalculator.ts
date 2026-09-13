@@ -2,8 +2,17 @@
 
 import { PartDimension, EdgeTapeAllocation, EdgePricingRecord } from './types';
 
-/** Bower buys edge tape in 20 m lengths at minimum, and charges the whole length it has to buy (Ben, 14 Sep 2026). */
-export const EDGE_ROLL_LENGTH_M = 20;
+/**
+ * Edge tape comes in a 20 m minimum length; past that it is bought by the metre. Bower charges what it has to buy
+ * (Ben, 14 Sep 2026): max(20 m, the metres used rounded up to a whole metre), per edge type, per job.
+ */
+export const EDGE_MIN_ORDER_M = 20;
+/** @deprecated kept for older imports - edge tape is not bought in fixed rolls; see EDGE_MIN_ORDER_M */
+export const EDGE_ROLL_LENGTH_M = EDGE_MIN_ORDER_M;
+
+/** Metres of one edge type to buy for a job. */
+export const edgeOrderMetres = (linearMeters: number) =>
+  linearMeters > 0 ? Math.max(EDGE_MIN_ORDER_M, Math.ceil(linearMeters - 1e-9)) : 0;
 
 /**
  * Calculate edge tape requirements from parts
@@ -110,22 +119,22 @@ export function consolidateEdgeTape(
     const totalHandlingCost = allocations.reduce((sum, a) => sum + a.handlingCost, 0);
     const totalApplicationCost = allocations.reduce((sum, a) => sum + a.applicationCost, 0);
     
-    const ROLL_LENGTH_M = EDGE_ROLL_LENGTH_M;
-    const rollsRequired = Math.ceil(totalLinearMeters / ROLL_LENGTH_M);
+    const orderMetres = edgeOrderMetres(totalLinearMeters);
 
     consolidated.push({
       edgeType,
       edgeName: template.edgeName,
       thickness: template.thickness,
-      rollsRequired,
-      rollLengthM: ROLL_LENGTH_M,
+      // one order of orderMetres (a 20 m minimum, then by the metre)
+      rollsRequired: orderMetres > 0 ? 1 : 0,
+      rollLengthM: orderMetres,
       linearMeters: totalLinearMeters,
       costPerMeter: template.costPerMeter,
       handlingCost: totalHandlingCost,
       applicationCost: totalApplicationCost,
-      // Tape is purchased in whole rolls. Application is charged only on the
-      // metres actually edged, but material cost must cover every ordered roll.
-      totalCost: (rollsRequired * ROLL_LENGTH_M * template.costPerMeter)
+      // Application is charged only on the metres actually edged, but the material
+      // cost covers every metre that has to be bought.
+      totalCost: (orderMetres * template.costPerMeter)
         + totalHandlingCost
         + totalApplicationCost,
       isFallbackPrice: allocations.some(a => a.isFallbackPrice),

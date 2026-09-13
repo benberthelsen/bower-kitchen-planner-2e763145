@@ -17,7 +17,7 @@ generateCabinetBOM (src/lib/pricing/bomGenerator.ts)
    2. getPartQuantities(config)                → perDoor / perDrawer / perShelf → numbers
    3. calculatePartDimensions(...)             → parts_pricing formulas → real part sizes
    4. calculateSheetRequirements(parts)        → nest parts onto sheets per material
-   5. calculateEdgeTape(parts)                 → edge metres per edge material, whole 20 m lengths
+   5. calculateEdgeTape(parts)                 → edge metres per edge material, bought as a 20 m minimum then by the metre
    6. calculateHardware(config, ...)           → hinges + plates, runners, screws, legs
    7. calculateLaborCost(...)                  → calibrated labor model (labor_rates)
    8. calculateBuildHours(...)                 → time model for scheduling

@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, EDGE_ROLL_LENGTH_M } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -200,13 +200,13 @@ for (const [id, w, h, d] of families) {
   check('grandTotal total = subtotal + GST', Math.abs(job.grandTotal.total - (job.grandTotal.subtotalExGst + job.grandTotal.gst)) < 0.01);
   check('grandTotal labor = Σ cabinet labor', Math.abs(job.grandTotal.labor - job.cabinets.reduce((s, c) => s + c.subtotals.labor, 0)) < 0.01);
 
-  // Whole-length rounding (Bower buys edge tape in 20 m lengths - DELIBERATELY changed from 25 m on 14 Sep 2026)
+  // Edge tape is bought as a 20 m minimum, then by the metre (DELIBERATELY changed from 25 m rolls on 14 Sep 2026)
   const tape = job.consolidatedEdgeTape[0];
   if (tape) {
-    check('edge tape: the buying length is 20 m', EDGE_ROLL_LENGTH_M === 20 && tape.rollLengthM === 20, `${EDGE_ROLL_LENGTH_M} / ${tape.rollLengthM}`);
-    check('edge tape: rolls = ceil(LM/20)', tape.rollsRequired === Math.ceil(tape.linearMeters / 20),
-      `${tape.linearMeters}m → ${tape.rollsRequired} rolls`);
-    const orderedTapeCost = tape.rollsRequired * 20 * tape.costPerMeter;
+    check('edge tape: order = max(20 m, metres used rounded up)', EDGE_MIN_ORDER_M === 20 && tape.rollsRequired === 1
+      && tape.rollLengthM === Math.max(20, Math.ceil(tape.linearMeters - 1e-9)),
+      `${tape.linearMeters}m → ${tape.rollsRequired} x ${tape.rollLengthM} m`);
+    const orderedTapeCost = tape.rollsRequired * tape.rollLengthM * tape.costPerMeter;
     check('edge tape: material charge covers whole ordered rolls',
       tape.totalCost >= orderedTapeCost,
       `${tape.totalCost} vs minimum ${orderedTapeCost}`);
@@ -1433,6 +1433,62 @@ for (const [id, w, h, d] of families) {
     JSON.stringify(fpHinge));
   check('hardware: supplyMode none (regression fallback) still carries the catalogue hardware labour',
     regHinge && near(regHinge.totalCost, (hingeRow.unit_cost + hingeRow.machining_cost + hingeRow.assembly_cost) * regHinge.quantity), JSON.stringify(regHinge));
+
+  // ── legs: only under a cabinet standing on the floor on its own legs ──────
+  const legsOf = (bom, i) => bom.cabinets[i].hardware.filter(h => h.hardwareType === 'leg').reduce((s, h) => s + h.quantity, 0);
+  const planner = generateQuoteBOM([
+    { ...named('Base 1 Door', 600, 870, 575, 1371), x: 300, z: 287.5 },
+    { ...named('Upper 2 Door', 600, 720, 350, 1372), x: 300, y: 1400, z: 175 },
+    { ...named('Mitered Shelf', 606, 32, 345, 1373), x: 900, y: 1200, z: 172 },
+    named('Upper 1 Door', 450, 720, 350, 1374),
+  ], dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  check('legs: a base cabinet keeps its 4 legs; wall cabinets and a floating shelf get none (was 4 each)',
+    legsOf(planner, 0) === 4 && legsOf(planner, 1) === 0 && legsOf(planner, 2) === 0 && legsOf(planner, 3) === 0,
+    [0, 1, 2, 3].map(i => legsOf(planner, i)).join(' / '));
+  check('legs: the floating shelf adds no kick run', planner.kickboards.reduce((s, k) => s + k.runLengthMm, 0) === 600,
+    JSON.stringify(planner.kickboards.map(k => k.runLengthMm)));
+  const onBases = generateQuoteBOM([
+    named('Base 1 Door', 600, 870, 575, 1375), named('Tall 2 Door', 600, 2100, 580, 1376), named('Toe Kick Base', 1200, 135, 530, 1377),
+  ], dims, hw, pricingData, { supplyMode: 'assembled_installed' });
+  check('legs: a job standing on Toe Kick Base ladder bases has no legs on any cabinet (Erin & Matt was billed 84)',
+    [0, 1, 2].every(i => legsOf(onBases, i) === 0) && !onBases.consolidatedHardware.some(h => h.hardwareType === 'leg'),
+    [0, 1, 2].map(i => legsOf(onBases, i)).join(' / '));
+  check('legs: removing them keeps each cabinet total = its subtotals',
+    onBases.cabinets.every(c => near(c.totalCost, Object.values(c.subtotals).reduce((a, b) => a + b, 0), 0.01)));
+
+  // ── edge tape: a 20 m minimum, then by the metre ───────────────────────────
+  check('edge order metres: 7.8 -> 20, 20 -> 20, 20.2 -> 21, 55.01 -> 56, 0 -> 0',
+    edgeOrderMetres(7.8) === 20 && edgeOrderMetres(20) === 20 && edgeOrderMetres(20.2) === 21 && edgeOrderMetres(55.01) === 56 && edgeOrderMetres(0) === 0);
+
+  // ── large loose panels take two people ─────────────────────────────────────
+  const panels = generateQuoteBOM([
+    named('Tall Applied Panel', 16, 2440, 710, 1381), named('Base Return Filler', 16, 880, 573, 1382), named('Cabinet Faces Only', 600, 769, 0, 1383),
+  ], dims, noKick, pricingData, { supplyMode: 'assembled_installed' });
+  const large = station(panels, 'Loading & unloading (large loose panels)');
+  const small = station(panels, 'Loading & unloading (loose fronts & boards)');
+  check('loading: a 2440 x 710 tall panel is carried by two people (3 min x 2); the filler and the door by one (2 min each)',
+    large?.units === 1 && near(large?.minutes, R.largeLooseLoadingMinPerItem * R.largeLooseLoadingCrew) && small?.units === 2 && near(small?.minutes, 2 * R.looseLoadingMinPerItem),
+    JSON.stringify([large, small]));
+
+  // ── drafting and CNC job minimums ─────────────────────────────────────────
+  const draftTop = station(sands, 'Drafting (job minimum top-up)');
+  const cncTop = station(sands, 'Panel cutting - CNC set-up (job minimum top-up)');
+  const minutesOf = (bom, re) => (bom.workshop?.lines ?? []).filter(l => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
+  check('job minimum: a doors-only job drafts at least 20 min in all (Ben)',
+    draftTop && near(minutesOf(sands, /^Drafting/), R.draftingMinMinutesPerJob) && R.draftingMinMinutesPerJob === 20,
+    `${minutesOf(sands, /^Drafting/)} min`);
+  check('job minimum: and runs the CNC at least 10 min in all (lead-in, cutting, drilling, labelling + set-up)',
+    cncTop && R.machiningMinMinutesPerJob === 10 && near(minutesOf(sands, /^(Panel lead-in|Panel cutting|Vertical drilling|Part labelling)/), R.machiningMinMinutesPerJob),
+    `${minutesOf(sands, /^(Panel lead-in|Panel cutting|Vertical drilling|Part labelling)/)} min`);
+  const bigJob = generateQuoteBOM(Array.from({ length: 12 }, (_, i) => named('Base 2 Door', 900, 870, 575, 1390 + i)), dims, noKick, pricingData,
+    { supplyMode: 'assembled_installed' });
+  check('job minimum: a 12-cabinet job already past both minimums gets no top-up lines',
+    !station(bigJob, 'Drafting (job minimum top-up)') && !station(bigJob, 'Panel cutting - CNC set-up (job minimum top-up)')
+    && minutesOf(bigJob, /^Drafting$/) > R.draftingMinMinutesPerJob,
+    JSON.stringify((bigJob.workshop?.lines ?? []).filter(l => /Draft|cutting|minimum/.test(l.station))));
+  const btOnly = calculateWorkshopCost([], { mode: 'assembled_installed', benchtops: { parts: 2, cutLm: 6, laminateSqm: 0, buildUpLm: 0, mitreLm: 0, substrateSqm: 0, joins: 0, polishSqm: 1, edgePolishLm: 3, sink: 0, cooktop: 0, tapHole: 0, benchtopLm: 3, products: 1 } });
+  check('job minimum: a benchtop-only workshop call (priced beside the cabinets) adds no top-up',
+    !btOnly.lines.some(l => /job minimum/.test(l.station)), btOnly.lines.map(l => l.station).join(', '));
 
   // ── every shop and install minute reaches a Build Flow schedule bucket ─────
   for (const mode of ['assembled_installed', 'assembled', 'flat_pack', 'flat_pack_hw_loose']) {

@@ -828,7 +828,8 @@ function consolidateSheetRequirements(cabinetSheets) {
 }
 
 // src/lib/pricing/edgeCalculator.ts
-var EDGE_ROLL_LENGTH_M = 20;
+var EDGE_MIN_ORDER_M = 20;
+var edgeOrderMetres = (linearMeters) => linearMeters > 0 ? Math.max(EDGE_MIN_ORDER_M, Math.ceil(linearMeters - 1e-9)) : 0;
 function calculateEdgeTape(parts, edgePricing, selectedEdge) {
   const resolvedEdge = selectedEdge ? edgePricing.find((e) => {
     const sel = String(selectedEdge).toLowerCase();
@@ -887,21 +888,21 @@ function consolidateEdgeTape(cabinetEdges) {
     const totalLinearMeters = allocations.reduce((sum, a) => sum + a.linearMeters, 0);
     const totalHandlingCost = allocations.reduce((sum, a) => sum + a.handlingCost, 0);
     const totalApplicationCost = allocations.reduce((sum, a) => sum + a.applicationCost, 0);
-    const ROLL_LENGTH_M = EDGE_ROLL_LENGTH_M;
-    const rollsRequired = Math.ceil(totalLinearMeters / ROLL_LENGTH_M);
+    const orderMetres = edgeOrderMetres(totalLinearMeters);
     consolidated.push({
       edgeType,
       edgeName: template.edgeName,
       thickness: template.thickness,
-      rollsRequired,
-      rollLengthM: ROLL_LENGTH_M,
+      // one order of orderMetres (a 20 m minimum, then by the metre)
+      rollsRequired: orderMetres > 0 ? 1 : 0,
+      rollLengthM: orderMetres,
       linearMeters: totalLinearMeters,
       costPerMeter: template.costPerMeter,
       handlingCost: totalHandlingCost,
       applicationCost: totalApplicationCost,
-      // Tape is purchased in whole rolls. Application is charged only on the
-      // metres actually edged, but material cost must cover every ordered roll.
-      totalCost: rollsRequired * ROLL_LENGTH_M * template.costPerMeter + totalHandlingCost + totalApplicationCost,
+      // Application is charged only on the metres actually edged, but the material
+      // cost covers every metre that has to be bought.
+      totalCost: orderMetres * template.costPerMeter + totalHandlingCost + totalApplicationCost,
       isFallbackPrice: allocations.some((a) => a.isFallbackPrice)
     });
   }
@@ -1550,6 +1551,13 @@ var DEFAULT_WORKSHOP_RATES = {
   loadingCrew: 2,
   looseLoadingMinPerItem: 2,
   // one person; Ben 14 Sep 2026: doors were loading "like full cabinets"
+  largeLooseLongestSideMm: 2e3,
+  largeLooseAreaSqm: 1,
+  largeLooseLoadingMinPerItem: 3,
+  largeLooseLoadingCrew: 2,
+  draftingMinMinutesPerJob: 20,
+  // Ben, 14 Sep 2026: "10 min cnc 20 min drafting"
+  machiningMinMinutesPerJob: 10,
   installMinPerCabinet: 30,
   // 21 products -> 10:30 = $1,029.10
   installTallExtraMin: 15,
@@ -1614,6 +1622,7 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   let parts = 0;
   let assembledParts = 0;
   let looseItems = 0;
+  let largeLooseItems = 0;
   let cutLengthM = 0;
   let verticalHoles = 0;
   let hardwareItems = 0;
@@ -1622,7 +1631,11 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   let hardwareFitMin = 0;
   for (const cab of priced) {
     const loose = cab.itemKind === "fronts" || cab.itemKind === "board";
-    if (loose) looseItems++;
+    if (loose) {
+      looseItems++;
+      const large = (cab.parts ?? []).some((p) => Math.max(p.length ?? 0, p.width ?? 0) >= r.largeLooseLongestSideMm && (p.length ?? 0) * (p.width ?? 0) / 1e6 >= r.largeLooseAreaSqm);
+      if (large) largeLooseItems++;
+    }
     for (const p of cab.parts ?? []) {
       const qty = Math.max(1, p.quantity ?? 1);
       parts += qty;
@@ -1672,6 +1685,17 @@ function calculateWorkshopCost(cabinets, opts = {}) {
     add("Edgebanding", edgeLm, "m", r.edgebandMinPerM, r.edgebandingRate);
   }
   add("Part handling", parts + btParts, "part", r.handlingMinPerPart, r.handlingRate);
+  if (priced.length > 0) {
+    const minutesAt = (re) => lines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
+    const drafted = minutesAt(/^Drafting$/);
+    if (drafted < r.draftingMinMinutesPerJob) {
+      add("Drafting (job minimum top-up)", r.draftingMinMinutesPerJob - drafted, "min", 1, r.draftingRate);
+    }
+    const machined = minutesAt(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/);
+    if (machined < r.machiningMinMinutesPerJob) {
+      add("Panel cutting - CNC set-up (job minimum top-up)", r.machiningMinMinutesPerJob - machined, "min", 1, r.machiningRate);
+    }
+  }
   add("Benchtop cutting", bt.cutLm, "m", r.benchtopCutMinPerM, r.machiningRate);
   add("Benchtop lamination glue-up", bt.laminateSqm, "m2", r.benchtopLaminateMinPerSqm, r.assemblyRate);
   add("Benchtop build-up strips", bt.buildUpLm, "m", r.benchtopBuildUpMinPerM, r.assemblyRate);
@@ -1703,7 +1727,8 @@ function calculateWorkshopCost(cabinets, opts = {}) {
     add("Flat pack wrap & label", parts, "part", r.flatPackPackingMinPerPart, r.handlingRate);
   }
   add("Loading & unloading", products - looseItems, "product", r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
-  add("Loading & unloading (loose fronts & boards)", looseItems, "item", r.looseLoadingMinPerItem, r.loadingRate);
+  add("Loading & unloading (loose fronts & boards)", looseItems - largeLooseItems, "item", r.looseLoadingMinPerItem, r.loadingRate);
+  add("Loading & unloading (large loose panels)", largeLooseItems, "item", r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);
   let installMinutes = 0;
@@ -2082,6 +2107,7 @@ function carriesKickFace(item) {
   const id = item.definitionId ?? "";
   if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
   if (/filler|panel|opening|kick|rail|splash|scribe|applied/i.test(id)) return false;
+  if (/\b(mitt?e?red|mitred|floating|wall)\s+shel(f|ves)\b|^shel(f|ves)\b/i.test(id)) return false;
   return true;
 }
 function cutKickRun(runLengthMm, stockLengthMm) {
@@ -2180,13 +2206,26 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       }
     }
   }
+  const hasExplicitKicks = items.some(
+    (i) => i.itemType === "Cabinet" && /kick/i.test(i.definitionId ?? "") && !/ladder/i.test(i.definitionId ?? "")
+  );
+  {
+    const cabinetItems = items.filter((i) => i.itemType === "Cabinet");
+    cabinets.forEach((cab, idx) => {
+      const item = cabinetItems[idx];
+      if (!item || !hasExplicitKicks && carriesKickFace(item)) return;
+      const legs = cab.hardware.filter((h) => h.hardwareType === "leg");
+      if (!legs.length) return;
+      const cost2 = legs.reduce((s, h) => s + h.totalCost, 0);
+      cab.hardware = cab.hardware.filter((h) => h.hardwareType !== "leg");
+      cab.subtotals.hardware -= cost2;
+      cab.totalCost -= cost2;
+    });
+  }
   const consolidatedSheets = consolidateSheetRequirements(cabinets.map((c) => c.sheets));
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map((c) => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map((c) => c.hardware));
   const jobLevelWarnings = [];
-  const hasExplicitKicks = items.some(
-    (i) => i.itemType === "Cabinet" && /kick/i.test(i.definitionId ?? "") && !/ladder/i.test(i.definitionId ?? "")
-  );
   const kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks ? [] : calculateKickboardRuns(items, globalDims);
   {
     const reconciledRates = /* @__PURE__ */ new Map();

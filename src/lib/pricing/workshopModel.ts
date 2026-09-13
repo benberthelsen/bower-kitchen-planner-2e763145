@@ -65,6 +65,22 @@ export interface WorkshopRates {
    * or a panel, so they do not load like a cabinet at loadingMinPerProduct x loadingCrew.
    */
   looseLoadingMinPerItem: number;
+  /** A loose panel this big (longest side AND area) takes two people - a 2440 x 710 tall panel, a pantry door. */
+  largeLooseLongestSideMm: number;
+  largeLooseAreaSqm: number;
+  largeLooseLoadingMinPerItem: number;
+  largeLooseLoadingCrew: number;
+
+  // ---- job minimums --------------------------------------------------------
+  // Per-part / per-metre minutes collapse to nothing on a small job (10 Sands: 5 min drafting, 4 min on the CNC),
+  // but drawing it up and running the machine still take a fixed time. These are FLOORS per job, so a kitchen
+  // that already exceeds them is unchanged. Source: Bower's job_labor_actuals (Build Flow, 14 Sep 2026) - drafting
+  // 23 min (work table) / 60 (flat pack kitchen reface) / 120 (robe drawer boxes); CNC cutting 30 min on the
+  // smallest logged job, cnc_edgebanding 20 min (bathroom cabinet). Ben set the floors at 20 min drafting and
+  // 10 min CNC for a 3-door job (14 Sep 2026).
+  draftingMinMinutesPerJob: number;
+  /** lead-in/out + cutting + vertical drilling + labelling together */
+  machiningMinMinutesPerJob: number;
 
   // ---- install -------------------------------------------------------------
   installMinPerCabinet: number;
@@ -169,6 +185,13 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   loadingMinPerProduct: 6,        // 21 products, 2 crew -> 4:11
   loadingCrew: 2,
   looseLoadingMinPerItem: 2,      // one person; Ben 14 Sep 2026: doors were loading "like full cabinets"
+  largeLooseLongestSideMm: 2000,
+  largeLooseAreaSqm: 1.0,
+  largeLooseLoadingMinPerItem: 3,
+  largeLooseLoadingCrew: 2,
+
+  draftingMinMinutesPerJob: 20,   // Ben, 14 Sep 2026: "10 min cnc 20 min drafting"
+  machiningMinMinutesPerJob: 10,
 
   installMinPerCabinet: 30,       // 21 products -> 10:30 = $1,029.10
   installTallExtraMin: 15,
@@ -343,6 +366,8 @@ export function calculateWorkshopCost(
   let assembledParts = 0;
   /** replacement fronts and single boards: carried, not loaded like a cabinet */
   let looseItems = 0;
+  /** the loose items that need two people (largeLooseLongestSideMm and largeLooseAreaSqm) */
+  let largeLooseItems = 0;
   let cutLengthM = 0;
   let verticalHoles = 0;
   let hardwareItems = 0;
@@ -354,7 +379,13 @@ export function calculateWorkshopCost(
 
   for (const cab of priced) {
     const loose = cab.itemKind === 'fronts' || cab.itemKind === 'board';
-    if (loose) looseItems++;
+    if (loose) {
+      looseItems++;
+      const large = (cab.parts ?? []).some((p) =>
+        Math.max(p.length ?? 0, p.width ?? 0) >= r.largeLooseLongestSideMm
+        && ((p.length ?? 0) * (p.width ?? 0)) / 1e6 >= r.largeLooseAreaSqm);
+      if (large) largeLooseItems++;
+    }
     for (const p of cab.parts ?? []) {
       const qty = Math.max(1, p.quantity ?? 1);
       parts += qty;
@@ -415,6 +446,20 @@ export function calculateWorkshopCost(
   }
   add('Part handling', parts + btParts, 'part', r.handlingMinPerPart, r.handlingRate);
 
+  // ---- job minimums (floors, only for a job with cabinets / fronts / boards) -
+  // Names keep the laborMinutes buckets: 'Draft' -> drafting, 'cutting' -> machining.
+  if (priced.length > 0) {
+    const minutesAt = (re: RegExp) => lines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
+    const drafted = minutesAt(/^Drafting$/);
+    if (drafted < r.draftingMinMinutesPerJob) {
+      add('Drafting (job minimum top-up)', r.draftingMinMinutesPerJob - drafted, 'min', 1, r.draftingRate);
+    }
+    const machined = minutesAt(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/);
+    if (machined < r.machiningMinMinutesPerJob) {
+      add('Panel cutting - CNC set-up (job minimum top-up)', r.machiningMinMinutesPerJob - machined, 'min', 1, r.machiningRate);
+    }
+  }
+
   // ---- laminated benchtops, whatever the supply mode -----------------------
   // A benchtop cannot be flat-packed: it is fabricated in the shop regardless.
   // Station names are chosen so quoteFromSchedule's laborMinutes buckets catch
@@ -461,7 +506,8 @@ export function calculateWorkshopCost(
   }
 
   add('Loading & unloading', products - looseItems, 'product', r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
-  add('Loading & unloading (loose fronts & boards)', looseItems, 'item', r.looseLoadingMinPerItem, r.loadingRate);
+  add('Loading & unloading (loose fronts & boards)', looseItems - largeLooseItems, 'item', r.looseLoadingMinPerItem, r.loadingRate);
+  add('Loading & unloading (large loose panels)', largeLooseItems, 'item', r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
 
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);

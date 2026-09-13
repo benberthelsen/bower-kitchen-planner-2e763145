@@ -406,6 +406,8 @@ function carriesKickFace(item: PlacedItem): boolean {
   const id = item.definitionId ?? '';
   if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
   if (/filler|panel|opening|kick|rail|splash|scribe|applied/i.test(id)) return false;
+  // a floating shelf ("Mitered Shelf" 606 x 32 x 345, Coral Lodge) is fixed to a wall, not stood on a kick
+  if (/\b(mitt?e?red|mitred|floating|wall)\s+shel(f|ves)\b|^shel(f|ves)\b/i.test(id)) return false;
   return true;
 }
 
@@ -542,10 +544,6 @@ export function generateQuoteBOM(
     }
   }
 
-  const consolidatedSheets = consolidateSheetRequirements(cabinets.map(c => c.sheets));
-  const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
-  const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
-  const jobLevelWarnings: string[] = [];
   // Explicit kick products beat inferred runs: when the schedule already lists
   // its kicks (as a Microvellum export does), pricing the geometry-derived runs
   // as well would charge the same board twice.
@@ -553,6 +551,29 @@ export function generateQuoteBOM(
     (i) => i.itemType === 'Cabinet' && /kick/i.test(i.definitionId ?? '') &&
            !/ladder/i.test(i.definitionId ?? ''),
   );
+
+  // Adjustable legs only go under a cabinet that stands on the floor on its own legs. calculateHardware gave 4 to
+  // every carcase, so wall cabinets and floating shelves were billed legs (and the minutes to fit them), and on a
+  // job that stands on Toe Kick Base ladder bases - every Microvellum kitchen at Bower - no cabinet has legs at all
+  // (Erin & Matt was billed 84). carriesKickFace is the same floor test that builds the kick runs.
+  {
+    const cabinetItems = items.filter(i => i.itemType === 'Cabinet');
+    cabinets.forEach((cab, idx) => {
+      const item = cabinetItems[idx];
+      if (!item || (!hasExplicitKicks && carriesKickFace(item))) return;
+      const legs = cab.hardware.filter(h => h.hardwareType === 'leg');
+      if (!legs.length) return;
+      const cost = legs.reduce((s, h) => s + h.totalCost, 0);
+      cab.hardware = cab.hardware.filter(h => h.hardwareType !== 'leg');
+      cab.subtotals.hardware -= cost;
+      cab.totalCost -= cost;
+    });
+  }
+
+  const consolidatedSheets = consolidateSheetRequirements(cabinets.map(c => c.sheets));
+  const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
+  const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
+  const jobLevelWarnings: string[] = [];
   const kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks
     ? []
     : calculateKickboardRuns(items, globalDims);

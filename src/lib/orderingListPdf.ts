@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { QuoteBOM } from './pricing/types';
-import { EDGE_ROLL_LENGTH_M } from './pricing/edgeCalculator';
+import { edgeOrderMetres } from './pricing/edgeCalculator';
 
 const AUD = (n: number) =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(n);
@@ -13,7 +13,7 @@ const fmt2 = (n: number) => n.toFixed(2);
  *
  * One document, three sections:
  *  1. Boards — consolidated whole sheets per material, item code, area, cost
- *  2. Edge Tape — by tape type, total LM, whole 20 m lengths (EDGE_ROLL_LENGTH_M), cost
+ *  2. Edge Tape — by tape type, total LM, metres to order (20 m minimum, then by the metre), cost
  *  3. Hardware — consolidated item codes, qty, unit cost, total
  *
  * Intended to be sent directly to suppliers without modification.
@@ -91,14 +91,13 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
   y += 2;
 
   const tapeRows = quoteBOM.consolidatedEdgeTape.map((e) => {
-    const rollLength = e.rollLengthM ?? EDGE_ROLL_LENGTH_M;
-    const rolls = e.rollsRequired ?? Math.ceil(e.linearMeters / rollLength);
+    const orderMetres = (e.rollsRequired ?? 1) * (e.rollLengthM ?? edgeOrderMetres(e.linearMeters));
     return [
       e.edgeName,
       e.edgeType,
       `${fmt2(e.linearMeters)} m`,
-      `${rollLength} m rolls`,
-      rolls.toString(),
+      `${orderMetres} m`,
+      e.linearMeters < 20 ? '20 m min' : 'by the metre',
       AUD(e.totalCost),
     ];
   });
@@ -108,15 +107,15 @@ export function exportOrderingListPdf(quoteBOM: QuoteBOM, jobName = 'Job') {
 
   autoTable(doc, {
     startY: y,
-    head: [['Tape', 'Type', 'Linear Metres', 'Roll Size', 'Rolls', 'Cost']],
+    head: [['Tape', 'Type', 'Linear Metres', 'Order', 'Basis', 'Cost']],
     body: tapeRows,
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [30, 41, 82], textColor: 255 },
     columnStyles: {
       0: { cellWidth: 55 },
       2: { halign: 'right', cellWidth: 26 },
-      3: { halign: 'center', cellWidth: 22 },
-      4: { halign: 'center', cellWidth: 14 },
+      3: { halign: 'center', cellWidth: 18 },
+      4: { halign: 'center', cellWidth: 22 },
       5: { halign: 'right', cellWidth: 22 },
     },
     didParseCell(data) {

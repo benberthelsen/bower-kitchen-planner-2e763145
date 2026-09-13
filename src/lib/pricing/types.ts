@@ -88,7 +88,7 @@ export interface EdgeTapeAllocation {
   totalCost: number;
   /** True when no positive catalogue price matched and a calibrated fallback was used. */
   isFallbackPrice?: boolean;
-  /** consolidated ordering: whole EDGE_ROLL_LENGTH_M lengths */
+  /** consolidated ordering: rollsRequired x rollLengthM metres to buy (one order of max(20 m, metres used)) */
   rollsRequired?: number;
   rollLengthM?: number;
 }
