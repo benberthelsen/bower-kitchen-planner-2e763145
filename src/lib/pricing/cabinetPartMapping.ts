@@ -370,13 +370,69 @@ export function getCabinetPartMapping(
    * carry that information and is already passed into generateCabinetBOM.
    */
   fallbackName?: string,
+  /** The item's size, so a board-thin item is recognised whatever it is called. */
+  size?: ItemSize,
 ): CabinetPartDefinition | null {
   const direct = CABINET_PART_MAP[definitionId];
   if (direct) return direct;
   if (fallbackName && OPAQUE_ID_RE.test((definitionId ?? '').trim())) {
-    return buildGenericCabinetMapping(fallbackName);
+    return buildGenericCabinetMapping(fallbackName, size);
   }
-  return buildGenericCabinetMapping(definitionId);
+  return buildGenericCabinetMapping(definitionId, size);
+}
+
+export interface ItemSize {
+  width: number;
+  height: number;
+  depth: number;
+}
+
+/** Thickest board a flat item can be: 3 mm hardboard to 25 mm LDF. */
+export const BOARD_THIN_MAX_MM = 25;
+
+/**
+ * Which dimension of an item is board thickness, if any: one dimension 1-25 mm and both others at least twice
+ * it. No carcass is that thin, so such an item is one board whatever its name says. Recognising boards by name
+ * alone let "oven panle" (10 Sands St, W 600 x H 16 x D 160 - a typo) fall through to a standard base carcase at
+ * $417.66 sell: seven carcase parts, four legs, shelf pins, carcase and wall screws and a kick run.
+ *
+ * Zero is not a thickness: Microvellum leaves a replacement front's depth at 0, and those have their own rule.
+ */
+export function boardThinAxis(size?: Partial<ItemSize> | null): keyof ItemSize | null {
+  if (!size) return null;
+  const dims = (['width', 'height', 'depth'] as const).map((axis) => ({ axis, mm: Number(size[axis]) }));
+  if (dims.some((d) => !Number.isFinite(d.mm))) return null;
+  const [thin, ...faces] = [...dims].sort((a, b) => a.mm - b.mm);
+  if (thin.mm < 1 || thin.mm > BOARD_THIN_MAX_MM) return null;
+  return faces.every((f) => f.mm >= 2 * thin.mm) ? thin.axis : null;
+}
+
+/** Microvellum's Filler_Width for a base or tall return filler (Minimum_Filler_Width is also 100). */
+const RETURN_FILLER_FACE_MM = 100;
+
+/**
+ * The cut size of a board-thin item, oriented the way Microvellum cuts it: a vertical board (thin across its
+ * width or depth) is height x its other face dimension, a horizontal one (thin in height) is width x depth.
+ * Checked against the parts table of all ten exported work orders: applied ends, under panels, upper return
+ * fillers and the oven panel all cut to their two faces.
+ *
+ * Base and tall RETURN fillers are the exception. Microvellum draws them a cabinet deep (W 16 x H 880 x D 573)
+ * but cuts a 100 mm face strip (Filler_Width = 100, L_Shape_Filler = 0): Donkin 745 x 100, Hibiscus 765 x 100,
+ * Donkin laundry 2065 x 100. Sized by their faces they would bill 5-6x the board. Upper return fillers are
+ * L-shaped (L_Shape_Filler = 1) and do cut height x depth (E&M 740 x 348).
+ *
+ * Returns null when the item is not board-thin.
+ */
+export function flatBoardCutSize(idOrName: string, size: ItemSize): { length: number; width: number } | null {
+  const axis = boardThinAxis(size);
+  if (!axis) return null;
+  if (axis === 'height') return { length: size.width, width: size.depth };
+  const across = axis === 'width' ? size.depth : size.width;
+  const s = (idOrName || '').toLowerCase();
+  if (/return.?filler/.test(s) && !/upper|wall/.test(s)) {
+    return { length: size.height, width: Math.min(RETURN_FILLER_FACE_MM, across) };
+  }
+  return { length: size.height, width: across };
 }
 
 /**
@@ -462,7 +518,20 @@ export function inferFrontCounts(idOrName: string): { doors: number; drawers: nu
   return { doors: Math.max(0, doors), drawers: Math.max(0, drawers) };
 }
 
-export function buildGenericCabinetMapping(definitionId: string): CabinetPartDefinition | null {
+/** One board: no carcass parts, no fronts, no shelves. */
+function flatBoardMapping(partType: string, flatBoard: 'name' | 'shape', isCorner = false): CabinetPartDefinition {
+  return {
+    config: {
+      numDoors: 0, numDrawers: 0, numShelves: 0,
+      hasSides: false, hasBack: false, hasBottom: false, hasTop: false,
+      hasRails: false, isSinkCabinet: false, isCorner, isBlind: false,
+      flatBoard,
+    },
+    parts: [{ partType, quantity: 1 }],
+  };
+}
+
+export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize): CabinetPartDefinition | null {
   const id = (definitionId || '').toLowerCase();
   if (!id) return null;
   // Replacement fronts: the door(s) and nothing else. Checked first - "Cabinet Faces Only" contains no word
@@ -490,8 +559,8 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
   // Fillers and panels are NOT carcasses, but they ARE real cut, edged boards
   // with a Microvellum product behind them ("Base Return Filler", "Upper
   // Return Filler"), so they price as a single flat panel rather than $0.
-  // calculatePartDimensions sizes these height x WIDTH, not height x depth -
-  // a 16mm filler measured across its depth would bill 35x the board.
+  // calculatePartDimensions cuts a board-thin one to its faces (flatBoardCutSize)
+  // and anything thicker - a pelmet or scribe filler face - to height x width.
   if (FLAT_PANEL_RE.test(id)) {
     // A pelmet or bulkhead is a strip of board fixed under or over a run of
     // cabinets. It used to fall through to the carcass branch and be billed
@@ -502,14 +571,7 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
       : /return/.test(id)
         ? 'Return Panel'
         : 'Filler';
-    return {
-      config: {
-        numDoors: 0, numDrawers: 0, numShelves: 0,
-        hasSides: false, hasBack: false, hasBottom: false, hasTop: false,
-        hasRails: false, isSinkCabinet: false, isCorner: /corner/.test(id), isBlind: false,
-      },
-      parts: [{ partType, quantity: 1 }],
-    };
+    return flatBoardMapping(partType, 'name', /corner/.test(id));
   }
   // True appliance openings have no carcass of their own.
   if (/opening/.test(id)) {
@@ -531,6 +593,12 @@ export function buildGenericCabinetMapping(definitionId: string): CabinetPartDef
       },
       parts: [{ partType: 'Filler', quantity: 1 }],
     };
+  }
+  // One board thick, whatever it is called: an appliance panel, a typo, a product
+  // renamed in Microvellum. Checked after the name rules so a named kick stays a
+  // kick, and before the carcass below, which no item this thin can be.
+  if (boardThinAxis(size)) {
+    return flatBoardMapping('Applied Panel', 'shape');
   }
 
   const isWall = id.startsWith('wall') || id.includes('upper');

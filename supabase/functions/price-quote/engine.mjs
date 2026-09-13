@@ -450,13 +450,34 @@ var CABINET_PART_MAP = {
   }
 };
 var OPAQUE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9A-Z]{10,14}$/i;
-function getCabinetPartMapping(definitionId, fallbackName) {
+function getCabinetPartMapping(definitionId, fallbackName, size) {
   const direct = CABINET_PART_MAP[definitionId];
   if (direct) return direct;
   if (fallbackName && OPAQUE_ID_RE.test((definitionId ?? "").trim())) {
-    return buildGenericCabinetMapping(fallbackName);
+    return buildGenericCabinetMapping(fallbackName, size);
   }
-  return buildGenericCabinetMapping(definitionId);
+  return buildGenericCabinetMapping(definitionId, size);
+}
+var BOARD_THIN_MAX_MM = 25;
+function boardThinAxis(size) {
+  if (!size) return null;
+  const dims = ["width", "height", "depth"].map((axis) => ({ axis, mm: Number(size[axis]) }));
+  if (dims.some((d) => !Number.isFinite(d.mm))) return null;
+  const [thin, ...faces] = [...dims].sort((a, b) => a.mm - b.mm);
+  if (thin.mm < 1 || thin.mm > BOARD_THIN_MAX_MM) return null;
+  return faces.every((f) => f.mm >= 2 * thin.mm) ? thin.axis : null;
+}
+var RETURN_FILLER_FACE_MM = 100;
+function flatBoardCutSize(idOrName, size) {
+  const axis = boardThinAxis(size);
+  if (!axis) return null;
+  if (axis === "height") return { length: size.width, width: size.depth };
+  const across = axis === "width" ? size.depth : size.width;
+  const s = (idOrName || "").toLowerCase();
+  if (/return.?filler/.test(s) && !/upper|wall/.test(s)) {
+    return { length: size.height, width: Math.min(RETURN_FILLER_FACE_MM, across) };
+  }
+  return { length: size.height, width: across };
 }
 var FLAT_PANEL_RE = /filler|scribe|applied|panel$|end.?panel|pelmet|bulkhead|valance/;
 var FACES_ONLY_RE = /faces?\s*only|fronts?\s*only|doors?\s*only|replacement\s+(?:doors?|fronts?)/;
@@ -491,7 +512,26 @@ function inferFrontCounts(idOrName) {
   }
   return { doors: Math.max(0, doors), drawers: Math.max(0, drawers) };
 }
-function buildGenericCabinetMapping(definitionId) {
+function flatBoardMapping(partType, flatBoard, isCorner = false) {
+  return {
+    config: {
+      numDoors: 0,
+      numDrawers: 0,
+      numShelves: 0,
+      hasSides: false,
+      hasBack: false,
+      hasBottom: false,
+      hasTop: false,
+      hasRails: false,
+      isSinkCabinet: false,
+      isCorner,
+      isBlind: false,
+      flatBoard
+    },
+    parts: [{ partType, quantity: 1 }]
+  };
+}
+function buildGenericCabinetMapping(definitionId, size) {
   const id = (definitionId || "").toLowerCase();
   if (!id) return null;
   if (FACES_ONLY_RE.test(id)) {
@@ -515,22 +555,7 @@ function buildGenericCabinetMapping(definitionId) {
   }
   if (FLAT_PANEL_RE.test(id)) {
     const partType = /applied|end.?panel/.test(id) ? "Applied Panel" : /return/.test(id) ? "Return Panel" : "Filler";
-    return {
-      config: {
-        numDoors: 0,
-        numDrawers: 0,
-        numShelves: 0,
-        hasSides: false,
-        hasBack: false,
-        hasBottom: false,
-        hasTop: false,
-        hasRails: false,
-        isSinkCabinet: false,
-        isCorner: /corner/.test(id),
-        isBlind: false
-      },
-      parts: [{ partType, quantity: 1 }]
-    };
+    return flatBoardMapping(partType, "name", /corner/.test(id));
   }
   if (/opening/.test(id)) {
     return null;
@@ -552,6 +577,9 @@ function buildGenericCabinetMapping(definitionId) {
       },
       parts: [{ partType: "Filler", quantity: 1 }]
     };
+  }
+  if (boardThinAxis(size)) {
+    return flatBoardMapping("Applied Panel", "shape");
   }
   const isWall = id.startsWith("wall") || id.includes("upper");
   const isTall = id.startsWith("tall") || id.includes("pantry") || id.includes("broom") || id.includes("linen");
@@ -894,6 +922,7 @@ var CONSTRUCTION_CONSUMABLES = [
   { stage: "install", name: "45mm Screws (wall fixing)", match: "45mm screw", qtyPerCabinet: 4, fallbackUnitCost: 0.05 },
   { stage: "install", name: "70mm Screws (wall fixing)", match: "70mm screw", qtyPerCabinet: 2, fallbackUnitCost: 0.07 }
 ];
+var FLAT_BOARD_CONSUMABLES = CONSTRUCTION_CONSUMABLES.filter((rule) => rule.stage === "carcase").map((rule) => ({ ...rule, qtyPerCabinet: 4 }));
 function normaliseHardwareType(value) {
   return String(value ?? "").toLowerCase().replace(/[\s-]+/g, "_").replace(/^drawer_runner$/, "runner").replace(/^drawer_slide$/, "runner").replace(/^knob$/, "handle").replace(/^handle_profile$/, "handle").replace(/^pull$/, "handle");
 }
@@ -985,7 +1014,7 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       });
     }
   }
-  if (hardwareOptions.adjustableLegs && !config.facesOnly) {
+  if (hardwareOptions.adjustableLegs && !config.facesOnly && !config.flatBoard) {
     const legPricing = hardwarePricing.find((h) => isType(h, "leg"));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     items.push({
@@ -1016,7 +1045,8 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       isFallbackPrice: pinCost.isFallbackPrice
     });
   }
-  for (const rule of config.facesOnly ? [] : CONSTRUCTION_CONSUMABLES) {
+  const consumables = config.facesOnly ? [] : config.flatBoard ? FLAT_BOARD_CONSUMABLES : CONSTRUCTION_CONSUMABLES;
+  for (const rule of consumables) {
     const pricing = hardwarePricing.find(
       (h) => h.name.toLowerCase().includes(rule.match) || h.item_code?.toLowerCase?.() === rule.match
     );
@@ -1326,6 +1356,7 @@ function calculateBenchtops(items, globalDims, pricingData, selection = {}) {
     if (i.itemType !== "Cabinet") return false;
     const id = i.definitionId ?? "";
     if (isFacesOnlyProduct(id)) return false;
+    if (boardThinAxis(i)) return false;
     if (BENCHTOP_CAB_RE.test(id)) return true;
     if ((i.y ?? 0) > 1) return false;
     if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;
@@ -1780,7 +1811,8 @@ function roundMoney(value) {
 
 // src/lib/pricing/bomGenerator.ts
 function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, catalogItemName) {
-  const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName);
+  const size = { width: cabinet.width, height: cabinet.height, depth: cabinet.depth };
+  const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName, size);
   if (!mapping) {
     return createEmptyBOM(cabinet, catalogItemName ?? "Unknown");
   }
@@ -1790,6 +1822,11 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   const cabLabel = cabinet.cabinetNumber || catalogItemName || cabinet.definitionId || "Cabinet";
   if (config.facesOnly && config.numDoors === 1 && cabinet.width > 650) {
     warnings.push(`${cabLabel}: replacement front ${cabinet.width} wide priced as ONE door - check whether it is a pair`);
+  }
+  const itemName = catalogItemName ?? cabinet.definitionId ?? "";
+  const flatCut = config.flatBoard ? flatBoardCutSize(itemName, size) : null;
+  if (config.flatBoard === "shape" && flatCut) {
+    warnings.push(`${cabLabel}: "${itemName}" is ${cabinet.width} x ${cabinet.height} x ${cabinet.depth} - one board thick, priced as a single ${flatCut.length} x ${flatCut.width} panel, not a cabinet`);
   }
   const resolveWithGuard = (selection, role) => {
     const matched = resolveMaterialId(selection, pricingData.materials);
@@ -1817,7 +1854,8 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     config,
     pricingData.parts,
     carcaseMaterialId,
-    exteriorMaterialId
+    exteriorMaterialId,
+    flatCut
   );
   const sheets = calculateSheetRequirements(parts, pricingData.materials);
   const edgeTape = calculateEdgeTape(parts, pricingData.edges, cabinet.edgeId);
@@ -1834,7 +1872,7 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   if (pricingData.labor.length === 0) {
     warnings.push("No labour-rate catalogue rows loaded \u2014 using calibrated labour defaults");
   }
-  const isFlatPanel = isFlatBoardProduct(catalogItemName ?? cabinet.definitionId ?? "");
+  const isFlatPanel = Boolean(config.flatBoard) || isFlatBoardProduct(itemName);
   const isTall = !isFlatPanel && (cabinet.height >= 1500 || /tall|pantry|broom|linen/i.test(cabinet.definitionId ?? ""));
   const laborRates = resolveLaborRates(pricingData.labor);
   const labor = calculateLaborCost(config, cabinet.width, isTall, laborRates, isFlatPanel);
@@ -1902,7 +1940,7 @@ function resolveMaterialId(selection, materials) {
   const minimumIntersection = selectedTokens.length <= 3 ? 2 : 3;
   return best && best.intersection >= minimumIntersection && best.coverage >= 0.4 ? best.material.id : void 0;
 }
-function calculatePartDimensions(partRequirements, cabinet, globalDims, config, partsPricing, carcaseMaterialId, exteriorMaterialId) {
+function calculatePartDimensions(partRequirements, cabinet, globalDims, config, partsPricing, carcaseMaterialId, exteriorMaterialId, flatCut = null) {
   const vars = createFormulaVariables(
     { width: cabinet.width, height: cabinet.height, depth: cabinet.depth },
     globalDims,
@@ -1922,7 +1960,7 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
   const drawerFaces = numDrawers > 0 ? distributeDrawerHeights(numDrawers, drawerOpening, cabinet.drawerFrontHeights) : [];
   const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength = cabinet.height, fallbackWidth = cabinet.depth, exact) => {
     const pricing = partsPricing.find((p) => p.part_type === req.partType || p.name === req.partType);
-    const isExterior = EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
+    const isExterior = Boolean(config.flatBoard) || EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
     const length = exact ? exact.length : parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength;
     const width = exact ? exact.width : parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth;
     const area = length * width / 1e6;
@@ -1956,8 +1994,9 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
       );
       continue;
     }
-    if (FLAT_PANEL_RE.test((cabinet.definitionId ?? "").toLowerCase())) {
-      pushPart(req, vars, "", req.quantity, cabinet.height, cabinet.width);
+    if (config.flatBoard) {
+      if (flatCut) pushPart(req, vars, "", req.quantity, flatCut.length, flatCut.width, flatCut);
+      else pushPart(req, vars, "", req.quantity, cabinet.height, cabinet.width);
       continue;
     }
     const isDrawerPart = /^drawer/i.test(req.partType);
@@ -2018,6 +2057,7 @@ var KICKABLE_ROLE = /* @__PURE__ */ new Set([
 ]);
 function carriesKickFace(item) {
   if (isFacesOnlyProduct(item.definitionId ?? "")) return false;
+  if (item.itemType === "Cabinet" && boardThinAxis(item)) return false;
   if ((item.y ?? 0) > 1) return false;
   if (item.layoutRole === "dishwasher") return true;
   if (item.itemType !== "Cabinet") return false;

@@ -181,6 +181,15 @@ double-counted markup on every quote as a result.
 - **Benchtops** are passed through from the source report. The cabinet engine
   doesn't price stone; `benchtopCalculator` does, and it needs a stone catalogue
   selection this skill doesn't collect.
+- **Flat boards are recognised by shape as well as name** (Sep 2026). Any item
+  with one dimension 1-25 mm prices as one board cut to its two faces, in the
+  door finish, with 4 fixing screws and no legs, kick or benchtop; an
+  unrecognised name raises a "one board thick" warning (it caught 10 Sands'
+  "oven panle" and Forest Glen's stone "Backsplash"). Limits: base and tall
+  return fillers are assumed 100 mm wide (Microvellum's default Filler_Width -
+  the schedule carries no prompts); a stone splashback prices as a door-finish
+  board instead of passing through; pelmets, valances and scribe fillers with
+  cleats still price their face board only, not the rails behind it.
 - **Flat panels import without dimensions.** A 16mm applied panel fails Build
   Flow's `width >= 100` test and is read as a buyout item. The money is right,
   the W/H/D show as 0. Microvellum's own reports import the same way.

@@ -7,7 +7,7 @@
 
 import { PlacedItem, GlobalDimensions } from '@/types';
 import { PricingData, BenchtopAllocation, BenchtopMaterialRecord } from './types';
-import { isFacesOnlyProduct } from './cabinetPartMapping';
+import { isFacesOnlyProduct, boardThinAxis } from './cabinetPartMapping';
 
 /** Cabinet types that sit under a benchtop (base, corner, sink, pie/blind) */
 const BENCHTOP_CAB_RE = /^(base|corner|sink|pie)/i;
@@ -313,6 +313,9 @@ export function calculateBenchtops(
     const id = i.definitionId ?? '';
     // Replacement fronts sit under a top that is already there - checked before the base-id whitelist.
     if (isFacesOnlyProduct(id)) return false;
+    // Nor does anything one board thick carry a top - and "Base Applied Panel" (W 16) would otherwise pass the
+    // base-id whitelist below.
+    if (boardThinAxis(i)) return false;
     if (BENCHTOP_CAB_RE.test(id)) return true;
     if ((i.y ?? 0) > 1) return false;                       // wall/stacked unit
     if (/^(wall|upper)|[_-](wall|upper)/i.test(id)) return false;

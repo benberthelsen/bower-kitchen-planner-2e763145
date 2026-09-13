@@ -608,4 +608,10 @@ export interface CabinetConfig {
    * hardware and nothing else: no carcase, shelf, legs, kick, benchtop or carcase/wall-fixing screws.
    */
   facesOnly?: boolean;
+  /**
+   * One cut board, not a carcass: a panel, filler, scribe or pelmet recognised by its NAME, or any item one
+   * board thick recognised by its SHAPE ("oven panle", W 600 x H 16 x D 160). Priced in the door finish,
+   * fixed with end-panel screws; no legs, wall screws, kick run or benchtop.
+   */
+  flatBoard?: 'name' | 'shape';
 }

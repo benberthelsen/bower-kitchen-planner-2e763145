@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct, boardThinAxis } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -1151,6 +1151,131 @@ for (const [id, w, h, d] of families) {
     JSON.stringify({ parts: wc.partCount, hw: wc.hardware.map(h => [h.category, h.quantity]) }));
   check('faces only quote: no benchtop', (q.benchtops ?? []).length === 0 && !q.lines.some(l => /benchtop|countertop/i.test(l.description)));
   check('faces only quote: every line finite and positive', q.lines.every(l => finite(l.total) && l.total > 0), JSON.stringify(q.lines));
+}
+
+
+// 12. Flat boards by SHAPE as well as name (10 Sands St "oven panle", W 600 x H 16 x D 160 - a typo that priced as
+//     a $417.66 base carcase with legs, shelf pins, screws and a kick run). Sizes below are checked against the
+//     parts table of the exported Microvellum work orders, not guessed.
+{
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, overheadPct: 0.1, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const qtyOf = (bom, type) => bom.hardware.filter(x => x.hardwareType === type).reduce((s, x) => s + x.quantity, 0);
+  const named = (name, w, h, d, n) => ({ ...cab(name, w, h, d, n), productName: name });
+  const boardOf = (name, w, h, d, n) => generateCabinetBOM(named(name, w, h, d, n), dims, hw, pricingData, name);
+  const sizeOf = (bom) => `${bom.parts[0]?.length} x ${bom.parts[0]?.width}`;
+
+  // ── the rule itself ──────────────────────────────────────────────────────
+  check('shape: 600 x 16 x 160 is thin in height', boardThinAxis({ width: 600, height: 16, depth: 160 }) === 'height');
+  check('shape: 16 x 740 x 348 is thin in width', boardThinAxis({ width: 16, height: 740, depth: 348 }) === 'width');
+  check('shape: 1700 x 980 x 16 is thin in depth', boardThinAxis({ width: 1700, height: 980, depth: 16 }) === 'depth');
+  check('shape: a 600 x 870 x 575 cabinet is not a board', boardThinAxis({ width: 600, height: 870, depth: 575 }) === null);
+  check('shape: a replacement front with depth 0 is not caught (0 is not a thickness)',
+    boardThinAxis({ width: 600, height: 769, depth: 0 }) === null);
+  check('shape: 26 mm is past board thickness', boardThinAxis({ width: 600, height: 26, depth: 160 }) === null);
+  check('shape: a 16 x 16 x 600 stick is not a panel', boardThinAxis({ width: 16, height: 16, depth: 600 }) === null);
+
+  // ── the oven panel ───────────────────────────────────────────────────────
+  const oven = boardOf('oven panle', 600, 16, 160, 1201);
+  check('oven panle: one part', oven.parts.length === 1 && oven.parts[0].quantity === 1, oven.parts.map(p => `${p.name} x${p.quantity}`).join(', '));
+  check('oven panle: cut 600 x 160 (width x depth), not a carcase', oven.parts[0]?.length === 600 && oven.parts[0]?.width === 160, sizeOf(oven));
+  check('oven panle: in the door finish', oven.parts[0]?.materialRole === 'exterior', oven.parts[0]?.materialRole);
+  check('oven panle: no doors, drawers or shelves', qtyOf(oven, 'hinge') === 0 && qtyOf(oven, 'runner') === 0 && qtyOf(oven, 'shelf_pin') === 0,
+    oven.hardware.map(x => `${x.hardwareType}x${x.quantity}`).join(', '));
+  check('oven panle: no adjustable legs', qtyOf(oven, 'leg') === 0, String(qtyOf(oven, 'leg')));
+  check('oven panle: 4 end-panel fixing screws and no wall screws',
+    qtyOf(oven, 'consumable-carcase') === 4 && qtyOf(oven, 'consumable-install') === 0,
+    oven.hardware.map(x => `${x.hardwareType}x${x.quantity}`).join(', '));
+  check('oven panle: the unrecognised name is warned', (oven.warnings ?? []).some(w => /one board thick/.test(w) && /600 x 160/.test(w)),
+    (oven.warnings ?? []).join(' | '));
+  const carcase = boardOf('Base 1 Door', 600, 870, 575, 1202);
+  // Compared as lines of one quote: a cabinet costed on its own carries a whole-sheet minimum that swamps both.
+  const pair = quoteFromSchedule([
+    { name: 'Base 1 Door', qty: 1, w: 600, h: 870, d: 575, room: 'kitchen' },
+    { name: 'oven panle', qty: 1, w: 600, h: 16, d: 160, room: 'kitchen' },
+  ], pricingData, sel, comm, { defaultRoom: 'kitchen' });
+  const [cabLine, ovenLine] = pair.lines;
+  check('oven panle: its line costs a fraction of a 600 base cabinet line', finite(ovenLine?.total) && ovenLine.total > 0 && ovenLine.total < cabLine.total / 3,
+    `${ovenLine?.total} vs cabinet ${cabLine?.total}`);
+
+  // No kick run and no benchtop from the board; the real cabinet beside it keeps both.
+  const run = [
+    { ...named('Base 1 Door', 600, 870, 575, 1211), x: 300, z: 287.5 },
+    { ...named('oven panle', 600, 16, 160, 1212), x: 900, z: 80 },
+  ];
+  const runQuote = generateQuoteBOM(run, dims, hw, pricingData);
+  check('oven panle: adds no kick run (the base cabinet still has its 600)',
+    runQuote.kickboards.length === 1 && runQuote.kickboards[0].runLengthMm === 600, JSON.stringify(runQuote.kickboards));
+  const stone = {
+    id: 'st-flat', brand: 'Caesarstone', range_tier: 'Test', material_type: 'stone', pricing_method: 'per_sqm',
+    stock_length_mm: 3200, stock_depth_mm: 1600, trade_supply_per_sqm: 250, install_supply_per_sqm: 80,
+  };
+  const tops = calculateBenchtops(run, dims, { ...pricingData, benchtop: [stone] });
+  check('oven panle: adds no benchtop (the base cabinet still has its 600)',
+    tops.length === 1 && tops[0].runLengthMm === 600, JSON.stringify(tops.map(t => t.runLengthMm)));
+  check('base applied panel (W 16): no benchtop, despite starting with "base"',
+    calculateBenchtops([named('Base Applied Panel', 16, 876, 555, 1213)], dims, { ...pricingData, benchtop: [stone] }).length === 0);
+
+  // 10 Sands St as a schedule: three replacement fronts and the oven panel.
+  const sands = quoteFromSchedule([
+    { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+    { name: 'Cabinet Faces Only', qty: 1, w: 600, h: 769, d: 0, room: 'kitchen' },
+    { name: 'Cabinet Faces Only', qty: 1, w: 399, h: 769, d: 0, room: 'kitchen' },
+    { name: 'oven panle', qty: 1, w: 600, h: 16, d: 160, room: 'kitchen' },
+  ], pricingData, sel, comm, { defaultRoom: 'kitchen' });
+  const swc = sands.workshopCosting;
+  check('10 Sands quote: 4 parts in all - three doors and one board', swc.partCount === 4, String(swc.partCount));
+  check('10 Sands quote: no kick panels and no legs',
+    !swc.sheetStock.some(s => /kick/i.test(s.material)) && !swc.hardware.some(h => /leg/i.test(h.description)),
+    JSON.stringify({ sheets: swc.sheetStock.map(s => s.material), hw: swc.hardware.map(h => h.description) }));
+  check('10 Sands quote: no benchtop', (sands.benchtops ?? []).length === 0);
+
+  // ── correctly named panels: sizes DELIBERATELY changed from height x WIDTH ─
+  // Each was billed with the thickness as one side. The Microvellum cut is in the check name.
+  const upperReturn = boardOf('Upper Return Filler', 16, 740, 348, 1221);
+  check('upper return filler 16 x 740 x 348: 740 x 348 (MV cuts 740 x 348; was 740 x 16)',
+    upperReturn.parts[0]?.length === 740 && upperReturn.parts[0]?.width === 348, sizeOf(upperReturn));
+  const baseReturn = boardOf('Base Return Filler', 16, 880, 573, 1222);
+  check('base return filler 16 x 880 x 573: 880 x 100 face strip (MV cuts 745 x 100; was 880 x 16)',
+    baseReturn.parts[0]?.length === 880 && baseReturn.parts[0]?.width === 100, sizeOf(baseReturn));
+  const tallReturn = boardOf('Tall Return Filler', 16, 2200, 598, 1223);
+  check('tall return filler 16 x 2200 x 598: 2200 x 100 face strip (MV cuts 2065 x 100)',
+    tallReturn.parts[0]?.length === 2200 && tallReturn.parts[0]?.width === 100, sizeOf(tallReturn));
+  const tallApplied = boardOf('Tall Applied Panel', 16, 2440, 710, 1224);
+  check('tall applied panel 16 x 2440 x 710: 2440 x 710 (MV cuts 2305 x 728; was 2440 x 16)',
+    tallApplied.parts[0]?.length === 2440 && tallApplied.parts[0]?.width === 710, sizeOf(tallApplied));
+  const under = boardOf('Under Panel', 2086, 16, 430, 1225);
+  check('under panel 2086 x 16 x 430: 2086 x 430 (MV cuts 2086 x 429; was 16 x 2086)',
+    under.parts[0]?.length === 2086 && under.parts[0]?.width === 430, sizeOf(under));
+
+  // ── correctly named panels that are NOT changed ──────────────────────────
+  const backPanel = boardOf('Base Applied Back Panel', 1700, 980, 16, 1226);
+  check('applied back panel 1700 x 980 x 16: still 980 x 1700 (thin in depth, so H x W was already right)',
+    backPanel.parts[0]?.length === 980 && backPanel.parts[0]?.width === 1700, sizeOf(backPanel));
+  const pelmet = boardOf('Pelmet BC', 2102, 100, 478, 1227);
+  check('pelmet 2102 x 100 x 478 (not board-thin): still its 100 x 2102 face',
+    pelmet.parts[0]?.length === 100 && pelmet.parts[0]?.width === 2102, sizeOf(pelmet));
+  const scribe = boardOf('Base Scribe Filler With Cleats', 100, 880, 573, 1228);
+  check('scribe filler 100 x 880 x 573 (not board-thin): still 880 x 100',
+    scribe.parts[0]?.length === 880 && scribe.parts[0]?.width === 100, sizeOf(scribe));
+  check('named panels raise no shape warning', [upperReturn, baseReturn, tallApplied, under, backPanel, pelmet, scribe]
+    .every(b => !(b.warnings ?? []).some(w => /one board thick/.test(w))));
+
+  // ── what every flat board now shares, named or not (DELIBERATE) ───────────
+  const flats = [upperReturn, baseReturn, tallApplied, under, backPanel, pelmet, scribe];
+  check('flat boards: all in the door finish (MV cuts every one from the front material; was carcase board)',
+    flats.every(b => b.parts.every(p => p.materialRole === 'exterior')), flats.map(b => b.parts[0]?.materialRole).join(','));
+  check('flat boards: no legs and no wall screws (was 4 legs + 6 wall screws each)',
+    flats.every(b => qtyOf(b, 'leg') === 0 && qtyOf(b, 'consumable-install') === 0 && qtyOf(b, 'consumable-carcase') === 4));
+  check('flat boards: a real cabinet keeps its legs and all its screws',
+    qtyOf(carcase, 'leg') === 4 && qtyOf(carcase, 'consumable-carcase') === 12 && qtyOf(carcase, 'consumable-install') === 6);
+  check('flat boards: a named kick stays a kick (carcase board, not re-mapped by shape)',
+    boardOf('Toe Kick Base', 1250, 135, 16, 1229).parts.every(p => p.materialRole === 'carcase'));
+  check('flat boards: replacement fronts unchanged by the shape rule',
+    boardOf('Cabinet Faces Only', 600, 769, 0, 1230).parts[0]?.name === 'Door');
 }
 
 

@@ -2,7 +2,7 @@
 
 import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem, KickboardAllocation } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
-import { getCabinetPartMapping, getPartQuantities, FLAT_PANEL_RE, isFlatBoardProduct, isFacesOnlyProduct } from './cabinetPartMapping';
+import { getCabinetPartMapping, getPartQuantities, isFlatBoardProduct, isFacesOnlyProduct, boardThinAxis, flatBoardCutSize } from './cabinetPartMapping';
 import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
@@ -26,7 +26,8 @@ export function generateCabinetBOM(
   pricingData: PricingData,
   catalogItemName?: string
 ): CabinetBOM {
-  const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName);
+  const size = { width: cabinet.width, height: cabinet.height, depth: cabinet.depth };
+  const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName, size);
 
   if (!mapping) {
     return createEmptyBOM(cabinet, catalogItemName ?? 'Unknown');
@@ -44,6 +45,12 @@ export function generateCabinetBOM(
   const cabLabel = cabinet.cabinetNumber || catalogItemName || cabinet.definitionId || 'Cabinet';
   if (config.facesOnly && config.numDoors === 1 && cabinet.width > 650) {
     warnings.push(`${cabLabel}: replacement front ${cabinet.width} wide priced as ONE door - check whether it is a pair`);
+  }
+  const itemName = catalogItemName ?? cabinet.definitionId ?? '';
+  const flatCut = config.flatBoard ? flatBoardCutSize(itemName, size) : null;
+  if (config.flatBoard === 'shape' && flatCut) {
+    // The name matched nothing, so say why this is not a cabinet - it is usually a typo worth fixing at source.
+    warnings.push(`${cabLabel}: "${itemName}" is ${cabinet.width} x ${cabinet.height} x ${cabinet.depth} - one board thick, priced as a single ${flatCut.length} x ${flatCut.width} panel, not a cabinet`);
   }
 
   // Resolve which board each part draws from: carcase vs exterior/door finish.
@@ -85,7 +92,8 @@ export function generateCabinetBOM(
     config,
     pricingData.parts,
     carcaseMaterialId,
-    exteriorMaterialId
+    exteriorMaterialId,
+    flatCut,
   );
   
   // Calculate sheet requirements
@@ -119,7 +127,7 @@ export function generateCabinetBOM(
   // Fallback labour only. generateQuoteBOM replaces this with the process model
   // unless the caller opts out with supplyMode: 'none'; it is kept per-cabinet
   // so a single cabinet costed on its own still has a labour figure.
-  const isFlatPanel = isFlatBoardProduct(catalogItemName ?? cabinet.definitionId ?? '');
+  const isFlatPanel = Boolean(config.flatBoard) || isFlatBoardProduct(itemName);
   const isTall = !isFlatPanel &&
     (cabinet.height >= 1500 || /tall|pantry|broom|linen/i.test(cabinet.definitionId ?? ''));
   const laborRates = resolveLaborRates(pricingData.labor as never);
@@ -234,7 +242,9 @@ function calculatePartDimensions(
   config: CabinetConfig,
   partsPricing: PricingData['parts'],
   carcaseMaterialId: string,
-  exteriorMaterialId: string
+  exteriorMaterialId: string,
+  /** A board-thin flat item's cut size (flatBoardCutSize); null for anything else. */
+  flatCut: { length: number; width: number } | null = null,
 ): PartDimension[] {
   const vars = createFormulaVariables(
     { width: cabinet.width, height: cabinet.height, depth: cabinet.depth },
@@ -271,7 +281,10 @@ function calculatePartDimensions(
     exact?: { length: number; width: number },
   ) => {
     const pricing = partsPricing.find(p => p.part_type === req.partType || p.name === req.partType);
-    const isExterior = EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
+    // A flat board is a visible face - an applied end, filler, under panel, pelmet front, appliance panel - and
+    // Microvellum cuts every one of them from the FRONT material. Its part names ("Tall Applied End", "Filler")
+    // never matched EXTERIOR_PART, so they were all billed as carcase board.
+    const isExterior = Boolean(config.flatBoard) || EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
 
     // `exact` bypasses the catalogue formula: a formula written for a door on a carcase takes the kick
     // off the height, which is wrong for a face that is already the finished door size.
@@ -305,12 +318,16 @@ function calculatePartDimensions(
       continue;
     }
 
-    // Flat boards (fillers, scribes, applied/return panels) are a single panel
-    // the size of the item's own face: height x WIDTH. The default fallback is
-    // height x DEPTH, which for a 16mm filler on a 573 deep run would bill
-    // 0.50 m2 instead of 0.014 m2 — 35x the board.
-    if (FLAT_PANEL_RE.test((cabinet.definitionId ?? '').toLowerCase())) {
-      pushPart(req, vars, '', req.quantity, cabinet.height, cabinet.width);
+    // Flat boards (fillers, scribes, applied/return panels) are a single panel.
+    // A board-thin one is cut to its faces (flatBoardCutSize). Sizing every one
+    // height x WIDTH billed the THICKNESS as the width whenever the thin
+    // dimension was W: E&M's 2440 x 710 tall applied panels priced as 2440 x 16
+    // strips and a 740 x 348 upper return filler as 740 x 16, while an under
+    // panel (thin in H) priced as 16 x 2086. Only a flat item with no thin
+    // dimension - a pelmet or scribe filler face - keeps height x width.
+    if (config.flatBoard) {
+      if (flatCut) pushPart(req, vars, '', req.quantity, flatCut.length, flatCut.width, flatCut);
+      else pushPart(req, vars, '', req.quantity, cabinet.height, cabinet.width);
       continue;
     }
 
@@ -374,6 +391,8 @@ const KICKABLE_ROLE = new Set([
 function carriesKickFace(item: PlacedItem): boolean {
   // Replacement fronts go on cabinets already standing on their own kick - checked before any role test.
   if (isFacesOnlyProduct(item.definitionId ?? '')) return false;
+  // Nor does a board one board thick: "oven panle" (W 600 x H 16) added 600 mm of kick to 10 Sands St.
+  if (item.itemType === 'Cabinet' && boardThinAxis(item)) return false;
   if ((item.y ?? 0) > 1) return false;
   if (item.layoutRole === 'dishwasher') return true;
   if (item.itemType !== 'Cabinet') return false;

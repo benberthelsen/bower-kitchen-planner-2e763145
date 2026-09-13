@@ -47,6 +47,15 @@ const CONSTRUCTION_CONSUMABLES: ConsumableRule[] = [
 ];
 
 /**
+ * A flat board builds no box and hangs off no wall: it is screwed to the cabinet beside it, which is the
+ * end-panel fixing above (x4). The full carcase and wall-fixing allowance also inflated its share of the
+ * shop labour, which generateQuoteBOM spreads by part and hardware count.
+ */
+const FLAT_BOARD_CONSUMABLES: ConsumableRule[] = CONSTRUCTION_CONSUMABLES
+  .filter(rule => rule.stage === 'carcase')
+  .map(rule => ({ ...rule, qtyPerCabinet: 4 }));
+
+/**
  * hardware_pricing.hardware_type is not written consistently — the catalogue
  * holds "Drawer Runner", "Hinge", "Handle", "Shelf Pin" alongside "runner",
  * "hinge". Matching the raw string meant 2,500 runner rows and every handle
@@ -199,8 +208,9 @@ export function calculateHardware(
   }
   
   // === ADJUSTABLE LEGS ===
-  // Replacement fronts hang on cabinets already standing - they bring no legs.
-  if (hardwareOptions.adjustableLegs && !config.facesOnly) {
+  // Replacement fronts hang on cabinets already standing - they bring no legs. Nor does a flat board: a panel,
+  // filler or pelmet is fixed to a cabinet, and 10 Sands St's oven panel was billed four legs.
+  if (hardwareOptions.adjustableLegs && !config.facesOnly && !config.flatBoard) {
     const legPricing = hardwarePricing.find(h => isType(h, 'leg'));
     const legCost = resolvePositiveUnitCost(legPricing, 3);
     
@@ -238,8 +248,9 @@ export function calculateHardware(
   
   // === CONSTRUCTION CONSUMABLES (stage-based screws) ===
   // Carcase screws build a box and wall screws fix one; replacement fronts do neither (their hinge plates
-  // carry their own euro screws).
-  for (const rule of config.facesOnly ? [] : CONSTRUCTION_CONSUMABLES) {
+  // carry their own euro screws). A flat board takes only its end-panel fixing.
+  const consumables = config.facesOnly ? [] : config.flatBoard ? FLAT_BOARD_CONSUMABLES : CONSTRUCTION_CONSUMABLES;
+  for (const rule of consumables) {
     const pricing = hardwarePricing.find(h =>
       h.name.toLowerCase().includes(rule.match) || h.item_code?.toLowerCase?.() === rule.match
     );
