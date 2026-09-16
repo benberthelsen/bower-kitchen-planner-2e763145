@@ -108,6 +108,17 @@ export interface WorkshopRates {
   benchtopSinkCutoutMin: number;
   benchtopCooktopCutoutMin: number;
   benchtopTapHoleMin: number;
+
+  // ---- pre-made laminate benchtop blanks (kind 'blank') --------------------
+  // A blank arrives finished: postformed front edge, sealed face. The shop only
+  // cuts it to length, edges the cut ends, bolts any join and cuts the cut-outs.
+  // PLACEHOLDER minutes, not calibrated - confirm from shop timing.
+  /** Crosscut a blank to length: square up, jig, saw, dress the cut. */
+  benchtopBlankCutMin: number;
+  /** Edging strip on ONE exposed cut end: cut, iron/contact, trim, file. */
+  benchtopBlankEndEdgeMin: number;
+  /** Mitre-bolt / butt join between two blank sections: router jig, bolts, seal. */
+  benchtopBlankJoinMin: number;
 }
 
 /**
@@ -141,12 +152,34 @@ export interface BenchtopFabricationInputs {
   benchtopLm: number;
   /** finished tops to pack, load and install */
   products: number;
+
+  // ---- pre-made laminate blanks only (all 0 for a fabricated top) ----------
+  /** Crosscuts to length. A piece that uses a whole blank needs none. */
+  blankCuts: number;
+  /** Exposed CUT ends that get an edging strip (the factory edges are finished). */
+  endEdges: number;
+  /** Mitre-bolt joins between blank sections - NOT a solid-surface glued seam. */
+  blankJoins: number;
+  /** Blank pieces loaded as long parts (2 crew) instead of as boxed products. */
+  longParts: number;
+  /** Finished tops that are blanks - taken out of the per-product loading count. */
+  blankProducts: number;
+  /**
+   * Cut-outs in a pre-made blank: the same minutes as a fabricated top, but bench work at the
+   * assembly rate, not the $250/h solid-surface CNC. (A blank sets these instead of sink /
+   * cooktop / tapHole above, so the two can never be charged twice.)
+   */
+  blankSink: number;
+  blankCooktop: number;
+  blankTapHole: number;
 }
 
 export const EMPTY_BENCHTOP_FABRICATION: BenchtopFabricationInputs = {
   parts: 0, cutLm: 0, laminateSqm: 0, buildUpLm: 0, mitreLm: 0, substrateSqm: 0, joins: 0,
   polishSqm: 0, edgePolishLm: 0, sink: 0, cooktop: 0, tapHole: 0,
   benchtopLm: 0, products: 0,
+  blankCuts: 0, endEdges: 0, blankJoins: 0, longParts: 0, blankProducts: 0,
+  blankSink: 0, blankCooktop: 0, blankTapHole: 0,
 };
 
 export function sumBenchtopFabrication(list: BenchtopFabricationInputs[]): BenchtopFabricationInputs {
@@ -209,6 +242,11 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   benchtopSinkCutoutMin: 30,
   benchtopCooktopCutoutMin: 20,
   benchtopTapHoleMin: 5,
+
+  // pre-made laminate blanks — DEFAULT placeholders, not calibrated
+  benchtopBlankCutMin: 5,
+  benchtopBlankEndEdgeMin: 10,
+  benchtopBlankJoinMin: 30,
 };
 
 /**
@@ -475,14 +513,32 @@ export function calculateWorkshopCost(
   add('Benchtop joins', bt.joins, 'join', r.benchtopJoinMin, r.assemblyRate);
   add('Benchtop face sanding & polishing', bt.polishSqm, 'm2', r.benchtopPolishMinPerSqm, r.assemblyRate);
   add('Benchtop profile polishing', bt.edgePolishLm, 'm', r.benchtopEdgePolishMinPerM, r.assemblyRate);
+  // Pre-made laminate blanks: bench work only, and never the polishing stations
+  // above (they stay 0 for a blank). Names keep the laborMinutes buckets:
+  // 'cutting' -> machining, 'edge' -> edgebanding, 'joins' -> finishing.
+  add('Benchtop blank cutting', bt.blankCuts, 'cut', r.benchtopBlankCutMin, r.assemblyRate);
+  add('Benchtop cut-end edge strip', bt.endEdges, 'end', r.benchtopBlankEndEdgeMin, r.edgebandingRate);
+  add('Benchtop blank joins', bt.blankJoins, 'join', r.benchtopBlankJoinMin, r.assemblyRate);
   {
     // weighted minutes per cut-out type, like Hardware assembly below
-    const cutoutMin = Math.max(0, bt.sink) * r.benchtopSinkCutoutMin
-      + Math.max(0, bt.cooktop) * r.benchtopCooktopCutoutMin
-      + Math.max(0, bt.tapHole) * r.benchtopTapHoleMin;
-    if (cutoutMin > 0) {
-      add('Benchtop cut-outs', cutoutMin, 'min', 1, r.machiningRate);
-      lines[lines.length - 1].units = round2(Math.max(0, bt.sink) + Math.max(0, bt.cooktop) + Math.max(0, bt.tapHole));
+    const cutout = (sink: number, cooktop: number, tapHole: number) => ({
+      minutes: Math.max(0, sink) * r.benchtopSinkCutoutMin
+        + Math.max(0, cooktop) * r.benchtopCooktopCutoutMin
+        + Math.max(0, tapHole) * r.benchtopTapHoleMin,
+      count: Math.max(0, sink) + Math.max(0, cooktop) + Math.max(0, tapHole),
+    });
+    const solid = cutout(bt.sink, bt.cooktop, bt.tapHole);
+    if (solid.minutes > 0) {
+      add('Benchtop cut-outs', solid.minutes, 'min', 1, r.machiningRate);
+      lines[lines.length - 1].units = round2(solid.count);
+      lines[lines.length - 1].unitLabel = 'cut-out';
+    }
+    // Same minutes, bench rate: cutting a 38 mm laminate blank is a jigsaw and a router on the
+    // bench, not the solid-surface CNC - the rest of the blank work is priced that way too.
+    const blank = cutout(bt.blankSink, bt.blankCooktop, bt.blankTapHole);
+    if (blank.minutes > 0) {
+      add('Benchtop blank cut-outs', blank.minutes, 'min', 1, r.assemblyRate);
+      lines[lines.length - 1].units = round2(blank.count);
       lines[lines.length - 1].unitLabel = 'cut-out';
     }
   }
@@ -507,9 +563,13 @@ export function calculateWorkshopCost(
     add('Flat pack wrap & label', parts, 'part', r.flatPackPackingMinPerPart, r.handlingRate);
   }
 
-  add('Loading & unloading', products - looseItems, 'product', r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
+  // A pre-made blank is a long flat part, not a box: it loads with the large
+  // loose panels (2 crew), not at the per-cabinet product rate.
+  const btBlankProducts = Math.min(Math.max(0, bt.blankProducts), btProducts);
+  const btLongParts = Math.max(0, bt.longParts);
+  add('Loading & unloading', products - looseItems - btBlankProducts, 'product', r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
   add('Loading & unloading (loose fronts & boards)', looseItems - largeLooseItems, 'item', r.looseLoadingMinPerItem, r.loadingRate);
-  add('Loading & unloading (large loose panels)', largeLooseItems, 'item', r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
+  add('Loading & unloading (large loose panels)', largeLooseItems + btLongParts, 'item', r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
 
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);

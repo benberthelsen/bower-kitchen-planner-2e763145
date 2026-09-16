@@ -1508,7 +1508,15 @@ var EMPTY_BENCHTOP_FABRICATION = {
   cooktop: 0,
   tapHole: 0,
   benchtopLm: 0,
-  products: 0
+  products: 0,
+  blankCuts: 0,
+  endEdges: 0,
+  blankJoins: 0,
+  longParts: 0,
+  blankProducts: 0,
+  blankSink: 0,
+  blankCooktop: 0,
+  blankTapHole: 0
 };
 function sumBenchtopFabrication(list) {
   const out = { ...EMPTY_BENCHTOP_FABRICATION };
@@ -1574,7 +1582,11 @@ var DEFAULT_WORKSHOP_RATES = {
   benchtopEdgePolishMinPerM: 8,
   benchtopSinkCutoutMin: 30,
   benchtopCooktopCutoutMin: 20,
-  benchtopTapHoleMin: 5
+  benchtopTapHoleMin: 5,
+  // pre-made laminate blanks — DEFAULT placeholders, not calibrated
+  benchtopBlankCutMin: 5,
+  benchtopBlankEndEdgeMin: 10,
+  benchtopBlankJoinMin: 30
 };
 var HARDWARE_FIT_MINUTES = {
   runner: 25,
@@ -1704,11 +1716,24 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   add("Benchtop joins", bt.joins, "join", r.benchtopJoinMin, r.assemblyRate);
   add("Benchtop face sanding & polishing", bt.polishSqm, "m2", r.benchtopPolishMinPerSqm, r.assemblyRate);
   add("Benchtop profile polishing", bt.edgePolishLm, "m", r.benchtopEdgePolishMinPerM, r.assemblyRate);
+  add("Benchtop blank cutting", bt.blankCuts, "cut", r.benchtopBlankCutMin, r.assemblyRate);
+  add("Benchtop cut-end edge strip", bt.endEdges, "end", r.benchtopBlankEndEdgeMin, r.edgebandingRate);
+  add("Benchtop blank joins", bt.blankJoins, "join", r.benchtopBlankJoinMin, r.assemblyRate);
   {
-    const cutoutMin = Math.max(0, bt.sink) * r.benchtopSinkCutoutMin + Math.max(0, bt.cooktop) * r.benchtopCooktopCutoutMin + Math.max(0, bt.tapHole) * r.benchtopTapHoleMin;
-    if (cutoutMin > 0) {
-      add("Benchtop cut-outs", cutoutMin, "min", 1, r.machiningRate);
-      lines[lines.length - 1].units = round2(Math.max(0, bt.sink) + Math.max(0, bt.cooktop) + Math.max(0, bt.tapHole));
+    const cutout = (sink, cooktop, tapHole) => ({
+      minutes: Math.max(0, sink) * r.benchtopSinkCutoutMin + Math.max(0, cooktop) * r.benchtopCooktopCutoutMin + Math.max(0, tapHole) * r.benchtopTapHoleMin,
+      count: Math.max(0, sink) + Math.max(0, cooktop) + Math.max(0, tapHole)
+    });
+    const solid = cutout(bt.sink, bt.cooktop, bt.tapHole);
+    if (solid.minutes > 0) {
+      add("Benchtop cut-outs", solid.minutes, "min", 1, r.machiningRate);
+      lines[lines.length - 1].units = round2(solid.count);
+      lines[lines.length - 1].unitLabel = "cut-out";
+    }
+    const blank = cutout(bt.blankSink, bt.blankCooktop, bt.blankTapHole);
+    if (blank.minutes > 0) {
+      add("Benchtop blank cut-outs", blank.minutes, "min", 1, r.assemblyRate);
+      lines[lines.length - 1].units = round2(blank.count);
       lines[lines.length - 1].unitLabel = "cut-out";
     }
   }
@@ -1727,9 +1752,11 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   } else {
     add("Flat pack wrap & label", parts, "part", r.flatPackPackingMinPerPart, r.handlingRate);
   }
-  add("Loading & unloading", products - looseItems, "product", r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
+  const btBlankProducts = Math.min(Math.max(0, bt.blankProducts), btProducts);
+  const btLongParts = Math.max(0, bt.longParts);
+  add("Loading & unloading", products - looseItems - btBlankProducts, "product", r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
   add("Loading & unloading (loose fronts & boards)", looseItems - largeLooseItems, "item", r.looseLoadingMinPerItem, r.loadingRate);
-  add("Loading & unloading (large loose panels)", largeLooseItems, "item", r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
+  add("Loading & unloading (large loose panels)", largeLooseItems + btLongParts, "item", r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);
   let installMinutes = 0;
@@ -2479,6 +2506,31 @@ function buildApplianceLineItems(items, pricingData, commercial) {
 // src/lib/pricing/benchtopLaminate.ts
 var BENCHTOP_ADHESIVE_CODE = "SS-ADHESIVE";
 var DEFAULT_BENCHTOP_WASTE = 0.05;
+var DEFAULT_BLANK_TRIM_MM = 10;
+var BLANK_MIN_THICKNESS_MM = 30;
+var BLANK_MAX_THICKNESS_MM = 45;
+var BLANK_MAX_WIDTH_MM = 1e3;
+var BLANK_TYPE_RE = /benchtop[\s_-]*blank|laminate[\s_-]*(?:bench|work)\s*top|worktop/i;
+var FABRICATED_TYPE_RE = /solid[\s_-]*surface|stone|quartz|porcelain|slab/i;
+function isBenchtopBlankSheet(m) {
+  const type = String(m.material_type ?? "");
+  if (BLANK_TYPE_RE.test(type)) return true;
+  if (FABRICATED_TYPE_RE.test(type)) return false;
+  const num = (v) => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const t = num(m.thickness);
+  const w = num(m.sheet_width);
+  return t >= BLANK_MIN_THICKNESS_MM && t <= BLANK_MAX_THICKNESS_MM && w > 0 && w <= BLANK_MAX_WIDTH_MM;
+}
+function resolveBenchtopKind(asked, sheet) {
+  const looksBlank = isBenchtopBlankSheet(sheet);
+  if (asked === "blank" || asked === "laminated") {
+    return { kind: asked, inferred: false, disagrees: asked === "blank" !== looksBlank };
+  }
+  return { kind: looksBlank ? "blank" : "laminated", inferred: looksBlank, disagrees: false };
+}
 var DEFAULT_ADHESIVE_UNIT_COST = 15.9;
 var ADHESIVE_STRIP_M_PER_CARTRIDGE = 2.5;
 var MAX_STACKED_LAYERS = 3;
@@ -2486,6 +2538,18 @@ var DEFAULT_STRIP_WIDTH_MM = 50;
 var money2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 var r3 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
 var pos = (n) => typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+function blankPrice(blanks, sheet) {
+  const lm = r3(blanks * (sheet.sheet_length / 1e3));
+  const areaSqm = sheet.sheet_length / 1e3 * (sheet.sheet_width / 1e3);
+  return {
+    unit: "lm",
+    units: lm,
+    unitCost: sheet.area_cost,
+    cost: money2(lm * sheet.area_cost),
+    /** What the same blanks would cost if the rate really were $/m2 — quoted in the warning. */
+    asArea: money2(blanks * areaSqm * sheet.area_cost)
+  };
+}
 function fmtMoney(n) {
   return `$${money2(n ?? 0).toFixed(2)}`;
 }
@@ -2528,28 +2592,7 @@ function prepareRow(row, sheet, defaultThickness) {
   if (Math.abs(nominalThickness - thickness) > 0.01 && buildUp === "stacked") {
     warnings.push(`${row.name}: ${thickness} mm is not a multiple of the ${sheet.thickness} mm sheet - built up to ${nominalThickness} mm (${layers} layers of strip)`);
   }
-  const given = (row.benchtopPieces ?? []).filter((p) => pos(p?.l) > 0 && pos(p?.w) > 0).map((p) => ({ l: p.l, w: p.w }));
-  let unitPieces;
-  let waterfallJoins = 0;
-  if (given.length > 0) {
-    unitPieces = given;
-  } else {
-    unitPieces = [];
-    if (pos(row.w) > 0 && pos(row.d) > 0) unitPieces.push({ l: row.w, w: row.d });
-    const ends = Math.max(0, Math.round(row.benchtopWaterfallEnds ?? 0));
-    if (ends > 0) {
-      const legL = row.h - thickness;
-      if (legL > 0 && pos(row.d) > 0) {
-        for (let i = 0; i < ends; i++) unitPieces.push({ l: legL, w: row.d });
-        waterfallJoins = ends;
-      } else {
-        warnings.push(`${row.name}: ${ends} waterfall end(s) requested but h ${row.h} - ${thickness} mm leaves no leg - legs not priced`);
-      }
-    }
-    if (unitPieces.length > 0) {
-      warnings.push(`${row.name}: no benchtopPieces given - priced from w x d ${row.w} x ${row.d}${ends > 0 ? ` plus ${ends} waterfall leg(s) ${row.h - thickness} x ${row.d}` : ""}; L-shaped and waterfall tops need their blanks from the work order`);
-    }
-  }
+  const { unitPieces, waterfallJoins } = unitPiecesOf(row, thickness, warnings);
   const pieces = [];
   for (let n = 0; n < qty; n++) pieces.push(...unitPieces.map((p) => ({ ...p })));
   const areaSqm = pieces.reduce((s, p) => s + p.l * p.w / 1e6, 0);
@@ -2589,6 +2632,11 @@ function prepareRow(row, sheet, defaultThickness) {
     input: row,
     qty,
     sheet,
+    kind: "laminated",
+    segments: [],
+    cuts: 0,
+    exposedEnds: 0,
+    blankJoins: 0,
     thickness,
     layers,
     nominalThickness,
@@ -2606,10 +2654,138 @@ function prepareRow(row, sheet, defaultThickness) {
     warnings
   };
 }
+function unitPiecesOf(row, thickness, warnings) {
+  const given = (row.benchtopPieces ?? []).filter((p) => pos(p?.l) > 0 && pos(p?.w) > 0).map((p) => ({ l: p.l, w: p.w }));
+  if (given.length > 0) return { unitPieces: given, waterfallJoins: 0 };
+  const unitPieces = [];
+  let waterfallJoins = 0;
+  if (pos(row.w) > 0 && pos(row.d) > 0) unitPieces.push({ l: row.w, w: row.d });
+  const ends = Math.max(0, Math.round(row.benchtopWaterfallEnds ?? 0));
+  if (ends > 0) {
+    const legL = row.h - thickness;
+    if (legL > 0 && pos(row.d) > 0) {
+      for (let i = 0; i < ends; i++) unitPieces.push({ l: legL, w: row.d });
+      waterfallJoins = ends;
+    } else {
+      warnings.push(`${row.name}: ${ends} waterfall end(s) requested but h ${row.h} - ${thickness} mm leaves no leg - legs not priced`);
+    }
+  }
+  if (unitPieces.length > 0) {
+    warnings.push(`${row.name}: no benchtopPieces given - priced from w x d ${row.w} x ${row.d}${ends > 0 ? ` plus ${ends} waterfall leg(s) ${row.h - thickness} x ${row.d}` : ""}; L-shaped and waterfall tops need their blanks from the work order`);
+  }
+  return { unitPieces, waterfallJoins };
+}
+function prepareBlankRow(row, sheet, trimMm) {
+  const warnings = [];
+  const qty = Math.max(1, Math.round(row.qty ?? 1));
+  const thickness = sheet.thickness;
+  const asked = pos(row.benchtopThickness);
+  if (asked > 0 && Math.abs(asked - thickness) > 0.01) {
+    warnings.push(`${row.name}: ${asked} mm asked - a pre-made blank is one layer, so it is priced at its own ${thickness} mm`);
+  }
+  const { unitPieces, waterfallJoins } = unitPiecesOf(row, thickness, warnings);
+  if (waterfallJoins > 0) {
+    warnings.push(`${row.name}: waterfall ends on a pre-made blank are a separate panel and a site joint - check the ends with the shop`);
+  }
+  const pieces = [];
+  for (let n = 0; n < qty; n++) pieces.push(...unitPieces.map((p) => ({ ...p })));
+  const areaSqm = pieces.reduce((s, p) => s + p.l * p.w / 1e6, 0);
+  const edgeLm = pieces.reduce((s, p) => s + 2 * (p.l + p.w) / 1e3, 0);
+  const benchtopLm = pieces.reduce((s, p) => s + p.l / 1e3, 0);
+  const segments = [];
+  let cuts = 0;
+  let lengthJoins = 0;
+  const deepWarned = /* @__PURE__ */ new Set();
+  const longWarned = /* @__PURE__ */ new Set();
+  for (const p of pieces) {
+    const widthPieces = Math.max(1, Math.ceil(p.w / sheet.sheet_width - 1e-9));
+    if (widthPieces > 1 && !deepWarned.has(p.w)) {
+      deepWarned.add(p.w);
+      warnings.push(`${row.name}: ${p.w} mm deep is deeper than the ${sheet.sheet_width} mm blank - a postformed blank cannot be joined along its length; use the deeper blank or price it as a fabricated top. Charged as ${widthPieces} blanks side by side per section so the material is not under-bought`);
+    }
+    const sections = Math.max(1, Math.ceil(p.l / sheet.sheet_length - 1e-9));
+    if (sections > 1 && !longWarned.has(p.l)) {
+      longWarned.add(p.l);
+      warnings.push(`${row.name}: ${p.l} mm long exceeds the ${sheet.sheet_length} mm blank - ${sections - 1} bolted join(s) per piece included`);
+    }
+    lengthJoins += sections - 1;
+    let left = p.l;
+    for (let s = 0; s < sections; s++) {
+      const cut = Math.min(sheet.sheet_length, left);
+      const consumed = Math.min(sheet.sheet_length, cut + trimMm);
+      for (let n = 0; n < widthPieces; n++) {
+        segments.push(consumed);
+        if (cut < sheet.sheet_length - 1e-9) cuts += 1;
+      }
+      left -= cut;
+    }
+  }
+  const askedEnds = row.benchtopExposedEnds;
+  let exposedEnds;
+  if (typeof askedEnds === "number" && Number.isFinite(askedEnds) && askedEnds >= 0) {
+    exposedEnds = Math.round(askedEnds) * qty;
+  } else {
+    exposedEnds = Math.min(cuts, pieces.length);
+    if (exposedEnds > 0) {
+      warnings.push(`${row.name}: benchtopExposedEnds not given - ${exposedEnds} edged cut end(s) assumed (one per piece); send the count that is actually on show`);
+    }
+  }
+  if (exposedEnds > 0) {
+    warnings.push(`${row.name}: the matching end edging strip is not a catalogue row - the edging LABOUR is charged, the strip material is not`);
+  }
+  const declaredJoins = Math.max(0, Math.round(row.benchtopJoins ?? 0)) * qty + waterfallJoins * qty;
+  const c = row.benchtopCutouts ?? {};
+  const cutouts = {
+    sink: Math.max(0, Math.round(c.sink ?? 0)) * qty,
+    cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
+    tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty
+  };
+  return {
+    input: row,
+    qty,
+    sheet,
+    kind: "blank",
+    segments,
+    cuts,
+    exposedEnds,
+    blankJoins: declaredJoins + lengthJoins,
+    thickness,
+    layers: 1,
+    nominalThickness: thickness,
+    buildUp: "none",
+    builtUpEdgeLm: 0,
+    stripSqm: 0,
+    substrateSqm: 0,
+    pieces,
+    areaSqm,
+    edgeLm,
+    benchtopLm,
+    declaredJoins,
+    stockJoins: 0,
+    cutouts,
+    warnings
+  };
+}
+function packBlankLengths(segments, blankLengthMm) {
+  const bins = [];
+  for (const len of [...segments].sort((a, b) => b - a)) {
+    let placed = false;
+    for (let i = 0; i < bins.length; i++) {
+      if (bins[i] + len <= blankLengthMm + 1e-9) {
+        bins[i] += len;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) bins.push(Math.min(len, blankLengthMm));
+  }
+  return bins.length;
+}
 function priceLaminatedBenchtops(rows, materials, opts = {}) {
   const defaultThickness = pos(opts.defaultThickness) || 24;
   const wasteFactor = typeof opts.wasteFactor === "number" && opts.wasteFactor >= 0 ? opts.wasteFactor : DEFAULT_BENCHTOP_WASTE;
   const adhesiveUnitCost = typeof opts.adhesiveUnitCost === "number" && opts.adhesiveUnitCost >= 0 ? opts.adhesiveUnitCost : DEFAULT_ADHESIVE_UNIT_COST;
+  const blankTrimMm = typeof opts.blankTrimMm === "number" && opts.blankTrimMm >= 0 ? opts.blankTrimMm : DEFAULT_BLANK_TRIM_MM;
   const warnings = [];
   const passthrough = [];
   const prepared = [];
@@ -2630,7 +2806,16 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       passthrough.push({ index: row.index, name: row.name, reason: `${row.name}: sheet "${m.name}" (${m.item_code}) has no ${sheetOrMissing.missing.join(" / ")} in material_pricing - ${carried(row)}` });
       continue;
     }
-    const p = prepareRow(row, sheetOrMissing, defaultThickness);
+    const k = resolveBenchtopKind(row.benchtopKind, m);
+    const kindWarnings = [];
+    if (k.inferred) {
+      kindWarnings.push(`${row.name}: "${m.name}" (${m.item_code}) is ${m.thickness} mm on a ${m.sheet_width} mm wide sheet - priced as a PRE-MADE laminate benchtop blank (whole blanks, one layer, no lamination or polishing). Send benchtopKind to say so outright.`);
+    }
+    if (k.disagrees) {
+      kindWarnings.push(`${row.name}: benchtopKind "${k.kind}" does not match the catalogue row "${m.name}" (${m.item_code}, ${m.material_type ?? "no material_type"}, ${m.thickness} mm x ${m.sheet_width} mm) - priced as asked`);
+    }
+    const p = k.kind === "blank" ? prepareBlankRow(row, sheetOrMissing, blankTrimMm) : prepareRow(row, sheetOrMissing, defaultThickness);
+    p.warnings.unshift(...kindWarnings);
     if (p.pieces.length === 0) {
       passthrough.push({ index: row.index, name: row.name, reason: `${row.name}: no blank sizes (w x d ${row.w} x ${row.d}) - ${carried(row)}` });
       continue;
@@ -2640,15 +2825,54 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
   for (const p of passthrough) warnings.push(p.reason);
   const bySheet = /* @__PURE__ */ new Map();
   for (const p of prepared) {
-    const list = bySheet.get(p.sheet.id) ?? [];
+    const key = `${p.sheet.id}|${p.kind}`;
+    const list = bySheet.get(key) ?? [];
     list.push(p);
-    bySheet.set(p.sheet.id, list);
+    bySheet.set(key, list);
   }
   const sheets = [];
   const rowMaterial = /* @__PURE__ */ new Map();
   for (const group of bySheet.values()) {
     const sheet = group[0].sheet;
     const sheetAreaSqm = sheet.sheet_length / 1e3 * (sheet.sheet_width / 1e3);
+    if (group[0].kind === "blank") {
+      const allSegments = group.flatMap((p) => p.segments);
+      const jobBlanks = Math.max(1, packBlankLengths(allSegments, sheet.sheet_length));
+      const price = blankPrice(jobBlanks, sheet);
+      const materialCost2 = price.cost;
+      const basis = `${sheet.name} (${sheet.item_code}): a pre-made blank is bought by the lineal metre of its ${sheet.sheet_width} mm stock width - ${jobBlanks} x ${r3(sheet.sheet_length / 1e3)} m at $${sheet.area_cost.toFixed(2)}/lm = ${fmtMoney(price.cost)}. material_pricing labels that rate "per m2"; read that way the same blanks would be ${fmtMoney(price.asArea)}. Check the blank rate against the supplier price list.`;
+      for (const p of group) p.warnings.push(basis);
+      const totalLen = group.reduce((s, p) => s + p.segments.reduce((a, b) => a + b, 0), 0);
+      let assignedBlank = 0;
+      group.forEach((p, gi) => {
+        const share = totalLen > 0 ? p.segments.reduce((a, b) => a + b, 0) / totalLen : 1 / group.length;
+        const cost = gi === group.length - 1 ? money2(materialCost2 - assignedBlank) : money2(materialCost2 * share);
+        assignedBlank = money2(assignedBlank + cost);
+        rowMaterial.set(p, {
+          materialCost: cost,
+          sheetsShare: r3(jobBlanks * share),
+          jobSheets: jobBlanks,
+          parts: p.segments.length,
+          sharedBy: group.length
+        });
+      });
+      sheets.push({
+        sheet,
+        kind: "blank",
+        priceUnit: price.unit,
+        chargedUnits: price.units,
+        unitCost: price.unitCost,
+        rows: group.map((p) => p.input.index),
+        sheetAreaSqm: r3(sheetAreaSqm),
+        layeredAreaSqm: r3(group.reduce((s, p) => s + p.areaSqm, 0)),
+        wasteFactor: 0,
+        packedSheets: jobBlanks,
+        areaSheets: 0,
+        jobSheets: jobBlanks,
+        materialCost: materialCost2
+      });
+      continue;
+    }
     const runs = [];
     const runRow = [];
     group.forEach((p, gi) => {
@@ -2681,10 +2905,14 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       const share = layeredAreaSqm > 0 ? (p.areaSqm + p.stripSqm) / layeredAreaSqm : 1 / group.length;
       const cost = gi === group.length - 1 ? money2(materialCost - assigned) : money2(materialCost * share);
       assigned = money2(assigned + cost);
-      rowMaterial.set(p, { materialCost: cost, sheetsShare: r3(jobSheets * share), jobSheets, parts: partsByRow[gi] });
+      rowMaterial.set(p, { materialCost: cost, sheetsShare: r3(jobSheets * share), jobSheets, parts: partsByRow[gi], sharedBy: group.length });
     });
     sheets.push({
       sheet,
+      kind: "laminated",
+      priceUnit: "m2",
+      chargedUnits: r3(jobSheets * sheetAreaSqm),
+      unitCost: sheet.area_cost,
       rows: group.map((p) => p.input.index),
       sheetAreaSqm: r3(sheetAreaSqm),
       layeredAreaSqm: r3(layeredAreaSqm),
@@ -2697,11 +2925,27 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
   }
   const out = prepared.map((p) => {
     const mat = rowMaterial.get(p);
-    const joins = p.declaredJoins + p.stockJoins;
+    const isBlank = p.kind === "blank";
+    const joins = isBlank ? p.blankJoins : p.declaredJoins + p.stockJoins;
     const buildUpLm = p.buildUp === "stacked" ? p.builtUpEdgeLm * (p.layers - 1) : p.buildUp === "mitred" ? p.builtUpEdgeLm : 0;
     const laminateSqm = 0;
     const adhesiveCartridges = buildUpLm > 0 ? Math.ceil(buildUpLm / ADHESIVE_STRIP_M_PER_CARTRIDGE - 1e-9) : 0;
-    const fabrication = {
+    const fabrication = isBlank ? {
+      ...EMPTY_BENCHTOP_FABRICATION,
+      parts: mat.parts,
+      // a cut-out in a 38 mm laminate blank is bench work (jigsaw and router), not the
+      // $250/h solid-surface CNC the fabricated tops pay for
+      blankSink: p.cutouts.sink,
+      blankCooktop: p.cutouts.cooktop,
+      blankTapHole: p.cutouts.tapHole,
+      benchtopLm: r3(p.benchtopLm),
+      products: p.qty,
+      blankCuts: p.cuts,
+      endEdges: p.exposedEnds,
+      blankJoins: p.blankJoins,
+      longParts: mat.parts,
+      blankProducts: p.qty
+    } : {
       ...EMPTY_BENCHTOP_FABRICATION,
       parts: mat.parts,
       cutLm: r3(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
@@ -2718,9 +2962,9 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       benchtopLm: r3(p.benchtopLm),
       products: p.qty
     };
-    const sharedBy = sheets.find((s) => s.sheet.id === p.sheet.id)?.rows.length ?? 1;
+    const sharedBy = mat.sharedBy;
     const rowWarnings = [
-      `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r3(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
+      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut / edging / join minutes are DEFAULT rates, not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r3(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
       ...p.warnings
     ];
     warnings.push(...rowWarnings);
@@ -2729,6 +2973,10 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       name: p.input.name,
       qty: p.qty,
       sheet: p.sheet,
+      kind: p.kind,
+      ...isBlank ? { blanks: mat.jobSheets } : {},
+      cuts: p.cuts,
+      exposedEnds: p.exposedEnds,
       thickness: p.thickness,
       layers: p.layers,
       nominalThickness: p.nominalThickness,
@@ -2881,10 +3129,12 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       d: r.d,
       mv_total: r.mv_total,
       benchtopMaterialId: r.benchtopMaterialId,
+      benchtopKind: r.benchtopKind,
       benchtopThickness: r.benchtopThickness,
       benchtopPieces: r.benchtopPieces,
       benchtopWaterfallEnds: r.benchtopWaterfallEnds,
       benchtopJoins: r.benchtopJoins,
+      benchtopExposedEnds: r.benchtopExposedEnds,
       benchtopCutouts: r.benchtopCutouts
     })),
     pricing.materials,
@@ -2909,6 +3159,10 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       index: row.index,
       name: row.name,
       sheet: row.sheet,
+      kind: row.kind,
+      ...row.kind === "blank" ? { blanks: row.blanks ?? row.jobSheets } : {},
+      cuts: row.cuts,
+      exposedEnds: row.exposedEnds,
       layers: row.layers,
       nominalThickness: row.nominalThickness,
       thickness: row.thickness,
@@ -3036,12 +3290,12 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   }));
   for (const sh of lam.sheets) {
     sheetStock.push({
-      material: `${sh.sheet.name} (Benchtop, ${sh.jobSheets} x ${sh.sheet.sheet_length}x${sh.sheet.sheet_width})`,
+      material: `${sh.sheet.name} (${sh.kind === "blank" ? "Benchtop blank" : "Benchtop"}, ${sh.jobSheets} x ${sh.sheet.sheet_length}x${sh.sheet.sheet_width}${sh.priceUnit === "lm" ? ", per lm" : ""})`,
       thickness: sh.sheet.thickness,
       wastePercent: money3(sh.wasteFactor * 100),
       markupPercent: money3(mk * 100),
-      units: money3(sh.jobSheets * sh.sheetAreaSqm),
-      unitCost: money3(sh.sheet.area_cost),
+      units: money3(sh.chargedUnits),
+      unitCost: money3(sh.unitCost),
       markupCost: money3(sh.materialCost * mk),
       cost: money3(sh.materialCost)
     });

@@ -6,7 +6,10 @@ export { calculateBenchtops } from '../src/lib/pricing/benchtopCalculator';
 export { calculateWorkshopCost, DEFAULT_WORKSHOP_RATES, HARDWARE_FIT_MINUTES, hardwareFitMinutes } from '../src/lib/pricing/workshopModel';
 export { EDGE_MIN_ORDER_M, edgeOrderMetres } from '../src/lib/pricing/edgeCalculator';
 export { quoteFromSchedule, DEFAULT_DIMENSIONS } from '../src/lib/pricing/quoteFromSchedule';
-export { priceLaminatedBenchtops } from '../src/lib/pricing/benchtopLaminate';
+export {
+  priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind,
+  DEFAULT_BLANK_TRIM_MM,
+} from '../src/lib/pricing/benchtopLaminate';
 export {
   calculateDelivery, estimateRoadDistanceKm, findBand,
   WORKSHOP_ORIGIN, DEFAULT_DELIVERY_BANDS,

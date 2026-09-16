@@ -18,6 +18,7 @@ import { calculateWorkshopCost, type SupplyMode, type WorkshopCost, type Worksho
 import {
   priceLaminatedBenchtops,
   type BenchtopCutouts,
+  type BenchtopKind,
   type BenchtopPiece,
   type LaminatedBenchtopSheet,
 } from './benchtopLaminate';
@@ -43,8 +44,18 @@ export interface ScheduleItem {
   // through at mv_total exactly as before.
   /** material_pricing.id or item_code of the SHEET the top is laminated from, e.g. 'MEGM12HACS3607'. */
   benchtopMaterialId?: string;
-  /** Finished thickness, mm. Default selections.benchtopThickness ?? dimensions.benchtopThickness ?? 24. */
+  /**
+   * 'blank' = a PRE-MADE laminate benchtop blank (EGGER 38 mm worktop): whole
+   * blanks as bought, one layer, cut to length, cut ends edged, no solid-surface
+   * lamination / polishing / glued joins. 'laminated' = fabricated solid surface
+   * (today's pricing). Omitted: inferred from the catalogue row - see
+   * isBenchtopBlankSheet in benchtopLaminate.ts, which Build Flow mirrors.
+   */
+  benchtopKind?: BenchtopKind;
+  /** Finished thickness, mm. Default selections.benchtopThickness ?? dimensions.benchtopThickness ?? 24. A blank is always its own thickness. */
   benchtopThickness?: number;
+  /** Blanks only: exposed CUT ends per unit that need an edging strip. Default one per piece, warned. */
+  benchtopExposedEnds?: number;
   /** Blank sizes per unit, mm, when w x d is not the top (L-shape arms, waterfall legs). Default [{ l: w, w: d }]. */
   benchtopPieces?: BenchtopPiece[];
   /** Each end adds a leg { l: h - thickness, w: d } and one join — only when benchtopPieces is absent. */
@@ -76,6 +87,13 @@ export interface PricedBenchtop {
   index: number;
   name: string;
   sheet: LaminatedBenchtopSheet;
+  /** 'blank' = pre-made laminate blank bought whole; 'laminated' = fabricated solid surface. */
+  kind: BenchtopKind;
+  /** Whole blanks bought for every row sharing this blank. Only when kind is 'blank'. */
+  blanks?: number;
+  /** Blanks only: crosscuts to length, and exposed cut ends that get an edging strip. */
+  cuts: number;
+  exposedEnds: number;
   layers: number;
   /** layers x sheet.thickness, mm. */
   nominalThickness: number;
@@ -327,10 +345,12 @@ export function quoteFromSchedule(
     benchtopRows.map(({ r, index }) => ({
       index, name: r.name, qty: r.qty, w: r.w, h: r.h, d: r.d, mv_total: r.mv_total,
       benchtopMaterialId: r.benchtopMaterialId,
+      benchtopKind: r.benchtopKind,
       benchtopThickness: r.benchtopThickness,
       benchtopPieces: r.benchtopPieces,
       benchtopWaterfallEnds: r.benchtopWaterfallEnds,
       benchtopJoins: r.benchtopJoins,
+      benchtopExposedEnds: r.benchtopExposedEnds,
       benchtopCutouts: r.benchtopCutouts,
     })),
     pricing.materials,
@@ -360,6 +380,10 @@ export function quoteFromSchedule(
       index: row.index,
       name: row.name,
       sheet: row.sheet,
+      kind: row.kind,
+      ...(row.kind === 'blank' ? { blanks: row.blanks ?? row.jobSheets } : {}),
+      cuts: row.cuts,
+      exposedEnds: row.exposedEnds,
       layers: row.layers,
       nominalThickness: row.nominalThickness,
       thickness: row.thickness,
@@ -483,15 +507,17 @@ export function quoteFromSchedule(
     markupCost: money(sh.totalMaterialCost * mk),
     cost: money(sh.totalMaterialCost),
   }));
-  // Benchtop sheets: whole sheets bought, in m2 like the cabinet rows above.
+  // Benchtop sheets: whole sheets bought in m2 like the cabinet rows above, and whole
+  // pre-made blanks in the lineal metres they are actually bought by (see blankPrice),
+  // so units x unitCost is always the cost on the line.
   for (const sh of lam.sheets) {
     sheetStock.push({
-      material: `${sh.sheet.name} (Benchtop, ${sh.jobSheets} x ${sh.sheet.sheet_length}x${sh.sheet.sheet_width})`,
+      material: `${sh.sheet.name} (${sh.kind === 'blank' ? 'Benchtop blank' : 'Benchtop'}, ${sh.jobSheets} x ${sh.sheet.sheet_length}x${sh.sheet.sheet_width}${sh.priceUnit === 'lm' ? ', per lm' : ''})`,
       thickness: sh.sheet.thickness,
       wastePercent: money(sh.wasteFactor * 100),
       markupPercent: money(mk * 100),
-      units: money(sh.jobSheets * sh.sheetAreaSqm),
-      unitCost: money(sh.sheet.area_cost),
+      units: money(sh.chargedUnits),
+      unitCost: money(sh.unitCost),
       markupCost: money(sh.materialCost * mk),
       cost: money(sh.materialCost),
     });

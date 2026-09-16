@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, inferFrontCounts, isFacesOnlyProduct, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind, inferFrontCounts, isFacesOnlyProduct, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -1087,6 +1087,329 @@ for (const [id, w, h, d] of families) {
   const strLine = strTop.lines.find((l) => /Stringy/.test(l.description));
   check('benchtop lam: string numerics never produce NaN',
     finite(strLine?.total) && (strLine?.total ?? 0) > 0, JSON.stringify(strLine));
+}
+
+// 10h. PRE-MADE laminate benchtop blanks (Ben, 16 Sep 2026: a blank is bought whole
+//      like a board, is one layer, and is NEVER laminated or polished in the shop).
+//      Live rows: EGGER 38 mm 3650 x 600 / 3650 x 920 postformed worktops.
+{
+  const egg600 = {
+    id: 'uuid-EGGPPRWS3606', item_code: 'EGGPPRWS3606', name: 'Premium White W1000 ST9',
+    material_type: 'sheet_material', brand: 'EGGER', finish: 'Premium White W1000 ST9',
+    thickness: 38, sheet_length: 3650, sheet_width: 600, area_cost: 76.7,
+    expected_yield_factor: 1, visibility_status: 'Available',
+  };
+  const egg920 = { ...egg600, id: 'uuid-EGGPPRWS3609', item_code: 'EGGPPRWS3609', sheet_width: 920, area_cost: 123.79 };
+  const hazel = {
+    id: 'uuid-MEGM12HACS3607', item_code: 'MEGM12HACS3607', name: 'MEGANITE Hazel Cream',
+    material_type: 'solid_surface_sheet', brand: 'MEGANITE', finish: 'hazel cream',
+    thickness: 12, sheet_length: 3660, sheet_width: 760, area_cost: 375.32,
+    expected_yield_factor: 1, visibility_status: 'Available',
+  };
+  // A thick Polytec BOARD: 38 mm but 1830 wide, so the shape rule must leave it alone.
+  const poly38 = {
+    id: 'uuid-POLY52428', item_code: 'POLY52428', name: 'Particle 38mm 3640 x 1830 SS Carcass Matt UP MR',
+    material_type: 'sheet_material', brand: 'Polytec', thickness: 38, sheet_length: 3640,
+    sheet_width: 1830, area_cost: 40, expected_yield_factor: 1, visibility_status: 'Available',
+  };
+  const mats = [...pricingData.materials, egg600, egg920, hazel, poly38];
+  const pdBlank = { ...pricingData, materials: mats };
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, overheadPct: 0.1, markupSource: 'test', supplyMode: 'flat_pack' };
+  const price = (rows, c = comm) => quoteFromSchedule(rows, pdBlank, sel, c, { defaultRoom: 'Kitchen' });
+  const top = (o) => ({ name: 'Countertop With Waterfall Ends', qty: 1, w: 2931, h: 915, d: 600, mv_total: 211.98, ...o });
+  const E = (o) => top({ benchtopMaterialId: 'EGGPPRWS3606', ...o });
+  const stations = (q) => (q.workshop?.stations ?? []);
+  const minutesAt = (q, re) => stations(q).filter((s) => re.test(s.station)).reduce((a, s) => a + s.minutes, 0);
+  const POLISH_RE = /polish|lamination|build-up|mitred apron/i;
+
+  // ── the catalogue rule Build Flow mirrors ────────────────────────────────
+  check('benchtop blank: the 600 and 920 EGGER worktops are blanks',
+    isBenchtopBlankSheet(egg600) && isBenchtopBlankSheet(egg920), 'EGGER rows');
+  check('benchtop blank: MEGANITE solid surface is NOT a blank',
+    !isBenchtopBlankSheet(hazel) && !isBenchtopBlankSheet({ ...hazel, thickness: 20, sheet_width: 915 }), 'MEGANITE rows');
+  check('benchtop blank: a 38 mm 1830-wide Polytec board is NOT a blank',
+    !isBenchtopBlankSheet(poly38), 'POLY52428');
+  check('benchtop blank: a 16 mm carcase board is NOT a blank',
+    !isBenchtopBlankSheet({ material_type: 'sheet_material', thickness: 16, sheet_width: 1200 }), '16 mm board');
+  check('benchtop blank: a material_type that says so wins outright',
+    isBenchtopBlankSheet({ material_type: 'benchtop_blank', thickness: 33, sheet_width: 1200 }), 'benchtop_blank type');
+  check('benchtop blank: benchtopKind always beats the catalogue rule',
+    resolveBenchtopKind('laminated', egg600).kind === 'laminated'
+    && resolveBenchtopKind('blank', hazel).kind === 'blank'
+    && resolveBenchtopKind(undefined, egg600).kind === 'blank'
+    && resolveBenchtopKind(undefined, hazel).kind === 'laminated',
+    'resolveBenchtopKind');
+  check('benchtop blank: an explicit kind that fights the row is flagged',
+    resolveBenchtopKind('blank', hazel).disagrees && !resolveBenchtopKind('blank', egg600).disagrees,
+    'disagrees');
+
+  // ── Q-0042: one 2931 x 600 piece off a 3650 x 600 blank ─────────────────
+  const q42 = price([E({ benchtopThickness: 38, benchtopPieces: [{ l: 2931, w: 600 }] })]);
+  const b42 = q42.benchtops?.[0];
+  check('benchtop blank: the EGGER row prices as a blank', b42?.kind === 'blank', JSON.stringify(b42?.kind));
+  check('benchtop blank: one layer, its own 38 mm',
+    b42?.layers === 1 && b42?.thickness === 38 && b42?.nominalThickness === 38,
+    `${b42?.layers}/${b42?.thickness}/${b42?.nominalThickness}`);
+  check('benchtop blank: 2931 x 600 buys ONE whole blank',
+    b42?.blanks === 1 && b42?.jobSheets === 1, `${b42?.blanks}/${b42?.jobSheets}`);
+  // A blank is bought BY THE LINEAL METRE of its stock width: 3.65 m x $76.70, not 2.19 m2 x $76.70.
+  // The 600 and the 920 worktop of one decor are $76.70 and $123.79 a metre, which no $/m2 rate is.
+  check('benchtop blank: the whole blank is charged by the lineal metre as bought',
+    Math.abs((b42?.sheetCost ?? 0) - 279.96) < 0.01, String(b42?.sheetCost));
+  check('benchtop blank: the row says what the rate was read as',
+    (b42?.warnings ?? []).some((w) => /bought by the lineal metre .*3\.65 m at \$76\.70\/lm/.test(w)
+      && /read that way the same blanks would be \$167\.97/.test(w)),
+    JSON.stringify(b42?.warnings));
+  check('benchtop blank: no solid-surface adhesive',
+    b42?.adhesiveCartridges === 0 && b42?.adhesiveCost === 0, `${b42?.adhesiveCartridges}`);
+  check('benchtop blank: NOTHING is polished, laminated or built up',
+    minutesAt(q42, POLISH_RE) === 0 && (q42.workshopCosting?.laborMinutes?.finishing ?? -1) === 0,
+    JSON.stringify(stations(q42).map((s) => s.station)));
+  check('benchtop blank: it is cut to length and the cut end is edged',
+    b42?.cuts === 1 && b42?.exposedEnds === 1
+    && minutesAt(q42, /Benchtop blank cutting/) > 0 && minutesAt(q42, /cut-end edge strip/) > 0,
+    JSON.stringify(stations(q42).map((s) => `${s.station} ${s.minutes}`)));
+  check('benchtop blank: the old perimeter CNC cut is gone',
+    minutesAt(q42, /^Benchtop cutting$/) === 0, String(minutesAt(q42, /^Benchtop cutting$/)));
+  check('benchtop blank: it loads as a long part, not as a boxed product',
+    minutesAt(q42, /large loose panels/) > 0 && minutesAt(q42, /^Loading & unloading$/) === 0,
+    JSON.stringify(stations(q42).map((s) => s.station)));
+  check('benchtop blank: labour is a fraction of the fabricated figure',
+    (b42?.laborCost ?? 0) > 0 && (b42?.laborCost ?? 0) < 60, String(b42?.laborCost));
+  check('benchtop blank: the line is a bower line, not a passthrough',
+    q42.lines.find((l) => /Countertop/.test(l.description))?.source === 'bower',
+    JSON.stringify(q42.lines.map((l) => l.source)));
+  check('benchtop blank: the row says how it was priced',
+    (b42?.warnings ?? []).some((w) => /pre-made laminate blank/i.test(w)), JSON.stringify(b42?.warnings));
+
+  // ── the MV thickness (39) and the dialog's 40 never make a second layer ──
+  for (const t of [39, 40]) {
+    const q = price([E({ benchtopThickness: t, benchtopPieces: [{ l: 2931, w: 600 }] })]);
+    const b = q.benchtops?.[0];
+    check(`benchtop blank: ${t} mm asked stays ONE 38 mm blank`,
+      b?.layers === 1 && b?.blanks === 1 && Math.abs((b?.costPrice ?? 0) - (b42?.costPrice ?? 0)) < 0.01,
+      `${b?.layers}/${b?.blanks}/${b?.costPrice} vs ${b42?.costPrice}`);
+    check(`benchtop blank: ${t} mm on a 38 mm blank is warned`,
+      (b?.warnings ?? []).some((w) => new RegExp(`${t} mm asked`).test(w)), JSON.stringify(b?.warnings));
+  }
+
+  // ── whole blanks, with no area waste floor ──────────────────────────────
+  for (const l of [3500, 3600, 3650]) {
+    const b = price([E({ benchtopPieces: [{ l, w: 600 }] })]).benchtops?.[0];
+    check(`benchtop blank: ${l} x 600 is ONE blank, not two`, b?.blanks === 1, String(b?.blanks));
+  }
+  const whole = price([E({ benchtopPieces: [{ l: 3650, w: 600 }] })]);
+  check('benchtop blank: a full-length piece needs no crosscut',
+    whole.benchtops?.[0]?.cuts === 0 && minutesAt(whole, /Benchtop blank cutting/) === 0,
+    String(whole.benchtops?.[0]?.cuts));
+
+  // ── two pieces that need two blanks, and two that share one ─────────────
+  const two = price([E({ benchtopPieces: [{ l: 2000, w: 600 }, { l: 2000, w: 600 }] })]);
+  const bTwo = two.benchtops?.[0];
+  check('benchtop blank: two 2000 mm pieces need TWO blanks',
+    bTwo?.blanks === 2 && Math.abs((bTwo?.sheetCost ?? 0) - 559.91) < 0.01, `${bTwo?.blanks}/${bTwo?.sheetCost}`);
+  check('benchtop blank: two pieces are two cuts and two edged ends',
+    bTwo?.cuts === 2 && bTwo?.exposedEnds === 2, `${bTwo?.cuts}/${bTwo?.exposedEnds}`);
+  const shareOne = price([E({ benchtopPieces: [{ l: 1500, w: 600 }, { l: 1500, w: 600 }] })]).benchtops?.[0];
+  check('benchtop blank: two 1500 mm pieces share ONE blank', shareOne?.blanks === 1, String(shareOne?.blanks));
+  const twoRows = price([
+    { ...E({ benchtopPieces: [{ l: 1500, w: 600 }] }), name: 'Countertop A' },
+    { ...E({ benchtopPieces: [{ l: 1500, w: 600 }] }), name: 'Countertop B' },
+  ]);
+  check('benchtop blank: two ROWS share one blank and split it',
+    twoRows.benchtops?.length === 2
+    && twoRows.benchtops.every((b) => b.blanks === 1)
+    && Math.abs(twoRows.benchtops.reduce((s, b) => s + b.sheetCost, 0) - 279.96) < 0.01
+    && Math.abs(twoRows.benchtops.reduce((s, b) => s + b.sheetsShare, 0) - 1) < 0.01,
+    JSON.stringify(twoRows.benchtops?.map((b) => [b.blanks, b.sheetCost, b.sheetsShare])));
+
+  // ── longer than the blank: bolted joins, never a 45 min glued seam ──────
+  const long = price([E({ benchtopPieces: [{ l: 4100, w: 600 }] })]);
+  const bLong = long.benchtops?.[0];
+  check('benchtop blank: 4100 mm takes two blanks and one bolted join',
+    bLong?.blanks === 2 && bLong?.joins === 1
+    && minutesAt(long, /Benchtop blank joins/) === DEFAULT_WORKSHOP_RATES.benchtopBlankJoinMin
+    && minutesAt(long, /^Benchtop joins$/) === 0,
+    `${bLong?.blanks}/${bLong?.joins}/${JSON.stringify(stations(long).map((s) => s.station))}`);
+
+  // ── a piece within the trim allowance of the blank is still cut and edged ──
+  const nearFull = price([E({ benchtopPieces: [{ l: 3645, w: 600 }] })]);
+  check('benchtop blank: 3645 mm off a 3650 blank is still a crosscut and an edged end',
+    nearFull.benchtops?.[0]?.cuts === 1 && nearFull.benchtops?.[0]?.exposedEnds === 1
+    && minutesAt(nearFull, /Benchtop blank cutting/) > 0 && minutesAt(nearFull, /cut-end edge strip/) > 0,
+    `${nearFull.benchtops?.[0]?.cuts}/${nearFull.benchtops?.[0]?.exposedEnds}`);
+
+  // ── deeper than the blank: warned, and never a solid-surface width join ──
+  const deep = price([E({ benchtopPieces: [{ l: 2000, w: 650 }] })]);
+  check('benchtop blank: 650 deep on a 600 blank is warned, not join-priced',
+    deep.benchtops?.[0]?.stockJoins === 0 && minutesAt(deep, /joins/i) === 0
+    && (deep.benchtops?.[0]?.warnings ?? []).some((w) => /deeper than the 600 mm blank/.test(w)),
+    JSON.stringify(deep.benchtops?.[0]?.warnings));
+  // ... and it can never be CHEAPER than doing it properly on the deeper blank
+  const deep900on600 = price([E({ benchtopPieces: [{ l: 2931, w: 900 }] })]).benchtops?.[0];
+  const deep900on920 = price([top({ benchtopMaterialId: 'EGGPPRWS3609', benchtopPieces: [{ l: 2931, w: 900 }] })]).benchtops?.[0];
+  check('benchtop blank: a 900 deep top on the 600 blank never costs less than on the 920 blank',
+    (deep900on600?.materialCost ?? 0) >= (deep900on920?.materialCost ?? 0)
+    && deep900on600?.blanks === 2 && (deep900on600?.materialCost ?? 0) > (b42?.materialCost ?? 0),
+    `${deep900on600?.blanks} x -> $${deep900on600?.materialCost} vs 920 $${deep900on920?.materialCost}`);
+
+  // ── exposed ends scale, and never go through the 20 m edge-tape minimum ──
+  const ends = [0, 1, 2].map((n) => price([E({ benchtopPieces: [{ l: 2931, w: 600 }], benchtopExposedEnds: n })]));
+  check('benchtop blank: edging minutes scale with the exposed ends',
+    minutesAt(ends[0], /cut-end edge strip/) === 0
+    && Math.abs(minutesAt(ends[1], /cut-end edge strip/) - DEFAULT_WORKSHOP_RATES.benchtopBlankEndEdgeMin) < 1e-9
+    && Math.abs(minutesAt(ends[2], /cut-end edge strip/) - 2 * DEFAULT_WORKSHOP_RATES.benchtopBlankEndEdgeMin) < 1e-9,
+    [0, 1, 2].map((i) => minutesAt(ends[i], /cut-end edge strip/)).join('/'));
+  check('benchtop blank: no 20 m edge-tape minimum is charged on the ends',
+    (ends[2].workshopCosting?.edgebandingTotal ?? 0) === 0
+    && (ends[2].workshopCosting?.edgebanding ?? []).length === 0,
+    JSON.stringify(ends[2].workshopCosting?.edgebanding));
+
+  // ── cut-outs are OFF unless the row asks (Ben, 16 Sep 2026) ─────────────
+  check('benchtop blank: NO cut-out is priced unless the row asks for one',
+    b42?.cutouts?.sink === 0 && b42?.cutouts?.cooktop === 0 && b42?.cutouts?.tapHole === 0
+    && minutesAt(q42, /cut-?outs?/i) === 0,
+    JSON.stringify(b42?.cutouts));
+  const sinkNamed = price([E({ name: 'Countertop With Sink Cut Out', benchtopPieces: [{ l: 2931, w: 600 }] })]);
+  check('benchtop blank: a product NAME never infers a cut-out',
+    minutesAt(sinkNamed, /cut-?outs?/i) === 0 && sinkNamed.benchtops?.[0]?.cutouts?.sink === 0,
+    JSON.stringify(sinkNamed.benchtops?.[0]?.cutouts));
+  const sinkCab = price([
+    { name: 'Base 2 Door Sink', qty: 1, w: 900, h: 880, d: 555, room: 'Kitchen' },
+    E({ benchtopPieces: [{ l: 2931, w: 600 }] }),
+  ]);
+  check('benchtop blank: a SINK CABINET in the job infers no cut-out either',
+    minutesAt(sinkCab, /cut-?outs?/i) === 0
+    && sinkCab.benchtops?.[0]?.cutouts?.sink === 0,
+    JSON.stringify(sinkCab.benchtops?.[0]?.cutouts));
+  const megNoCut = price([top({ benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24, benchtopPieces: [{ l: 2931, w: 600 }] })]);
+  check('benchtop: a FABRICATED top gets no cut-out unless asked either',
+    minutesAt(megNoCut, /cut-?outs?/i) === 0 && megNoCut.benchtops?.[0]?.cutouts?.sink === 0,
+    JSON.stringify(megNoCut.benchtops?.[0]?.cutouts));
+  const sinkAsked = price([E({ benchtopPieces: [{ l: 2931, w: 600 }], benchtopCutouts: { sink: 1 } })]);
+  check('benchtop blank: an asked-for sink cut-out IS priced',
+    sinkAsked.benchtops?.[0]?.cutouts?.sink === 1
+    && Math.abs(minutesAt(sinkAsked, /cut-?outs?/i) - DEFAULT_WORKSHOP_RATES.benchtopSinkCutoutMin) < 1e-9,
+    String(minutesAt(sinkAsked, /cut-?outs?/i)));
+  // A cut-out in a laminate blank is bench work, like every other blank station - not the
+  // $250/h solid-surface CNC, which turned one sink into +$125 on a $36 line.
+  {
+    const st = stations(sinkAsked).find((s) => /cut-?outs?/i.test(s.station));
+    const meg = price([top({ benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24, benchtopPieces: [{ l: 2931, w: 600 }], benchtopCutouts: { sink: 1 } })]);
+    const megSt = stations(meg).find((s) => /cut-?outs?/i.test(s.station));
+    const atRate = (s, rate) => Math.abs((s?.cost ?? -1) - (s?.minutes ?? 0) / 60 * rate) < 0.01;
+    check('benchtop blank: the cut-out is charged at the bench rate, not the solid-surface CNC',
+      st?.station === 'Benchtop blank cut-outs' && atRate(st, DEFAULT_WORKSHOP_RATES.assemblyRate)
+      && megSt?.station === 'Benchtop cut-outs' && atRate(megSt, DEFAULT_WORKSHOP_RATES.machiningRate),
+      JSON.stringify([st?.station, st?.cost, megSt?.station, megSt?.cost]));
+    check('benchtop blank: a cut-out still lands in the finishing minutes',
+      (sinkAsked.workshopCosting?.laborMinutes?.finishing ?? 0) === DEFAULT_WORKSHOP_RATES.benchtopSinkCutoutMin,
+      String(sinkAsked.workshopCosting?.laborMinutes?.finishing));
+  }
+  check('benchtop blank: the cut-out is the ONLY difference it makes',
+    Math.abs((sinkAsked.benchtops?.[0]?.materialCost ?? 0) - (b42?.materialCost ?? 0)) < 0.01
+    && (sinkAsked.benchtops?.[0]?.laborCost ?? 0) > (b42?.laborCost ?? 0),
+    `${sinkAsked.benchtops?.[0]?.laborCost} vs ${b42?.laborCost}`);
+
+  // ── supply modes: a top is fabricated whatever the mode; install only installed
+  for (const mode of ['flat_pack', 'flat_pack_hw_loose', 'assembled', 'assembled_installed']) {
+    const q = price([E({ benchtopPieces: [{ l: 2931, w: 600 }] })], { ...comm, supplyMode: mode });
+    const installed = mode === 'assembled_installed';
+    check(`benchtop blank: ${mode} still cuts and edges the blank, polishes nothing`,
+      minutesAt(q, /Benchtop blank cutting/) > 0 && minutesAt(q, POLISH_RE) === 0,
+      JSON.stringify(stations(q).map((s) => s.station)));
+    check(`benchtop blank: ${mode} install ${installed ? 'is' : 'is not'} charged`,
+      (q.totals.installCost > 0) === installed, String(q.totals.installCost));
+  }
+
+  // ── the 920 blank and qty, and string numerics ──────────────────────────
+  const wide = price([top({ benchtopMaterialId: 'EGGPPRWS3609', benchtopPieces: [{ l: 2931, w: 900 }] })]).benchtops?.[0];
+  check('benchtop blank: the 920 blank is charged whole at its own rate',
+    wide?.blanks === 1 && Math.abs((wide?.sheetCost ?? 0) - (3.65 * 123.79)) < 0.05, String(wide?.sheetCost));
+  const pair = price([E({ qty: 2, benchtopPieces: [{ l: 1500, w: 600 }] })]).benchtops?.[0];
+  check('benchtop blank: qty 2 doubles the pieces, and they share the blank',
+    pair?.pieces?.length === 2 && pair?.blanks === 1 && pair?.cuts === 2, JSON.stringify([pair?.pieces?.length, pair?.blanks, pair?.cuts]));
+  // PostgREST hands numerics back as strings. price-quote numifies them before
+  // the engine sees them (index.ts), but the shape rule Build Flow shares reads
+  // the raw catalogue JSON, so it must cope on its own.
+  check('benchtop blank: the shape rule copes with string numerics',
+    isBenchtopBlankSheet({ material_type: 'sheet_material', thickness: '38', sheet_width: '600' })
+    && !isBenchtopBlankSheet({ material_type: 'sheet_material', thickness: '16', sheet_width: '1200' }),
+    'string numerics');
+  const stringyBlank = { ...egg600, id: 'uuid-EGGSTR', item_code: 'EGGSTR', thickness: '38', sheet_length: '3650', sheet_width: '600', area_cost: '76.70' };
+  const strQ = quoteFromSchedule(
+    [E({ benchtopMaterialId: 'EGGSTR', benchtopPieces: [{ l: 2931, w: 600 }] })],
+    { ...pdBlank, materials: [...mats, stringyBlank] }, sel, comm, {},
+  );
+  const strLine = strQ.lines.find((l) => /Countertop/.test(l.description));
+  check('benchtop blank: an un-numified sheet never produces NaN (it passes through, as before)',
+    finite(strLine?.total) && (strLine?.total ?? 0) > 0, JSON.stringify(strLine));
+  const numified = { ...stringyBlank, thickness: 38, sheet_length: 3650, sheet_width: 600, area_cost: 76.7 };
+  const numQ = quoteFromSchedule(
+    [E({ benchtopMaterialId: 'EGGSTR', benchtopPieces: [{ l: 2931, w: 600 }] })],
+    { ...pdBlank, materials: [...mats, numified] }, sel, comm, {},
+  );
+  check('benchtop blank: numified (as price-quote sends it) it prices as a blank',
+    numQ.benchtops?.[0]?.kind === 'blank' && finite(numQ.benchtops?.[0]?.total) && (numQ.benchtops?.[0]?.total ?? 0) > 0,
+    JSON.stringify([numQ.benchtops?.[0]?.kind, numQ.benchtops?.[0]?.total]));
+
+  // ── a fabricated top is untouched, and the two kinds never mix ──────────
+  const megSolo = price([top({ benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24, benchtopPieces: [{ l: 2931, w: 600 }] })]);
+  const megRow = megSolo.benchtops?.[0];
+  check('benchtop blank: a MEGANITE top still laminates, builds up and polishes',
+    megRow?.kind === 'laminated' && megRow?.layers === 2
+    && minutesAt(megSolo, /face sanding & polishing/) > 0 && minutesAt(megSolo, /build-up/) > 0
+    && (megRow?.adhesiveCartridges ?? 0) > 0,
+    JSON.stringify(stations(megSolo).map((s) => s.station)));
+  check('benchtop blank: a fabricated top gets no blank stations',
+    minutesAt(megSolo, /Benchtop blank|cut-end edge strip/) === 0,
+    JSON.stringify(stations(megSolo).map((s) => s.station)));
+  const polySolo = price([top({ benchtopMaterialId: 'POLY52428', benchtopThickness: 38, benchtopPieces: [{ l: 2931, w: 600 }] })]);
+  check('benchtop blank: a wide 38 mm board is still a fabricated top',
+    polySolo.benchtops?.[0]?.kind === 'laminated', String(polySolo.benchtops?.[0]?.kind));
+  const forced = price([E({ benchtopKind: 'laminated', benchtopThickness: 38, benchtopPieces: [{ l: 2931, w: 600 }] })]);
+  check('benchtop blank: benchtopKind "laminated" forces the old pricing back',
+    forced.benchtops?.[0]?.kind === 'laminated' && minutesAt(forced, /polish/i) > 0,
+    JSON.stringify(forced.benchtops?.[0]?.kind));
+
+  const mixed = price([
+    { ...E({ benchtopPieces: [{ l: 2931, w: 600 }] }), name: 'Countertop Egger' },
+    { ...top({ benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24, benchtopPieces: [{ l: 1500, w: 600 }] }), name: 'Countertop Meganite' },
+  ]);
+  const mixEgg = mixed.benchtops?.find((b) => b.kind === 'blank');
+  const mixMeg = mixed.benchtops?.find((b) => b.kind === 'laminated');
+  check('benchtop blank: a mixed job keeps each kind on its own stock',
+    mixed.benchtops?.length === 2 && mixEgg?.blanks === 1 && mixMeg?.jobSheets === 1
+    && Math.abs((mixEgg?.materialCost ?? 0) - (b42?.materialCost ?? 0)) < 0.01,
+    JSON.stringify(mixed.benchtops?.map((b) => [b.kind, b.materialCost])));
+  const stock = mixed.workshopCosting?.sheetStock ?? [];
+  check('benchtop blank: the blank is listed as a blank in the sheet stock',
+    stock.some((s) => /Benchtop blank, 1 x 3650x600/.test(String(s.material)))
+    && stock.some((s) => /\(Benchtop, 1 x 3660x760\)/.test(String(s.material))),
+    JSON.stringify(stock.map((s) => s.material)));
+
+  // ── a cabinet job with a blank still prices its cabinets normally ───────
+  const withCab = price([
+    { name: 'Base 3 Drawer', qty: 1, w: 900, h: 880, d: 555, room: 'Kitchen' },
+    E({ benchtopPieces: [{ l: 2931, w: 600 }] }),
+  ]);
+  const cabOnly = price([{ name: 'Base 3 Drawer', qty: 1, w: 900, h: 880, d: 555, room: 'Kitchen' }]);
+  const cabLine = (q) => q.lines.find((l) => /Base 3 Drawer/.test(l.description));
+  check('benchtop blank: the cabinet line is unchanged by the blank beside it',
+    Math.abs(cabLine(withCab).total - cabLine(cabOnly).total) < 0.01,
+    `${cabLine(withCab).total} vs ${cabLine(cabOnly).total}`);
+  check('benchtop blank: the cabinets still load as products',
+    minutesAt(withCab, /^Loading & unloading$/) > 0 && minutesAt(withCab, /large loose panels/) > 0,
+    JSON.stringify(stations(withCab).map((s) => `${s.station} ${s.minutes}`)));
+
+  const bt = q42.benchtops?.[0];
+  console.log(`      [Q-0042 blank] ${bt?.blanks} x 3650x600 EGGER 38 mm · material $${bt?.materialCost.toFixed(2)}` +
+    ` · labour $${bt?.laborCost.toFixed(2)} (${bt?.laborMinutes} min) · sell $${bt?.total.toFixed(2)}` +
+    `  (as a fabricated top it was $${forced.benchtops?.[0]?.total.toFixed(2)})`);
 }
 
 
