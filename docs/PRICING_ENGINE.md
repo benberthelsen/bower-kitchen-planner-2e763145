@@ -102,16 +102,18 @@ apply the same rule (needs the function redeployed).
   BLANK (Ben, 16 Sep 2026), so no strip material is charged - only the time to laminate and finish
   the end, 15 min each, and the row says so.
 
-### Placeholder minutes (DEFAULT, not calibrated)
+### Benchtop minutes
 
-Microvellum carries no countertop fabrication labour, so there is no external calibration
-source. Confirm from shop timing. `workshopModel.ts`:
+Microvellum carries no countertop fabrication labour, so there is no external calibration source.
+The three BLANK minutes below are Ben's own, given 16 Sep 2026 ("5 min a cut is right, joins 30 is
+fine", 15 min to laminate and finish an end) - do not change them without asking him. The cut-out
+minutes are still uncalibrated defaults. `workshopModel.ts`:
 
 | Rate | Default | Station | Paid at |
 |---|---|---|---|
-| `benchtopBlankCutMin` | 5 min / cut | Benchtop blank cutting | `assemblyRate` $100 (bench work, not the $250 CNC) |
-| `benchtopBlankEndEdgeMin` | 15 min / end (Ben, 16 Sep 2026 - the only calibrated one) | Benchtop cut-end edge strip | `edgebandingRate` $100 |
-| `benchtopBlankJoinMin` | 30 min / join | Benchtop blank joins | `assemblyRate` $100 |
+| `benchtopBlankCutMin` | 5 min / cut (Ben, 16 Sep 2026) | Benchtop blank cutting | `assemblyRate` $100 (bench work, not the $250 CNC) |
+| `benchtopBlankEndEdgeMin` | 15 min / end (Ben, 16 Sep 2026) | Benchtop cut-end edge strip | `edgebandingRate` $100 |
+| `benchtopBlankJoinMin` | 30 min / join (Ben, 16 Sep 2026) | Benchtop blank joins | `assemblyRate` $100 |
 | `benchtopSinkCutoutMin` / `Cooktop` / `TapHole` | 30 / 20 / 5 min | Benchtop cut-outs (fabricated top) | `machiningRate` $250 |
 | the same three minutes on a blank | 30 / 20 / 5 min | Benchtop blank cut-outs | `assemblyRate` $100 — a jigsaw and a router on the bench, like every other blank station |
 

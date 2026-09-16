@@ -243,8 +243,8 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   benchtopCooktopCutoutMin: 20,
   benchtopTapHoleMin: 5,
 
-  // pre-made laminate blanks — DEFAULT placeholders, not calibrated, except the end strip:
-  // Ben, 16 Sep 2026, "it takes about 15 min to lam and finish one" end.
+  // pre-made laminate blanks — CONFIRMED by Ben, 16 Sep 2026: "5 min a cut is right, joins 30 is
+  // fine", and 15 min to laminate and finish each cut end. Do not change without asking him.
   benchtopBlankCutMin: 5,
   benchtopBlankEndEdgeMin: 15,
   benchtopBlankJoinMin: 30,

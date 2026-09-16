@@ -1583,8 +1583,8 @@ var DEFAULT_WORKSHOP_RATES = {
   benchtopSinkCutoutMin: 30,
   benchtopCooktopCutoutMin: 20,
   benchtopTapHoleMin: 5,
-  // pre-made laminate blanks — DEFAULT placeholders, not calibrated, except the end strip:
-  // Ben, 16 Sep 2026, "it takes about 15 min to lam and finish one" end.
+  // pre-made laminate blanks — CONFIRMED by Ben, 16 Sep 2026: "5 min a cut is right, joins 30 is
+  // fine", and 15 min to laminate and finish each cut end. Do not change without asking him.
   benchtopBlankCutMin: 5,
   benchtopBlankEndEdgeMin: 15,
   benchtopBlankJoinMin: 30
@@ -2965,7 +2965,7 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
     };
     const sharedBy = mat.sharedBy;
     const rowWarnings = [
-      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut / edging / join minutes are DEFAULT rates, not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r3(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
+      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut, end and join minutes are Ben's own (5 / 15 / 30 min), cut-out minutes are not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r3(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
       ...p.warnings
     ];
     warnings.push(...rowWarnings);
