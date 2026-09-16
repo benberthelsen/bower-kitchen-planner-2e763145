@@ -569,7 +569,9 @@ function prepareBlankRow(
     }
   }
   if (exposedEnds > 0) {
-    warnings.push(`${row.name}: the matching end edging strip is not a catalogue row - the edging LABOUR is charged, the strip material is not`);
+    // Ben, 16 Sep 2026: the matching end strip comes with the blank, so there is nothing to buy -
+    // only the time to laminate and finish the end is charged.
+    warnings.push(`${row.name}: ${exposedEnds} cut end(s) laminated and finished; the matching end strip comes with the blank, so no strip material is charged`);
   }
 
   const declaredJoins = Math.max(0, Math.round(row.benchtopJoins ?? 0)) * qty + waterfallJoins * qty;

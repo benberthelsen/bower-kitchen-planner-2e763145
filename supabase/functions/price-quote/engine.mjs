@@ -1583,9 +1583,10 @@ var DEFAULT_WORKSHOP_RATES = {
   benchtopSinkCutoutMin: 30,
   benchtopCooktopCutoutMin: 20,
   benchtopTapHoleMin: 5,
-  // pre-made laminate blanks — DEFAULT placeholders, not calibrated
+  // pre-made laminate blanks — DEFAULT placeholders, not calibrated, except the end strip:
+  // Ben, 16 Sep 2026, "it takes about 15 min to lam and finish one" end.
   benchtopBlankCutMin: 5,
-  benchtopBlankEndEdgeMin: 10,
+  benchtopBlankEndEdgeMin: 15,
   benchtopBlankJoinMin: 30
 };
 var HARDWARE_FIT_MINUTES = {
@@ -2731,7 +2732,7 @@ function prepareBlankRow(row, sheet, trimMm) {
     }
   }
   if (exposedEnds > 0) {
-    warnings.push(`${row.name}: the matching end edging strip is not a catalogue row - the edging LABOUR is charged, the strip material is not`);
+    warnings.push(`${row.name}: ${exposedEnds} cut end(s) laminated and finished; the matching end strip comes with the blank, so no strip material is charged`);
   }
   const declaredJoins = Math.max(0, Math.round(row.benchtopJoins ?? 0)) * qty + waterfallJoins * qty;
   const c = row.benchtopCutouts ?? {};

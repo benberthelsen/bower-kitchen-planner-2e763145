@@ -98,8 +98,9 @@ apply the same rule (needs the function redeployed).
 - **Cut-outs are off unless the row asks** (Ben, 16 Sep 2026). Nothing infers a sink from a
   product name; zero cut-outs means zero minutes and no station, for both kinds of top.
 - Exposed cut ends: `benchtopExposedEnds` per unit, else one per piece with a warning. The
-  postformed front edge and the factory ends arrive finished. The matching edging strip is not a
-  catalogue row yet, so only the edging LABOUR is charged, and the row says so.
+  postformed front edge and the factory ends arrive finished. The matching end strip COMES WITH THE
+  BLANK (Ben, 16 Sep 2026), so no strip material is charged - only the time to laminate and finish
+  the end, 15 min each, and the row says so.
 
 ### Placeholder minutes (DEFAULT, not calibrated)
 
@@ -109,7 +110,7 @@ source. Confirm from shop timing. `workshopModel.ts`:
 | Rate | Default | Station | Paid at |
 |---|---|---|---|
 | `benchtopBlankCutMin` | 5 min / cut | Benchtop blank cutting | `assemblyRate` $100 (bench work, not the $250 CNC) |
-| `benchtopBlankEndEdgeMin` | 10 min / end | Benchtop cut-end edge strip | `edgebandingRate` $100 |
+| `benchtopBlankEndEdgeMin` | 15 min / end (Ben, 16 Sep 2026 - the only calibrated one) | Benchtop cut-end edge strip | `edgebandingRate` $100 |
 | `benchtopBlankJoinMin` | 30 min / join | Benchtop blank joins | `assemblyRate` $100 |
 | `benchtopSinkCutoutMin` / `Cooktop` / `TapHole` | 30 / 20 / 5 min | Benchtop cut-outs (fabricated top) | `machiningRate` $250 |
 | the same three minutes on a blank | 30 / 20 / 5 min | Benchtop blank cut-outs | `assemblyRate` $100 — a jigsaw and a router on the bench, like every other blank station |
