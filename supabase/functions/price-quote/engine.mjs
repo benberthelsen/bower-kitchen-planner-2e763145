@@ -484,6 +484,36 @@ var FACES_ONLY_RE = /faces?\s*only|fronts?\s*only|doors?\s*only|replacement\s+(?
 function isFacesOnlyProduct(idOrName) {
   return FACES_ONLY_RE.test((idOrName || "").toLowerCase());
 }
+var SLIDER_KIT_RE = /\bslider\s*sc\b|\b944[.\s]?02(?:[.\s]?\d{3})?\b/;
+var SLIDING_DOOR_RE = /\bsliding\s+(?:(?:ward)?robes?|doors?|panels?|leaf|leaves)\b/;
+var SLIDER_RE = /\bsliders?\b/;
+var DOOR_WORD_RE = /\bdoors?\b/;
+var ROBE_WORD_RE = /\b(?:ward)?robes?\b/;
+var ROBE_DOOR_WORD_RE = /\b(?:doors?|openings?|leaf|leaves|fronts?|faces?|tracks?|kits?)\b/;
+var ROBE_CABINET_WORD_RE = /\b(?:base|upper|wall|tall|corner|pantry|vanity|linen|broom|drawers?|shel(?:f|ves)|hanging|hamper|cabinets?|carcase|carcass|open|bins?|waste|trays?|baskets?|pull\s?outs?|runners?)\b/;
+var ROBE_BOARD_WORD_RE = /filler|scribe|applied|end.?panel|pelmet|bulkhead|valance|kick|plinth/;
+var ROBE_OPENING_WORD_RE = /\bopenings?\b/;
+var DOOR_COUNT_RE = /\d+\s*doors?\b/;
+var DRAWER_WORD_RE = /\bdrawers?\b/;
+var ROBE_DOOR_DESCRIPTOR_RE = /\b(?:tall|open|hanging)\b/g;
+var robeNameText = (idOrName) => (idOrName || "").toLowerCase().replace(/[_\-/]+/g, " ");
+function isRobeDoorProduct(idOrName) {
+  const s = robeNameText(idOrName);
+  if (!s.trim()) return false;
+  if (SLIDER_KIT_RE.test(s)) return true;
+  if (ROBE_BOARD_WORD_RE.test(s)) return false;
+  if (ROBE_WORD_RE.test(s)) {
+    if (ROBE_OPENING_WORD_RE.test(s)) return true;
+    if (DOOR_WORD_RE.test(s) && !DOOR_COUNT_RE.test(s) && !DRAWER_WORD_RE.test(s) && !ROBE_CABINET_WORD_RE.test(s.replace(ROBE_DOOR_DESCRIPTOR_RE, " "))) return true;
+  }
+  if (ROBE_CABINET_WORD_RE.test(s)) return false;
+  if (ROBE_WORD_RE.test(s)) return ROBE_DOOR_WORD_RE.test(s) || SLIDING_DOOR_RE.test(s) || SLIDER_RE.test(s);
+  return SLIDING_DOOR_RE.test(s) || SLIDER_RE.test(s) && DOOR_WORD_RE.test(s);
+}
+function hasSlidingDoors(idOrName) {
+  const s = robeNameText(idOrName);
+  return SLIDING_DOOR_RE.test(s) || SLIDER_RE.test(s) && DOOR_WORD_RE.test(s);
+}
 function facesOnlyDoorCount(idOrName) {
   const m = (idOrName || "").toLowerCase().match(/(\d+)\s*[_-]?\s*(?:doors?|faces?|fronts?)/);
   return m ? Math.max(1, parseInt(m[1], 10)) : 1;
@@ -534,6 +564,9 @@ function flatBoardMapping(partType, flatBoard, isCorner = false) {
 function buildGenericCabinetMapping(definitionId, size) {
   const id = (definitionId || "").toLowerCase();
   if (!id) return null;
+  if (isRobeDoorProduct(id)) {
+    return null;
+  }
   if (FACES_ONLY_RE.test(id)) {
     return {
       config: {
@@ -610,6 +643,7 @@ function buildGenericCabinetMapping(definitionId, size) {
     isCorner,
     isBlind
   };
+  if (config.numDoors > 0 && hasSlidingDoors(id)) config.slidingDoors = true;
   const parts = [];
   if (isCorner && !isBlind && !isWall) {
     config.numDoors = 2;
@@ -722,6 +756,13 @@ function pickFallbackMaterial(materials) {
   const cheapest = (rows) => rows.slice().sort((a, b) => (a.area_cost ?? 0) - (b.area_cost ?? 0))[0];
   return priced.find((m) => /shop materials?/i.test(m.name ?? "")) ?? cheapest(boards) ?? cheapest(priced);
 }
+var SHEET_TRIM_MM = 10;
+function partFitsSheet(length, width, sheetLength, sheetWidth, trimMm = SHEET_TRIM_MM) {
+  if (![length, width, sheetLength, sheetWidth].every((n) => Number.isFinite(n) && n > 0)) return true;
+  const trim = Number.isFinite(trimMm) && trimMm > 0 ? trimMm : 0;
+  const EPS = 1e-6;
+  return Math.max(length, width) <= Math.max(sheetLength, sheetWidth) - trim + EPS && Math.min(length, width) <= Math.min(sheetLength, sheetWidth) - trim + EPS;
+}
 function calculateSheetRequirements(parts, materials) {
   const partsByMaterial = /* @__PURE__ */ new Map();
   for (const part of parts) {
@@ -753,6 +794,9 @@ function calculateSheetRequirements(parts, materials) {
     );
     allocation.materialRole = materialParts[0]?.materialRole ?? "carcase";
     if (unresolved) allocation.unresolved = true;
+    const sheetSizeAssumed = !(material && material.sheet_width && material.sheet_length);
+    const oversizeParts = materialParts.filter((p) => !p.sizePlaceholder && !partFitsSheet(p.length, p.width, sheetSpec.length, sheetSpec.width)).map((p) => ({ name: p.name, length: p.length, width: p.width, quantity: p.quantity, sheetSizeAssumed }));
+    if (oversizeParts.length) allocation.oversizeParts = oversizeParts;
     allocations.push(allocation);
   }
   return allocations;
@@ -942,7 +986,7 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
   const items = [];
   const rules = DEFAULT_RULES;
   const isTall = cabinetHeight > 1200;
-  if (config.numDoors > 0) {
+  if (config.numDoors > 0 && !config.slidingDoors) {
     const hingesPerDoor = isTall ? rules.hingesPerTallDoor : rules.hingesPerDoor;
     const hingeCount = config.numDoors * hingesPerDoor;
     const hingePricing = hardwarePricing.find(
@@ -1884,7 +1928,14 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   const size = { width: cabinet.width, height: cabinet.height, depth: cabinet.depth };
   const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName, size);
   if (!mapping) {
-    return createEmptyBOM(cabinet, catalogItemName ?? "Unknown");
+    const empty = createEmptyBOM(cabinet, catalogItemName ?? "Unknown");
+    const robeName = [catalogItemName, cabinet.definitionId].find((n) => n && isRobeDoorProduct(n));
+    if (robeName) {
+      empty.warnings = [
+        `${cabinet.cabinetNumber || robeName}: "${robeName}" is a robe opening / sliding robe door - robe openings are not priced by BowerOS yet, so it is priced at $0 with no board, hinges, edge tape or workshop time. Price it by hand.`
+      ];
+    }
+    return empty;
   }
   const config = typeof cabinet.shelfCount === "number" ? { ...mapping.config, numShelves: Math.max(0, cabinet.shelfCount) } : mapping.config;
   const partRequirements = getPartQuantities(mapping.parts, config);
@@ -1897,6 +1948,9 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   const flatCut = config.flatBoard ? flatBoardCutSize(itemName, size) : null;
   if (config.flatBoard === "shape" && flatCut) {
     warnings.push(`${cabLabel}: "${itemName}" is ${cabinet.width} x ${cabinet.height} x ${cabinet.depth} - one board thick, priced as a single ${flatCut.length} x ${flatCut.width} panel, not a cabinet`);
+  }
+  if (config.slidingDoors) {
+    warnings.push(`${cabLabel}: "${itemName}" has sliding doors - priced as a carcase with the board for ${config.numDoors} door${config.numDoors === 1 ? "" : "s"} but NO hinges or hinge plates, and the sliding track, rollers and soft-close are not priced. Add the sliding door hardware by hand.`);
   }
   const resolveWithGuard = (selection, role) => {
     const matched = resolveMaterialId(selection, pricingData.materials);
@@ -1928,6 +1982,18 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     flatCut
   );
   const sheets = calculateSheetRequirements(parts, pricingData.materials);
+  const kickMm = globalDims.toeKickHeight ?? 0;
+  const lowerName = itemName.toLowerCase();
+  const wallHung = (cabinet.y ?? 0) > 1 || lowerName.startsWith("wall") || lowerName.includes("upper");
+  if (kickMm > 0 && cabinet.height > kickMm && !wallHung && !config.facesOnly && !config.toeKick) {
+    const lessKick = (mm) => Math.abs(mm - cabinet.height) < 0.5 ? mm - kickMm : mm;
+    for (const sh of sheets) {
+      if (!sh.oversizeParts) continue;
+      const stillOversize = sh.oversizeParts.filter((p) => !partFitsSheet(lessKick(p.length), lessKick(p.width), sh.sheetLength, sh.sheetWidth));
+      if (stillOversize.length) sh.oversizeParts = stillOversize;
+      else delete sh.oversizeParts;
+    }
+  }
   const edgeTape = calculateEdgeTape(parts, pricingData.edges, cabinet.edgeId);
   const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware);
   edgeTape.filter((edge) => edge.isFallbackPrice).forEach((edge) => warnings.push(
@@ -2030,12 +2096,18 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
   const numDrawers = config.numDrawers ?? 0;
   const drawerOpening = Math.max(0, cabinet.height - (cabinet.height > 600 ? globalDims.toeKickHeight : 0));
   const drawerFaces = numDrawers > 0 ? distributeDrawerHeights(numDrawers, drawerOpening, cabinet.drawerFrontHeights) : [];
-  const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength = cabinet.height, fallbackWidth = cabinet.depth, exact) => {
+  const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength, fallbackWidth, exact) => {
     const pricing = partsPricing.find((p) => p.part_type === req.partType || p.name === req.partType);
     const isExterior = Boolean(config.flatBoard) || EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
-    const length = exact ? exact.length : parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength;
-    const width = exact ? exact.width : parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth;
+    const lengthFn = pricing?.length_function ?? null;
+    const widthFn = pricing?.width_function ?? null;
+    const fromLengthFn = exact ? 0 : parseFormula(lengthFn, partVars);
+    const fromWidthFn = exact ? 0 : parseFormula(widthFn, partVars);
+    const length = exact ? exact.length : fromLengthFn || (fallbackLength ?? cabinet.height);
+    const width = exact ? exact.width : fromWidthFn || (fallbackWidth ?? cabinet.depth);
     const area = length * width / 1e6;
+    const needsMissingArm = (fn) => Boolean(fn) && (/CabRightWidth/.test(fn) && cabinet.secondWidth == null || /CabRightDepth/.test(fn) && cabinet.rightCarcaseDepth == null);
+    const sizePlaceholder = !exact && (!fromLengthFn && fallbackLength === void 0 || !fromWidthFn && fallbackWidth === void 0 || needsMissingArm(lengthFn) || needsMissingArm(widthFn));
     parts.push({
       name: (pricing?.name ?? req.partType) + nameSuffix,
       partType: req.partType,
@@ -2049,7 +2121,8 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
       quantity,
       handlingCost: (pricing?.handling_cost ?? 0) + area * (pricing?.area_handling_cost ?? 0),
       machiningCost: (pricing?.machining_cost ?? 0) + area * (pricing?.area_machining_cost ?? 0),
-      assemblyCost: (pricing?.assembly_cost ?? 0) + area * (pricing?.area_assembly_cost ?? 0)
+      assemblyCost: (pricing?.assembly_cost ?? 0) + area * (pricing?.area_assembly_cost ?? 0),
+      ...sizePlaceholder ? { sizePlaceholder: true } : {}
     });
   };
   for (const req of partRequirements) {
@@ -2129,6 +2202,7 @@ var KICKABLE_ROLE = /* @__PURE__ */ new Set([
 ]);
 function carriesKickFace(item) {
   if (isFacesOnlyProduct(item.definitionId ?? "")) return false;
+  if (isRobeDoorProduct(item.definitionId ?? "") || isRobeDoorProduct(item.productName ?? "")) return false;
   if (item.itemType === "Cabinet" && boardThinAxis(item)) return false;
   if ((item.y ?? 0) > 1) return false;
   if (item.layoutRole === "dishwasher") return true;
@@ -2206,6 +2280,48 @@ function calculateKickboardRuns(items, globalDims, stockLengthMm = 2400) {
   }
   return allocations;
 }
+function oversizePartWarnings(cabinets) {
+  const mm = (n) => String(Math.round(n * 10) / 10);
+  const byMaterial = /* @__PURE__ */ new Map();
+  for (const cab of cabinets) {
+    const d = cab.dimensions;
+    const size = `${mm(d.width)} x ${mm(d.height)} x ${mm(d.depth)}`;
+    for (const sh of cab.sheets) {
+      if (!sh.oversizeParts?.length) continue;
+      const mat = byMaterial.get(sh.materialId) ?? {
+        materialName: sh.materialName,
+        sheetLength: sh.sheetLength,
+        sheetWidth: sh.sheetWidth,
+        assumed: sh.oversizeParts[0].sheetSizeAssumed,
+        products: /* @__PURE__ */ new Map()
+      };
+      byMaterial.set(sh.materialId, mat);
+      const productKey = `${cab.cabinetName}|${size}`;
+      const product = mat.products.get(productKey) ?? { name: cab.cabinetName, size, numbers: [], units: 0, parts: /* @__PURE__ */ new Map() };
+      mat.products.set(productKey, product);
+      product.units += 1;
+      if (cab.cabinetNumber) product.numbers.push(cab.cabinetNumber);
+      for (const p of sh.oversizeParts) {
+        const key = `${p.name}|${mm(p.length)}x${mm(p.width)}`;
+        const g = product.parts.get(key) ?? { name: p.name, length: p.length, width: p.width, quantity: 0 };
+        g.quantity += Math.max(1, p.quantity ?? 1);
+        product.parts.set(key, g);
+      }
+    }
+  }
+  return [...byMaterial.values()].map((m) => {
+    const sheetLong = Math.max(m.sheetLength, m.sheetWidth);
+    const sheetShort = Math.min(m.sheetLength, m.sheetWidth);
+    const products = [...m.products.values()];
+    const entries = products.map((pr) => {
+      const nums = pr.numbers.length > 3 ? `${pr.numbers.slice(0, 3).join(", ")} +${pr.numbers.length - 3} more` : pr.numbers.join(", ");
+      const parts = [...pr.parts.values()].map((g) => `${g.quantity} x "${g.name}" ${mm(g.length)} x ${mm(g.width)}`);
+      return `${pr.units} x "${pr.name}" ${pr.size}${nums ? ` (${nums})` : ""} - ${parts.join(", ")}`;
+    });
+    const many = products.length > 1 || products.some((pr) => pr.parts.size > 1 || pr.units > 1);
+    return `Part too big for its board: ${m.materialName} is a ${sheetLong} x ${sheetShort} mm sheet${m.assumed ? " (no sheet size in the catalogue - the 2400 x 1200 default was assumed)" : ""} - ${sheetLong - SHEET_TRIM_MM} x ${sheetShort - SHEET_TRIM_MM} mm usable once ${SHEET_TRIM_MM} mm is trimmed off its length and width - and BowerOS's calculated size for ${many ? "these parts" : "this part"} will not fit on one sheet even turned 90 degrees (grain direction is not modelled, so rotation is allowed): ${entries.join("; ")}. The board is still priced by area as if ${many ? "they fit" : "it fits"}. Price a longer sheet (e.g. 3600 x 1800) or a join, or correct the product size if it is wrong.`;
+  });
+}
 function stockPiecesForKickCuts(allocations) {
   const stockLength = allocations[0]?.stockLengthMm ?? 2400;
   const remaining = [];
@@ -2257,6 +2373,7 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map((c) => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map((c) => c.hardware));
   const jobLevelWarnings = [];
+  jobLevelWarnings.push(...oversizePartWarnings(cabinets));
   const kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks ? [] : calculateKickboardRuns(items, globalDims);
   {
     const reconciledRates = /* @__PURE__ */ new Map();
@@ -3043,6 +3160,10 @@ var DEFAULT_DIMENSIONS = {
   sideReveal: 2,
   handleDrillSpacing: 32
 };
+function robeNotPricedWarning(r, room, qty, total) {
+  const what = `ROBE NOT PRICED BY BOWEROS: "${r.name}" (${room}, qty ${qty}, ${r.w} x ${r.h} x ${r.d}) is a robe opening / sliding robe door. Robe openings are not priced by BowerOS yet.`;
+  return total > 0 ? `${what} It is carried at the source quote's own figure, $${total.toFixed(2)}, with no board, hinges, plates, shelf pins, edge tape, workshop or install minutes added for it - check that figure covers the door kit, panels and fitting.` : `${what} This row carries NO source price (mv_total missing or $0), so it is on the quote at $0.00 - price it by hand before the quote goes out.`;
+}
 function roomOf(item, fallback) {
   const raw = String(item.room ?? "").trim();
   return !raw || /^\(?unnamed\)?$/i.test(raw) ? fallback : raw;
@@ -3068,8 +3189,10 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const defaultRoom = opts.defaultRoom ?? "Kitchen";
   const supplyMode = commercial.supplyMode ?? "assembled_installed";
   const uplift = (1 + (commercial.overheadPct ?? 0)) * (1 + commercial.markupPct);
-  const cabinetRows = schedule.filter((r) => !BENCHTOP_RE.test(r.name));
-  const benchtopRows = schedule.map((r, index) => ({ r, index })).filter(({ r }) => BENCHTOP_RE.test(r.name));
+  const robeRows = schedule.map((r, index) => ({ r, index })).filter(({ r }) => isRobeDoorProduct(r.name));
+  const robeIndexes = new Set(robeRows.map(({ index }) => index));
+  const cabinetRows = schedule.filter((r, index) => !robeIndexes.has(index) && !BENCHTOP_RE.test(r.name));
+  const benchtopRows = schedule.map((r, index) => ({ r, index })).filter(({ r, index }) => !robeIndexes.has(index) && BENCHTOP_RE.test(r.name));
   const items = [];
   const originOf = [];
   cabinetRows.forEach((r, idx) => {
@@ -3250,6 +3373,29 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       source: "passthrough"
     });
   }
+  const robeWarnings = [];
+  for (const { r } of robeRows) {
+    const qty = Math.max(1, Math.round(r.qty ?? 1));
+    const mv = Number(r.mv_total);
+    const total = Number.isFinite(mv) && mv > 0 ? money3(mv) : 0;
+    const room = roomOf(r, defaultRoom);
+    lines.push({
+      description: r.name,
+      quantity: qty,
+      unit: "ea",
+      unitPrice: money3(total / qty),
+      total,
+      costPrice: total,
+      materialCost: total,
+      laborCost: 0,
+      marginPercent: 0,
+      category: "cabinetry",
+      roomName: room,
+      source: "passthrough",
+      unpriced: true
+    });
+    robeWarnings.push(robeNotPricedWarning(r, room, qty, total));
+  }
   if (installCost > 0) {
     const total = money3(installCost);
     const mainRoom = lines.length ? [...lines.reduce((m, l) => m.set(l.roomName, (m.get(l.roomName) ?? 0) + 1), /* @__PURE__ */ new Map()).entries()].sort((a, b) => b[1] - a[1])[0][0] : defaultRoom;
@@ -3367,8 +3513,9 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     hasStone: benchtopRows.length > 0,
     hasLaminex: false,
     hasTwoPack: false,
-    hasBuyout: passthroughRows.length > 0,
-    buyoutItems: passthroughRows.map(({ r }) => r.name),
+    // Robe rows are carried from the source quote too.
+    hasBuyout: passthroughRows.length + robeRows.length > 0,
+    buyoutItems: [...passthroughRows.map(({ r }) => r.name), ...robeRows.map(({ r }) => r.name)],
     sheetStockTotal: money3(sheetStock.reduce((a, x) => a + x.cost, 0)),
     solidStockTotal: 0,
     edgebandingTotal: money3(edgebanding.reduce((a, x) => a + x.cost, 0)),
@@ -3414,10 +3561,12 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       installMinutes: money3(installMinutes),
       stations: st.map((l) => ({ station: l.station, minutes: money3(l.minutes), cost: money3(l.cost) }))
     } : null,
-    warnings: [...bom.warnings ?? [], ...lam.warnings, ...scheduleWarnings]
+    // Robe warnings first: each one is a line BowerOS did not price.
+    warnings: [...robeWarnings, ...bom.warnings ?? [], ...lam.warnings, ...scheduleWarnings]
   };
 }
 export {
   DEFAULT_DIMENSIONS,
-  quoteFromSchedule
+  quoteFromSchedule,
+  robeNotPricedWarning
 };

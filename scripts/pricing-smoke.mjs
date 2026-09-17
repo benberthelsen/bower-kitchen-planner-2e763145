@@ -9,7 +9,7 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind, inferFrontCounts, isFacesOnlyProduct, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind, inferFrontCounts, isFacesOnlyProduct, isRobeDoorProduct, buildGenericCabinetMapping, partFitsSheet, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres } from '../.tmp-snap-test/pricing.mjs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -1885,6 +1885,231 @@ for (const [id, w, h, d] of families) {
         `${lm.total} vs ${r.workshop?.shopMinutes} + ${r.workshop?.installMinutes}`);
     }
   }
+}
+
+
+// 14. Robe openings / sliding robe doors (Hafele Slider SC review, 17 Sep 2026). The LIVE engine priced "Robe Opening"
+//     at $0 (opening rule), "2 Door Sliding Robe" 2400 x 2400 as a carcase ($759.59 cost: board, 8 hinges, 8 plates,
+//     shelf pins, 24.27 m edge, 78 min Hardware assembly) and a robe "doors only" row as hinged loose fronts. A robe
+//     row now passes through at its own mv_total with a loud warning. The ROOM never decides it.
+{
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, overheadPct: 0.1, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const price = (rows) => quoteFromSchedule(rows, pricingData, sel, comm, { defaultRoom: 'Robe' });
+
+  // ── the name rule ─────────────────────────────────────────────────────────
+  const robeNames = ['Robe Opening', 'Sliding Robe Door', '2 Door Sliding Robe', 'Slider SC 2 Door Robe Door Set', 'Robe Door Faces Only',
+    'Robe doors only', 'Wardrobe Sliding Doors', 'Hafele Slider SC', 'Häfele Slider SC Kit 944.02.011', '944.02.011', 'sliding_robe_door',
+    'Walk-in Robe Door Track', 'Mirror Sliding Door', 'Robe Opening 3 Door',
+    // a cabinet word describing the opening or the doors must not cancel the robe rule (review, 17 Sep 2026)
+    'Robe Opening Hanging', 'Robe Opening With Shelf', 'Tall Robe Doors', 'Robe Doors - Tall', 'Robe doors (open end)'];
+  const cabinetNames = ['Base 2 Door', 'Upper Open', 'Tall Broom', 'Tall 1 Door Broom Cabinet', 'Robe Base 3 Drawer', 'Robe Tall 2 Door',
+    'Robe Hanging Rail', 'hanging rail under pelment', 'Cabinet Faces Only', 'Doors Only', '2 Door Faces Only', 'Base Applied Panel',
+    'Toe Kick Base', 'Countertop No Splash', 'Upper Rangehood Cabinet', 'Base Slider Bin', 'Base Pull Out Sliding Shelf', 'Upper 2 Door', '',
+    // a door count, a drawer, a carcase word or a board word keeps a robe-named row a cabinet / board
+    'Robe Tall 2 Doors', 'Tall Robe 2 Door', 'Robe Tall Door Cabinet', 'Robe Doors Base', 'Robe Hanging Doors 2 Drawer',
+    'Robe Opening Scribe Filler', 'Robe Door Pelmet'];
+  const missedRobe = robeNames.filter((n) => !isRobeDoorProduct(n));
+  const caughtCabinet = cabinetNames.filter((n) => isRobeDoorProduct(n));
+  check('robe: every robe / wardrobe / slider / 944.02 name is caught', missedRobe.length === 0, JSON.stringify(missedRobe));
+  check('robe: ordinary cabinets, faces-only fronts, panels, kicks, benchtops and robe CARCASES are not caught', caughtCabinet.length === 0, JSON.stringify(caughtCabinet));
+  check('robe: buildGenericCabinetMapping refuses a robe row (no carcase, no faces-only door, no opening $0 path)',
+    ['Robe Opening', '2 Door Sliding Robe', 'Robe doors only', 'Robe Door Faces Only', 'Slider SC 2 Door Robe Door Set']
+      .every((n) => buildGenericCabinetMapping(n, { width: 2400, height: 2400, depth: 100 }) === null)
+    && buildGenericCabinetMapping('Base 2 Door', { width: 900, height: 880, depth: 555 }) !== null);
+  const bomRobe = generateCabinetBOM(cab('2 Door Sliding Robe', 2400, 2400, 100, 1501), dims, hw, pricingData, '2 Door Sliding Robe');
+  check('robe: a planner / direct BOM of a robe row is $0 with no parts or hardware, and says it is a robe opening (not "no part mapping")',
+    bomRobe.totalCost === 0 && bomRobe.parts.length === 0 && bomRobe.hardware.length === 0
+    && (bomRobe.warnings ?? []).some((w) => /robe opening/.test(w) && /not priced by BowerOS yet/.test(w)) && !(bomRobe.warnings ?? []).some((w) => /no part mapping/.test(w)),
+    JSON.stringify(bomRobe.warnings));
+  const robeOnFloor = generateQuoteBOM([{ ...cab('Sliding Robe Door', 2400, 2400, 100, 1502), productName: 'Sliding Robe Door' }], dims, hw, pricingData);
+  check('robe: a robe row on the floor adds no kick run and no cost', robeOnFloor.kickboards.length === 0 && robeOnFloor.grandTotal.cost === 0,
+    JSON.stringify({ kicks: robeOnFloor.kickboards, cost: robeOnFloor.grandTotal.cost }));
+
+  // ── the three probe rows, through the schedule path ───────────────────────
+  const probeRows = [
+    { name: 'Robe Opening', qty: 1, w: 2400, h: 2400, d: 100, room: 'Robe' },
+    { name: '2 Door Sliding Robe', qty: 1, w: 2400, h: 2400, d: 100, room: 'Robe' },
+    { name: 'Robe doors only', qty: 1, w: 2400, h: 2400, d: 16, room: 'Robe' },
+    { name: 'Robe Door Faces Only', qty: 2, w: 1234, h: 2345, d: 16, room: 'Robe' },
+    // Before the fix these went out at $0 with "no part mapping" (opening rule) and as a hinged tall carcase.
+    { name: 'Robe Opening Hanging', qty: 1, w: 2400, h: 2400, d: 600, room: 'Robe' },
+    { name: 'Tall Robe Doors', qty: 1, w: 2400, h: 2400, d: 100, room: 'Robe' },
+  ];
+  for (const row of probeRows) {
+    for (const mv of [2150, undefined]) {
+      const r = mv === undefined ? row : { ...row, mv_total: mv };
+      const q = price([r]);
+      const label = `robe "${r.name}"${mv === undefined ? ' (no mv_total)' : ` (mv_total ${mv})`}`;
+      const [line] = q.lines;
+      const qty = r.qty;
+      check(`${label}: one passthrough line at ${mv === undefined ? '$0' : 'its own mv_total'}, quantity ${qty}, no install line`,
+        q.lines.length === 1 && line.source === 'passthrough' && line.description === r.name && line.quantity === qty
+        && line.total === (mv ?? 0) && line.costPrice === (mv ?? 0) && line.laborCost === 0 && line.marginPercent === 0
+        && q.totals.sellExGst === (mv ?? 0),
+        JSON.stringify(q.lines));
+      const wc = q.workshopCosting;
+      check(`${label}: no carcase board, hinges, plates, shelf pins, edge tape, stations or install`,
+        Object.values(q.cost).every((v) => v === 0) && q.totals.cabinetCost === 0 && q.totals.installCost === 0
+        && wc.sheetStock.length === 0 && wc.hardware.length === 0 && wc.edgebanding.length === 0 && wc.partCount === 0
+        && (q.workshop?.stations ?? []).length === 0 && (q.workshop?.shopMinutes ?? 0) === 0 && (q.workshop?.installMinutes ?? 0) === 0
+        && wc.laborMinutes.total === 0,
+        JSON.stringify({ cost: q.cost, sheets: wc.sheetStock, hw: wc.hardware, edge: wc.edgebanding, st: q.workshop }));
+      const robeWarn = q.warnings.filter((w) => /^ROBE NOT PRICED BY BOWEROS/.test(w));
+      check(`${label}: ONE loud warning, first, naming the row and saying robe openings are not priced by BowerOS yet${mv === undefined ? ' and that it has NO price' : ' and the figure carried'}`,
+        robeWarn.length === 1 && q.warnings[0] === robeWarn[0] && robeWarn[0].includes(`"${r.name}"`) && /not priced by BowerOS yet/.test(robeWarn[0])
+        && (mv === undefined ? /NO source price/.test(robeWarn[0]) && /\$0\.00/.test(robeWarn[0]) : robeWarn[0].includes('$2150.00'))
+        && !q.warnings.some((w) => /no part mapping|replacement front|ONE door/.test(w)),
+        JSON.stringify(q.warnings));
+      check(`${label}: listed as carried from the source quote`, wc.hasBuyout && wc.buyoutItems.includes(r.name), JSON.stringify(wc.buyoutItems));
+    }
+  }
+
+  // ── a carcase in a room called Robe prices EXACTLY as before ─────────────
+  // Figures from the engine before the robe guard (23e7b08) on this fixture.
+  const base = { name: 'Base 2 Door', qty: 1, w: 900, h: 880, d: 555, room: 'Robe' };
+  const tall = { name: 'Tall 1 Door Broom Cabinet', qty: 1, w: 600, h: 2200, d: 580, room: 'Robe' };
+  const qb = price([base]);
+  check('robe room: "Base 2 Door" still a bower cabinet at the pre-guard figures (cost 507.85, sell 782.09, job 831.09 ex GST, 113.05 shop + 30 install min)',
+    qb.lines[0]?.source === 'bower' && qb.lines[0]?.costPrice === 507.85 && qb.lines[0]?.total === 782.09 && qb.totals.sellExGst === 831.09
+    && qb.workshop?.shopMinutes === 113.05 && qb.workshop?.installMinutes === 30 && !qb.warnings.some((w) => /ROBE/.test(w)),
+    JSON.stringify({ line: qb.lines[0], totals: qb.totals, shop: qb.workshop?.shopMinutes, inst: qb.workshop?.installMinutes }));
+  const qt = price([tall]);
+  check('robe room: "Tall 1 Door Broom Cabinet" still a bower cabinet at the pre-guard figures (cost 605.05, sell 931.77, job 1005.27 ex GST, 114.27 shop + 45 install min)',
+    qt.lines[0]?.source === 'bower' && qt.lines[0]?.costPrice === 605.05 && qt.lines[0]?.total === 931.77 && qt.totals.sellExGst === 1005.27
+    && qt.workshop?.shopMinutes === 114.27 && qt.workshop?.installMinutes === 45 && !qt.warnings.some((w) => /ROBE/.test(w)),
+    JSON.stringify({ line: qt.lines[0], totals: qt.totals, shop: qt.workshop?.shopMinutes, inst: qt.workshop?.installMinutes }));
+  const qpair = price([base, tall]);
+  check('robe room: the two together still 1744.21 ex GST, and identical in a room called Kitchen',
+    qpair.totals.sellExGst === 1744.21
+    && JSON.stringify(price([{ ...base, room: 'Kitchen' }, { ...tall, room: 'Kitchen' }]).lines.map((l) => [l.costPrice, l.total]))
+      === JSON.stringify(qpair.lines.map((l) => [l.costPrice, l.total])),
+    String(qpair.totals.sellExGst));
+  const qmixed = price([base, tall, { name: '2 Door Sliding Robe', qty: 1, w: 2400, h: 2400, d: 100, room: 'Robe', mv_total: 2150 }]);
+  const cabLines = (q) => JSON.stringify(q.lines.filter((l) => l.source === 'bower').map((l) => [l.description, l.costPrice, l.total, l.materialCost, l.laborCost]));
+  check('robe room: a sliding robe beside them changes none of their lines, and adds exactly its mv_total to the job',
+    cabLines(qmixed) === cabLines(qpair) && Math.abs(qmixed.totals.sellExGst - (qpair.totals.sellExGst + 2150)) < 0.005
+    && JSON.stringify(qmixed.cost) === JSON.stringify(qpair.cost) && qmixed.workshop?.shopMinutes === qpair.workshop?.shopMinutes,
+    `${cabLines(qmixed)} vs ${cabLines(qpair)}; ${qmixed.totals.sellExGst}`);
+}
+
+
+// 15. Part fits board (17 Sep 2026). The sheet count is area / yield against SHEET AREA and never looked at a part's
+//     shape: a 1223 x 2345 part priced out of a 3115 x 1200 board it cannot be cut from. WARNING ONLY - no price moves.
+{
+  const board3115 = {
+    id: 'm3115', item_code: 'LONG3115', name: 'Long Board 3115', material_type: 'Melamine',
+    area_cost: 50, sheet_length: 3115, sheet_width: 1200, expected_yield_factor: 0.85, visibility_status: 'Available',
+  };
+  const noSize = { id: 'mnosize', item_code: 'NOSIZE', name: 'Board With No Sheet Size', material_type: 'Melamine',
+    area_cost: 40, expected_yield_factor: 0.85, visibility_status: 'Available' };
+  const pd = { ...pricingData, materials: [...pricingData.materials, board3115, noSize] };
+  const sel = {
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm3115', edgeId: 'e1',
+    hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
+  };
+  const comm = { markupPct: 0.4, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const fitWarnings = (q) => q.warnings.filter((w) => /^Part too big for its board/.test(w));
+
+  check('fit: 1223 x 2345 does not fit a 3115 x 1200 sheet either way round', !partFitsSheet(1223, 2345, 3115, 1200) && !partFitsSheet(2345, 1223, 1200, 3115));
+  check('fit: 600 x 720 fits; so does 1190 x 2390 turned onto a 2400 x 1200 sheet (2390 x 1190 usable after the 10 mm trim)',
+    partFitsSheet(600, 720, 3115, 1200) && partFitsSheet(1190, 2390, 2400, 1200) && partFitsSheet(2390, 1190, 2400, 1200));
+  // The factory edges come off before nesting (Microvellum trims 10 mm off each dimension; Donkin Lane left a
+  // 2400 x 100 filler unplaced on a 2400 x 1200 board), so a part at or just under the sheet size does NOT fit.
+  check('fit: a part exactly the sheet size, 2395 x 600, 2391 x 100 and 2000 x 1191 do not fit a 2400 x 1200 sheet; with no trim the exact size does',
+    !partFitsSheet(2400, 1200, 2400, 1200) && !partFitsSheet(2395, 600, 2400, 1200) && !partFitsSheet(2391, 100, 2400, 1200)
+    && !partFitsSheet(2000, 1191, 2400, 1200) && partFitsSheet(2400, 1200, 2400, 1200, 0));
+  check('fit: 2401 x 100 does not fit a 2400 x 1200 sheet; missing sizes are not judged',
+    !partFitsSheet(2401, 100, 2400, 1200) && partFitsSheet(0, 100, 2400, 1200) && partFitsSheet(500, 500, NaN, 1200));
+
+  // A 1223 wide x 2345 high replacement front on the 3115 x 1200 board: the door part is 2345 x 1223.
+  const big = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 1223, h: 2345, d: 0, room: 'k' }], pd, sel, comm, { defaultRoom: 'k' });
+  const bw = fitWarnings(big);
+  check('fit: the 1223 x 2345 part on the 3115 x 1200 board warns once, naming the part, its size, the board and its size',
+    bw.length === 1 && /"Door" 2345 x 1223/.test(bw[0]) && bw[0].includes('Long Board 3115') && bw[0].includes('3115 x 1200 mm sheet')
+    && /turned 90 degrees/.test(bw[0]) && /grain direction is not modelled/.test(bw[0]),
+    JSON.stringify(big.warnings));
+  const bigBom = generateQuoteBOM([{ ...cab('Cabinet Faces Only', 1223, 2345, 0, 1601), productName: 'Cabinet Faces Only', exteriorMaterialId: 'm3115' }],
+    dims, hw, pd, { supplyMode: 'assembled_installed' });
+  const sheet = bigBom.consolidatedSheets.find((s) => s.materialId === 'm3115');
+  const area = (2345 * 1223) / 1e6;
+  check('fit: WARNING ONLY - the board is still priced by area / yield in whole sheets, exactly as before',
+    sheet && sheet.sheetsRequired === Math.ceil(area / 0.85 / ((3115 * 1200) / 1e6)) && Math.abs(sheet.totalMaterialCost - sheet.sheetsRequired * 3.738 * 50) < 0.01
+    && bigBom.cabinets[0].sheets.find((s) => s.materialId === 'm3115')?.oversizeParts?.length === 1,
+    JSON.stringify(sheet));
+  const small = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 600, h: 720, d: 0, room: 'k' }], pd, sel, comm, { defaultRoom: 'k' });
+  check('fit: a 600 x 720 part on the same board raises no fit warning', fitWarnings(small).length === 0, JSON.stringify(small.warnings));
+  const noSizeQ = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 1300, h: 2345, d: 0, room: 'k', exteriorMaterialId: 'mnosize' }], pd, sel, comm, { defaultRoom: 'k' });
+  check('fit: a board with no sheet size says the 2400 x 1200 default was assumed',
+    fitWarnings(noSizeQ).length === 1 && /default was assumed/.test(fitWarnings(noSizeQ)[0]), JSON.stringify(noSizeQ.warnings));
+
+  // The trim on a real schedule row: a 2400 under panel on a 2400 x 1200 board warns and says what is usable; 2390 does not.
+  const under = (w) => quoteFromSchedule([{ name: 'Under Panel', qty: 1, w, h: 16, d: 600, room: 'k', exteriorMaterialId: 'm1' }],
+    pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
+  const u2400 = fitWarnings(under(2400));
+  check('fit: a 2400 x 600 under panel on a 2400 x 1200 board warns, giving the 2390 x 1190 usable size; a 2390 one does not',
+    u2400.length === 1 && /2400 x 600/.test(u2400[0]) && u2400[0].includes('2400 x 1200 mm sheet - 2390 x 1190 mm usable once 10 mm is trimmed')
+    && fitWarnings(under(2390)).length === 0,
+    JSON.stringify({ u2400, u2390: fitWarnings(under(2390)) }));
+
+  // One warning per material, however many cabinets carry the part.
+  const run = quoteFromSchedule([
+    { name: 'Tall Applied Panel', qty: 1, w: 16, h: 2700, d: 580, room: 'k', exteriorMaterialId: 'm1' },
+    { name: 'Tall Applied Panel', qty: 1, w: 16, h: 2700, d: 580, room: 'k', exteriorMaterialId: 'm1' },
+    { name: 'Under Panel', qty: 1, w: 2984, h: 16, d: 330, room: 'k', exteriorMaterialId: 'm1' },
+    { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'k', exteriorMaterialId: 'm1' },
+  ], pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
+  const rw = fitWarnings(run);
+  check('fit: two 2700 tall panels and a 2984 under panel on one 2400 x 1200 board are ONE warning (2 x the panel, 1 x the under panel); the base cabinets are not in it',
+    rw.length === 1 && /2 x "[^"]+" 2700 x 580/.test(rw[0]) && /1 x "[^"]+" 2984 x 330/.test(rw[0]) && !/Base 1 Door/.test(rw[0]),
+    JSON.stringify(run.warnings));
+  // A floor-standing panel over the sheet only by its toe kick is not reported (generateCabinetBOM: the engine's tall
+  // heights include the kick, Microvellum's cuts do not): 2460 - 135 = 2325 fits the 2390 usable length.
+  const kickOnly = quoteFromSchedule([{ name: 'Tall Applied Panel', qty: 1, w: 16, h: 2460, d: 580, room: 'k', exteriorMaterialId: 'm1' }],
+    pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
+  check('fit: a 2460 tall applied panel, over its 2400 board only by the 135 kick, raises no part-fit warning',
+    fitWarnings(kickOnly).length === 0, JSON.stringify(kickOnly.warnings));
+  // ...but an item no taller than the kick is not standing on one: Regal's 3000 x 100 x 350 "Pelmet BC" still warns.
+  const pelmet = quoteFromSchedule([{ name: 'Pelmet BC', qty: 1, w: 3000, h: 100, d: 350, room: 'k', exteriorMaterialId: 'm1' }],
+    pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
+  check('fit: a 3000 x 100 pelmet (shorter than the kick) on a 2400 x 1200 board still warns',
+    fitWarnings(pelmet).length === 1 && /"Pelmet BC" 3000 x 100 x 350/.test(fitWarnings(pelmet)[0]), JSON.stringify(pelmet.warnings));
+
+  // Never on benchtops: blanks and laminated tops nest against their own sheet with their own join rules.
+  const egg600 = {
+    id: 'uuid-EGGPPRWS3606', item_code: 'EGGPPRWS3606', name: 'Premium White W1000 ST9',
+    material_type: 'sheet_material', brand: 'EGGER', thickness: 38, sheet_length: 3650, sheet_width: 600, area_cost: 76.7,
+    expected_yield_factor: 1, visibility_status: 'Available',
+  };
+  const hazel = {
+    id: 'uuid-MEGM12HACS3607', item_code: 'MEGM12HACS3607', name: 'MEGANITE Hazel Cream',
+    material_type: 'solid_surface_sheet', brand: 'MEGANITE', thickness: 12, sheet_length: 3660, sheet_width: 760, area_cost: 375.32,
+    expected_yield_factor: 1, visibility_status: 'Available',
+  };
+  const pdTops = { ...pricingData, materials: [...pricingData.materials, egg600, hazel] };
+  const tops = quoteFromSchedule([
+    { name: 'Countertop No Splash', qty: 1, w: 4200, h: 38, d: 650, room: 'k', mv_total: 900, benchtopMaterialId: 'EGGPPRWS3606', benchtopKind: 'blank' },
+    { name: 'Countertop With Waterfall Ends', qty: 1, w: 4000, h: 904, d: 900, room: 'k', mv_total: 2600, benchtopMaterialId: 'MEGM12HACS3607', benchtopThickness: 24 },
+    { name: 'Base 1 Door', qty: 1, w: 600, h: 870, d: 575, room: 'k' },
+  ], pdTops, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
+  check('fit: a blank and a laminated top longer AND deeper than their sheets raise no part-fit warning (both engine-priced, own join warnings)',
+    (tops.benchtops ?? []).length === 2 && fitWarnings(tops).length === 0 && tops.warnings.some((w) => /exceeds the 3650 mm blank|deeper than the 600 mm blank/.test(w)),
+    JSON.stringify(tops.warnings));
+
+  // A normal kitchen on 2400 x 1200 board: not one fit warning.
+  const kitchen = quoteFromSchedule([
+    { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'kitchen' },
+    { name: 'Base 3 Drawer', qty: 1, w: 900, h: 870, d: 575, room: 'kitchen' },
+    { name: 'Upper 2 Door', qty: 2, w: 900, h: 720, d: 350, room: 'kitchen' },
+    { name: 'Tall 2 Door', qty: 1, w: 600, h: 2100, d: 580, room: 'kitchen' },
+    { name: 'Toe Kick Base', qty: 1, w: 2400, h: 135, d: 530, room: 'kitchen' },
+    { name: 'Base Applied Panel', qty: 2, w: 16, h: 876, d: 555, room: 'kitchen' },
+    { name: 'Upper Return Filler', qty: 1, w: 16, h: 720, d: 348, room: 'kitchen' },
+  ], pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'kitchen' });
+  check('fit: a normal kitchen raises no part-fit warning', fitWarnings(kitchen).length === 0, JSON.stringify(fitWarnings(kitchen)));
 }
 
 

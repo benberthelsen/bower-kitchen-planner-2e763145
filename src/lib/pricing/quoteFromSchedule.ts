@@ -13,6 +13,7 @@
  */
 import { generateQuoteBOM } from './bomGenerator';
 import type { PricingData } from './types';
+import { isRobeDoorProduct } from './cabinetPartMapping';
 import type { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 import { calculateWorkshopCost, type SupplyMode, type WorkshopCost, type WorkshopLine } from './workshopModel';
 import {
@@ -152,6 +153,12 @@ export interface PricedLine {
   roomName: string | null;
   /** 'bower' = priced by the engine; 'passthrough' = carried from the source quote (stone, buyouts). */
   source: 'bower' | 'passthrough';
+  /**
+   * Present (true) only on a line BowerOS did not price at all - today a robe opening / sliding robe door, carried
+   * at the row's mv_total. When that total is 0 (a Build Flow work-order line has no price) the line is on the
+   * quote at $0.00: a caller applying lines should confirm those exactly like the rows it did not send.
+   */
+  unpriced?: true;
 }
 
 /**
@@ -236,6 +243,19 @@ export const DEFAULT_DIMENSIONS: GlobalDimensions = {
   boardThickness: 16, backPanelSetback: 16, topReveal: 3, sideReveal: 2, handleDrillSpacing: 32,
 } as GlobalDimensions;
 
+/**
+ * The warning for a robe row carried at its source figure (see isRobeDoorProduct). Shared with
+ * scripts/price-kitchen.mjs so the CLI and the price-quote function say the same thing.
+ */
+export function robeNotPricedWarning(
+  r: Pick<ScheduleItem, 'name' | 'w' | 'h' | 'd'>, room: string, qty: number, total: number,
+): string {
+  const what = `ROBE NOT PRICED BY BOWEROS: "${r.name}" (${room}, qty ${qty}, ${r.w} x ${r.h} x ${r.d}) is a robe opening / sliding robe door. Robe openings are not priced by BowerOS yet.`;
+  return total > 0
+    ? `${what} It is carried at the source quote's own figure, $${total.toFixed(2)}, with no board, hinges, plates, shelf pins, edge tape, workshop or install minutes added for it - check that figure covers the door kit, panels and fitting.`
+    : `${what} This row carries NO source price (mv_total missing or $0), so it is on the quote at $0.00 - price it by hand before the quote goes out.`;
+}
+
 /** Microvellum leaves the first product's room blank; it belongs with the main run. */
 function roomOf(item: ScheduleItem, fallback: string): string {
   const raw = String(item.room ?? '').trim();
@@ -276,10 +296,18 @@ export function quoteFromSchedule(
   const supplyMode: SupplyMode = commercial.supplyMode ?? 'assembled_installed';
   const uplift = (1 + (commercial.overheadPct ?? 0)) * (1 + commercial.markupPct);
 
-  const cabinetRows = schedule.filter((r) => !BENCHTOP_RE.test(r.name));
+  // Robe openings / sliding robe doors are split off FIRST, before the cabinet / benchtop split and so before the
+  // part mapping's fronts / opening / carcase rules ever see them. BowerOS does not price them yet: each is carried
+  // at its own mv_total with a loud warning and gets no board, hardware, edge tape, workshop or install minutes.
+  // See isRobeDoorProduct for exactly which names are caught (never by room).
+  const robeRows = schedule
+    .map((r, index) => ({ r, index }))
+    .filter(({ r }) => isRobeDoorProduct(r.name));
+  const robeIndexes = new Set(robeRows.map(({ index }) => index));
+  const cabinetRows = schedule.filter((r, index) => !robeIndexes.has(index) && !BENCHTOP_RE.test(r.name));
   const benchtopRows = schedule
     .map((r, index) => ({ r, index }))
-    .filter(({ r }) => BENCHTOP_RE.test(r.name));
+    .filter(({ r, index }) => !robeIndexes.has(index) && BENCHTOP_RE.test(r.name));
 
   // One PlacedItem per unit so a qty-3 line prices as three cabinets.
   const items: PlacedItem[] = [];
@@ -469,6 +497,23 @@ export function quoteFromSchedule(
     });
   }
 
+  // Robe rows: carried at the source quote's own line figure, never engine-priced. A row with no figure (or 0, which
+  // is what Build Flow sends for a work-order line) still gets a $0 line (unlike a benchtop passthrough) so it stays
+  // visible on the quote; its warning says it has no price and the line is marked unpriced.
+  const robeWarnings: string[] = [];
+  for (const { r } of robeRows) {
+    const qty = Math.max(1, Math.round(r.qty ?? 1));
+    const mv = Number(r.mv_total);
+    const total = Number.isFinite(mv) && mv > 0 ? money(mv) : 0;
+    const room = roomOf(r, defaultRoom);
+    lines.push({
+      description: r.name, quantity: qty, unit: 'ea', unitPrice: money(total / qty), total,
+      costPrice: total, materialCost: total, laborCost: 0, marginPercent: 0,
+      category: 'cabinetry', roomName: room, source: 'passthrough', unpriced: true,
+    });
+    robeWarnings.push(robeNotPricedWarning(r, room, qty, total));
+  }
+
   // Install is billed at cost: the engine adds it after the margin layer and
   // client_markup_settings carries no install category.
   if (installCost > 0) {
@@ -582,8 +627,9 @@ export function quoteFromSchedule(
     // quote are buyouts.
     hasStone: benchtopRows.length > 0,
     hasLaminex: false, hasTwoPack: false,
-    hasBuyout: passthroughRows.length > 0,
-    buyoutItems: passthroughRows.map(({ r }) => r.name),
+    // Robe rows are carried from the source quote too.
+    hasBuyout: passthroughRows.length + robeRows.length > 0,
+    buyoutItems: [...passthroughRows.map(({ r }) => r.name), ...robeRows.map(({ r }) => r.name)],
     sheetStockTotal: money(sheetStock.reduce((a, x) => a + x.cost, 0)),
     solidStockTotal: 0,
     edgebandingTotal: money(edgebanding.reduce((a, x) => a + x.cost, 0)),
@@ -632,6 +678,7 @@ export function quoteFromSchedule(
           stations: st.map((l) => ({ station: l.station, minutes: money(l.minutes), cost: money(l.cost) })),
         }
       : null,
-    warnings: [...(bom.warnings ?? []), ...lam.warnings, ...scheduleWarnings],
+    // Robe warnings first: each one is a line BowerOS did not price.
+    warnings: [...robeWarnings, ...(bom.warnings ?? []), ...lam.warnings, ...scheduleWarnings],
   };
 }

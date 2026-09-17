@@ -461,6 +461,78 @@ export function isFacesOnlyProduct(idOrName: string): boolean {
   return FACES_ONLY_RE.test((idOrName || '').toLowerCase());
 }
 
+/**
+ * Robe openings and sliding robe doors (Hafele Slider SC and the like). BowerOS has no pricing for these yet, so
+ * quoteFromSchedule carries such a row at its source-quote figure (mv_total) with a loud warning, and
+ * buildGenericCabinetMapping refuses it.
+ *
+ * Before this guard (review of the Slider SC program, 17 Sep 2026) the LIVE engine priced them three wrong ways:
+ * "Robe Opening" hit the appliance-opening rule and went out at $0.00 with a warning nobody read; "2 Door Sliding
+ * Robe" 2400 x 2400 fell through to the carcase branch ($759.59 cost: carcase board, 8 hinges, 8 plates, shelf pins,
+ * 24 m of edge tape, 78 min of Hardware assembly); "Robe Door Faces Only" matched FACES_ONLY_RE and priced as hinged
+ * loose fronts with 8 hinges.
+ *
+ * The ROOM is never tested: a "Base 2 Door" or "Tall 1 Door Broom Cabinet" in a room called Robe is a carcase and
+ * prices as one. The NAME must say robe door / opening / slider, in this order:
+ *   1. a Hafele Slider SC kit - "slider sc" or a 944.02 code - is a robe door kit whatever else the name says;
+ *   2. a BOARD word (filler, scribe, applied, end panel, pelmet, bulkhead, valance, kick, plinth) means it is NOT one:
+ *      a robe-named trim board ("Robe Door Pelmet", "Robe Opening Scribe Filler") keeps its flat-board price;
+ *   3. "robe" / "wardrobe" with "opening(s)" IS one, whatever cabinet word describes the opening ("Robe Opening
+ *      Hanging", "Robe Opening With Shelf"): an opening has no carcase to price - the mapping's opening rule returns
+ *      null, so letting a cabinet word win only swapped the robe warning and the row's mv_total for a $0 line;
+ *   4. "robe" / "wardrobe" with "door(s)" and NO door count or drawer IS one when its only cabinet words are tall,
+ *      open or hanging ("Tall Robe Doors", "Robe Doors - Tall", "Robe doors (open end)"). A carcase names its door
+ *      count ("Robe Tall 2 Door") or another cabinet word ("Robe Tall Door Cabinet") and stays a carcase;
+ *   5. any other CABINET word (base, upper, wall, tall, corner, pantry, vanity, linen, broom, drawer, shelf, hanging,
+ *      hamper, cabinet, carcase, open, bin, waste, tray, basket, pull-out, runner) means it is NOT one. A carcase with
+ *      sliding doors ("Base Sliding Door Cabinet", "Upper 2 Door Slider") keeps its carcase price - hasSlidingDoors
+ *      takes its hinges off;
+ *   6. "robe" / "wardrobe" with a door / opening / leaf / front / face / track / kit word or a sliding / slider word;
+ *   7. with no robe word: "sliding door(s) / panel(s) / leaf / leaves", or a "slider" with a door word ("three door
+ *      slider"). A bare "Waste Slider" or "Spice Slider" is a pull-out, not a door.
+ */
+const SLIDER_KIT_RE = /\bslider\s*sc\b|\b944[.\s]?02(?:[.\s]?\d{3})?\b/;
+const SLIDING_DOOR_RE = /\bsliding\s+(?:(?:ward)?robes?|doors?|panels?|leaf|leaves)\b/;
+const SLIDER_RE = /\bsliders?\b/;
+const DOOR_WORD_RE = /\bdoors?\b/;
+const ROBE_WORD_RE = /\b(?:ward)?robes?\b/;
+const ROBE_DOOR_WORD_RE = /\b(?:doors?|openings?|leaf|leaves|fronts?|faces?|tracks?|kits?)\b/;
+const ROBE_CABINET_WORD_RE =
+  /\b(?:base|upper|wall|tall|corner|pantry|vanity|linen|broom|drawers?|shel(?:f|ves)|hanging|hamper|cabinets?|carcase|carcass|open|bins?|waste|trays?|baskets?|pull\s?outs?|runners?)\b/;
+const ROBE_BOARD_WORD_RE = /filler|scribe|applied|end.?panel|pelmet|bulkhead|valance|kick|plinth/;
+const ROBE_OPENING_WORD_RE = /\bopenings?\b/;
+const DOOR_COUNT_RE = /\d+\s*doors?\b/;
+const DRAWER_WORD_RE = /\bdrawers?\b/;
+/** Cabinet words that only describe robe DOORS ("Tall Robe Doors", "Robe doors (open end)") - see rule 4. */
+const ROBE_DOOR_DESCRIPTOR_RE = /\b(?:tall|open|hanging)\b/g;
+
+const robeNameText = (idOrName: string) => (idOrName || '').toLowerCase().replace(/[_\-/]+/g, ' ');
+
+export function isRobeDoorProduct(idOrName: string): boolean {
+  const s = robeNameText(idOrName);
+  if (!s.trim()) return false;
+  if (SLIDER_KIT_RE.test(s)) return true;
+  if (ROBE_BOARD_WORD_RE.test(s)) return false;
+  if (ROBE_WORD_RE.test(s)) {
+    if (ROBE_OPENING_WORD_RE.test(s)) return true;
+    if (DOOR_WORD_RE.test(s) && !DOOR_COUNT_RE.test(s) && !DRAWER_WORD_RE.test(s)
+      && !ROBE_CABINET_WORD_RE.test(s.replace(ROBE_DOOR_DESCRIPTOR_RE, ' '))) return true;
+  }
+  if (ROBE_CABINET_WORD_RE.test(s)) return false;
+  if (ROBE_WORD_RE.test(s)) return ROBE_DOOR_WORD_RE.test(s) || SLIDING_DOOR_RE.test(s) || SLIDER_RE.test(s);
+  return SLIDING_DOOR_RE.test(s) || (SLIDER_RE.test(s) && DOOR_WORD_RE.test(s));
+}
+
+/**
+ * A carcase whose doors slide ("Base Sliding Door Cabinet", "Upper 2 Door Slider"): sliding-door words, or a
+ * "slider" with a door word. Only meaningful for a name isRobeDoorProduct did NOT take. Its doors are still real
+ * board, but they hang on a track, not hinges, so calculateHardware fits no hinges or plates to them.
+ */
+export function hasSlidingDoors(idOrName: string): boolean {
+  const s = robeNameText(idOrName);
+  return SLIDING_DOOR_RE.test(s) || (SLIDER_RE.test(s) && DOOR_WORD_RE.test(s));
+}
+
 /** Doors on a faces-only item: the number in its name ("2 Door Faces Only"), else one. */
 export function facesOnlyDoorCount(idOrName: string): number {
   const m = (idOrName || '').toLowerCase().match(/(\d+)\s*[_-]?\s*(?:doors?|faces?|fronts?)/);
@@ -534,6 +606,12 @@ function flatBoardMapping(partType: string, flatBoard: 'name' | 'shape', isCorne
 export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize): CabinetPartDefinition | null {
   const id = (definitionId || '').toLowerCase();
   if (!id) return null;
+  // Robe openings and sliding robe doors are not priced by BowerOS yet. Refused before every other rule: as a
+  // faces-only front they got hinges, as an opening $0, and as anything else a whole carcase. quoteFromSchedule
+  // never sends one here (it carries the row at mv_total); this is the planner / direct-BOM defence.
+  if (isRobeDoorProduct(id)) {
+    return null;
+  }
   // Replacement fronts: the door(s) and nothing else. Checked first - "Cabinet Faces Only" contains no word
   // any later branch recognises, and the carcase branch it fell into billed a whole cabinet with no door.
   if (FACES_ONLY_RE.test(id)) {
@@ -644,6 +722,8 @@ export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize
     isCorner,
     isBlind,
   };
+  // Sliding doors hang on a track: door board yes, hinges no (the track kit is not priced - see generateCabinetBOM).
+  if (config.numDoors > 0 && hasSlidingDoors(id)) config.slidingDoors = true;
 
   const parts: PartRequirement[] = [];
 

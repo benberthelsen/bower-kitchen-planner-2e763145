@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { generateQuoteBOM } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, isRobeDoorProduct, robeNotPricedWarning } from '../.tmp-snap-test/pricing.mjs';
 
 const [schedulePath, pricingPath, outPathArg] = process.argv.slice(2);
 if (!schedulePath || !pricingPath) {
@@ -82,8 +82,12 @@ const SUPPLY_MODE = process.argv.includes('--flat-pack') ? 'flat_pack'
 const BENCHTOP_RE = /countertop|benchtop/i;
 const cabinetRows = [];
 const otherRows = [];
+// Robe openings / sliding robe doors are split off first, exactly as quoteFromSchedule does: BowerOS does not price
+// them yet, so each is carried at its own mv_total (a $0 line when it has none) with the robe warning, and never
+// reaches generateQuoteBOM, whose part mapping refuses them.
+const robeRows = [];
 for (const r of schedule) {
-  (BENCHTOP_RE.test(r.name) ? otherRows : cabinetRows).push(r);
+  (isRobeDoorProduct(r.name) ? robeRows : BENCHTOP_RE.test(r.name) ? otherRows : cabinetRows).push(r);
 }
 
 // One PlacedItem per unit, so a qty-3 line prices as three cabinets.
@@ -157,11 +161,16 @@ const roomName = (r) => {
   return roomKeys.get(key);
 };
 const byRoom = new Map();
-cabinetRows.forEach((r, idx) => {
+// Rooms in schedule order. A room holding only robe rows still gets its section, or those lines would vanish.
+for (const r of schedule) {
+  if (!robeRows.includes(r) && !cabinetRows.includes(r)) continue;
   const room = roomName(r);
   if (!byRoom.has(room)) byRoom.set(room, []);
-  byRoom.get(room).push(idx);
+}
+cabinetRows.forEach((r, idx) => {
+  byRoom.get(roomName(r)).push(idx);
 });
+const robeWarnings = [];
 
 const biggestRoom = [...byRoom.entries()]
   .sort((a, b) => b[1].length - a[1].length)[0]?.[0];
@@ -197,6 +206,16 @@ for (const [room, idxs] of byRoom) {
     if (total <= 0) continue;
     roomSell += total;
     rows.push([1, r.name, Math.round(r.w), Math.round(r.h), Math.round(r.d), total, 0, 0, total]);
+  }
+  // Robe rows: carried at the source quote's own figure, never marked up. Unlike a benchtop, a row with no figure
+  // still goes in at $0 so it stays visible, and its warning says to price it by hand.
+  for (const r of robeRows.filter((o) => roomName(o) === room)) {
+    const qty = Math.max(1, Math.round(r.qty ?? 1));
+    const mv = Number(r.mv_total);
+    const total = Number.isFinite(mv) && mv > 0 ? money(mv) : 0;
+    roomSell += total;
+    rows.push([qty, r.name, Math.round(r.w), Math.round(r.h), Math.round(r.d), total, 0, 0, total]);
+    robeWarnings.push(robeNotPricedWarning(r, room, qty, total));
   }
   // Install is a job-level charge; it sits in the largest room.
   if (room === biggestRoom && installCost > 0) {
@@ -285,7 +304,9 @@ if (priced.length) {
   const mvSell = schedule.reduce((s, r) => s + (Number(r.mv_total) || 0), 0);
   const mvCost = mvSell / MV_UPLIFT;
   const benchCost = otherRows.reduce((s, r) => s + (Number(r.mv_total) || 0), 0) / MV_UPLIFT;
-  const bowerCost = cabinetCost + installCost + benchCost;
+  // Robe rows are carried at their own figure, so they cancel out of the comparison exactly as benchtops do.
+  const robeCost = robeRows.reduce((s, r) => s + (Number(r.mv_total) || 0), 0) / MV_UPLIFT;
+  const bowerCost = cabinetCost + installCost + benchCost + robeCost;
   const variance = ((bowerCost - mvCost) / mvCost) * 100;
 
   // Microvellum spreads install across its line items; ours is a separate line.
@@ -353,8 +374,10 @@ if (priced.length) {
   }
 }
 
-if (bom.warnings?.length) {
+// Robe warnings first and never cut off: each is a line BowerOS did not price.
+if (robeWarnings.length || bom.warnings?.length) {
   console.log('\n=== WARNINGS — check these before sending ===');
-  for (const w of bom.warnings.slice(0, 15)) console.log('  - ' + w);
+  for (const w of robeWarnings) console.log('  - ' + w);
+  for (const w of (bom.warnings ?? []).slice(0, 15)) console.log('  - ' + w);
 }
 console.log(`\nWrote ${written} — import via Quote → Import from Microvellum.\n`);

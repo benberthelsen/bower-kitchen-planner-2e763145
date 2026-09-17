@@ -52,6 +52,12 @@ export interface PartDimension {
   handlingCost: number;
   machiningCost: number;
   assemblyCost: number;
+  /**
+   * The size is a stand-in, not a cut size: the catalogue row has no usable length or width formula (the live "Door"
+   * row has neither, so a door is sized height x DEPTH), or its formula needs a corner's second arm
+   * (CabRightWidth / CabRightDepth) the item does not carry. Priced as before; never judged by the part-fit warning.
+   */
+  sizePlaceholder?: boolean;
 }
 
 export interface SheetAllocation {
@@ -75,6 +81,22 @@ export interface SheetAllocation {
   totalMaterialCost: number;
   /** true when the material id had no priced match at all — board priced at $0 (WS2 guard) */
   unresolved?: boolean;
+  /**
+   * Parts whose length and width cannot be placed on ONE sheet of this material in either orientation
+   * (sheetOptimizer.partFitsSheet). Present only when there is at least one. Information only: the sheet
+   * count is still area / yield, so these parts are priced as if they fit. generateQuoteBOM turns them
+   * into job-level warnings.
+   */
+  oversizeParts?: OversizePart[];
+}
+
+export interface OversizePart {
+  name: string;
+  length: number;
+  width: number;
+  quantity: number;
+  /** true when the material has no sheet_length / sheet_width and the 2400 x 1200 default sheet was assumed */
+  sheetSizeAssumed: boolean;
 }
 
 export interface EdgeTapeAllocation {
@@ -634,4 +656,9 @@ export interface CabinetConfig {
    * which would make it a loose board in the door finish.
    */
   toeKick?: boolean;
+  /**
+   * The doors slide on a track ("Base Sliding Door Cabinet", "Upper 2 Door Slider" - cabinetPartMapping.hasSlidingDoors).
+   * The door board is priced; hinges and hinge plates are not fitted, and the track kit is not priced (warned).
+   */
+  slidingDoors?: boolean;
 }

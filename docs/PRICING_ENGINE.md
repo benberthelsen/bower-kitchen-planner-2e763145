@@ -1,8 +1,10 @@
 # Pricing Engine Deep Dive
 
 How a placed cabinet becomes a priced quote, and how the linked pricing sheets feed it.
-Last updated: 2026-09-16 (benchtops priced from a schedule — see "Benchtops priced from a
-schedule" below; the rest of this file still describes the planner `calculateBenchtops` path).
+Last updated: 2026-09-17 (robe openings carried at the source price, and the part-fits-board
+warning — see "Robe openings and sliding robe doors" and "Part fits board" below; 2026-09-16
+benchtops priced from a schedule; the rest of this file still describes the planner
+`calculateBenchtops` path).
 
 ## The pipeline at a glance
 
@@ -17,7 +19,8 @@ generateCabinetBOM (src/lib/pricing/bomGenerator.ts)
    1. getCabinetPartMapping(definitionId)      → which parts this cabinet needs
    2. getPartQuantities(config)                → perDoor / perDrawer / perShelf → numbers
    3. calculatePartDimensions(...)             → parts_pricing formulas → real part sizes
-   4. calculateSheetRequirements(parts)        → nest parts onto sheets per material
+   4. calculateSheetRequirements(parts)        → whole sheets per material by area / yield
+                                                 (+ oversizeParts: parts that cannot fit one sheet — warning only)
    5. calculateEdgeTape(parts)                 → edge metres per edge material, bought as a 20 m minimum then by the metre
    6. calculateHardware(config, ...)           → hinges + plates, runners, screws, legs
    7. calculateLaborCost(...)                  → calibrated labor model (labor_rates)
@@ -32,6 +35,114 @@ generateQuoteBOM (all cabinets in the room)
    • commercial layer (client_markup_settings) → margin, design fee, delivery, install, markup
    • GST                                       → grandTotal { subtotalExGst, gst, total }
 ```
+
+## Robe openings and sliding robe doors (17 Sep 2026)
+
+BowerOS does **not** price robe openings or sliding robe doors yet (Ben's Hafele Slider SC program is
+designed, not built). Until it does, `quoteFromSchedule` splits robe rows off **first** — before the
+benchtop split and before the part mapping's faces-only / opening / carcase rules can see them — and
+carries each at the row's own `mv_total`:
+
+- one `source: 'passthrough'` line: `quantity` = the row's qty, `total` = `costPrice` = `mv_total`,
+  `laborCost` 0, `marginPercent` 0 (the source figure is already a sell price);
+- **no** carcase board, hinges, plates, shelf pins, edge tape, workshop stations, install minutes or
+  job-minimum top-ups — the row never becomes a `PlacedItem`;
+- a warning starting `ROBE NOT PRICED BY BOWEROS:` naming the row, its room, qty and size, placed
+  **first** in `warnings`;
+- a robe row with **no** `mv_total` (or 0) still gets a **$0.00 line** (unlike a benchtop passthrough,
+  which is dropped) and its warning says it has NO source price and must be priced by hand;
+- `workshopCosting.hasBuyout` / `buyoutItems` include robe rows (carried from the source quote).
+
+Other rows in the job price as if the robe row were not there — the smoke test checks a Base 2 Door and a
+Tall 1 Door Broom Cabinet beside a sliding robe keep exactly their lines.
+
+`buildGenericCabinetMapping` also **refuses** a robe row (returns null) before every other rule, so the
+planner / direct `generateCabinetBOM` path prices it at $0 with a robe-specific warning instead of
+"no part mapping", and `carriesKickFace` never gives one a kick run. The CLI `scripts/price-kitchen.mjs`
+does its own row split and now splits robe rows off first the same way: each goes into its room's section
+at its own `mv_total` (a $0 line when it has none), with the same `robeNotPricedWarning` text printed first
+under WARNINGS, and the cross-check counts its figure on both sides as it does a benchtop's. On the 11 saved
+schedules the CLI's file and console output are byte-identical before and after (none has a robe row).
+
+**Which names** — `isRobeDoorProduct` in `cabinetPartMapping.ts`. The ROOM is never tested: a "Base 2 Door"
+or "Tall 1 Door Broom Cabinet" in a room called Robe is a carcase and prices exactly as before. The rules
+run in this order; the first that decides wins:
+
+| # | Rule | Caught | Not caught |
+|---|---|---|---|
+| 1 | a Hafele Slider SC kit — `slider sc` or a `944.02` code — whatever else the name says | "Slider SC 2 Door Robe Door Set", "Hafele Slider SC", "944.02.011" | |
+| 2 | a board word (filler, scribe, applied, end panel, pelmet, bulkhead, valance, kick, plinth) → NOT a robe row; it keeps its flat-board price | | "Robe Door Pelmet", "Robe Opening Scribe Filler" |
+| 3 | `robe` / `wardrobe` + `opening(s)`, whatever cabinet word describes the opening — an opening has no carcase to price (the mapping's opening rule returns null), so a cabinet word winning only lost the `mv_total` and the robe warning | "Robe Opening", "Robe Opening Hanging", "Robe Opening With Shelf" | |
+| 4 | `robe` / `wardrobe` + `door(s)` with NO door count and no drawer, when its only cabinet words are tall / open / hanging | "Tall Robe Doors", "Robe Doors - Tall", "Robe doors (open end)" | "Robe Tall 2 Door", "Robe Tall Door Cabinet", "Robe Doors Base" |
+| 5 | any other cabinet word (base, upper, wall, tall, corner, pantry, vanity, linen, broom, drawer, shelf, hanging, hamper, cabinet, carcase, open, bin, waste, tray, basket, pull-out, runner) → NOT a robe row | | "Robe Base 3 Drawer", "Robe Hanging Rail", "Base Pull Out Sliding Shelf", "Tall Sliding Door Cabinet" |
+| 6 | `robe` / `wardrobe` + a door / opening / leaf / front / face / track / kit word, or a sliding / slider word | "Robe doors only", "Robe Door Faces Only", "Walk-in Robe Door Track", "2 Door Sliding Robe" | |
+| 7 | no robe word: `sliding door(s)` / `panel(s)` / `leaf` / `leaves`, or `slider` with a door word | "Mirror Sliding Door", "Wardrobe Sliding Doors" | "Waste Slider" |
+
+A carcase with sliding doors that rule 5 keeps ("Tall Sliding Door Cabinet", "Upper 2 Door Slider") prices
+as a carcase with its door board but no hinges or plates (`hasSlidingDoors`), and warns that the track kit
+is not priced. None of the 11 saved jobs has a robe-named row.
+
+What the live engine did before (probe on the live catalogue, 2400 × 2400 rows, no `mv_total`):
+
+| Row | Before | After |
+|---|---|---|
+| "Robe Opening" | $0.00, warning `no part mapping … cabinet not priced` | $0.00 line + `ROBE NOT PRICED` warning (NO source price) |
+| "2 Door Sliding Robe" | $759.59 cost / $1,136.93 job sell: carcase board, 8 hinges, 8 plates, 4 shelf pins, 24.27 m edge, 78 min Hardware assembly, 45 min install | $0 (or its `mv_total`), nothing else |
+| "Slider SC 2 Door Robe Door Set" | same as above | same as above |
+| "Sliding Robe Door" | $637.48 cost / $965.98 job sell (carcase, 1 door) | same as above |
+| "Robe Door Faces Only" qty 2, 1234 × 2345 | $750.83 cost / $1,198.16 job sell: hinged loose fronts, 8 hinges, 14.32 m edge | same as above |
+
+## Part fits board — WARNING ONLY (17 Sep 2026)
+
+The whole-sheet count (`calculateMaterialSheets`, `consolidateSheetRequirements`) is part AREA ÷ yield ÷
+SHEET AREA, rounded up. It never looked at a part's shape, so a 1223 × 2345 part priced out of a
+3115 × 1200 board it cannot be cut from. `partFitsSheet(length, width, sheetLength, sheetWidth)` in
+`sheetOptimizer.ts` is the missing geometric test:
+
+- **Grain is not modelled** anywhere in the engine (`material_pricing.horizontal_grain` is never read), so
+  a part may be turned 90°: it fits when its long side ≤ the sheet's long side and its short side ≤ the
+  sheet's short side.
+- **Trim**: the usable sheet is the nominal size less `SHEET_TRIM_MM` = 10 mm off EACH dimension (in total,
+  not per edge), so a 2400 × 1200 sheet nests 2390 × 1190 and a part exactly the sheet size does NOT fit.
+  That is Bower's Microvellum sheet setting (8 + 2 mm off the length, 5 + 5 mm off the width); Polytec MDF is
+  ±5 mm; and on Donkin Lane Microvellum left the one 2400 × 100 filler unplaced on its 2400 × 1200 Polar
+  White board. The finished part size is compared, as Microvellum nests an edged part. The catalogue has no
+  per-material trim, so a board bought oversize but listed at nominal size (Microvellum lists some Polytec
+  162412 boards at 2410 × 1210) can report a 2391–2400 mm part that does nest.
+- A material with no `sheet_length` / `sheet_width` is judged against the 2400 × 1200 default and the
+  warning says so.
+
+`calculateSheetRequirements` records the offenders on the cabinet's `SheetAllocation.oversizeParts`;
+`generateQuoteBOM` turns them into **one warning per sheet material** (`Part too big for its board: …`),
+each part name + size listed once with its count and the cabinets carrying it. **No price changes**: the
+sheet count is still area-based. Only cabinet parts are checked — kick runs are job-level stock lengths, and
+schedule benchtops (blanks and laminated tops) are nested by `benchtopLaminate` with their own join rules,
+so neither can trigger it.
+
+Two kinds of size are not judged: a stand-in size (`PartDimension.sizePlaceholder` — a door with no catalogue
+formula, or a corner part needing a second arm the item does not carry), and a floor-standing part that is over
+its sheet only by the toe kick (`generateCabinetBOM`; see the modelling fault below). The kick is only taken
+off an item taller than the kick: a 100-high "Pelmet BC" is not standing on one.
+
+New warnings on the 11 saved jobs against 23e7b08, with the 10 mm trim (every money and minute figure
+byte-identical; the trim added no part on any job, only the usable size to the text):
+
+| Job | Board (all 2400 × 1200) | Part(s) the engine priced | Real? |
+|---|---|---|---|
+| Coral Lodge kitchen | Plantation Ash | Under Panel 2582 × 307 | yes — longer than the sheet; needs a longer board or a join |
+| Coral Lodge robe | Blonde Oak | Under Panel 2770 × 70 | yes — same |
+| Regal kitchen | Polar White | Under Panel 2984 × 330; Pelmet BC 3000 × 100 | yes — same |
+
+Without the kick and stand-in exclusions the tall ones also reported: Regal 2 × Tall Applied Panel 2460 × 580
+and the broom's 2460 sides / back / door, Erin & Matt 3 × Tall Applied Panel 2440 × 710 (Microvellum cuts
+2305 × 728, which fits), and Donkin's corner Ls Base Bottom 1252 × 1252 (no second arm in the schedule).
+
+The tall ones are the warning doing its job on a **modelling** fault it did not cause: schedule heights
+for tall items include the toe kick (E&M 2440 → MV cut 2305), but `Tall Left/Right Side` and `Tall Back`
+are `CabHeight` and a board-thin applied panel is cut to its full height. Separately, the live `Door` row has
+no length/width formula, so `calculatePartDimensions` falls back to **height × DEPTH** per door — the Regal
+250-wide broom door is priced as 2460 × 580, and a 900 × 880 × 555 "Base 2 Door" carries 0.98 m² of door
+where 2 × 880 × 449 is 0.79 m². Neither is changed here.
 
 ## Benchtops priced from a schedule (Build Flow / price-quote)
 

@@ -103,7 +103,8 @@ export function calculateHardware(
   const isTall = cabinetHeight > 1200;
   
   // === HINGES ===
-  if (config.numDoors > 0) {
+  // Sliding doors hang on a track, not hinges (config.slidingDoors); their handles are still counted below.
+  if (config.numDoors > 0 && !config.slidingDoors) {
     const hingesPerDoor = isTall ? rules.hingesPerTallDoor : rules.hingesPerDoor;
     const hingeCount = config.numDoors * hingesPerDoor;
     

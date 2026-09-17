@@ -2,8 +2,8 @@
 
 import { CabinetBOM, QuoteBOM, PartDimension, PricingData, CabinetConfig, CommercialOptions, ApplianceLineItem, KickboardAllocation } from './types';
 import { parseFormula, parseEdgingSpec, createFormulaVariables } from './formulaParser';
-import { getCabinetPartMapping, getPartQuantities, isFlatBoardProduct, isFacesOnlyProduct, boardThinAxis, flatBoardCutSize } from './cabinetPartMapping';
-import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial } from './sheetOptimizer';
+import { getCabinetPartMapping, getPartQuantities, isFlatBoardProduct, isFacesOnlyProduct, isRobeDoorProduct, boardThinAxis, flatBoardCutSize } from './cabinetPartMapping';
+import { calculateSheetRequirements, consolidateSheetRequirements, pickFallbackMaterial, partFitsSheet, SHEET_TRIM_MM } from './sheetOptimizer';
 import { calculateEdgeTape, consolidateEdgeTape } from './edgeCalculator';
 import { calculateHardware, consolidateHardware } from './hardwareCalculator';
 import { calculateLaborCost, resolveLaborRates } from './laborCalculator';
@@ -30,7 +30,15 @@ export function generateCabinetBOM(
   const mapping = getCabinetPartMapping(cabinet.definitionId, catalogItemName, size);
 
   if (!mapping) {
-    return createEmptyBOM(cabinet, catalogItemName ?? 'Unknown');
+    const empty = createEmptyBOM(cabinet, catalogItemName ?? 'Unknown');
+    const robeName = [catalogItemName, cabinet.definitionId].find((n) => n && isRobeDoorProduct(n));
+    if (robeName) {
+      // Say what it is rather than "no part mapping": a robe opening priced here goes out at $0.
+      empty.warnings = [
+        `${cabinet.cabinetNumber || robeName}: "${robeName}" is a robe opening / sliding robe door - robe openings are not priced by BowerOS yet, so it is priced at $0 with no board, hinges, edge tape or workshop time. Price it by hand.`,
+      ];
+    }
+    return empty;
   }
 
   // The mapping infers shelves from the definitionId (tall=4 / wall=2 / base=1).
@@ -51,6 +59,9 @@ export function generateCabinetBOM(
   if (config.flatBoard === 'shape' && flatCut) {
     // The name matched nothing, so say why this is not a cabinet - it is usually a typo worth fixing at source.
     warnings.push(`${cabLabel}: "${itemName}" is ${cabinet.width} x ${cabinet.height} x ${cabinet.depth} - one board thick, priced as a single ${flatCut.length} x ${flatCut.width} panel, not a cabinet`);
+  }
+  if (config.slidingDoors) {
+    warnings.push(`${cabLabel}: "${itemName}" has sliding doors - priced as a carcase with the board for ${config.numDoors} door${config.numDoors === 1 ? '' : 's'} but NO hinges or hinge plates, and the sliding track, rollers and soft-close are not priced. Add the sliding door hardware by hand.`);
   }
 
   // Resolve which board each part draws from: carcase vs exterior/door finish.
@@ -98,7 +109,27 @@ export function generateCabinetBOM(
   
   // Calculate sheet requirements
   const sheets = calculateSheetRequirements(parts, pricingData.materials);
-  
+
+  // Part-fit warning data only (no price moves). A floor-standing item's schedule height includes its toe kick, but
+  // the live catalogue sizes tall sides and backs at CabHeight and a flat board is cut to its full height, so a
+  // 2460-high broom or tall applied panel reports 2460 x 580 against a 2400 sheet while Microvellum cuts it 2325
+  // (Regal; Erin & Matt 2440 -> 2305). Until that sizing is fixed, a part that only overruns its sheet by the kick is
+  // not reported. Not for replacement fronts (the face IS the finished size), kick bases, or wall-hung items - nor for
+  // an item no taller than the kick (a 100-high "Pelmet BC" is not standing on one: taking the kick off its height left
+  // -35, which partFitsSheet does not judge, and silently dropped its real 3000 x 100 overrun on Regal).
+  const kickMm = globalDims.toeKickHeight ?? 0;
+  const lowerName = itemName.toLowerCase();
+  const wallHung = (cabinet.y ?? 0) > 1 || lowerName.startsWith('wall') || lowerName.includes('upper');
+  if (kickMm > 0 && cabinet.height > kickMm && !wallHung && !config.facesOnly && !config.toeKick) {
+    const lessKick = (mm: number) => (Math.abs(mm - cabinet.height) < 0.5 ? mm - kickMm : mm);
+    for (const sh of sheets) {
+      if (!sh.oversizeParts) continue;
+      const stillOversize = sh.oversizeParts.filter((p) => !partFitsSheet(lessKick(p.length), lessKick(p.width), sh.sheetLength, sh.sheetWidth));
+      if (stillOversize.length) sh.oversizeParts = stillOversize;
+      else delete sh.oversizeParts;
+    }
+  }
+
   // Calculate edge tape against the cabinet's selected edge banding (review #7).
   const edgeTape = calculateEdgeTape(parts, pricingData.edges, cabinet.edgeId);
   
@@ -280,8 +311,9 @@ function calculatePartDimensions(
     partVars: typeof vars,
     nameSuffix = '',
     quantity = req.quantity,
-    fallbackLength = cabinet.height,
-    fallbackWidth = cabinet.depth,
+    /** Size when the catalogue formula is missing. Left undefined, it is a stand-in: height (length) / depth (width). */
+    fallbackLength?: number,
+    fallbackWidth?: number,
     exact?: { length: number; width: number },
   ) => {
     const pricing = partsPricing.find(p => p.part_type === req.partType || p.name === req.partType);
@@ -292,9 +324,20 @@ function calculatePartDimensions(
 
     // `exact` bypasses the catalogue formula: a formula written for a door on a carcase takes the kick
     // off the height, which is wrong for a face that is already the finished door size.
-    const length = exact ? exact.length : (parseFormula(pricing?.length_function ?? null, partVars) || fallbackLength);
-    const width = exact ? exact.width : (parseFormula(pricing?.width_function ?? null, partVars) || fallbackWidth);
+    const lengthFn = pricing?.length_function ?? null;
+    const widthFn = pricing?.width_function ?? null;
+    const fromLengthFn = exact ? 0 : parseFormula(lengthFn, partVars);
+    const fromWidthFn = exact ? 0 : parseFormula(widthFn, partVars);
+    const length = exact ? exact.length : (fromLengthFn || (fallbackLength ?? cabinet.height));
+    const width = exact ? exact.width : (fromWidthFn || (fallbackWidth ?? cabinet.depth));
     const area = (length * width) / 1_000_000; // mm² to m²
+    // Not a cut size (see PartDimension.sizePlaceholder): the stand-in fallback was used, or the formula needs a
+    // corner's second arm this item does not carry (CabRightWidth / CabRightDepth then default to its own W / D).
+    const needsMissingArm = (fn: string | null) => Boolean(fn)
+      && ((/CabRightWidth/.test(fn!) && cabinet.secondWidth == null) || (/CabRightDepth/.test(fn!) && cabinet.rightCarcaseDepth == null));
+    const sizePlaceholder = !exact && (
+      (!fromLengthFn && fallbackLength === undefined) || (!fromWidthFn && fallbackWidth === undefined)
+      || needsMissingArm(lengthFn) || needsMissingArm(widthFn));
 
     parts.push({
       name: (pricing?.name ?? req.partType) + nameSuffix,
@@ -310,6 +353,7 @@ function calculatePartDimensions(
       handlingCost: (pricing?.handling_cost ?? 0) + area * (pricing?.area_handling_cost ?? 0),
       machiningCost: (pricing?.machining_cost ?? 0) + area * (pricing?.area_machining_cost ?? 0),
       assemblyCost: (pricing?.assembly_cost ?? 0) + area * (pricing?.area_assembly_cost ?? 0),
+      ...(sizePlaceholder ? { sizePlaceholder: true } : {}),
     });
   };
 
@@ -395,6 +439,8 @@ const KICKABLE_ROLE = new Set([
 function carriesKickFace(item: PlacedItem): boolean {
   // Replacement fronts go on cabinets already standing on their own kick - checked before any role test.
   if (isFacesOnlyProduct(item.definitionId ?? '')) return false;
+  // Nor does a robe opening / sliding robe door: it is not a cabinet and is not priced here at all.
+  if (isRobeDoorProduct(item.definitionId ?? '') || isRobeDoorProduct(item.productName ?? '')) return false;
   // Nor does a board one board thick: "oven panle" (W 600 x H 16) added 600 mm of kick to 10 Sands St.
   if (item.itemType === 'Cabinet' && boardThinAxis(item)) return false;
   if ((item.y ?? 0) > 1) return false;
@@ -496,6 +542,67 @@ export function calculateKickboardRuns(
   return allocations;
 }
 
+/**
+ * Job-level warnings for parts that cannot be cut from their board (sheetOptimizer.partFitsSheet, recorded on each
+ * cabinet's SheetAllocation.oversizeParts, less the kick-only overruns generateCabinetBOM drops and the stand-in
+ * sizes calculateSheetRequirements never judges). ONE warning per sheet material. Each entry LEADS with the schedule
+ * product and its W x H x D (identical products grouped, with their cabinet numbers), then the part(s) at BowerOS's
+ * calculated size, and the warning says what to do. WARNING ONLY: the sheet count is still area / yield.
+ *
+ * Only cabinet parts reach this. Kick runs are job-level stock lengths added after, and schedule benchtops (blanks
+ * and laminated tops) are nested by benchtopLaminate against their own sheet, so neither can trigger it.
+ */
+function oversizePartWarnings(cabinets: CabinetBOM[]): string[] {
+  const mm = (n: number) => String(Math.round(n * 10) / 10);
+  type PartGroup = { name: string; length: number; width: number; quantity: number };
+  type ProductGroup = { name: string; size: string; numbers: string[]; units: number; parts: Map<string, PartGroup> };
+  const byMaterial = new Map<string, {
+    materialName: string; sheetLength: number; sheetWidth: number; assumed: boolean; products: Map<string, ProductGroup>;
+  }>();
+  for (const cab of cabinets) {
+    const d = cab.dimensions;
+    const size = `${mm(d.width)} x ${mm(d.height)} x ${mm(d.depth)}`;
+    for (const sh of cab.sheets) {
+      if (!sh.oversizeParts?.length) continue;
+      const mat = byMaterial.get(sh.materialId) ?? {
+        materialName: sh.materialName, sheetLength: sh.sheetLength, sheetWidth: sh.sheetWidth,
+        assumed: sh.oversizeParts[0].sheetSizeAssumed, products: new Map<string, ProductGroup>(),
+      };
+      byMaterial.set(sh.materialId, mat);
+      const productKey = `${cab.cabinetName}|${size}`;
+      const product = mat.products.get(productKey)
+        ?? { name: cab.cabinetName, size, numbers: [], units: 0, parts: new Map<string, PartGroup>() };
+      mat.products.set(productKey, product);
+      product.units += 1;
+      if (cab.cabinetNumber) product.numbers.push(cab.cabinetNumber);
+      for (const p of sh.oversizeParts) {
+        const key = `${p.name}|${mm(p.length)}x${mm(p.width)}`;
+        const g = product.parts.get(key) ?? { name: p.name, length: p.length, width: p.width, quantity: 0 };
+        g.quantity += Math.max(1, p.quantity ?? 1);
+        product.parts.set(key, g);
+      }
+    }
+  }
+  return [...byMaterial.values()].map((m) => {
+    const sheetLong = Math.max(m.sheetLength, m.sheetWidth);
+    const sheetShort = Math.min(m.sheetLength, m.sheetWidth);
+    const products = [...m.products.values()];
+    const entries = products.map((pr) => {
+      const nums = pr.numbers.length > 3 ? `${pr.numbers.slice(0, 3).join(', ')} +${pr.numbers.length - 3} more` : pr.numbers.join(', ');
+      const parts = [...pr.parts.values()].map((g) => `${g.quantity} x "${g.name}" ${mm(g.length)} x ${mm(g.width)}`);
+      return `${pr.units} x "${pr.name}" ${pr.size}${nums ? ` (${nums})` : ''} - ${parts.join(', ')}`;
+    });
+    const many = products.length > 1 || products.some((pr) => pr.parts.size > 1 || pr.units > 1);
+    return `Part too big for its board: ${m.materialName} is a ${sheetLong} x ${sheetShort} mm sheet`
+      + `${m.assumed ? ' (no sheet size in the catalogue - the 2400 x 1200 default was assumed)' : ''}`
+      + ` - ${sheetLong - SHEET_TRIM_MM} x ${sheetShort - SHEET_TRIM_MM} mm usable once ${SHEET_TRIM_MM} mm is trimmed off its length and width`
+      + ` - and BowerOS's calculated size for ${many ? 'these parts' : 'this part'} will not fit on one sheet even turned 90 degrees`
+      + ` (grain direction is not modelled, so rotation is allowed): ${entries.join('; ')}.`
+      + ` The board is still priced by area as if ${many ? 'they fit' : 'it fits'}. Price a longer sheet (e.g. 3600 x 1800) or a join,`
+      + ` or correct the product size if it is wrong.`;
+  });
+}
+
 function stockPiecesForKickCuts(allocations: KickboardAllocation[]): number {
   const stockLength = allocations[0]?.stockLengthMm ?? 2400;
   const remaining: number[] = [];
@@ -580,6 +687,7 @@ export function generateQuoteBOM(
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map(c => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map(c => c.hardware));
   const jobLevelWarnings: string[] = [];
+  jobLevelWarnings.push(...oversizePartWarnings(cabinets));
   const kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks
     ? []
     : calculateKickboardRuns(items, globalDims);

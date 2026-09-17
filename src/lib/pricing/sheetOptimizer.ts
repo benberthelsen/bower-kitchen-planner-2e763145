@@ -1,6 +1,6 @@
 // Sheet optimization engine - calculates minimum sheets required with yield factor
 
-import { PartDimension, SheetAllocation, MaterialPricingRecord } from './types';
+import { PartDimension, SheetAllocation, MaterialPricingRecord, OversizePart } from './types';
 
 interface SheetSpec {
   width: number;
@@ -33,6 +33,39 @@ export function pickFallbackMaterial(
     cheapest(boards) ??
     cheapest(priced)
   );
+}
+
+/**
+ * Board trimmed off a sheet before parts are nested, mm, in TOTAL off each dimension (not per edge): a 2400 x 1200
+ * sheet nests into 2390 x 1190. Bower's Microvellum sheet settings trim 8 + 2 mm off the length and 5 + 5 mm off the
+ * width, and Polytec MDF is sold at +/- 5 mm - on Donkin Lane Microvellum left a 2400 x 100 filler unplaced on its
+ * 2400 x 1200 Polar White board. The catalogue carries no per-material trim, so every board uses this. A board
+ * bought oversize but listed at its nominal size (Microvellum lists some Polytec 162412 boards at 2410 x 1210) can
+ * report a part of 2391 - 2400 mm that does in fact nest.
+ */
+export const SHEET_TRIM_MM = 10;
+
+/**
+ * Can a length x width part be placed on a sheetLength x sheetWidth board at all?
+ *
+ * The sheet count below is area / yield, rounded up to whole sheets - it never looked at a part's shape, so a
+ * 1223 x 2345 part priced out of a 3115 x 1200 board it cannot be cut from. This is the geometric test that was
+ * missing. Grain is NOT modelled anywhere in the engine (material_pricing.horizontal_grain is never read), so the
+ * part may be turned 90 degrees: it fits when its long side fits the sheet's usable long side and its short side the
+ * usable short side. Non-positive or non-finite sizes are not judged (true).
+ *
+ * The usable sheet is the nominal size less trimMm off EACH dimension (SHEET_TRIM_MM by default): the factory edges
+ * are squared off before nesting, so a part exactly the sheet size does NOT fit. The finished part size is compared -
+ * Microvellum nests an edged part at its finished size too. Pass 0 for the bare geometric test.
+ */
+export function partFitsSheet(
+  length: number, width: number, sheetLength: number, sheetWidth: number, trimMm: number = SHEET_TRIM_MM,
+): boolean {
+  if (![length, width, sheetLength, sheetWidth].every((n) => Number.isFinite(n) && n > 0)) return true;
+  const trim = Number.isFinite(trimMm) && trimMm > 0 ? trimMm : 0;
+  const EPS = 1e-6;
+  return Math.max(length, width) <= Math.max(sheetLength, sheetWidth) - trim + EPS
+    && Math.min(length, width) <= Math.min(sheetLength, sheetWidth) - trim + EPS;
 }
 
 /**
@@ -85,6 +118,14 @@ export function calculateSheetRequirements(
     );
     allocation.materialRole = materialParts[0]?.materialRole ?? 'carcase';
     if (unresolved) allocation.unresolved = true;
+
+    // Warning data only - the sheet count and cost above are untouched. A stand-in size (PartDimension.sizePlaceholder:
+    // a door sized height x depth because its catalogue row has no formula) is not a cut size, so it is not judged.
+    const sheetSizeAssumed = !(material && material.sheet_width && material.sheet_length);
+    const oversizeParts: OversizePart[] = materialParts
+      .filter((p) => !p.sizePlaceholder && !partFitsSheet(p.length, p.width, sheetSpec.length, sheetSpec.width))
+      .map((p) => ({ name: p.name, length: p.length, width: p.width, quantity: p.quantity, sheetSizeAssumed }));
+    if (oversizeParts.length) allocation.oversizeParts = oversizeParts;
 
     allocations.push(allocation);
   }
