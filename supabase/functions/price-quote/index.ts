@@ -13,7 +13,11 @@
 // not planner users.
 //
 //   POST /price-quote           { schedule, selections, supplyMode?, defaultRoom?, markupPct? }
-//   GET  /price-quote?catalog=1 { materials, edges, hinges, runners, handles, markup }
+//   GET  /price-quote?catalog=1 { materials, edges, hinges, runners, handles, robeKits, markup }
+//
+// A schedule row carrying a `robe` block (Hafele Slider SC opening) is priced by the robe module - contract in
+// docs/PRICING_ENGINE.md. Its kit price comes from hafele_trade_prices (the logged-in capture, Bower's buy price ex
+// GST) when there is one, else from hardware_pricing flagged unconfirmed.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
@@ -51,7 +55,17 @@ async function loadCatalogue(sb: SupabaseClient) {
   const markup = def && pct !== null
     ? { pct: String(def.markup_type) === 'percentage' ? pct / 100 : pct, source: `client_markup_settings "${def.name}"` }
     : { pct: 0.40, source: 'ASSUMED 40% — no client_markup_settings row' };
-  return { parts, materials, edges, hardware, labor, markup };
+  // Robe kit buy prices from the Hafele trade-price capture. Only the 944.* Slider SC articles are read (the engine
+  // uses no other capture row), and a read failure never stops pricing: the kits then price from hardware_pricing,
+  // flagged unconfirmed, exactly as before a capture exists.
+  let hafeleTradePrices: Record<string, unknown>[] = [];
+  try {
+    const { data, error } = await sb.from('hafele_trade_prices').select('article_code,trade_cost_ex_gst,captured_at').ilike('article_code', '944%');
+    if (!error) hafeleTradePrices = (data ?? []) as Record<string, unknown>[];
+  } catch {
+    hafeleTradePrices = [];
+  }
+  return { parts, materials, edges, hardware, labor, markup, hafeleTradePrices };
 }
 
 const num = (v: unknown) => (v === null || v === undefined ? v : Number(v));
@@ -111,6 +125,9 @@ serve(async (req) => {
         hinges: pick(hw(/hinge/i), ['item_code', 'name', 'brand', 'unit_cost']),
         runners: pick(hw(/runner|slide/i), ['item_code', 'name', 'brand', 'unit_cost', 'runner_depth', 'runner_height']),
         handles: pick(hw(/handle|knob|pull/i), ['item_code', 'name', 'brand', 'unit_cost']),
+        // Hafele Slider SC kits (hardware_type robe_kit). Informational for the robe card: the engine selects the kit
+        // itself from the robe block, so Build Flow never sends a kit id.
+        robeKits: pick(hw(/^robe[\s_-]*kit$/i), ['item_code', 'name', 'brand', 'unit_cost', 'robe_profile', 'robe_leaves', 'robe_finish', 'robe_track_length_mm', 'price_basis']),
         markup: cat.markup,
       });
     }
@@ -127,9 +144,10 @@ serve(async (req) => {
       parts: numify(cat.parts, ['handling_cost', 'area_handling_cost', 'machining_cost', 'area_machining_cost', 'assembly_cost', 'area_assembly_cost']),
       materials: numify(cat.materials, ['thickness', 'sheet_width', 'sheet_length', 'area_cost', 'area_handling_cost', 'area_assembly_cost', 'expected_yield_factor', 'minimum_job_area', 'minimum_usage_rollover', 'double_sided_cost', 'horizontal_grain_surcharge']),
       edges: numify(cat.edges, ['thickness', 'length_cost', 'handling_cost', 'area_handling_cost', 'application_cost']),
-      hardware: numify(cat.hardware, ['unit_cost', 'inner_unit_cost', 'handling_cost', 'machining_cost', 'assembly_cost', 'runner_depth', 'runner_height']),
+      hardware: numify(cat.hardware, ['unit_cost', 'inner_unit_cost', 'handling_cost', 'machining_cost', 'assembly_cost', 'runner_depth', 'runner_height', 'robe_leaves', 'robe_track_length_mm']),
       labor: numify(cat.labor, ['rate']),
       doorDrawer: [], benchtop: [],
+      hafeleTradePrices: numify(cat.hafeleTradePrices, ['trade_cost_ex_gst']),
     };
     const markupPct = typeof b.markupPct === 'number' ? b.markupPct : cat.markup.pct;
     const markupSource = typeof b.markupPct === 'number' ? 'request override' : cat.markup.source;

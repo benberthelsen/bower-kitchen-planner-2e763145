@@ -606,7 +606,8 @@ function flatBoardMapping(partType: string, flatBoard: 'name' | 'shape', isCorne
 export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize): CabinetPartDefinition | null {
   const id = (definitionId || '').toLowerCase();
   if (!id) return null;
-  // Robe openings and sliding robe doors are not priced by BowerOS yet. Refused before every other rule: as a
+  // Robe openings and sliding robe doors are never priced as cabinets (BowerOS prices one only from a schedule row
+  // with Hafele Slider SC robe fields - robeSliderDoors.ts). Refused before every other rule: as a
   // faces-only front they got hinges, as an opening $0, and as anything else a whole carcase. quoteFromSchedule
   // never sends one here (it carries the row at mv_total); this is the planner / direct-BOM defence.
   if (isRobeDoorProduct(id)) {

@@ -9,7 +9,9 @@
  * Uses a deterministic synthetic pricing dataset so it runs offline and in CI.
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
-import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind, inferFrontCounts, isFacesOnlyProduct, isRobeDoorProduct, buildGenericCabinetMapping, partFitsSheet, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres } from '../.tmp-snap-test/pricing.mjs';
+import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind, inferFrontCounts, isFacesOnlyProduct, isRobeDoorProduct, buildGenericCabinetMapping, partFitsSheet, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres,
+  sliderScGeometry, sliderScKitLength, sliderScLeafMassKg, sliderScValidationStatus, sliderScTrackForLeaf, SLIDER_SC_PROFILE_ALLOWANCE_MM, selectRobeKit } from '../.tmp-snap-test/pricing.mjs';
+import { readFileSync } from 'node:fs';
 
 // ---------- synthetic pricing fixture ----------
 const P = (name, lf, wf, extra = {}) => ({
@@ -1923,7 +1925,7 @@ for (const [id, w, h, d] of families) {
   const bomRobe = generateCabinetBOM(cab('2 Door Sliding Robe', 2400, 2400, 100, 1501), dims, hw, pricingData, '2 Door Sliding Robe');
   check('robe: a planner / direct BOM of a robe row is $0 with no parts or hardware, and says it is a robe opening (not "no part mapping")',
     bomRobe.totalCost === 0 && bomRobe.parts.length === 0 && bomRobe.hardware.length === 0
-    && (bomRobe.warnings ?? []).some((w) => /robe opening/.test(w) && /not priced by BowerOS yet/.test(w)) && !(bomRobe.warnings ?? []).some((w) => /no part mapping/.test(w)),
+    && (bomRobe.warnings ?? []).some((w) => /robe opening/.test(w) && /a cabinet BOM cannot price a robe opening/.test(w)) && !(bomRobe.warnings ?? []).some((w) => /no part mapping/.test(w)),
     JSON.stringify(bomRobe.warnings));
   const robeOnFloor = generateQuoteBOM([{ ...cab('Sliding Robe Door', 2400, 2400, 100, 1502), productName: 'Sliding Robe Door' }], dims, hw, pricingData);
   check('robe: a robe row on the floor adds no kick run and no cost', robeOnFloor.kickboards.length === 0 && robeOnFloor.grandTotal.cost === 0,
@@ -1959,8 +1961,9 @@ for (const [id, w, h, d] of families) {
         && wc.laborMinutes.total === 0,
         JSON.stringify({ cost: q.cost, sheets: wc.sheetStock, hw: wc.hardware, edge: wc.edgebanding, st: q.workshop }));
       const robeWarn = q.warnings.filter((w) => /^ROBE NOT PRICED BY BOWEROS/.test(w));
-      check(`${label}: ONE loud warning, first, naming the row and saying robe openings are not priced by BowerOS yet${mv === undefined ? ' and that it has NO price' : ' and the figure carried'}`,
-        robeWarn.length === 1 && q.warnings[0] === robeWarn[0] && robeWarn[0].includes(`"${r.name}"`) && /not priced by BowerOS yet/.test(robeWarn[0])
+      check(`${label}: ONE loud warning, first, naming the row and saying a row with no robe fields cannot be priced (send it as a Slider SC opening)${mv === undefined ? ' and that it has NO price' : ' and the figure carried'}`,
+        robeWarn.length === 1 && q.warnings[0] === robeWarn[0] && robeWarn[0].includes(`"${r.name}"`) && /no robe fields, so BowerOS cannot price it/.test(robeWarn[0])
+        && /Robe openings/.test(robeWarn[0]) && !/not priced by BowerOS yet/.test(robeWarn[0])
         && (mv === undefined ? /NO source price/.test(robeWarn[0]) && /\$0\.00/.test(robeWarn[0]) : robeWarn[0].includes('$2150.00'))
         && !q.warnings.some((w) => /no part mapping|replacement front|ONE door/.test(w)),
         JSON.stringify(q.warnings));
@@ -2110,6 +2113,474 @@ for (const [id, w, h, d] of families) {
     { name: 'Upper Return Filler', qty: 1, w: 16, h: 720, d: 348, room: 'kitchen' },
   ], pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'kitchen' });
   check('fit: a normal kitchen raises no part-fit warning', fitWarnings(kitchen).length === 0, JSON.stringify(fitWarnings(kitchen)));
+}
+
+// 16. Hafele Slider SC robe openings priced by BowerOS (17 Sep 2026). A schedule row carrying a `robe` block is priced
+//     by robeSliderDoors.ts: geometry reproduces Ben's app (Hafele_Slider_SC_Pricing_Program.html calcCabinet) to
+//     0.001 mm with the closure identity primary, one Hafele kit per opening from the 944.02.0xx seed (parsed here
+//     straight from the migration SQL), whole sheets from a real nest, edge tape on all four sides under the 20 m
+//     rule, dampers counted, mirror warned, Ben's minutes (30 set-up + 30 a leaf, 45 install), job minimums on a
+//     robe-only quote, and the guard unchanged for robe-named rows WITHOUT robe fields.
+{
+  const near = (a, b, tol = 0.001) => finite(a) && finite(b) && Math.abs(a - b) <= tol;
+  const money2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+  // ── the seed SQL is the catalogue ─────────────────────────────────────────
+  const sqlText = readFileSync(new URL('../supabase/migrations/20260917120000_slider_sc_robe_kits.sql', import.meta.url), 'utf8');
+  const hwBlock = sqlText.split('INSERT INTO public.hardware_pricing')[1].split('ON CONFLICT')[0];
+  const kitRows = [...hwBlock.matchAll(/\('(944\.02\.\d{3})', '([^']+)',\s*'(robe_kit)', 'Hafele', '([a-z_]+)',\s*([\d.]+), 0, 0, 0, 0, 'Available', '(handle|slimline)',\s*(\d), '(silver|black)',\s*(\d{4}), '([^']+)', '([^']+)'\)/g)]
+    .map((m, i) => ({ id: `kit-${i}`, item_code: m[1], name: m[2], hardware_type: m[3], brand: 'Hafele', series: m[4], unit_cost: Number(m[5]),
+      inner_unit_cost: 0, handling_cost: 0, machining_cost: 0, assembly_cost: 0,
+      robe_profile: m[6], robe_leaves: Number(m[7]), robe_finish: m[8], robe_track_length_mm: Number(m[9]), price_basis: m[10], source_url: m[11], visibility_status: 'Available' }));
+  const captureBlock = sqlText.split('INSERT INTO public.hafele_trade_prices')[1].split('ON CONFLICT')[0];
+  const captureList = [...captureBlock.matchAll(/\('(944\.02\.\d{3})',\s*'[^']+',\s*'[^']+',\s*'robe_kit',\s*'(https:[^']+)'/g)].map((m) => m[1]);
+  // Ben's PRICE_SEED, verbatim from his app (lines 204-221)
+  const PRICE_SEED = [
+    ['944.02.001', 'Handle', 2, 'Silver anodised', 1800, 291.97], ['944.02.002', 'Handle', 2, 'Silver anodised', 2700, 324.01],
+    ['944.02.010', 'Handle', 2, 'Black anodised', 1800, 313.83], ['944.02.011', 'Handle', 2, 'Black anodised', 2700, 349.70],
+    ['944.02.003', 'Handle', 3, 'Silver anodised', 2700, 427.72], ['944.02.004', 'Handle', 3, 'Silver anodised', 3600, 459.76],
+    ['944.02.012', 'Handle', 3, 'Black anodised', 2700, 460.51], ['944.02.013', 'Handle', 3, 'Black anodised', 3600, 496.38],
+    ['944.02.020', 'Slimline', 2, 'Silver anodised', 1800, 244.20], ['944.02.021', 'Slimline', 2, 'Silver anodised', 2700, 276.24],
+    ['944.02.030', 'Slimline', 2, 'Black anodised', 1800, 261.28], ['944.02.031', 'Slimline', 2, 'Black anodised', 2700, 297.16],
+    ['944.02.022', 'Slimline', 3, 'Silver anodised', 2700, 356.07], ['944.02.023', 'Slimline', 3, 'Silver anodised', 3600, 388.11],
+    ['944.02.032', 'Slimline', 3, 'Black anodised', 2700, 381.69], ['944.02.033', 'Slimline', 3, 'Black anodised', 3600, 417.56],
+  ];
+  const seedMismatch = PRICE_SEED.filter(([sku, prof, doors, fin, len, net]) => {
+    const k = kitRows.find((r) => r.item_code === sku);
+    return !(k && k.robe_profile === prof.toLowerCase() && k.robe_leaves === doors && k.robe_finish === fin.split(' ')[0].toLowerCase()
+      && k.robe_track_length_mm === len && k.unit_cost === net && /^unconfirmed - pending Hafele capture/.test(k.price_basis));
+  });
+  const variantKeys = new Set(kitRows.map((k) => [k.robe_profile, k.robe_leaves, k.robe_finish, k.robe_track_length_mm].join('|')));
+  check('robe seed: 16 robe_kit rows, 16 unique variant keys (his self-test 7), every one his PRICE_SEED price, flagged unconfirmed - pending Hafele capture',
+    kitRows.length === 16 && variantKeys.size === 16 && seedMismatch.length === 0 && kitRows.every((k) => k.hardware_type === 'robe_kit'),
+    JSON.stringify({ n: kitRows.length, keys: variantKeys.size, seedMismatch }));
+  check('robe seed: the same 16 articles are on the Hafele trade-price capture list, with a product URL and no price',
+    captureList.length === 16 && new Set(captureList).size === 16 && PRICE_SEED.every(([sku]) => captureList.includes(sku))
+    && !/trade_cost_ex_gst\)/.test(sqlText.split('INSERT INTO public.hafele_trade_prices')[1].split('VALUES')[0]),
+    JSON.stringify(captureList));
+  check('robe seed: idempotent on the item_code unique index and never retypes a kit as a handle',
+    /ON CONFLICT \(item_code\) DO UPDATE/.test(sqlText) && /ON CONFLICT \(article_code\) DO NOTHING/.test(sqlText) && !/'handle',\s*'Hafele'/.test(sqlText));
+
+  // ── geometry against Ben's app (values produced by his calcCabinet) ───────
+  const oracle = [
+    { w: 1800, h: 2400, leaves: 2, profile: 'handle', al: [0, 0, 0, 0], icw: 1800, ih: 2400, dw: 854, dh: 2345, leaf: 930, kit: 1800, sku: '944.02.001', soft: 35, mass: 25.429456 },
+    { w: 2700, h: 2400, leaves: 3, profile: 'handle', al: [0, 0, 0, 0], icw: 2700, ih: 2400, dw: 864, dh: 2345, leaf: 940, kit: 2700, sku: '944.02.003', soft: 35, mass: 25.692096 },
+    { w: 2100, h: 2550, leaves: 2, profile: 'slimline', al: [0, 0, 0, 0], icw: 2100, ih: 2550, dw: 1073, dh: 2495, leaf: 1080, kit: 2700, sku: '944.02.021', soft: 0, mass: 32.983912 },
+    { w: 3200, h: 2400, leaves: 3, profile: 'slimline', al: [0, 0, 0, 0], icw: 3200, ih: 2400, dw: 1099.666667, dh: 2345, leaf: 1106.666667, kit: 3600, sku: '944.02.023', soft: 0, mass: 31.881645 },
+    { w: 1750, h: 2100, leaves: 2, profile: 'handle', al: [0, 0, 0, 0], icw: 1750, ih: 2100, dw: 829, dh: 2045, leaf: 905, kit: 1800, sku: '944.02.001', soft: 35, mass: 21.987416 },
+    { w: 2400, h: 2400, leaves: 2, profile: 'slimline', al: [0, 0, 0, 0], icw: 2400, ih: 2400, dw: 1223, dh: 2345, leaf: 1230, kit: 2700, sku: '944.02.021', soft: 0, mass: 35.120872 },
+    { w: 2400, h: 2400, leaves: 2, profile: 'handle', al: [12, 8.5, 20, 0], icw: 2379.5, ih: 2380, dw: 1143.75, dh: 2325, leaf: 1219.75, kit: 2700, sku: '944.02.002', soft: 35, mass: 32.78325 },
+    { w: 2963.7, h: 2804.9, leaves: 3, profile: 'handle', al: [5, 5, 0, 0], icw: 2953.7, ih: 2804.9, dw: 948.566667, dh: 2749.9, leaf: 1024.566667, kit: 3600, sku: '944.02.004', soft: 35, mass: 32.214791 },
+    { w: 1234.5, h: 1999, leaves: 2, profile: 'slimline', al: [0, 0, 3, 3], icw: 1234.5, ih: 1993, dw: 640.25, dh: 1938, leaf: 647.25, kit: 1800, sku: '944.02.020', soft: 0, mass: 16.89701 },
+  ];
+  const noCapture = new Map();
+  const geomFails = [];
+  for (const o of oracle) {
+    const g = sliderScGeometry({ profile: o.profile, leaves: o.leaves, openingWidth: o.w, openingHeight: o.h, allowances: { left: o.al[0], right: o.al[1], top: o.al[2], bottom: o.al[3] } });
+    const sel = selectRobeKit({ profile: o.profile, leaves: o.leaves, finish: 'silver' }, g.kitLength, kitRows, noCapture);
+    const mass = sliderScLeafMassKg({ panelW: g.panelCut.w, panelH: g.panelCut.h, infill: 'board', boardThicknessMm: 16 });
+    const ok = near(g.icw, o.icw) && near(g.ih, o.ih) && near(g.doorWidth, o.dw) && near(g.doorHeight, o.dh) && near(g.leafWidth, o.leaf)
+      && g.closureError < 0.001 && near(g.trackCut, o.icw) && near(g.verticalProfileCut, o.dh) && near(g.horizontalProfileCut, o.dw)
+      && near(g.panelCut.w, o.dw) && near(g.panelCut.h, o.dh) && g.kitLength === o.kit && sel.kit?.item_code === o.sku
+      && g.softCloseSetback === o.soft && near(mass, o.mass) && g.blocks.length === 0
+      && g.verticalProfiles === 2 * o.leaves && g.horizontalProfiles === 2 * o.leaves;
+    if (!ok) geomFails.push({ o, g: { icw: g.icw, dw: g.doorWidth, dh: g.doorHeight, leaf: g.leafWidth, kit: g.kitLength, blocks: g.blocks }, sku: sel.kit?.item_code, mass });
+  }
+  check('robe geometry: 9 openings (odd sizes, allowances, both profiles, 2 and 3 leaves) match Ben\'s app to 0.001 mm - DW, door height, leaf, closure, track, profile cuts, panel, kit, SKU, damper setback, leaf mass',
+    geomFails.length === 0, JSON.stringify(geomFails));
+  const tracks3 = sliderScGeometry({ profile: 'handle', leaves: 3, openingWidth: 2700, openingHeight: 2400 }).tracks;
+  const tracks2 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800, openingHeight: 2400 }).tracks;
+  check('robe geometry: track planes as his trackForLeaf - 2 leaves front / rear, 3 leaves front / rear / front',
+    tracks2.join() === 'front,rear' && tracks3.join() === 'front,rear,front' && sliderScTrackForLeaf(2, 1, true) === 'rear', JSON.stringify({ tracks2, tracks3 }));
+
+  // ── closure is primary: the printed formulas are assertions ───────────────
+  const printedFails = [];
+  for (const icw of [1500, 1800, 2368, 2400, 2700, 3600]) {
+    for (const [profile, leaves] of [['handle', 2], ['handle', 3], ['slimline', 2], ['slimline', 3]]) {
+      const g = sliderScGeometry({ profile, leaves, openingWidth: icw, openingHeight: 2400 });
+      if (!(g.printedFormulaError < 1e-9 && g.closureError < 1e-9 && Math.abs(g.leafWidth - g.doorWidth - SLIDER_SC_PROFILE_ALLOWANCE_MM[profile]) < 1e-9)) {
+        printedFails.push({ icw, profile, leaves, printed: g.printedDoorWidth, dw: g.doorWidth });
+      }
+    }
+  }
+  check('robe closure: all four printed Hafele formulas equal (ICW + 60 x (n - 1)) / n less 76 Handle / 7 Slimline at ICW 1500 / 1800 / 2368 / 2400 / 2700 / 3600',
+    printedFails.length === 0, JSON.stringify(printedFails));
+  const cal80 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800, openingHeight: 2400, calibration: { profileAllowance: 80 } });
+  check('robe closure: a measured allowance of 80 (not 76) moves only the panel cut (850) - closure stays 0 and nothing blocks (his app: closure 8.000, BLOCKED)',
+    cal80.closureError === 0 && cal80.doorWidth === 850 && cal80.leafWidth === 930 && cal80.blocks.length === 0 && cal80.trackCut === 1800,
+    JSON.stringify({ c: cal80.closureError, dw: cal80.doorWidth, b: cal80.blocks }));
+
+  // ── his 7 self-tests ─────────────────────────────────────────────────────
+  const g1800 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800, openingHeight: 2400 });
+  const g2700 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 2700, openingHeight: 2400 });
+  const s2700 = sliderScGeometry({ profile: 'slimline', leaves: 3, openingWidth: 2700, openingHeight: 2400 });
+  const s3600 = sliderScGeometry({ profile: 'slimline', leaves: 3, openingWidth: 3600, openingHeight: 2400 });
+  const g2800 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 2800, openingHeight: 2400 });
+  const heavy = sliderScGeometry({ profile: 'slimline', leaves: 2, openingWidth: 2400, openingHeight: 2400 });
+  const heavyKg = sliderScLeafMassKg({ panelW: heavy.panelCut.w, panelH: heavy.panelCut.h, infill: 'mirror' });
+  const skuOf = (g, profile) => selectRobeKit({ profile, leaves: g.leaves, finish: 'silver' }, g.kitLength, kitRows, noCapture).kit?.item_code;
+  check('robe self-test 1: 2-door Handle 1800 selects 944.02.001 at a 930 mm leaf', skuOf(g1800, 'handle') === '944.02.001' && near(g1800.leafWidth, 930));
+  check('robe self-test 2 (ruled a WARNING): 2-door Handle 2700 gives a 1380 mm leaf - warned as outside 900-1350 (no Hafele source), not blocked',
+    near(g2700.leafWidth, 1380) && g2700.blocks.length === 0 && g2700.warnings.some((w) => /900-1350/.test(w) && /source unknown/.test(w)), JSON.stringify(g2700));
+  check('robe self-test 3: 3-door Slimline 2700 selects 944.02.022, nothing blocked', skuOf(s2700, 'slimline') === '944.02.022' && s2700.blocks.length === 0 && s2700.warnings.length === 0);
+  check('robe self-test 4: 3-door Slimline 3600 selects 944.02.023, nothing blocked', skuOf(s3600, 'slimline') === '944.02.023' && s3600.blocks.length === 0 && s3600.warnings.length === 0);
+  check('robe self-test 5: a 2-door opening above 2700 has no kit - blocked, and the block says three leaves on the 3600 kit covers it',
+    g2800.kitLength === 0 && g2800.blocks.some((b) => /no packaged Slider SC kit/.test(b) && /three leaves on the 3600 mm kit/.test(b)), JSON.stringify(g2800.blocks));
+  check('robe self-test 6: the heavy 2400 Slimline mirror leaf is at or over 50 kg (54.049) - the build pack status BLOCKS it',
+    near(heavyKg, 54.049243) && sliderScValidationStatus(heavy, 16, heavyKg) === 'BLOCKED', String(heavyKg));
+
+  // ── the build pack's Validation Tests T01-T10 ─────────────────────────────
+  const T = [
+    ['T01', 1800, 2400, 2, 'handle', 'Panel', 16, 4, 12, 854, 2345, 930, 16, 25.429456, 1800, 'PASS'],
+    ['T02', 2700, 2800, 2, 'handle', 'Panel', 16, 4, 12, 1304, 2745, 1380, 16, 43.090176, 2700, 'PASS'],
+    ['T03', 2700, 2400, 3, 'slimline', 'Panel', 16, 4, 12, 933, 2345, 940, 16, 27.504312, 2700, 'PASS'],
+    ['T04', 3600, 2400, 3, 'handle', 'Mirror', 16, 4, 12, 1164, 2345, 1240, 16, 51.586524, 3600, 'BLOCK'],
+    ['T05', 2400, 2400, 2, 'slimline', 'Mirror', 16, 4, 12, 1223, 2345, 1230, 16, 54.049243, 2700, 'BLOCK'],
+    ['T06', 1800, 2100, 2, 'slimline', 'Mirror', 16, 4, 12, 923, 2045, 930, 16, 36.598123, 1800, 'PASS'],
+    ['T07', 2800, 2400, 2, 'handle', 'Panel', 16, 4, 12, 1354, 2345, 1430, 16, 38.561456, 0, 'BLOCK'],
+    ['T08', 1800, 2850, 2, 'handle', 'Panel', 16, 4, 12, 854, 2795, 930, 16, 29.733616, 1800, 'BLOCK'],
+    ['T09', 1800, 2100, 2, 'slimline', 'Mirror', 16, 5, 14, 923, 2045, 930, 19, 43.770756, 1800, 'BLOCK'],
+    ['T10', 3600, 2400, 3, 'slimline', 'Panel', 16, 4, 12, 1233, 2345, 1240, 16, 35.383512, 3600, 'PASS'],
+  ];
+  const tFails = [];
+  for (const [id, icw, ih, leaves, profile, fill, panelT, mirrorT, backerT, dw, dh, fw, insertT, kg, stock, expected] of T) {
+    const g = sliderScGeometry({ profile, leaves, openingWidth: icw, openingHeight: ih });
+    const mass = sliderScLeafMassKg({ panelW: g.panelCut.w, panelH: g.panelCut.h, infill: fill === 'Panel' ? 'board' : 'mirror', boardThicknessMm: panelT, mirrorThicknessMm: mirrorT, backerThicknessMm: backerT });
+    const t = fill === 'Panel' ? panelT : mirrorT + backerT;
+    const status = sliderScValidationStatus(g, t, mass);
+    const ok = near(g.doorWidth, dw) && near(g.doorHeight, dh) && near(g.leafWidth, fw) && t === insertT && near(mass, kg) && g.kitLength === stock
+      && g.closureError < 0.001 && (status === 'GEOMETRY PASS') === (expected === 'PASS');
+    if (!ok) tFails.push({ id, dw: g.doorWidth, dh: g.doorHeight, fw: g.leafWidth, mass, stock: g.kitLength, status });
+  }
+  check('robe build pack: Validation Tests T01-T10 - core DW, door height, finished width, insert, leaf kg, stock length, closure and PASS / BLOCK all reproduced to 0.001',
+    tFails.length === 0, JSON.stringify(tFails));
+
+  // ── kit boundaries, inclusive ─────────────────────────────────────────────
+  const kl = (icw, leaves) => sliderScKitLength(icw, leaves);
+  check('robe kit boundaries: 2 leaves 1800 -> 1800, 1800.1 -> 2700, 2700 -> 2700, 2700.1 -> none; 3 leaves 2700 -> 2700, 2700.1 -> 3600, 3600 -> 3600, 3600.1 -> none',
+    kl(1800, 2) === 1800 && kl(1800.1, 2) === 2700 && kl(2700, 2) === 2700 && kl(2700.1, 2) === 0
+    && kl(2700, 3) === 2700 && kl(2700.1, 3) === 3600 && kl(3600, 3) === 3600 && kl(3600.1, 3) === 0 && kl(1000, 2) === 1800);
+  check('robe door height: IH 2804.9 is a 2749.9 mm door and passes; IH 2805 is a 2750 mm door and blocks (Hafele "<2750mm", strict)',
+    sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800, openingHeight: 2804.9 }).blocks.length === 0
+    && sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800, openingHeight: 2805 }).blocks.some((b) => /<2750mm/.test(b)));
+
+  // ── priced through quoteFromSchedule ──────────────────────────────────────
+  const mat = (id, item_code, name, t, L, W, cost) => ({ id, item_code, name, material_type: 'sheet_material', thickness: t, sheet_length: L, sheet_width: W, area_cost: cost, expected_yield_factor: 1, visibility_status: 'Available' });
+  const pw16 = mat('uuid-POLY25832', 'POLY25832', 'MDF 162412 DS Polar White Sheen LMG E0 No Film', 16, 2400, 1200, 31.47);
+  const big16 = mat('uuid-BIG16', 'BIG16', 'Sheer White 3600', 16, 3600, 1800, 25.53);
+  const big18 = mat('uuid-BIG18', 'BIG18', 'Sheer White 3600 18mm', 18, 3600, 1800, 28);
+  const tall16 = mat('uuid-TALL16', 'TALL16', 'Classic White 3115', 16, 3115, 1200, 26.82);
+  const pw18 = mat('uuid-PW18', 'PW18', 'Polar White 18mm', 18, 2400, 1200, 35);
+  const thick25 = mat('uuid-T25', 'T25', 'Thick Board 25', 25, 2400, 1200, 40);
+  const bk1403 = { id: 'uuid-bk1403', item_code: 'bk1403', name: 'Polar White', edge_type: 'Melamine', thickness: 1, length_cost: 1.5, handling_cost: 0.5, application_cost: 0.9, visibility_status: 'Available' };
+  const pdRobe = {
+    ...pricingData,
+    materials: [...pricingData.materials, pw16, big16, big18, tall16, pw18, thick25],
+    edges: [...pricingData.edges, bk1403],
+    hardware: [...pricingData.hardware, ...kitRows],
+  };
+  const rsel = { carcaseMaterialId: 'm1', exteriorMaterialId: 'POLY25832', edgeId: 'bk1403', hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar' };
+  const rcomm = { markupPct: 0.4, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const robeBlock = (over = {}) => ({ kind: 'hafele_slider_sc', profile: 'handle', leaves: 2, finish: 'silver', openingWidth: 2400, openingHeight: 2400, infill: 'board', infillMaterialId: 'POLY25832', infillThickness: 16, ...over });
+  const robeRow = (over = {}, rowOver = {}) => ({ name: 'Robe Opening', qty: 1, room: 'Bed 1', w: 2400, h: 2400, d: 0, robe: robeBlock(over), ...rowOver });
+  const priceRobe = (rows, pd = pdRobe, comm = rcomm, sel = rsel) => quoteFromSchedule(rows, pd, sel, comm, { defaultRoom: 'Kitchen' });
+  const stationOf = (q, name) => (q.workshop?.stations ?? []).find((s) => s.station === name);
+
+  // THE WORKED EXAMPLE: 2400 x 2400, 2 leaves, Handle, silver, Polar White Sheen 16 mm, assembled + installed
+  const we = priceRobe([robeRow()]);
+  const wr = we.robes[0];
+  const weLine = we.lines.find((l) => l.description === 'Robe Opening');
+  check('robe worked example: geometry 1154 x 2345 panels, 1230 leaf, closure 0, track 2400, kit 944.02.002 (2700) at $324.01 flagged unconfirmed',
+    wr && wr.geometry.doorWidth === 1154 && wr.geometry.doorHeight === 2345 && wr.geometry.leafWidth === 1230 && wr.geometry.closureError === 0
+    && wr.geometry.trackCut === 2400 && wr.kit.item_code === '944.02.002' && wr.kit.price === 324.01 && wr.kit.unconfirmed === true && wr.kit.quantity === 1,
+    JSON.stringify(wr?.geometry) + JSON.stringify(wr?.kit));
+  check('robe worked example: 2 whole 2400 x 1200 sheets $181.27, 13.996 m edge on all four sides bought as 20 m = $43.10, kit $324.01 -> materials $548.38',
+    wr.boards.sheets === 2 && wr.boards.cost === 181.27 && wr.boards.fitOk === true && near(wr.edgeMetres, 13.996) && wr.edgeCost === 43.1
+    && wr.kitCost === 324.01 && wr.materialCost === 548.38, JSON.stringify({ b: wr.boards, e: wr.edgeMetres, ec: wr.edgeCost, m: wr.materialCost }));
+  check('robe worked example: shop $241.16 (132.5 min incl. job minimums), cost $789.54, sell $1,105.36 at 40%, install 45 min $73.50 at cost, job $1,178.86 ex GST',
+    wr.laborCost === 241.16 && near(wr.shopMinutes, 132.5) && wr.costPrice === 789.54 && wr.total === 1105.36
+    && we.totals.installCost === 73.5 && we.totals.sellExGst === 1178.86 && weLine?.source === 'bower' && weLine.total === 1105.36
+    && weLine.marginPercent === 40 && weLine.costPrice === 789.54 && weLine.materialCost === 548.38 && weLine.laborCost === 241.16,
+    JSON.stringify({ l: wr.laborCost, m: wr.shopMinutes, c: wr.costPrice, t: wr.total, tot: we.totals }));
+  check('robe worked example: ONE quote line for the opening plus the install line, lines sum to the job, workshopCosting totalCost = cost + install',
+    we.lines.length === 2 && we.lines[1].description === 'Installation — onsite' && money2(we.lines.reduce((s, l) => s + l.total, 0)) === we.totals.sellExGst
+    && we.workshopCosting.totalCost === money2(789.54 + 73.5) && we.totals.cabinetCost === 789.54, JSON.stringify(we.lines));
+
+  // stations, buckets and minutes
+  const setUp = stationOf(we, 'Robe opening assembly set-up');
+  const leafAsm = stationOf(we, 'Robe leaf assembly');
+  check('robe minutes: 30 min set-up per opening and 30 min per leaf at the $100 assembly rate (Ben, 17 Sep 2026)',
+    setUp?.minutes === 30 && setUp.cost === 50 && leafAsm?.minutes === 60 && leafAsm.cost === 100 && wr.minutes.setUp === 30 && wr.minutes.leaves === 60
+    && DEFAULT_WORKSHOP_RATES.robeOpeningSetupMin === 30 && DEFAULT_WORKSHOP_RATES.robeLeafAssemblyMin === 30, JSON.stringify({ setUp, leafAsm }));
+  check('robe install: 45 min per opening at $98 = $73.50, on the job install line, billed at cost',
+    we.workshop.installMinutes === 45 && wr.minutes.install === 45 && DEFAULT_WORKSHOP_RATES.installRobeOpeningMin === 45
+    && we.lines[1].total === 73.5 && we.lines[1].marginPercent === 0);
+  check('robe board panels go through the per-part stations: drafting 2 parts, 13.996 m cut, 2 labels, 2 handled; leaves load as 2 large loose panels (2 crew); no hinges, drilling, shop part assembly or cabinet loading',
+    near(stationOf(we, 'Drafting')?.minutes, 2.74, 0.01) && near(stationOf(we, 'Panel cutting')?.minutes, 2.8, 0.01)
+    && near(stationOf(we, 'Part labelling')?.minutes, 0.2, 0.01) && near(stationOf(we, 'Part handling')?.minutes, 0.5, 0.01)
+    && stationOf(we, 'Loading & unloading (large loose panels)')?.minutes === 12
+    && !stationOf(we, 'Vertical drilling') && !stationOf(we, 'Shop part assembly') && !stationOf(we, 'Hardware assembly') && !stationOf(we, 'Loading & unloading')
+    && !stationOf(we, 'Edgebanding'), JSON.stringify(we.workshop.stations));
+  const BUCKETS = [/draft/i, /lead|cutting|drill|label/i, /edge/i, /assembly/i, /lamination|polish|build-up|joins?|cut-?outs?/i, /handling|packag|loading|pick/i];
+  const unbucketed = we.workshop.stations.filter((s) => BUCKETS.filter((re) => re.test(s.station)).length !== 1);
+  const lm = we.workshopCosting.laborMinutes;
+  check('robe buckets: every robe station name lands in exactly one laborMinutes bucket, and the buckets add up to shop + install minutes (none vanish from Build Flow)',
+    unbucketed.length === 0 && near(lm.total, we.workshop.shopMinutes + we.workshop.installMinutes, 0.02) && lm.assembly === 90 && lm.installation === 45,
+    JSON.stringify({ unbucketed, lm, shop: we.workshop.shopMinutes }));
+  check('robe job minimums: a robe-only quote tops up drafting to 20 min (17.26) and CNC to 10 min (6.30) = $54.44',
+    near(stationOf(we, 'Drafting (job minimum top-up)')?.minutes, 17.26, 0.01) && near(stationOf(we, 'Panel cutting - CNC set-up (job minimum top-up)')?.minutes, 6.3, 0.01)
+    && money2(stationOf(we, 'Drafting (job minimum top-up)').cost + stationOf(we, 'Panel cutting - CNC set-up (job minimum top-up)').cost) === 54.44
+    && lm.drafting === 20 && lm.machining === 10, JSON.stringify(we.workshop.stations));
+  const weNoMin = priceRobe([robeRow()], pdRobe, { ...rcomm, jobMinimums: false });
+  check('robe job minimums: jobMinimums false (one room priced on its own) adds no top-up - $54.44 less shop cost',
+    !stationOf(weNoMin, 'Drafting (job minimum top-up)') && !stationOf(weNoMin, 'Panel cutting - CNC set-up (job minimum top-up)')
+    && money2(we.robes[0].laborCost - weNoMin.robes[0].laborCost) === 54.44, JSON.stringify(weNoMin.robes[0]?.laborCost));
+  check('robe kit charged exactly once: workshopCosting.hardware is the one 944.02.002 set, marked unconfirmed - no rollers, guides, dampers, hinges or screws',
+    we.workshopCosting.hardware.length === 1 && we.workshopCosting.hardware[0].code === '944.02.002' && we.workshopCosting.hardware[0].quantity === 1
+    && we.workshopCosting.hardware[0].cost === 324.01 && /unconfirmed/.test(we.workshopCosting.hardware[0].description) && we.cost.hardware === 324.01,
+    JSON.stringify(we.workshopCosting.hardware));
+  check('robe workshop costing: the sheet stock row is the 2 whole sheets, the edge row the 20 m buy, hasStone false, 2 parts',
+    we.workshopCosting.sheetStock.length === 1 && we.workshopCosting.sheetStock[0].cost === 181.27 && we.workshopCosting.sheetStock[0].units === 5.76
+    && we.workshopCosting.edgebanding.length === 1 && we.workshopCosting.edgebanding[0].cost === 43.1 && we.workshopCosting.hasStone === false
+    && we.workshopCosting.partCount === 2 && we.workshopCosting.hasBuyout === false, JSON.stringify(we.workshopCosting.sheetStock));
+  check('robe warnings: the unconfirmed kit price is LOUD (the first warning, KIT PRICE UNCONFIRMED, pending Hafele capture), then the working; no ROBE NOT PRICED',
+    /^KIT PRICE UNCONFIRMED: Robe Opening - 944\.02\.002/.test(we.warnings[0]) && /pending Hafele capture/.test(we.warnings[0])
+    && !we.warnings.some((w) => /ROBE NOT PRICED/.test(w)) && /^Robe Opening: priced as 1 x Hafele Slider SC/.test(we.warnings[1]), JSON.stringify(we.warnings));
+  const loudOrder = priceRobe([
+    robeRow({}, { name: 'Robe A' }),
+    robeRow({ infill: 'mirror', infillMaterialId: undefined, infillThickness: undefined }, { name: 'Robe B' }),
+  ]);
+  const firstInfo = loudOrder.warnings.findIndex((w) => !/^(ROBE NOT PRICED BY BOWEROS|KIT PRICE UNCONFIRMED|MIRROR NOT PRICED|SOFT-CLOSE DAMPERS NOT PRICED):/.test(w));
+  check('robe warnings: with two openings every LOUD warning (both unconfirmed kits, the mirror) comes before any row working',
+    firstInfo === 3 && /^KIT PRICE UNCONFIRMED: Robe A/.test(loudOrder.warnings[0]) && /^KIT PRICE UNCONFIRMED: Robe B/.test(loudOrder.warnings[1])
+    && /^MIRROR NOT PRICED: Robe B/.test(loudOrder.warnings[2]), JSON.stringify(loudOrder.warnings));
+  check('robe mirror: a board material sent with a mirror opening is ignored and says so',
+    priceRobe([robeRow({ infill: 'mirror' })]).warnings.some((w) => /ignored on a mirror opening/.test(w)));
+
+  // captured price replaces the unconfirmed one
+  const captured = priceRobe([robeRow()], { ...pdRobe, hafeleTradePrices: [{ article_code: '94402002', trade_cost_ex_gst: '300.50', captured_at: '2026-10-01' }] });
+  const nullCapture = priceRobe([robeRow()], { ...pdRobe, hafeleTradePrices: [{ article_code: '944.02.002', trade_cost_ex_gst: null }] });
+  check('robe kit price: a Hafele capture (either article shape) prices the kit at the captured buy price, unconfirmed false, no unconfirmed warning',
+    captured.robes[0].kit.price === 300.5 && captured.robes[0].kit.unconfirmed === false && captured.robes[0].kit.priceSource === 'hafele_capture'
+    && !captured.warnings.some((w) => /KIT PRICE UNCONFIRMED/.test(w)) && captured.robes[0].kitCost === 300.5, JSON.stringify(captured.robes[0].kit));
+  check('robe kit price: a capture-list row with no price yet leaves the catalogue price, still unconfirmed',
+    nullCapture.robes[0].kit.price === 324.01 && nullCapture.robes[0].kit.unconfirmed === true);
+
+  // whole sheets from a real nest
+  const onBig = priceRobe([robeRow({ infillMaterialId: 'BIG16' })]);
+  check('robe whole sheets: two 1154 x 2345 leaves on a 3600 x 1800 board are 2 sheets $330.87 (the area rule says 1: 5.412 m2 < 6.48 m2)',
+    onBig.robes[0].boards.sheets === 2 && onBig.robes[0].boardCost === 330.87 && Math.ceil((2 * 1.154 * 2.345) / 6.48) === 1,
+    JSON.stringify(onBig.robes[0].boards));
+  const three = priceRobe([robeRow({ profile: 'slimline', leaves: 3, openingWidth: 3200, infillMaterialId: 'BIG16' })]);
+  check('robe whole sheets: three 1099.667 x 2345 leaves on 3600 x 1800 are 3 sheets $496.30 (area rule: 2)',
+    three.robes[0].boards.sheets === 3 && three.robes[0].boardCost === 496.3 && three.robes[0].kit.item_code === '944.02.023', JSON.stringify(three.robes[0]?.boards));
+  const small = priceRobe([robeRow({ openingWidth: 1750, openingHeight: 2100, infillMaterialId: 'BIG16' })]);
+  check('robe whole sheets: two 829 x 2045 leaves share ONE 3600 x 1800 sheet (side by side, 10 mm apart)',
+    small.robes[0].boards.sheets === 1 && small.robes[0].boardCost === 165.43, JSON.stringify(small.robes[0]?.boards));
+  const shared = priceRobe([
+    robeRow({ openingWidth: 1750, openingHeight: 2100, infillMaterialId: 'BIG16' }, { name: 'Robe Bed 2 Doors', qty: 2, room: 'Bed 2' }),
+    robeRow({ openingWidth: 1750, openingHeight: 2100, infillMaterialId: 'BIG16' }, { name: 'Robe Bed 3 Doors', room: 'Bed 3' }),
+  ]);
+  check('robe whole sheets: robe rows on the same board nest together - 6 leaves of 829 x 2045 = 3 sheets split 2 : 1 by area, kits 2 + 1',
+    shared.robes.length === 2 && shared.robes[0].boards.sheets === 3 && shared.robes[1].boards.sheets === 3
+    && near(shared.robes[0].boards.sheetsShare, 2) && near(shared.robes[1].boards.sheetsShare, 1)
+    && money2(shared.robes[0].boardCost + shared.robes[1].boardCost) === money2(3 * 6.48 * 25.53)
+    && shared.robes[0].kit.quantity === 2 && shared.workshopCosting.hardware[0].quantity === 3 && shared.lines.filter((l) => /^Robe Bed/.test(l.description)).length === 2,
+    JSON.stringify(shared.robes.map((r) => r.boards)));
+
+  // the part-fits-board hard stop
+  const slim2400 = priceRobe([robeRow({ profile: 'slimline' }, { mv_total: 1500 })]);
+  const slim2400Big = priceRobe([robeRow({ profile: 'slimline', infillMaterialId: 'BIG16' })]);
+  const slim2400Tall = priceRobe([robeRow({ profile: 'slimline', infillMaterialId: 'TALL16' })]);
+  check('robe fit: a 2400 Slimline 2-leaf panel (1223 wide) cannot come off a 2400 x 1200 or a 3115 x 1200 board - NOT priced, carried at mv_total with the reason; on 3600 x 1800 it prices',
+    slim2400.robes.length === 0 && slim2400.robesNotPriced[0]?.reasons.some((r) => /1223 x 2345 mm leaf panel cannot be cut/.test(r))
+    && slim2400.lines[0].source === 'passthrough' && slim2400.lines[0].unpriced === true && slim2400.lines[0].total === 1500
+    && /^ROBE NOT PRICED BY BOWEROS: "Robe Opening"/.test(slim2400.warnings[0]) && /cannot be priced/.test(slim2400.warnings[0])
+    && slim2400Tall.robes.length === 0 && slim2400Big.robes.length === 1 && slim2400Big.robes[0].boards.fitOk === true,
+    JSON.stringify({ w: slim2400.warnings, np: slim2400.robesNotPriced }));
+
+  // edge tape: one 20 m minimum per tape per JOB
+  const kitchenRows = [
+    { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'Kitchen' },
+    { name: 'Base 3 Drawer', qty: 1, w: 900, h: 870, d: 575, room: 'Kitchen' },
+    { name: 'Upper 2 Door', qty: 2, w: 900, h: 720, d: 350, room: 'Kitchen' },
+  ];
+  const ksel = { ...rsel, exteriorMaterialId: 'm1', edgeId: 'e1' };
+  const kitchenOnly = priceRobe(kitchenRows, pdRobe, rcomm, ksel);
+  const kitchenRobe = priceRobe([...kitchenRows, robeRow({}, { edgeId: 'e1' })], pdRobe, rcomm, ksel);
+  const robeEdge = kitchenRobe.robes[0]?.edgeCost;
+  // the robe's edge cost is money-rounded, so the metres it implies are whole to within a cent
+  const extraMetres = (robeEdge - 13.996 * 0.9 - 0.5) / 1.5;
+  check('robe edge: beside a kitchen on the same tape the robe pays only the extra whole metres the job buys (no second 20 m minimum), and the tape is ONE edgebanding row',
+    kitchenRobe.robes.length === 1 && robeEdge < 43.1 && Math.abs(extraMetres - Math.round(extraMetres)) < 0.01 / 1.5 && Math.round(extraMetres) >= 13 && Math.round(extraMetres) <= 15
+    && kitchenRobe.workshopCosting.edgebanding.length === kitchenOnly.workshopCosting.edgebanding.length
+    && money2(kitchenRobe.workshopCosting.edgebanding[0].cost) === money2(kitchenOnly.workshopCosting.edgebanding[0].cost + robeEdge),
+    JSON.stringify({ robeEdge, extraMetres, a: kitchenOnly.workshopCosting.edgebanding, b: kitchenRobe.workshopCosting.edgebanding }));
+  const cabLines = (q) => q.lines.filter((l) => l.source === 'bower' && l.description !== 'Installation — onsite' && !/^Robe/.test(l.description));
+  check('robe beside a kitchen: every kitchen line is exactly as without the robe (robe minutes land on the robe line), install grows by 45 min only',
+    JSON.stringify(cabLines(kitchenOnly)) === JSON.stringify(cabLines(kitchenRobe))
+    && money2(kitchenRobe.workshop.installMinutes - kitchenOnly.workshop.installMinutes) === 45,
+    JSON.stringify({ a: cabLines(kitchenOnly), b: cabLines(kitchenRobe) }));
+  const topUps = (q) => (q.workshop?.stations ?? []).filter((s) => /job minimum top-up/.test(s.station)).map((s) => `${s.station}=${s.minutes}`).join();
+  check('robe beside a kitchen: the job minimums are not charged a second time for the robe',
+    topUps(kitchenRobe) === topUps(kitchenOnly), JSON.stringify({ a: topUps(kitchenOnly), b: topUps(kitchenRobe) }));
+
+  // dampers
+  const d3 = priceRobe([robeRow({ profile: 'slimline', leaves: 3, openingWidth: 2700, infillMaterialId: 'BIG16' }, { qty: 2 })]);
+  const d3off = priceRobe([robeRow({ profile: 'slimline', leaves: 3, openingWidth: 2700, infillMaterialId: 'BIG16', softCloseAllLeaves: false })]);
+  check('robe dampers: a 2-leaf opening needs the kit\'s 4, nothing extra', wr.dampers.inKit === 4 && wr.dampers.extra === 0 && wr.dampers.priced === false);
+  check('robe dampers: 2 x 3-leaf openings with soft close on all leaves need 12 against 8 in the kits - 4 extra, NOT priced, loud warning, on the buyout list',
+    d3.robes[0].dampers.inKit === 8 && d3.robes[0].dampers.needed === 12 && d3.robes[0].dampers.extra === 4 && d3.robes[0].dampers.priced === false
+    && d3.warnings.some((w) => /^SOFT-CLOSE DAMPERS NOT PRICED: Robe Opening/.test(w) && /4 extra/.test(w))
+    && d3.workshopCosting.hasBuyout && d3.workshopCosting.buyoutItems.some((b) => /4 extra soft-close damper/.test(b)),
+    JSON.stringify({ d: d3.robes[0]?.dampers, w: d3.warnings }));
+  check('robe dampers: softCloseAllLeaves false on 3 leaves buys none extra and warns not to promise soft close on every leaf',
+    d3off.robes[0].dampers.extra === 0 && d3off.warnings.some((w) => /soft close NOT on all leaves/.test(w)));
+
+  // mirror
+  const mir = priceRobe([robeRow({ infill: 'mirror', infillMaterialId: undefined, infillThickness: undefined })]);
+  const mr = mir.robes[0];
+  check('robe mirror: everything else is priced (kit, set-up, leaves, install) - no board, no edge tape, no mirror price, $0 of glass',
+    mr && mr.boards.material === null && mr.boards.sheets === 0 && mr.boards.fitOk === null && mr.edgeMetres === 0 && mr.boardCost === 0 && mr.edgeCost === 0
+    && mr.kitCost === 324.01 && mr.mirror.required === true && mr.mirror.priced === false && mr.mirror.panels === 2 && mr.minutes.leaves === 60
+    && mir.workshop.installMinutes === 45 && !stationOf(mir, 'Panel cutting') && near(stationOf(mir, 'Drafting')?.minutes, 2.74, 0.01),
+    JSON.stringify(mr));
+  check('robe mirror: a LOUD MIRROR NOT PRICED warning, the Hafele USR-01 note with Ben\'s mass estimate (over 50 kg at his build-up), and the glass on the buyout list',
+    mir.warnings.some((w) => /^MIRROR NOT PRICED: Robe Opening needs 2 mirror panel\(s\) 1154 x 2345 mm/.test(w) && /EXCLUDES the mirror/.test(w))
+    && mir.warnings.some((w) => /USR-01/.test(w) && /51\.2 kg/.test(w) && /OVER the 50 kg/.test(w))
+    && mir.workshopCosting.buyoutItems.some((b) => /mirror glass 2 x 1154 x 2345 mm - NOT PRICED/.test(b)), JSON.stringify(mir.warnings));
+
+  // blocks and warnings
+  const heavyBoard = priceRobe([robeRow({ profile: 'slimline', openingWidth: 2700, openingHeight: 2800, infillMaterialId: 'BIG18', infillThickness: 18 })]);
+  check('robe mass: an 1373 x 2745 x 18 mm board leaf is estimated at 50.5 kg - not under Hafele\'s 50 kg a door, so NOT priced',
+    heavyBoard.robes.length === 0 && heavyBoard.robesNotPriced[0]?.reasons.some((r) => /50\.5 kg is not under Hafele's 50 kg/.test(r)), JSON.stringify(heavyBoard.robesNotPriced));
+  const tooTall = priceRobe([robeRow({ openingHeight: 2805 })]);
+  const noKit = priceRobe([robeRow({ openingWidth: 2800, infillMaterialId: 'BIG16' })]);
+  const thick = priceRobe([robeRow({ infillMaterialId: 'T25', infillThickness: undefined })]);
+  const t19 = priceRobe([robeRow({ infillThickness: 19 })]);
+  const t18on16 = priceRobe([robeRow({ infillThickness: 18 })]);
+  const on18 = priceRobe([robeRow({ infillMaterialId: 'PW18', infillThickness: 18 })]);
+  check('robe blocks: a 2750 mm door, a 2800 two-leaf opening (no kit), a 25 mm board, and infillThickness 19 are each NOT priced with the reason',
+    tooTall.robesNotPriced[0]?.reasons.some((r) => /<2750mm/.test(r)) && noKit.robesNotPriced[0]?.reasons.some((r) => /no packaged Slider SC kit/.test(r))
+    && thick.robesNotPriced[0]?.reasons.some((r) => /is 25 mm - the Slider SC takes a 16-18 mm infill/.test(r))
+    && t19.robesNotPriced[0]?.reasons.some((r) => /infillThickness 19 mm is outside/.test(r))
+    && [tooTall, noKit, thick, t19].every((q) => q.robes.length === 0 && q.lines[0].total === 0 && q.lines[0].unpriced === true && /NO source price/.test(q.warnings[0])));
+  check('robe infill thickness: 18 mm board accepted (Ben: 16-18); infillThickness 18 on a 16 mm board prices the 16 mm board and says so',
+    on18.robes.length === 1 && on18.robes[0].boards.thickness === 18 && t18on16.robes.length === 1
+    && t18on16.warnings.some((w) => /infillThickness 18 mm but .* is 16 mm - priced as the 16 mm board/.test(w)));
+  const wide = priceRobe([robeRow({ openingWidth: 2700, infillMaterialId: 'BIG16' })]);
+  check('robe leaf width: a 1380 mm leaf (2700 two-leaf) PRICES with a warning that the 900-1350 range has no known source',
+    wide.robes.length === 1 && wide.warnings.some((w) => /1380 mm is outside 900-1350 mm/.test(w)), JSON.stringify(wide.warnings));
+  const defaulted = priceRobe([robeRow({ infillMaterialId: undefined })]);
+  const defaultedToCarcase = priceRobe([robeRow({ infillMaterialId: undefined })], pdRobe, rcomm, { ...rsel, exteriorMaterialId: 'm1' });
+  check('robe infill default: no infillMaterialId prices in the job door finish with a warning; a door finish with no thickness / sheet size is NOT priced',
+    defaulted.robes[0]?.boards.itemCode === 'POLY25832' && defaulted.warnings.some((w) => /no robe\.infillMaterialId/.test(w))
+    && defaultedToCarcase.robes.length === 0 && defaultedToCarcase.robesNotPriced[0]?.reasons.some((r) => /has no thickness/.test(r)),
+    JSON.stringify(defaultedToCarcase.robesNotPriced));
+  const noSeed = priceRobe([robeRow()], { ...pdRobe, hardware: pricingData.hardware });
+  check('robe catalogue: before the kit seed is applied the opening is NOT priced and the reason says the seed is missing',
+    noSeed.robes.length === 0 && noSeed.robesNotPriced[0]?.reasons.some((r) => /seed .* is not applied/.test(r)));
+  const badKind = priceRobe([robeRow({ kind: 'other_system' }, { mv_total: 900 })]);
+  check('robe contract: a robe block of another kind is carried at mv_total with the reason (never a carcase)',
+    badKind.robes.length === 0 && badKind.lines[0].total === 900 && badKind.lines[0].source === 'passthrough' && /is not "hafele_slider_sc"/.test(badKind.warnings[0]));
+
+  // supply modes
+  const flat = priceRobe([robeRow()], pdRobe, { ...rcomm, supplyMode: 'flat_pack' });
+  const asm = priceRobe([robeRow()], pdRobe, { ...rcomm, supplyMode: 'assembled' });
+  check('robe supply modes: flat pack has no set-up, leaf assembly or install (panels wrapped); assembled has the shop minutes but no install',
+    !stationOf(flat, 'Robe opening assembly set-up') && !stationOf(flat, 'Robe leaf assembly') && flat.totals.installCost === 0 && flat.robes[0].minutes.setUp === 0
+    && stationOf(flat, 'Flat pack wrap & label')?.minutes === 1.2
+    && stationOf(asm, 'Robe leaf assembly')?.minutes === 60 && asm.totals.installCost === 0 && asm.robes[0].minutes.install === 0);
+
+  // the guard is unchanged for robe-named rows without robe fields
+  const guard = priceRobe([{ name: 'Robe Opening', qty: 1, w: 2400, h: 2400, d: 100, room: 'Robe', mv_total: 2150 }, robeRow({}, { name: 'Robe Opening' })]);
+  check('robe guard: a robe-named row WITHOUT robe fields is still carried at its mv_total with ROBE NOT PRICED; the same name WITH robe fields is priced beside it',
+    guard.lines[0].source === 'passthrough' && guard.lines[0].total === 2150 && guard.lines[0].unpriced === true
+    && guard.lines[1].source === 'bower' && guard.lines[1].total === 1105.36 && guard.robes.length === 1 && guard.robes[0].index === 1
+    && /^ROBE NOT PRICED BY BOWEROS: "Robe Opening" \(Robe, qty 1, 2400 x 2400 x 100\) is a robe opening/.test(guard.warnings[0])
+    && guard.workshopCosting.buyoutItems.join() === 'Robe Opening',
+    JSON.stringify({ lines: guard.lines, w: guard.warnings.slice(0, 2) }));
+  const namedOther = priceRobe([robeRow({}, { name: 'Bedroom 1 wall unit' })]);
+  check('robe contract: the robe block decides, not the name - "Bedroom 1 wall unit" with robe fields is a priced opening, never a carcase',
+    namedOther.robes.length === 1 && namedOther.lines[0].source === 'bower' && namedOther.lines[0].total === 1105.36);
+  check('robe contract: a quote without robe rows returns robes [] and robesNotPriced []',
+    Array.isArray(kitchenOnly.robes) && kitchenOnly.robes.length === 0 && Array.isArray(kitchenOnly.robesNotPriced) && kitchenOnly.robesNotPriced.length === 0);
+
+  // ── review fixes, 17 Sep 2026 ─────────────────────────────────────────────
+  // Measured sizes with decimals: the clear sizes are snapped before the kit and height tests (Ben's app has the same
+  // unrounded sums, so the oracle could not see it).
+  const fp2700 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 2700.3, openingHeight: 2400, allowances: { left: 0.1, right: 0.2 } });
+  const fp3600 = sliderScGeometry({ profile: 'handle', leaves: 3, openingWidth: 3600.3, openingHeight: 2400, allowances: { left: 0.1, right: 0.2 } });
+  const fp1800 = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800.2, openingHeight: 2400, allowances: { left: 0.1, right: 0.1 } });
+  const fpTall = sliderScGeometry({ profile: 'handle', leaves: 2, openingWidth: 1800, openingHeight: 2805.6, allowances: { top: 0.3, bottom: 0.3 } });
+  const fpPriced = priceRobe([robeRow({ openingWidth: 1800.2, allowances: { left: 0.1, right: 0.1 } })]);
+  check('robe float: 2700.3 less 0.1 / 0.2 is the 2700 two-leaf kit, 3600.3 the 3600 three-leaf kit, 1800.2 less 0.1 / 0.1 the 1800 kit (944.02.001 $291.97, priced), and 2805.6 less 0.3 / 0.3 is a 2750 door that blocks',
+    fp2700.icw === 2700 && fp2700.kitLength === 2700 && fp2700.blocks.length === 0
+    && fp3600.icw === 3600 && fp3600.kitLength === 3600 && fp3600.blocks.length === 0
+    && fp1800.icw === 1800 && fp1800.kitLength === 1800 && skuOf(fp1800, 'handle') === '944.02.001'
+    && fpPriced.robes[0]?.kit.item_code === '944.02.001' && fpPriced.robes[0]?.kit.price === 291.97
+    && fpTall.ih === 2805 && fpTall.doorHeight === 2750 && fpTall.blocks.some((b) => /<2750mm/.test(b)),
+    JSON.stringify({ fp2700: [fp2700.icw, fp2700.kitLength, fp2700.blocks], fp3600: [fp3600.icw, fp3600.kitLength], fp1800: [fp1800.icw, fp1800.kitLength], kit: fpPriced.robes[0]?.kit, fpTall: [fpTall.ih, fpTall.doorHeight, fpTall.blocks] }));
+
+  // Mirror thickness: infillThickness on a mirror opening is the glass + backer build-up - checked 16-18 and used for the mass.
+  const t09 = priceRobe([robeRow({ profile: 'slimline', openingWidth: 1800, openingHeight: 2100, infill: 'mirror', infillMaterialId: undefined, infillThickness: 19 })]);
+  check('robe mirror thickness: build pack T09 (1800 x 2100 two-leaf Slimline mirror, 5 + 14 = 19 mm) through quoteFromSchedule is NOT priced - the 16-18 mm rule has no mirror exception',
+    t09.robes.length === 0 && t09.robesNotPriced[0]?.reasons.some((r) => /infillThickness 19 mm mirror build-up .*outside the 16-18 mm/.test(r))
+    && t09.lines[0].unpriced === true, JSON.stringify(t09.robesNotPriced));
+  const m16 = priceRobe([robeRow({ openingWidth: 2200, infill: 'mirror', infillMaterialId: undefined, infillThickness: 16 })]);
+  const m18 = priceRobe([robeRow({ openingWidth: 2200, infill: 'mirror', infillMaterialId: undefined, infillThickness: 18 })]);
+  check('robe mirror thickness: the build-up sent drives the mass (2200 x 2400 two-leaf Handle: 16 mm = 4 + 12 -> 47.0 kg, under; 18 mm = 4 + 14 -> 50.2 kg, OVER, the split named an assumption) and a thickness alone raises no "ignored" warning',
+    m16.robes.length === 1 && near(m16.robes[0].leafMassKg, 46.995, 0.01) && m18.robes.length === 1 && near(m18.robes[0].leafMassKg, 50.208, 0.01)
+    && m18.warnings.some((w) => /50\.2 kg/.test(w) && /18 mm build-up/.test(w) && /14 mm backer/.test(w) && /ASSUMPTION/.test(w) && /OVER the 50 kg/.test(w))
+    && m16.warnings.some((w) => /47\.0 kg/.test(w) && /under the 50 kg/.test(w))
+    && !m16.warnings.some((w) => /ignored/.test(w)) && !m18.warnings.some((w) => /ignored/.test(w)),
+    JSON.stringify({ m16: m16.robes[0]?.leafMassKg, m18: m18.robes[0]?.leafMassKg, w: m18.warnings }));
+
+  // panelCut is the saw size: a board panel edged all four sides is cut one edge thickness in from each side.
+  check('robe panel sizes: the worked example board panel is 1154 x 2345 finished and cut 1152 x 2343 before the 1 mm edge; a mirror panel is cut at its finished size',
+    wr.geometry.panelFinished.w === 1154 && wr.geometry.panelFinished.h === 2345 && wr.geometry.panelCut.w === 1152 && wr.geometry.panelCut.h === 2343
+    && /panels 1154 x 2345 mm finished \(cut 1152 x 2343 mm before the 1 mm edge\)/.test(we.warnings[1])
+    && mr.geometry.panelCut.w === 1154 && mr.geometry.panelCut.h === 2345 && mr.geometry.panelFinished.w === 1154,
+    JSON.stringify({ board: [wr.geometry.panelCut, wr.geometry.panelFinished], mirror: [mr.geometry.panelCut, mr.geometry.panelFinished] }));
+
+  // Job minimums: a mirror-only quote is never on the CNC, so it pays the drafting floor but no CNC set-up.
+  const mirLm = mir.workshopCosting.laborMinutes;
+  check('robe job minimums: a mirror-only robe quote tops drafting up to 20 min but pays NO CNC set-up (nothing is machined)',
+    near(stationOf(mir, 'Drafting (job minimum top-up)')?.minutes, 17.26, 0.01) && !stationOf(mir, 'Panel cutting - CNC set-up (job minimum top-up)')
+    && mirLm.drafting === 20 && mirLm.machining === 0, JSON.stringify(mir.workshop.stations));
+
+  // Job minimums beside a small kitchen: the floor is on the JOB, max(floor, kitchen + robe), never kitchen top-up + robe.
+  const smallKitchen = [{ name: 'Base 1 Door', qty: 1, w: 600, h: 870, d: 575, room: 'Kitchen' }];
+  const skOnly = priceRobe(smallKitchen, pdRobe, rcomm, ksel);
+  const skRobe = priceRobe([...smallKitchen, robeRow({}, { edgeId: 'e1' })], pdRobe, rcomm, ksel);
+  const realMin = (q, re) => money2((q.workshop?.stations ?? []).filter((s) => re.test(s.station)).reduce((a, s) => a + s.minutes, 0));
+  const DRAFT_RE = /^Drafting$/;
+  const MACH_RE = /^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/;
+  const skLm = skRobe.workshopCosting.laborMinutes;
+  check('robe job minimums beside a small kitchen (kitchen alone topped up): drafting = max(20, kitchen + robe drafting) and CNC = max(10, kitchen + robe machining) - the robe\'s minutes use up the kitchen\'s top-up instead of adding to it',
+    !!stationOf(skOnly, 'Drafting (job minimum top-up)') && !!stationOf(skOnly, 'Panel cutting - CNC set-up (job minimum top-up)')
+    && near(skLm.drafting, Math.max(20, realMin(skRobe, DRAFT_RE)), 0.011) && near(skLm.machining, Math.max(10, realMin(skRobe, MACH_RE)), 0.011)
+    && realMin(skRobe, DRAFT_RE) > realMin(skOnly, DRAFT_RE)
+    && JSON.stringify(cabLines(skOnly)) === JSON.stringify(cabLines(skRobe)),
+    JSON.stringify({ lm: skLm, draft: realMin(skRobe, DRAFT_RE), mach: realMin(skRobe, MACH_RE), st: skRobe.workshop.stations }));
+  const robeAloneNoMin = priceRobe([robeRow({}, { edgeId: 'e1' })], pdRobe, { ...rcomm, jobMinimums: false }, ksel);
+  const usedDraft = Math.min(realMin(skRobe, DRAFT_RE) - realMin(skOnly, DRAFT_RE), stationOf(skOnly, 'Drafting (job minimum top-up)').minutes);
+  const usedMach = Math.min(realMin(skRobe, MACH_RE) - realMin(skOnly, MACH_RE), stationOf(skOnly, 'Panel cutting - CNC set-up (job minimum top-up)').minutes);
+  check('robe job minimums beside a small kitchen: the robe line\'s labour is its own minutes less the part of the kitchen\'s top-up it used up (kitchen lines unchanged)',
+    usedDraft > 0 && usedMach > 0
+    && near(skRobe.robes[0].laborCost, robeAloneNoMin.robes[0].laborCost - (usedDraft / 60) * DEFAULT_WORKSHOP_RATES.draftingRate - (usedMach / 60) * DEFAULT_WORKSHOP_RATES.machiningRate, 0.03),
+    JSON.stringify({ skr: skRobe.robes[0].laborCost, alone: robeAloneNoMin.robes[0].laborCost, usedDraft, usedMach }));
+
+  // A robe carried at its own figure beside a priced opening in the same room: warned loudly, both named.
+  const dbl = priceRobe([
+    { name: 'Robe Sliding Doors', qty: 1, w: 2400, h: 2400, d: 600, room: 'Bed 1', mv_total: 1219.14 },
+    robeRow({}, { name: 'Robe doors - Hafele Slider SC, 2 leaf' }),
+  ]);
+  check('robe double charge: a robe carried at $1,219.14 in the same room as a priced opening raises a LOUD POSSIBLE DOUBLE CHARGE naming both (different rooms do not); the guard text no longer says robes are not priced yet',
+    dbl.lines.length === 3 && dbl.warnings.slice(0, 3).some((w) => /^POSSIBLE DOUBLE CHARGE: "Robe Sliding Doors" \(Bed 1\) is carried at \$1219\.14 and "Robe doors - Hafele Slider SC, 2 leaf" \(priced by BowerOS at \$1105\.36\) is in the same room/.test(w))
+    && dbl.warnings.some((w) => /^ROBE NOT PRICED BY BOWEROS: "Robe Sliding Doors"/.test(w) && /no robe fields, so BowerOS cannot price it/.test(w))
+    && !dbl.warnings.some((w) => /not priced by BowerOS yet/.test(w)) && !guard.warnings.some((w) => /POSSIBLE DOUBLE CHARGE/.test(w)),
+    JSON.stringify(dbl.warnings.slice(0, 4)));
 }
 
 

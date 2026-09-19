@@ -119,6 +119,52 @@ export interface WorkshopRates {
   benchtopBlankEndEdgeMin: number;
   /** Mitre-bolt / butt join between two blank sections: router jig, bolts, seal. */
   benchtopBlankJoinMin: number;
+
+  // ---- Hafele Slider SC robe openings (see robeSliderDoors.ts) -------------
+  // Ben, 17 Sep 2026: "30 minutes set-up per opening + 30 minutes per leaf" in the shop, and 45 minutes to install an
+  // opening. Profile cutting, track cutting, fitting the rollers / guides / dampers and assembling the leaf are all
+  // inside those minutes. Board cutting, drafting, labelling, handling and loading stay on the per-part stations.
+  /** Per opening, at assemblyRate: set out, cut the track and bottom rail, prepare the kit. */
+  robeOpeningSetupMin: number;
+  /** Per leaf, at assemblyRate: cut and fit the profiles to the panel, rollers, guides, dampers. */
+  robeLeafAssemblyMin: number;
+  /** Per opening, at installRate: fix both tracks, hang, adjust, set soft close. */
+  installRobeOpeningMin: number;
+}
+
+/**
+ * Fabrication quantities for Hafele Slider SC robe openings priced at schedule level (robeSliderDoors.ts). Plain
+ * counts so rows can be summed. Every station no-ops at 0, so a job without robes is byte-identical.
+ */
+export interface RobeFabricationInputs {
+  /** Openings (kits): the set-up station and the install minutes. */
+  openings: number;
+  /** Leaves assembled in the shop. */
+  leaves: number;
+  /** Board infill panels cut on the CNC: drafted, labelled, handled. */
+  boardParts: number;
+  /** Metres of board-panel perimeter: panel lead-in / out and panel cutting. */
+  cutLm: number;
+  /** Panels bought cut or cut off-machine (mirror): drafted and handled only. */
+  boughtParts: number;
+  /** Metres of edge tape applied - timed at Edgebanding only when the edge row has no application_cost. */
+  edgeLm: number;
+  /** Leaves loaded by two people (largeLooseLongestSideMm and largeLooseAreaSqm). */
+  largeLooseParts: number;
+  /** Leaves one person carries. */
+  looseParts: number;
+}
+
+export const EMPTY_ROBE_FABRICATION: RobeFabricationInputs = {
+  openings: 0, leaves: 0, boardParts: 0, cutLm: 0, boughtParts: 0, edgeLm: 0, largeLooseParts: 0, looseParts: 0,
+};
+
+export function sumRobeFabrication(list: RobeFabricationInputs[]): RobeFabricationInputs {
+  const out: RobeFabricationInputs = { ...EMPTY_ROBE_FABRICATION };
+  for (const f of list) {
+    for (const k of Object.keys(out) as Array<keyof RobeFabricationInputs>) out[k] += f[k] ?? 0;
+  }
+  return out;
 }
 
 /**
@@ -248,6 +294,11 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   benchtopBlankCutMin: 5,
   benchtopBlankEndEdgeMin: 15,
   benchtopBlankJoinMin: 30,
+
+  // Hafele Slider SC robe openings - Ben, 17 Sep 2026. Do not change without asking him.
+  robeOpeningSetupMin: 30,
+  robeLeafAssemblyMin: 30,
+  installRobeOpeningMin: 45,
 };
 
 /**
@@ -390,6 +441,20 @@ export function calculateWorkshopCost(
      * packing / loading / install. Omit (or pass zeros) for no change.
      */
     benchtops?: BenchtopFabricationInputs;
+    /**
+     * Hafele Slider SC robe openings priced at schedule level (robeSliderDoors.ts): the opening set-up and leaf
+     * assembly stations, the board panels through the per-part stations, the leaves as loose panels, and install
+     * per opening. Omit (or pass zeros) for no change.
+     */
+    robes?: RobeFabricationInputs;
+    /**
+     * What another workshop call for the SAME job (the cabinets and benchtops) already charged toward the per-job
+     * floors: its real drafting / machining minutes, and the job-minimum top-up minutes it added. Only read when
+     * jobMinimums is on. The floor is on the job - max(floor, every call's real minutes) - so when an earlier call
+     * already topped up, this call's own minutes use up that top-up instead of being charged on top of it (a
+     * negative line under the same top-up station name, which merges into the earlier call's top-up line).
+     */
+    jobMinimumCredit?: { draftingMin: number; machiningMin: number; draftingTopUpMin?: number; machiningTopUpMin?: number };
   } = {},
 ): WorkshopCost {
   const r: WorkshopRates = { ...DEFAULT_WORKSHOP_RATES, ...(opts.rates ?? {}) };
@@ -461,6 +526,14 @@ export function calculateWorkshopCost(
   const btParts = Math.max(0, bt.parts);
   const btProducts = Math.max(0, bt.products);
 
+  // Robe openings (robeSliderDoors.ts): board panels are drafted, cut, labelled and handled like parts; bought panels
+  // (mirror) only drafted and handled. Neither is box-assembled nor counted as a product: a leaf loads as a loose panel.
+  const rb: RobeFabricationInputs = { ...EMPTY_ROBE_FABRICATION, ...(opts.robes ?? {}) };
+  const rbBoardParts = Math.max(0, rb.boardParts);
+  const rbParts = rbBoardParts + Math.max(0, rb.boughtParts);
+  const rbCutLm = Math.max(0, rb.cutLm);
+  const rbOpenings = Math.max(0, rb.openings);
+
   const products = priced.length + Math.max(0, opts.extraInstallProducts ?? 0) + btProducts;
   const benchtopLm = (opts.benchtopLm ?? 0) + Math.max(0, bt.benchtopLm);
 
@@ -477,27 +550,42 @@ export function calculateWorkshopCost(
   };
 
   // ---- always ---------------------------------------------------------------
-  add('Drafting', parts + btParts, 'part', r.draftingMinPerPart, r.draftingRate);
-  add('Panel lead-in / lead-out', cutLengthM, 'm', r.leadInOutMinPerM, r.machiningRate);
-  add('Panel cutting', cutLengthM, 'm', r.cuttingMinPerM, r.machiningRate);
+  add('Drafting', parts + btParts + rbParts, 'part', r.draftingMinPerPart, r.draftingRate);
+  add('Panel lead-in / lead-out', cutLengthM + rbCutLm, 'm', r.leadInOutMinPerM, r.machiningRate);
+  add('Panel cutting', cutLengthM + rbCutLm, 'm', r.cuttingMinPerM, r.machiningRate);
   add('Vertical drilling', verticalHoles, 'hole', r.verticalDrillMinPerHole, r.machiningRate);
-  add('Part labelling', parts + btParts, 'part', r.labellingMinPerPart, r.machiningRate);
+  add('Part labelling', parts + btParts + rbBoardParts, 'part', r.labellingMinPerPart, r.machiningRate);
   if (!opts.edgeApplicationAlreadyPriced) {
-    add('Edgebanding', edgeLm, 'm', r.edgebandMinPerM, r.edgebandingRate);
+    add('Edgebanding', edgeLm + Math.max(0, rb.edgeLm), 'm', r.edgebandMinPerM, r.edgebandingRate);
   }
-  add('Part handling', parts + btParts, 'part', r.handlingMinPerPart, r.handlingRate);
+  add('Part handling', parts + btParts + rbParts, 'part', r.handlingMinPerPart, r.handlingRate);
 
-  // ---- job minimums (floors, only for a job with cabinets / fronts / boards) -
-  // Names keep the laborMinutes buckets: 'Draft' -> drafting, 'cutting' -> machining.
-  if (opts.jobMinimums && priced.length > 0) {
+  // ---- job minimums (floors, only for a job with cabinets / fronts / boards / robe openings) -
+  // Names keep the laborMinutes buckets: 'Draft' -> drafting, 'cutting' -> machining. A robe-only quote gets the
+  // floors too; jobMinimumCredit carries what another call for the same job already charged. The CNC floor needs
+  // something on the machine: a mirror-only robe quote is drafted but never cut, so it pays no CNC set-up.
+  if (opts.jobMinimums && (priced.length > 0 || rbOpenings > 0)) {
     const minutesAt = (re: RegExp) => lines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
-    const drafted = minutesAt(/^Drafting$/);
-    if (drafted < r.draftingMinMinutesPerJob) {
-      add('Drafting (job minimum top-up)', r.draftingMinMinutesPerJob - drafted, 'min', 1, r.draftingRate);
-    }
-    const machined = minutesAt(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/);
-    if (machined < r.machiningMinMinutesPerJob) {
-      add('Panel cutting - CNC set-up (job minimum top-up)', r.machiningMinMinutesPerJob - machined, 'min', 1, r.machiningRate);
+    const credit = opts.jobMinimumCredit;
+    const floor = (station: string, own: number, priorReal: number, priorTopUp: number, min: number, rate: number) => {
+      if (priorTopUp > 0) {
+        // an earlier call already topped the job up to the floor: this call's minutes fill that top-up first
+        const absorbed = Math.min(own, priorTopUp);
+        if (absorbed > 0) {
+          lines.push({
+            station, units: round2(-absorbed), unitLabel: 'min', minutes: round2(-absorbed),
+            hours: round2(-absorbed / 60), rate, cost: round2((-absorbed / 60) * rate),
+          });
+        }
+      } else if (priorReal + own < min) {
+        add(station, min - priorReal - own, 'min', 1, rate);
+      }
+    };
+    floor('Drafting (job minimum top-up)', minutesAt(/^Drafting$/),
+      Math.max(0, credit?.draftingMin ?? 0), Math.max(0, credit?.draftingTopUpMin ?? 0), r.draftingMinMinutesPerJob, r.draftingRate);
+    if (priced.length > 0 || rbBoardParts > 0) {
+      floor('Panel cutting - CNC set-up (job minimum top-up)', minutesAt(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/),
+        Math.max(0, credit?.machiningMin ?? 0), Math.max(0, credit?.machiningTopUpMin ?? 0), r.machiningMinMinutesPerJob, r.machiningRate);
     }
   }
 
@@ -544,6 +632,13 @@ export function calculateWorkshopCost(
     }
   }
 
+  // ---- Hafele Slider SC robe openings, only when the shop assembles --------
+  // Names keep the laborMinutes buckets: both contain 'assembly'. Neither contains edge / cutting / handling / joins.
+  if (assembles) {
+    add('Robe opening assembly set-up', rbOpenings, 'opening', r.robeOpeningSetupMin, r.assemblyRate);
+    add('Robe leaf assembly', Math.max(0, rb.leaves), 'leaf', r.robeLeafAssemblyMin, r.assemblyRate);
+  }
+
   // ---- assembly, only when the shop assembles ------------------------------
   if (assembles) {
     add('Shop part assembly', assembledParts, 'part', r.assemblyMinPerPart, r.assemblyRate);
@@ -561,7 +656,7 @@ export function calculateWorkshopCost(
   if (assembles) {
     add('Inspection & packaging', products, 'product', r.packingMinPerProduct, r.handlingRate);
   } else {
-    add('Flat pack wrap & label', parts, 'part', r.flatPackPackingMinPerPart, r.handlingRate);
+    add('Flat pack wrap & label', parts + rbParts, 'part', r.flatPackPackingMinPerPart, r.handlingRate);
   }
 
   // A pre-made blank is a long flat part, not a box: it loads with the large
@@ -569,8 +664,8 @@ export function calculateWorkshopCost(
   const btBlankProducts = Math.min(Math.max(0, bt.blankProducts), btProducts);
   const btLongParts = Math.max(0, bt.longParts);
   add('Loading & unloading', products - looseItems - btBlankProducts, 'product', r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
-  add('Loading & unloading (loose fronts & boards)', looseItems - largeLooseItems, 'item', r.looseLoadingMinPerItem, r.loadingRate);
-  add('Loading & unloading (large loose panels)', largeLooseItems + btLongParts, 'item', r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
+  add('Loading & unloading (loose fronts & boards)', looseItems - largeLooseItems + Math.max(0, rb.looseParts), 'item', r.looseLoadingMinPerItem, r.loadingRate);
+  add('Loading & unloading (large loose panels)', largeLooseItems + btLongParts + Math.max(0, rb.largeLooseParts), 'item', r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
 
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);
@@ -591,6 +686,8 @@ export function calculateWorkshopCost(
     // kick runs and benchtop pieces are installed products too
     installMinutes += (Math.max(0, opts.extraInstallProducts ?? 0) + btProducts) * r.installMinPerCabinet;
     installMinutes += benchtopLm * r.installBenchtopMinPerM;
+    // a robe opening is installed per opening (Ben, 17 Sep 2026: 45 min), not per cabinet
+    installMinutes += rbOpenings * r.installRobeOpeningMin;
   }
   const installHours = installMinutes / 60;
   const installCost = installHours * r.installRate;

@@ -1,4 +1,7 @@
 import { fetchAllPricingRows } from '@/lib/pricing/fetchAllPricingRows';
+import { articleKeys } from './hafeleArticleKeys';
+
+export { articleKeys };
 
 /**
  * Häfele price book — the single source of hardware COST.
@@ -23,19 +26,6 @@ export interface HafeleTradePrice {
 }
 
 export type HafeleTradePriceIndex = Map<string, HafeleTradePrice>;
-
-/** Both the dotted and undotted form of an article number. */
-export function articleKeys(code: string | null | undefined): string[] {
-  const raw = String(code ?? '').trim();
-  if (!raw) return [];
-  const digits = raw.replace(/\D/g, '');
-  const keys = new Set<string>([raw, raw.toUpperCase()]);
-  if (digits.length === 8) {
-    keys.add(digits);
-    keys.add(`${digits.slice(0, 3)}.${digits.slice(3, 5)}.${digits.slice(5)}`);
-  }
-  return [...keys];
-}
 
 export async function fetchHafeleTradePrices(): Promise<HafeleTradePriceIndex> {
   const index: HafeleTradePriceIndex = new Map();

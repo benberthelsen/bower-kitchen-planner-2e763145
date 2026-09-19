@@ -623,6 +623,12 @@ export interface PricingData {
   benchtop: BenchtopMaterialRecord[];
   /** Stage 1 — appliance catalog (may be empty). */
   appliances?: ApplianceProductRecord[];
+  /**
+   * Häfele trade-price capture rows (hafele_trade_prices: Bower's buy price ex GST). Optional. Read by the robe
+   * module: a Slider SC kit is priced from its capture when one exists, else from hardware_pricing flagged
+   * unconfirmed. The price-quote function loads only the 944.* robe kit articles.
+   */
+  hafeleTradePrices?: Array<{ article_code: string; trade_cost_ex_gst: number | string | null; captured_at?: string | null }>;
 }
 
 // Cabinet configuration for BOM generation

@@ -1538,6 +1538,23 @@ function calculateBenchtops(items, globalDims, pricingData, selection = {}) {
 }
 
 // src/lib/pricing/workshopModel.ts
+var EMPTY_ROBE_FABRICATION = {
+  openings: 0,
+  leaves: 0,
+  boardParts: 0,
+  cutLm: 0,
+  boughtParts: 0,
+  edgeLm: 0,
+  largeLooseParts: 0,
+  looseParts: 0
+};
+function sumRobeFabrication(list) {
+  const out = { ...EMPTY_ROBE_FABRICATION };
+  for (const f of list) {
+    for (const k of Object.keys(out)) out[k] += f[k] ?? 0;
+  }
+  return out;
+}
 var EMPTY_BENCHTOP_FABRICATION = {
   parts: 0,
   cutLm: 0,
@@ -1631,7 +1648,11 @@ var DEFAULT_WORKSHOP_RATES = {
   // fine", and 15 min to laminate and finish each cut end. Do not change without asking him.
   benchtopBlankCutMin: 5,
   benchtopBlankEndEdgeMin: 15,
-  benchtopBlankJoinMin: 30
+  benchtopBlankJoinMin: 30,
+  // Hafele Slider SC robe openings - Ben, 17 Sep 2026. Do not change without asking him.
+  robeOpeningSetupMin: 30,
+  robeLeafAssemblyMin: 30,
+  installRobeOpeningMin: 45
 };
 var HARDWARE_FIT_MINUTES = {
   runner: 25,
@@ -1717,6 +1738,11 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   const bt = { ...EMPTY_BENCHTOP_FABRICATION, ...opts.benchtops ?? {} };
   const btParts = Math.max(0, bt.parts);
   const btProducts = Math.max(0, bt.products);
+  const rb = { ...EMPTY_ROBE_FABRICATION, ...opts.robes ?? {} };
+  const rbBoardParts = Math.max(0, rb.boardParts);
+  const rbParts = rbBoardParts + Math.max(0, rb.boughtParts);
+  const rbCutLm = Math.max(0, rb.cutLm);
+  const rbOpenings = Math.max(0, rb.openings);
   const products = priced.length + Math.max(0, opts.extraInstallProducts ?? 0) + btProducts;
   const benchtopLm = (opts.benchtopLm ?? 0) + Math.max(0, bt.benchtopLm);
   const lines = [];
@@ -1734,24 +1760,53 @@ function calculateWorkshopCost(cabinets, opts = {}) {
       cost: round2(hours * rate)
     });
   };
-  add("Drafting", parts + btParts, "part", r.draftingMinPerPart, r.draftingRate);
-  add("Panel lead-in / lead-out", cutLengthM, "m", r.leadInOutMinPerM, r.machiningRate);
-  add("Panel cutting", cutLengthM, "m", r.cuttingMinPerM, r.machiningRate);
+  add("Drafting", parts + btParts + rbParts, "part", r.draftingMinPerPart, r.draftingRate);
+  add("Panel lead-in / lead-out", cutLengthM + rbCutLm, "m", r.leadInOutMinPerM, r.machiningRate);
+  add("Panel cutting", cutLengthM + rbCutLm, "m", r.cuttingMinPerM, r.machiningRate);
   add("Vertical drilling", verticalHoles, "hole", r.verticalDrillMinPerHole, r.machiningRate);
-  add("Part labelling", parts + btParts, "part", r.labellingMinPerPart, r.machiningRate);
+  add("Part labelling", parts + btParts + rbBoardParts, "part", r.labellingMinPerPart, r.machiningRate);
   if (!opts.edgeApplicationAlreadyPriced) {
-    add("Edgebanding", edgeLm, "m", r.edgebandMinPerM, r.edgebandingRate);
+    add("Edgebanding", edgeLm + Math.max(0, rb.edgeLm), "m", r.edgebandMinPerM, r.edgebandingRate);
   }
-  add("Part handling", parts + btParts, "part", r.handlingMinPerPart, r.handlingRate);
-  if (opts.jobMinimums && priced.length > 0) {
+  add("Part handling", parts + btParts + rbParts, "part", r.handlingMinPerPart, r.handlingRate);
+  if (opts.jobMinimums && (priced.length > 0 || rbOpenings > 0)) {
     const minutesAt = (re) => lines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
-    const drafted = minutesAt(/^Drafting$/);
-    if (drafted < r.draftingMinMinutesPerJob) {
-      add("Drafting (job minimum top-up)", r.draftingMinMinutesPerJob - drafted, "min", 1, r.draftingRate);
-    }
-    const machined = minutesAt(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/);
-    if (machined < r.machiningMinMinutesPerJob) {
-      add("Panel cutting - CNC set-up (job minimum top-up)", r.machiningMinMinutesPerJob - machined, "min", 1, r.machiningRate);
+    const credit = opts.jobMinimumCredit;
+    const floor = (station, own, priorReal, priorTopUp, min, rate) => {
+      if (priorTopUp > 0) {
+        const absorbed = Math.min(own, priorTopUp);
+        if (absorbed > 0) {
+          lines.push({
+            station,
+            units: round2(-absorbed),
+            unitLabel: "min",
+            minutes: round2(-absorbed),
+            hours: round2(-absorbed / 60),
+            rate,
+            cost: round2(-absorbed / 60 * rate)
+          });
+        }
+      } else if (priorReal + own < min) {
+        add(station, min - priorReal - own, "min", 1, rate);
+      }
+    };
+    floor(
+      "Drafting (job minimum top-up)",
+      minutesAt(/^Drafting$/),
+      Math.max(0, credit?.draftingMin ?? 0),
+      Math.max(0, credit?.draftingTopUpMin ?? 0),
+      r.draftingMinMinutesPerJob,
+      r.draftingRate
+    );
+    if (priced.length > 0 || rbBoardParts > 0) {
+      floor(
+        "Panel cutting - CNC set-up (job minimum top-up)",
+        minutesAt(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/),
+        Math.max(0, credit?.machiningMin ?? 0),
+        Math.max(0, credit?.machiningTopUpMin ?? 0),
+        r.machiningMinMinutesPerJob,
+        r.machiningRate
+      );
     }
   }
   add("Benchtop cutting", bt.cutLm, "m", r.benchtopCutMinPerM, r.machiningRate);
@@ -1783,6 +1838,10 @@ function calculateWorkshopCost(cabinets, opts = {}) {
     }
   }
   if (assembles) {
+    add("Robe opening assembly set-up", rbOpenings, "opening", r.robeOpeningSetupMin, r.assemblyRate);
+    add("Robe leaf assembly", Math.max(0, rb.leaves), "leaf", r.robeLeafAssemblyMin, r.assemblyRate);
+  }
+  if (assembles) {
     add("Shop part assembly", assembledParts, "part", r.assemblyMinPerPart, r.assemblyRate);
   }
   if (fitsHardware && hardwareFitMin > 0) {
@@ -1795,13 +1854,13 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   if (assembles) {
     add("Inspection & packaging", products, "product", r.packingMinPerProduct, r.handlingRate);
   } else {
-    add("Flat pack wrap & label", parts, "part", r.flatPackPackingMinPerPart, r.handlingRate);
+    add("Flat pack wrap & label", parts + rbParts, "part", r.flatPackPackingMinPerPart, r.handlingRate);
   }
   const btBlankProducts = Math.min(Math.max(0, bt.blankProducts), btProducts);
   const btLongParts = Math.max(0, bt.longParts);
   add("Loading & unloading", products - looseItems - btBlankProducts, "product", r.loadingMinPerProduct, r.loadingRate, r.loadingCrew);
-  add("Loading & unloading (loose fronts & boards)", looseItems - largeLooseItems, "item", r.looseLoadingMinPerItem, r.loadingRate);
-  add("Loading & unloading (large loose panels)", largeLooseItems + btLongParts, "item", r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
+  add("Loading & unloading (loose fronts & boards)", looseItems - largeLooseItems + Math.max(0, rb.looseParts), "item", r.looseLoadingMinPerItem, r.loadingRate);
+  add("Loading & unloading (large loose panels)", largeLooseItems + btLongParts + Math.max(0, rb.largeLooseParts), "item", r.largeLooseLoadingMinPerItem, r.loadingRate, r.largeLooseLoadingCrew);
   const shopMinutes = lines.reduce((s, l) => s + l.minutes, 0);
   const shopCost = lines.reduce((s, l) => s + l.cost, 0);
   let installMinutes = 0;
@@ -1815,6 +1874,7 @@ function calculateWorkshopCost(cabinets, opts = {}) {
     }
     installMinutes += (Math.max(0, opts.extraInstallProducts ?? 0) + btProducts) * r.installMinPerCabinet;
     installMinutes += benchtopLm * r.installBenchtopMinPerM;
+    installMinutes += rbOpenings * r.installRobeOpeningMin;
   }
   const installHours = installMinutes / 60;
   const installCost = installHours * r.installRate;
@@ -1932,7 +1992,7 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     const robeName = [catalogItemName, cabinet.definitionId].find((n) => n && isRobeDoorProduct(n));
     if (robeName) {
       empty.warnings = [
-        `${cabinet.cabinetNumber || robeName}: "${robeName}" is a robe opening / sliding robe door - robe openings are not priced by BowerOS yet, so it is priced at $0 with no board, hinges, edge tape or workshop time. Price it by hand.`
+        `${cabinet.cabinetNumber || robeName}: "${robeName}" is a robe opening / sliding robe door - a cabinet BOM cannot price a robe opening (BowerOS prices one only from a schedule row with Hafele Slider SC robe fields), so it is priced at $0 with no board, hinges, edge tape or workshop time. Price it by hand.`
       ];
     }
     return empty;
@@ -1986,7 +2046,7 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   const lowerName = itemName.toLowerCase();
   const wallHung = (cabinet.y ?? 0) > 1 || lowerName.startsWith("wall") || lowerName.includes("upper");
   if (kickMm > 0 && cabinet.height > kickMm && !wallHung && !config.facesOnly && !config.toeKick) {
-    const lessKick = (mm) => Math.abs(mm - cabinet.height) < 0.5 ? mm - kickMm : mm;
+    const lessKick = (mm3) => Math.abs(mm3 - cabinet.height) < 0.5 ? mm3 - kickMm : mm3;
     for (const sh of sheets) {
       if (!sh.oversizeParts) continue;
       const stillOversize = sh.oversizeParts.filter((p) => !partFitsSheet(lessKick(p.length), lessKick(p.width), sh.sheetLength, sh.sheetWidth));
@@ -2281,11 +2341,11 @@ function calculateKickboardRuns(items, globalDims, stockLengthMm = 2400) {
   return allocations;
 }
 function oversizePartWarnings(cabinets) {
-  const mm = (n) => String(Math.round(n * 10) / 10);
+  const mm3 = (n) => String(Math.round(n * 10) / 10);
   const byMaterial = /* @__PURE__ */ new Map();
   for (const cab of cabinets) {
     const d = cab.dimensions;
-    const size = `${mm(d.width)} x ${mm(d.height)} x ${mm(d.depth)}`;
+    const size = `${mm3(d.width)} x ${mm3(d.height)} x ${mm3(d.depth)}`;
     for (const sh of cab.sheets) {
       if (!sh.oversizeParts?.length) continue;
       const mat = byMaterial.get(sh.materialId) ?? {
@@ -2302,7 +2362,7 @@ function oversizePartWarnings(cabinets) {
       product.units += 1;
       if (cab.cabinetNumber) product.numbers.push(cab.cabinetNumber);
       for (const p of sh.oversizeParts) {
-        const key = `${p.name}|${mm(p.length)}x${mm(p.width)}`;
+        const key = `${p.name}|${mm3(p.length)}x${mm3(p.width)}`;
         const g = product.parts.get(key) ?? { name: p.name, length: p.length, width: p.width, quantity: 0 };
         g.quantity += Math.max(1, p.quantity ?? 1);
         product.parts.set(key, g);
@@ -2315,7 +2375,7 @@ function oversizePartWarnings(cabinets) {
     const products = [...m.products.values()];
     const entries = products.map((pr) => {
       const nums = pr.numbers.length > 3 ? `${pr.numbers.slice(0, 3).join(", ")} +${pr.numbers.length - 3} more` : pr.numbers.join(", ");
-      const parts = [...pr.parts.values()].map((g) => `${g.quantity} x "${g.name}" ${mm(g.length)} x ${mm(g.width)}`);
+      const parts = [...pr.parts.values()].map((g) => `${g.quantity} x "${g.name}" ${mm3(g.length)} x ${mm3(g.width)}`);
       return `${pr.units} x "${pr.name}" ${pr.size}${nums ? ` (${nums})` : ""} - ${parts.join(", ")}`;
     });
     const many = products.length > 1 || products.some((pr) => pr.parts.size > 1 || pr.units > 1);
@@ -2621,6 +2681,656 @@ function buildApplianceLineItems(items, pricingData, commercial) {
   return { items: Array.from(byProduct.values()), warnings };
 }
 
+// src/lib/pricing/hafeleArticleKeys.ts
+function articleKeys(code) {
+  const raw = String(code ?? "").trim();
+  if (!raw) return [];
+  const digits = raw.replace(/\D/g, "");
+  const keys = /* @__PURE__ */ new Set([raw, raw.toUpperCase()]);
+  if (digits.length === 8) {
+    keys.add(digits);
+    keys.add(`${digits.slice(0, 3)}.${digits.slice(3, 5)}.${digits.slice(5)}`);
+  }
+  return [...keys];
+}
+
+// src/lib/pricing/robeGeometry.ts
+var SLIDER_SC_OVERLAP_MM = 60;
+var SLIDER_SC_DOOR_HEIGHT_DEDUCTION_MM = 55;
+var SLIDER_SC_MAX_DOOR_HEIGHT_MM = 2750;
+var SLIDER_SC_MAX_LEAF_KG = 50;
+var SLIDER_SC_PROFILE_ALLOWANCE_MM = { handle: 76, slimline: 7 };
+var SLIDER_SC_SOFT_CLOSE_SETBACK_MM = { handle: 35, slimline: 0 };
+var SLIDER_SC_MIN_INSERT_MM = 16;
+var SLIDER_SC_MAX_INSERT_MM = 18;
+var SLIDER_SC_LEAF_WIDTH_WARN_MIN_MM = 900;
+var SLIDER_SC_LEAF_WIDTH_WARN_MAX_MM = 1350;
+var SLIDER_SC_KIT_DAMPERS = 4;
+var SLIDER_SC_CLOSURE_TOLERANCE_MM = 0.1;
+var SLIDER_SC_MASS_DEFAULTS = {
+  boardDensityKgM3: 700,
+  mirrorThicknessMm: 4,
+  mirrorDensityKgM3: 2500,
+  backerThicknessMm: 12,
+  backerDensityKgM3: 650,
+  mirrorCoverage: 1,
+  /** Profiles, rollers and guides per leaf - an admitted guess in his app ("Measure or certify profile/hardware mass"). */
+  profileHardwareKg: 3
+};
+function sliderScKitLength(icw, leaves) {
+  if (!Number.isFinite(icw)) return 0;
+  if (leaves === 2) return icw <= 1800 ? 1800 : icw <= 2700 ? 2700 : 0;
+  if (leaves === 3) return icw <= 2700 ? 2700 : icw <= 3600 ? 3600 : 0;
+  return 0;
+}
+function hafelePrintedDoorWidth(profile, leaves, icw) {
+  if (profile === "handle" && leaves === 2) return (icw - 92) / 2;
+  if (profile === "handle" && leaves === 3) return (icw - 108) / 3;
+  if (profile === "slimline" && leaves === 2) return (icw + 60 - 14) / 2;
+  if (profile === "slimline" && leaves === 3) return (icw + 120 - 21) / 3;
+  return NaN;
+}
+function sliderScTrackForLeaf(leaves, leaf, reverseTwoDoorStack = false) {
+  if (leaves === 3) return leaf === 2 ? "rear" : "front";
+  if (reverseTwoDoorStack) return leaf === 1 ? "rear" : "front";
+  return leaf === 1 ? "front" : "rear";
+}
+function normaliseSliderScProfile(v) {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "handle" ? "handle" : s === "slimline" ? "slimline" : null;
+}
+function normaliseSliderScFinish(v) {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (/^silver\b/.test(s)) return "silver";
+  if (/^black\b/.test(s)) return "black";
+  return null;
+}
+var fin = (n) => typeof n === "number" && Number.isFinite(n);
+var numOr = (v, d) => fin(v) ? v : d;
+var mm = (n) => Number.isInteger(n) ? String(n) : n.toFixed(3);
+var snapMm = (n) => Math.round(n * 1e6) / 1e6;
+function sliderScGeometry(input) {
+  const blocks = [];
+  const warnings = [];
+  const profile = input.profile;
+  const leaves = input.leaves;
+  const a = input.allowances ?? {};
+  const left = numOr(a.left, 0);
+  const right = numOr(a.right, 0);
+  const top = numOr(a.top, 0);
+  const bottom = numOr(a.bottom, 0);
+  const cal = input.calibration ?? {};
+  if (!fin(input.openingWidth) || !fin(input.openingHeight) || input.openingWidth <= 0 || input.openingHeight <= 0) {
+    blocks.push(`measured opening ${input.openingWidth} x ${input.openingHeight} mm must be positive`);
+  }
+  if (left < 0 || right < 0 || top < 0 || bottom < 0) blocks.push("opening allowances cannot be negative (they are deductions)");
+  if (leaves !== 2 && leaves !== 3) blocks.push(`leaves must be 2 or 3 (got ${leaves})`);
+  if (profile !== "handle" && profile !== "slimline") blocks.push(`profile must be handle or slimline (got ${profile})`);
+  const icw = snapMm(numOr(input.openingWidth, NaN) - left - right);
+  const ih = snapMm(numOr(input.openingHeight, NaN) - top - bottom);
+  const allowance = numOr(cal.profileAllowance, SLIDER_SC_PROFILE_ALLOWANCE_MM[profile] ?? NaN);
+  const leafWidth = (icw + SLIDER_SC_OVERLAP_MM * (leaves - 1)) / leaves;
+  const doorWidth = leafWidth - allowance;
+  const doorHeight = ih - SLIDER_SC_DOOR_HEIGHT_DEDUCTION_MM;
+  const closureError = Math.abs(leaves * leafWidth - (leaves - 1) * SLIDER_SC_OVERLAP_MM - icw);
+  const printedDoorWidth = hafelePrintedDoorWidth(profile, leaves, icw);
+  const printedFormulaError = Math.abs(printedDoorWidth - doorWidth);
+  const panelW = doorWidth + numOr(cal.infillWidthAdd, 0);
+  const panelH = doorHeight + numOr(cal.infillHeightAdd, 0);
+  const trackCut = icw + numOr(cal.trackLengthAdd, 0);
+  const verticalProfileCut = doorHeight + numOr(cal.verticalProfileAdd, 0);
+  const horizontalProfileCut = doorWidth + numOr(cal.horizontalProfileAdd, 0);
+  const kitLength = sliderScKitLength(icw, leaves);
+  if (blocks.length === 0) {
+    if (!(icw > 0) || !(ih > 0)) blocks.push(`clear opening ${mm(icw)} x ${mm(ih)} mm must stay positive after allowances`);
+    if (!(doorWidth > 0)) blocks.push(`door (panel) width ${mm(doorWidth)} mm must be positive`);
+    if (!(doorHeight > 0)) blocks.push(`door height ${mm(doorHeight)} mm (IH ${mm(ih)} - 55) must be positive`);
+    if (doorHeight >= SLIDER_SC_MAX_DOOR_HEIGHT_MM) {
+      blocks.push(`door height ${mm(doorHeight)} mm (IH ${mm(ih)} - 55) is not under Hafele's ${SLIDER_SC_MAX_DOOR_HEIGHT_MM} mm limit (installation page 3: "Door Height: <2750mm", so IH must be under 2805 mm)`);
+    }
+    if (!(panelW > 0) || !(panelH > 0)) blocks.push("calibrated infill cut must be positive");
+    if (!(trackCut > 0) || !(verticalProfileCut > 0) || !(horizontalProfileCut > 0)) blocks.push("calibrated track and profile cuts must be positive");
+    if (kitLength === 0) {
+      const hint = leaves === 2 && icw <= 3600 ? " - a 2-leaf kit stops at 2700 mm; three leaves on the 3600 mm kit covers it" : "";
+      blocks.push(`no packaged Slider SC kit covers a ${mm(icw)} mm clear width with ${leaves} leaves (2 leaves up to 2700 mm, 3 leaves up to 3600 mm)${hint}`);
+    } else if (trackCut > kitLength + SLIDER_SC_CLOSURE_TOLERANCE_MM) {
+      blocks.push(`track cut ${mm(trackCut)} mm is longer than the ${kitLength} mm kit track`);
+    }
+    if (closureError > SLIDER_SC_CLOSURE_TOLERANCE_MM) blocks.push(`leaf closure error ${closureError.toFixed(3)} mm exceeds 0.1 mm`);
+    if (leafWidth < SLIDER_SC_LEAF_WIDTH_WARN_MIN_MM || leafWidth > SLIDER_SC_LEAF_WIDTH_WARN_MAX_MM) {
+      warnings.push(`finished leaf ${mm(leafWidth)} mm is outside 900-1350 mm - Ben's app blocks that range, but no Hafele page or build-pack rule gives it (source unknown); priced, check the leaf width is right`);
+    }
+  }
+  const tracks = [];
+  if (leaves === 2 || leaves === 3) for (let leaf = 1; leaf <= leaves; leaf++) tracks.push(sliderScTrackForLeaf(leaves, leaf));
+  return {
+    profile,
+    leaves,
+    icw,
+    ih,
+    leafWidth,
+    profileAllowance: allowance,
+    doorWidth,
+    doorHeight,
+    closureError,
+    printedDoorWidth,
+    printedFormulaError,
+    trackCut,
+    verticalProfileCut,
+    horizontalProfileCut,
+    panelCut: { w: panelW, h: panelH },
+    verticalProfiles: 2 * leaves,
+    horizontalProfiles: 2 * leaves,
+    kitLength,
+    softCloseSetback: SLIDER_SC_SOFT_CLOSE_SETBACK_MM[profile] ?? 0,
+    tracks,
+    blocks,
+    warnings
+  };
+}
+function sliderScLeafMassKg(m) {
+  const d = SLIDER_SC_MASS_DEFAULTS;
+  const area = m.panelW * m.panelH / 1e6;
+  const insert = m.infill === "board" ? area * (numOr(m.boardThicknessMm, 16) / 1e3) * numOr(m.boardDensityKgM3, d.boardDensityKgM3) : area * numOr(m.mirrorCoverage, d.mirrorCoverage) * (numOr(m.mirrorThicknessMm, d.mirrorThicknessMm) / 1e3) * numOr(m.mirrorDensityKgM3, d.mirrorDensityKgM3) + area * (numOr(m.backerThicknessMm, d.backerThicknessMm) / 1e3) * numOr(m.backerDensityKgM3, d.backerDensityKgM3);
+  return insert + numOr(m.profileHardwareKg, d.profileHardwareKg);
+}
+
+// src/lib/pricing/robeSliderDoors.ts
+var ROBE_NEST_SPACING_MM = 10;
+var ROBE_DAMPERS_PER_LEAF = 2;
+var money2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+var r3 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
+var fin2 = (n) => typeof n === "number" && Number.isFinite(n);
+var toNum = (v) => {
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) ? n : NaN;
+};
+var pos = (v) => {
+  const n = toNum(v);
+  return n > 0 ? n : 0;
+};
+var fmt = (n) => `$${money2(n).toFixed(2)}`;
+var mm2 = (n) => Number.isInteger(n) ? String(n) : n.toFixed(1);
+var cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+var UNCONFIRMED_KIT_BASIS = "unconfirmed - pending Hafele capture";
+function resolveMaterial(id, materials) {
+  const key = id.trim();
+  if (!key) return void 0;
+  const lower = key.toLowerCase();
+  return materials.find((m) => m.id === key) ?? materials.find((m) => String(m.item_code ?? "").toLowerCase() === lower);
+}
+function isVisible(h) {
+  const v = String(h.visibility_status ?? "Available").trim().toLowerCase();
+  return v === "" || v === "available";
+}
+function isRobeKitRow(h) {
+  return /^robe[\s_-]*kit$/i.test(String(h.hardware_type ?? "").trim());
+}
+function normaliseSpec(raw, reasons) {
+  if (!raw || typeof raw !== "object") {
+    reasons.push("the robe block is not an object");
+    return null;
+  }
+  const r = raw;
+  if (r.kind !== "hafele_slider_sc") reasons.push(`robe.kind "${String(r.kind)}" is not "hafele_slider_sc" - no other robe system is priced`);
+  const profile = normaliseSliderScProfile(r.profile);
+  if (!profile) reasons.push(`robe.profile "${String(r.profile)}" must be handle or slimline`);
+  const leaves = toNum(r.leaves);
+  if (leaves !== 2 && leaves !== 3) reasons.push(`robe.leaves "${String(r.leaves)}" must be 2 or 3`);
+  const finish = normaliseSliderScFinish(r.finish);
+  if (!finish) reasons.push(`robe.finish "${String(r.finish)}" must be silver or black`);
+  const infillRaw = String(r.infill ?? "").trim().toLowerCase();
+  const infill = infillRaw === "board" ? "board" : infillRaw === "mirror" ? "mirror" : null;
+  if (!infill) reasons.push(`robe.infill "${String(r.infill)}" must be board or mirror`);
+  const openingWidth = toNum(r.openingWidth);
+  const openingHeight = toNum(r.openingHeight);
+  if (!(openingWidth > 0) || !(openingHeight > 0)) {
+    reasons.push(`robe.openingWidth x openingHeight ${String(r.openingWidth)} x ${String(r.openingHeight)} must be positive measured sizes (mm)`);
+  }
+  const al = r.allowances && typeof r.allowances === "object" ? r.allowances : {};
+  const allowance = (k) => {
+    if (al[k] === void 0 || al[k] === null) return 0;
+    const n = toNum(al[k]);
+    if (!Number.isFinite(n)) {
+      reasons.push(`robe.allowances.${k} "${String(al[k])}" is not a number`);
+      return 0;
+    }
+    return n;
+  };
+  const allowances = { left: allowance("left"), right: allowance("right"), top: allowance("top"), bottom: allowance("bottom") };
+  const t = r.infillThickness === void 0 || r.infillThickness === null ? null : toNum(r.infillThickness);
+  if (t !== null && !Number.isFinite(t)) reasons.push(`robe.infillThickness "${String(r.infillThickness)}" is not a number`);
+  if (!profile || leaves !== 2 && leaves !== 3 || !finish || !infill) return null;
+  return {
+    kind: "hafele_slider_sc",
+    profile,
+    leaves,
+    finish,
+    openingWidth,
+    openingHeight,
+    allowances,
+    infill,
+    infillMaterialId: typeof r.infillMaterialId === "string" && r.infillMaterialId.trim() ? r.infillMaterialId.trim() : null,
+    infillThickness: t !== null && Number.isFinite(t) ? t : null,
+    softCloseAllLeaves: r.softCloseAllLeaves !== false
+  };
+}
+function selectRobeKit(spec, trackLength, hardware, capture) {
+  const kits = hardware.filter((h) => isRobeKitRow(h) && isVisible(h));
+  const label = `${cap(spec.profile)} ${spec.leaves}-leaf ${spec.finish} ${trackLength} mm`;
+  if (kits.length === 0) {
+    return { reason: `no hardware_pricing row has hardware_type robe_kit - the Slider SC kit seed (20260917120000_slider_sc_robe_kits.sql) is not applied, so no ${label} kit can be priced` };
+  }
+  const matches = kits.filter((h) => normaliseSliderScProfile(h.robe_profile) === spec.profile && toNum(h.robe_leaves) === spec.leaves && normaliseSliderScFinish(h.robe_finish) === spec.finish && toNum(h.robe_track_length_mm) === trackLength);
+  if (matches.length === 0) return { reason: `no robe_kit row in hardware_pricing is a ${label} Slider SC kit` };
+  if (matches.length > 1) {
+    return { reason: `${matches.length} robe_kit rows match ${label} (${matches.map((m) => m.item_code).join(", ")}) - the kit must map to exactly one row` };
+  }
+  const row = matches[0];
+  let captured = null;
+  for (const key of articleKeys(row.item_code)) {
+    const hit = capture.get(key);
+    const cost = hit ? toNum(hit.trade_cost_ex_gst) : NaN;
+    if (cost > 0) {
+      captured = cost;
+      break;
+    }
+  }
+  if (captured !== null) {
+    return {
+      kit: {
+        id: row.id,
+        item_code: row.item_code,
+        name: row.name,
+        trackLength,
+        price: money2(captured),
+        unconfirmed: false,
+        priceSource: "hafele_capture",
+        priceBasis: "Hafele trade-price capture (Bower buy price ex GST, hafele_trade_prices)"
+      }
+    };
+  }
+  const unit = toNum(row.unit_cost);
+  if (!(unit > 0)) {
+    return { reason: `${row.item_code} (${label}) has no Hafele capture price and no unit_cost - kit not priced` };
+  }
+  const basis = String(row.price_basis ?? "").trim();
+  return {
+    kit: {
+      id: row.id,
+      item_code: row.item_code,
+      name: row.name,
+      trackLength,
+      price: money2(unit),
+      unconfirmed: true,
+      priceSource: "catalogue_unconfirmed",
+      priceBasis: basis ? /^unconfirmed/i.test(basis) ? basis : `${UNCONFIRMED_KIT_BASIS} (${basis})` : UNCONFIRMED_KIT_BASIS
+    }
+  };
+}
+function priceRobeOpenings(rows, opts) {
+  const capture = /* @__PURE__ */ new Map();
+  for (const t of opts.hafeleTradePrices ?? []) {
+    for (const key of articleKeys(t.article_code)) if (!capture.has(key)) capture.set(key, t);
+  }
+  const largeSide = fin2(opts.largeLooseLongestSideMm) ? opts.largeLooseLongestSideMm : DEFAULT_WORKSHOP_RATES.largeLooseLongestSideMm;
+  const largeArea = fin2(opts.largeLooseAreaSqm) ? opts.largeLooseAreaSqm : DEFAULT_WORKSHOP_RATES.largeLooseAreaSqm;
+  const mode = opts.supplyMode ?? "assembled_installed";
+  const assembles = mode === "assembled" || mode === "assembled_installed";
+  const installs = mode === "assembled_installed";
+  const prepared = [];
+  const blocked = [];
+  for (const input of rows) {
+    const reasons = [];
+    const warnings2 = [];
+    const qty = Math.max(1, Math.round(pos(input.qty) || 1));
+    const spec = normaliseSpec(input.robe, reasons);
+    let geometry = null;
+    if (spec) {
+      geometry = sliderScGeometry({
+        profile: spec.profile,
+        leaves: spec.leaves,
+        openingWidth: spec.openingWidth,
+        openingHeight: spec.openingHeight,
+        allowances: spec.allowances
+      });
+      reasons.push(...geometry.blocks);
+      warnings2.push(...geometry.warnings.map((w) => `${input.name}: ${w}`));
+    }
+    let kit = null;
+    if (spec && geometry && geometry.kitLength > 0) {
+      const sel = selectRobeKit(spec, geometry.kitLength, opts.hardware, capture);
+      if ("reason" in sel) reasons.push(sel.reason);
+      else kit = sel.kit;
+    }
+    let material = null;
+    let leafMassKg = NaN;
+    let edgeAlloc = null;
+    let mirrorBuildUp = null;
+    if (spec && geometry && geometry.blocks.length === 0) {
+      const { w: panelW, h: panelH } = geometry.panelCut;
+      const panels = spec.leaves * qty;
+      if (spec.infill === "board") {
+        const askedId = spec.infillMaterialId;
+        const id = askedId ?? String(input.exteriorMaterialId ?? opts.defaultInfillMaterialId ?? "").trim();
+        const m = id ? resolveMaterial(id, opts.materials) : void 0;
+        if (!id) {
+          reasons.push("board infill has no robe.infillMaterialId and the job has no exterior material to fall back on");
+        } else if (!m) {
+          reasons.push(`board infill "${id}" is not a material_pricing id or item_code`);
+        } else {
+          const missing = [
+            !(pos(m.thickness) > 0) && "thickness",
+            !(pos(m.sheet_length) > 0) && "sheet_length",
+            !(pos(m.sheet_width) > 0) && "sheet_width",
+            !(pos(m.area_cost) > 0) && "area_cost"
+          ].filter(Boolean);
+          if (missing.length) {
+            reasons.push(`board infill "${m.name}" (${m.item_code}) has no ${missing.join(" / ")} in material_pricing`);
+          } else {
+            material = m;
+            const t = pos(m.thickness);
+            if (!askedId) {
+              warnings2.push(`${input.name}: no robe.infillMaterialId - the leaves are priced in the job's door finish ${m.name} (${m.item_code}); send the infill board if it is a different decor (both faces of a robe leaf show)`);
+            }
+            if (t < SLIDER_SC_MIN_INSERT_MM || t > SLIDER_SC_MAX_INSERT_MM) {
+              reasons.push(`board infill ${m.name} (${m.item_code}) is ${t} mm - the Slider SC takes a 16-18 mm infill`);
+            }
+            const asked = spec.infillThickness;
+            if (asked !== null) {
+              if (asked < SLIDER_SC_MIN_INSERT_MM || asked > SLIDER_SC_MAX_INSERT_MM) {
+                reasons.push(`robe.infillThickness ${asked} mm is outside the 16-18 mm the Slider SC takes`);
+              } else if (Math.abs(asked - t) > 0.01) {
+                warnings2.push(`${input.name}: robe.infillThickness ${asked} mm but ${m.name} (${m.item_code}) is ${t} mm - priced as the ${t} mm board that is bought`);
+              }
+            }
+            const sheetL = pos(m.sheet_length);
+            const sheetW = pos(m.sheet_width);
+            if (!partFitsSheet(panelH, panelW, sheetL, sheetW)) {
+              const usable = `${Math.max(sheetL, sheetW) - SHEET_TRIM_MM} x ${Math.min(sheetL, sheetW) - SHEET_TRIM_MM}`;
+              reasons.push(`the ${mm2(panelW)} x ${mm2(panelH)} mm leaf panel cannot be cut from ${m.name} (${m.item_code}), a ${sheetL} x ${sheetW} mm sheet (${usable} mm usable after the ${SHEET_TRIM_MM} mm trim), even turned 90 degrees - choose that decor on a 3600 x 1800 sheet, a narrower leaf (Handle instead of Slimline, or 3 leaves), or a lower door`);
+            }
+            leafMassKg = sliderScLeafMassKg({ panelW, panelH, infill: "board", boardThicknessMm: t });
+            if (leafMassKg >= SLIDER_SC_MAX_LEAF_KG) {
+              reasons.push(`estimated leaf mass ${leafMassKg.toFixed(1)} kg is not under Hafele's 50 kg per door (installation page 3) - ${mm2(panelW)} x ${mm2(panelH)} x ${t} mm board at ${SLIDER_SC_MASS_DEFAULTS.boardDensityKgM3} kg/m3 plus ${SLIDER_SC_MASS_DEFAULTS.profileHardwareKg} kg of profiles and hardware (Ben's app estimate)`);
+            }
+            if (reasons.length === 0) {
+              const edgeSel = String(input.edgeId ?? opts.defaultEdgeId ?? "").trim() || void 0;
+              const part = {
+                name: "Robe door panel",
+                partType: "Robe door panel",
+                length: panelH,
+                width: panelW,
+                area: panelH * panelW / 1e6,
+                thickness: t,
+                materialId: m.id,
+                materialRole: "exterior",
+                edging: { len1: true, len2: true, wid1: true, wid2: true },
+                quantity: panels,
+                handlingCost: 0,
+                machiningCost: 0,
+                assemblyCost: 0
+              };
+              edgeAlloc = calculateEdgeTape([part], opts.edges, edgeSel)[0] ?? null;
+              if (edgeAlloc?.isFallbackPrice) {
+                warnings2.push(`${input.name}: edge "${edgeSel ?? "(none selected)"}" has no priced edge_pricing row - the tape is priced at the $2.50/m fallback`);
+              }
+            }
+          }
+        }
+      } else {
+        const d = SLIDER_SC_MASS_DEFAULTS;
+        const asked = spec.infillThickness;
+        if (asked !== null && (asked < SLIDER_SC_MIN_INSERT_MM || asked > SLIDER_SC_MAX_INSERT_MM)) {
+          reasons.push(`robe.infillThickness ${asked} mm mirror build-up (glass + backer) is outside the 16-18 mm the Slider SC takes (build pack SC-17 / T09)`);
+        }
+        const totalMm = asked ?? d.mirrorThicknessMm + d.backerThicknessMm;
+        const backerMm = Math.max(0, totalMm - d.mirrorThicknessMm);
+        mirrorBuildUp = { totalMm, glassMm: d.mirrorThicknessMm, backerMm, sent: asked !== null };
+        leafMassKg = sliderScLeafMassKg({ panelW, panelH, infill: "mirror", backerThicknessMm: backerMm });
+        if (spec.infillMaterialId) {
+          warnings2.push(`${input.name}: robe.infillMaterialId is for board infill and is ignored on a mirror opening`);
+        }
+      }
+    }
+    if (reasons.length || !spec || !geometry || !kit) {
+      if (reasons.length === 0) reasons.push("the robe row could not be priced");
+      blocked.push({ index: input.index, name: input.name, qty, reasons, geometry });
+      continue;
+    }
+    prepared.push({
+      input,
+      qty,
+      spec,
+      geometry,
+      kit: { ...kit, quantity: qty, cost: money2(kit.price * qty) },
+      material,
+      panels: spec.leaves * qty,
+      edgeAlloc,
+      leafMassKg,
+      mirrorBuildUp,
+      warnings: warnings2
+    });
+  }
+  const sheets = [];
+  const boardByRow = /* @__PURE__ */ new Map();
+  const byMaterial = /* @__PURE__ */ new Map();
+  for (const p of prepared) {
+    if (!p.material) continue;
+    const list = byMaterial.get(p.material.id) ?? [];
+    list.push(p);
+    byMaterial.set(p.material.id, list);
+  }
+  for (const group of byMaterial.values()) {
+    const m = group[0].material;
+    const sheetL = pos(m.sheet_length);
+    const sheetW = pos(m.sheet_width);
+    const sheetLong = Math.max(sheetL, sheetW);
+    const sheetShort = Math.min(sheetL, sheetW);
+    const runs = [];
+    for (const p of group) {
+      const { w, h } = p.geometry.panelCut;
+      for (let i = 0; i < p.panels; i++) {
+        runs.push({ runLengthMm: Math.max(w, h) + ROBE_NEST_SPACING_MM, depthMm: Math.min(w, h) + ROBE_NEST_SPACING_MM });
+      }
+    }
+    const packed = packWholeSheetCuts(runs, sheetLong + ROBE_NEST_SPACING_MM - SHEET_TRIM_MM, sheetShort + ROBE_NEST_SPACING_MM - SHEET_TRIM_MM);
+    const sheetCount = Math.max(1, packed.sheets.length);
+    const sheetSqm = sheetL / 1e3 * (sheetW / 1e3);
+    const cost = money2(sheetCount * sheetSqm * m.area_cost);
+    const areaOf = (p) => p.panels * (p.geometry.panelCut.w * p.geometry.panelCut.h) / 1e6;
+    const totalArea = group.reduce((s, p) => s + areaOf(p), 0);
+    let assigned = 0;
+    group.forEach((p, gi) => {
+      const share = totalArea > 0 ? areaOf(p) / totalArea : 1 / group.length;
+      const rowCost = gi === group.length - 1 ? money2(cost - assigned) : money2(cost * share);
+      assigned = money2(assigned + rowCost);
+      boardByRow.set(p, {
+        material: m.name,
+        materialId: m.id,
+        itemCode: m.item_code,
+        thickness: pos(m.thickness),
+        sheetLength: sheetL,
+        sheetWidth: sheetW,
+        areaCost: m.area_cost,
+        panels: p.panels,
+        fitOk: true,
+        sheets: sheetCount,
+        sheetsShare: r3(sheetCount * share),
+        cost: rowCost
+      });
+    });
+    sheets.push({
+      materialId: m.id,
+      itemCode: m.item_code,
+      name: m.name,
+      thickness: pos(m.thickness),
+      sheetLength: sheetL,
+      sheetWidth: sheetW,
+      areaCost: m.area_cost,
+      rows: group.map((p) => p.input.index),
+      panels: group.reduce((s, p) => s + p.panels, 0),
+      panelAreaSqm: r3(totalArea),
+      sheets: sheetCount,
+      chargedSqm: r3(sheetCount * sheetSqm),
+      cost
+    });
+  }
+  const edges = [];
+  const edgeByRow = /* @__PURE__ */ new Map();
+  const byEdge = /* @__PURE__ */ new Map();
+  for (const p of prepared) {
+    if (!p.edgeAlloc) continue;
+    const list = byEdge.get(p.edgeAlloc.edgeType) ?? [];
+    list.push(p);
+    byEdge.set(p.edgeAlloc.edgeType, list);
+  }
+  for (const [edgeType, group] of byEdge) {
+    const t = group[0].edgeAlloc;
+    const metres = group.reduce((s, p) => s + p.edgeAlloc.linearMeters, 0);
+    const jobMetres = Math.max(0, toNum(opts.jobEdgeMetres?.[edgeType]) || 0);
+    const boughtMetres = edgeOrderMetres(jobMetres + metres) - edgeOrderMetres(jobMetres);
+    const material = boughtMetres * t.costPerMeter;
+    const applicationCost = group.reduce((s, p) => s + p.edgeAlloc.applicationCost, 0);
+    const handlingCost = group.reduce((s, p) => s + p.edgeAlloc.handlingCost, 0);
+    const cost = money2(material + applicationCost + handlingCost);
+    let assigned = 0;
+    group.forEach((p, gi) => {
+      const a = p.edgeAlloc;
+      const rowCost = gi === group.length - 1 ? money2(cost - assigned) : money2(a.applicationCost + a.handlingCost + (metres > 0 ? material * (a.linearMeters / metres) : 0));
+      assigned = money2(assigned + rowCost);
+      edgeByRow.set(p, { edgeType, name: a.edgeName, metres: r3(a.linearMeters), cost: rowCost, fallbackPrice: Boolean(a.isFallbackPrice) });
+    });
+    edges.push({
+      edgeType,
+      name: t.edgeName,
+      thickness: t.thickness,
+      costPerMeter: t.costPerMeter,
+      metres: r3(metres),
+      jobMetres: r3(jobMetres),
+      boughtMetres,
+      applicationCost: money2(applicationCost),
+      handlingCost: money2(handlingCost),
+      cost,
+      applicationPriced: group.some((p) => (p.edgeAlloc.applicationCost ?? 0) > 0)
+    });
+  }
+  const warnings = [];
+  const out = prepared.map((p) => {
+    const g = p.geometry;
+    const board = boardByRow.get(p) ?? null;
+    const edge = edgeByRow.get(p) ?? null;
+    const isBoard = p.spec.infill === "board";
+    const { w: panelW, h: panelH } = g.panelCut;
+    const edgeT = isBoard && p.edgeAlloc && pos(p.edgeAlloc.thickness) > 0 ? pos(p.edgeAlloc.thickness) : 0;
+    const panelFinished = { w: panelW, h: panelH };
+    const panelSaw = { w: r3(panelW - 2 * edgeT), h: r3(panelH - 2 * edgeT) };
+    const edgeMetres = edge ? edge.metres : 0;
+    const inKit = SLIDER_SC_KIT_DAMPERS * p.qty;
+    const neededPerOpening = p.spec.softCloseAllLeaves ? ROBE_DAMPERS_PER_LEAF * p.spec.leaves : SLIDER_SC_KIT_DAMPERS;
+    const needed = Math.max(SLIDER_SC_KIT_DAMPERS, neededPerOpening) * p.qty;
+    const extra = Math.max(0, needed - inKit);
+    const large = Math.max(panelW, panelH) >= largeSide && panelW * panelH / 1e6 >= largeArea;
+    const fabrication = {
+      ...EMPTY_ROBE_FABRICATION,
+      openings: p.qty,
+      leaves: p.panels,
+      boardParts: isBoard ? p.panels : 0,
+      cutLm: isBoard ? r3(p.panels * (2 * (panelW + panelH)) / 1e3) : 0,
+      boughtParts: isBoard ? 0 : p.panels,
+      edgeLm: isBoard ? edgeMetres : 0,
+      largeLooseParts: large ? p.panels : 0,
+      looseParts: large ? 0 : p.panels
+    };
+    const r = DEFAULT_WORKSHOP_RATES;
+    const minutes = {
+      setUp: assembles ? p.qty * r.robeOpeningSetupMin : 0,
+      leaves: assembles ? p.panels * r.robeLeafAssemblyMin : 0,
+      install: installs ? p.qty * r.installRobeOpeningMin : 0
+    };
+    const kitCost = p.kit.cost;
+    const boardCost = board?.cost ?? 0;
+    const edgeCost = edge?.cost ?? 0;
+    const unpricedItems = [];
+    const loud = [];
+    const info = [];
+    const n = p.input.name;
+    const opening = `${p.spec.leaves}-leaf ${cap(p.spec.profile)} ${p.spec.finish}`;
+    info.push(
+      `${n}: priced as ${p.qty} x Hafele Slider SC ${opening} opening${p.qty > 1 ? "s" : ""} - clear ${mm2(g.icw)} x ${mm2(g.ih)} mm, ${p.spec.leaves} leaves ${mm2(g.leafWidth)} mm finished, panels ${mm2(panelW)} x ${mm2(panelH)} mm finished` + (edgeT > 0 ? ` (cut ${mm2(panelSaw.w)} x ${mm2(panelSaw.h)} mm before the ${mm2(edgeT)} mm edge)` : "") + `, kit ${p.kit.item_code} (${g.kitLength} mm track) at ${fmt(p.kit.price)}` + (board ? `, ${board.panels} panel(s) in ${board.material} (${board.itemCode}) - ${board.sheets} whole ${board.sheetLength} x ${board.sheetWidth} sheet(s) nested across the robe rows on that board` : "") + (edge ? `, ${edgeMetres.toFixed(3)} m of ${edge.name} edge tape on all four sides` : "") + `; shop ${minutes.setUp} min set-up + ${minutes.leaves} min leaf assembly, install ${minutes.install} min (Ben, 17 Sep 2026)`
+    );
+    if (p.kit.unconfirmed) {
+      loud.push(`KIT PRICE UNCONFIRMED: ${n} - ${p.kit.item_code} ${p.kit.name} at ${fmt(p.kit.price)} is ${p.kit.priceBasis}. The GST basis of that Net price is not confirmed; the article is on the Hafele trade-price capture list and the captured ex GST buy price replaces it automatically.`);
+    }
+    if (!isBoard) {
+      unpricedItems.push(`${n}: mirror glass ${p.panels} x ${mm2(panelW)} x ${mm2(panelH)} mm - NOT PRICED`);
+      loud.push(`MIRROR NOT PRICED: ${n} needs ${p.panels} mirror panel(s) ${mm2(panelW)} x ${mm2(panelH)} mm. Mirror is charged as a whole sheet as bought, but no mirror sheet size, price or supplier is in the catalogue, so this line EXCLUDES the mirror (and any backer) - price it by hand before the quote goes out. Everything else on the opening is priced.`);
+      const bu = p.mirrorBuildUp;
+      const buText = bu ? `${bu.totalMm} mm build-up${bu.sent ? "" : " (none sent - 16 mm assumed)"}, taken as ${bu.glassMm} mm glass + ${bu.backerMm} mm backer (the split is an ASSUMPTION)` : "4 mm glass + 12 mm backer";
+      info.push(`${n}: Hafele does not specify a mirror infill for the Slider SC (build pack USR-01: supplier approval required). Ben's app estimates ${p.leafMassKg.toFixed(1)} kg a leaf for ${buText} - ${p.leafMassKg >= SLIDER_SC_MAX_LEAF_KG ? "OVER" : "under"} the 50 kg per door limit; the build-up is unconfirmed, so weigh it before production.`);
+    }
+    if (extra > 0) {
+      unpricedItems.push(`${n}: ${extra} extra soft-close damper(s) - NOT PRICED`);
+      loud.push(`SOFT-CLOSE DAMPERS NOT PRICED: ${n} has soft close on all ${p.spec.leaves} leaves, which needs ${needed} dampers (${ROBE_DAMPERS_PER_LEAF} a leaf) against the ${inKit} in the kit${p.qty > 1 ? "s" : ""} - ${extra} extra to buy. No damper part number or price is in the catalogue: add them by hand.`);
+    } else if (p.spec.leaves === 3 && !p.spec.softCloseAllLeaves) {
+      info.push(`${n}: soft close NOT on all leaves - the kit's 4 dampers cover 2 of the 3 leaves both ways; do not describe every leaf as soft close.`);
+    }
+    const rowWarnings = [...loud, ...info, ...p.warnings];
+    warnings.push(...rowWarnings);
+    return {
+      index: p.input.index,
+      name: n,
+      qty: p.qty,
+      spec: p.spec,
+      geometry: g,
+      panelFinished,
+      panelCut: panelSaw,
+      kit: p.kit,
+      board,
+      edge,
+      edgeMetres,
+      dampers: { inKit, needed, extra, priced: false },
+      mirror: { required: !isBoard, priced: false, panels: isBoard ? 0 : p.panels, panelCut: isBoard ? null : { w: panelW, h: panelH } },
+      leafMassKg: r3(p.leafMassKg),
+      fabrication,
+      kitCost,
+      boardCost,
+      edgeCost,
+      materialCost: money2(kitCost + boardCost + edgeCost),
+      minutes,
+      unpricedItems,
+      warnings: rowWarnings
+    };
+  });
+  const kitLines = /* @__PURE__ */ new Map();
+  for (const row of out) {
+    const hit = kitLines.get(row.kit.item_code);
+    if (hit) {
+      hit.quantity += row.kit.quantity;
+      hit.cost = money2(hit.cost + row.kit.cost);
+    } else {
+      kitLines.set(row.kit.item_code, {
+        code: row.kit.item_code,
+        name: row.kit.name,
+        quantity: row.kit.quantity,
+        unitCost: row.kit.price,
+        cost: row.kit.cost,
+        unconfirmed: row.kit.unconfirmed
+      });
+    }
+  }
+  return {
+    rows: out,
+    blocked,
+    sheets,
+    edges,
+    kits: [...kitLines.values()],
+    fabrication: sumRobeFabrication(out.map((r) => r.fabrication)),
+    edgeApplicationPriced: edges.some((e) => e.applicationPriced),
+    warnings
+  };
+}
+
 // src/lib/pricing/benchtopLaminate.ts
 var BENCHTOP_ADHESIVE_CODE = "SS-ADHESIVE";
 var DEFAULT_BENCHTOP_WASTE = 0.05;
@@ -2653,23 +3363,23 @@ var DEFAULT_ADHESIVE_UNIT_COST = 15.9;
 var ADHESIVE_STRIP_M_PER_CARTRIDGE = 2.5;
 var MAX_STACKED_LAYERS = 3;
 var DEFAULT_STRIP_WIDTH_MM = 50;
-var money2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-var r3 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
-var pos = (n) => typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+var money3 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+var r32 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
+var pos2 = (n) => typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 function blankPrice(blanks, sheet) {
-  const lm = r3(blanks * (sheet.sheet_length / 1e3));
+  const lm = r32(blanks * (sheet.sheet_length / 1e3));
   const areaSqm = sheet.sheet_length / 1e3 * (sheet.sheet_width / 1e3);
   return {
     unit: "lm",
     units: lm,
     unitCost: sheet.area_cost,
-    cost: money2(lm * sheet.area_cost),
+    cost: money3(lm * sheet.area_cost),
     /** What the same blanks would cost if the rate really were $/m2 — quoted in the warning. */
-    asArea: money2(blanks * areaSqm * sheet.area_cost)
+    asArea: money3(blanks * areaSqm * sheet.area_cost)
   };
 }
 function fmtMoney(n) {
-  return `$${money2(n ?? 0).toFixed(2)}`;
+  return `$${money3(n ?? 0).toFixed(2)}`;
 }
 function resolveBenchtopSheet(id, materials) {
   const key = String(id ?? "").trim();
@@ -2679,10 +3389,10 @@ function resolveBenchtopSheet(id, materials) {
 }
 function toSheet(m) {
   const missing = [];
-  if (!(pos(m.thickness) > 0)) missing.push("thickness");
-  if (!(pos(m.sheet_length) > 0)) missing.push("sheet_length");
-  if (!(pos(m.sheet_width) > 0)) missing.push("sheet_width");
-  if (!(pos(m.area_cost) > 0)) missing.push("area_cost");
+  if (!(pos2(m.thickness) > 0)) missing.push("thickness");
+  if (!(pos2(m.sheet_length) > 0)) missing.push("sheet_length");
+  if (!(pos2(m.sheet_width) > 0)) missing.push("sheet_width");
+  if (!(pos2(m.area_cost) > 0)) missing.push("area_cost");
   if (missing.length) return { missing };
   return {
     id: m.id,
@@ -2697,9 +3407,9 @@ function toSheet(m) {
 function prepareRow(row, sheet, defaultThickness) {
   const warnings = [];
   const qty = Math.max(1, Math.round(row.qty ?? 1));
-  let thickness = pos(row.benchtopThickness);
+  let thickness = pos2(row.benchtopThickness);
   if (!thickness) {
-    thickness = pos(defaultThickness) || 24;
+    thickness = pos2(defaultThickness) || 24;
     if (row.benchtopThickness !== void 0) {
       warnings.push(`${row.name}: benchtopThickness ${row.benchtopThickness} is not a positive number - ${thickness} mm used`);
     }
@@ -2738,9 +3448,9 @@ function prepareRow(row, sheet, defaultThickness) {
     cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty
   };
-  const givenEdge = pos(row.benchtopEdgeLm);
+  const givenEdge = pos2(row.benchtopEdgeLm);
   const builtUpEdgeLm = buildUp === "none" ? 0 : givenEdge > 0 ? givenEdge * qty : benchtopLm;
-  const stripWidthMm = pos(row.benchtopStripWidth) || DEFAULT_STRIP_WIDTH_MM;
+  const stripWidthMm = pos2(row.benchtopStripWidth) || DEFAULT_STRIP_WIDTH_MM;
   const stripSqm = buildUp === "stacked" ? builtUpEdgeLm * (stripWidthMm / 1e3) * (layers - 1) : buildUp === "mitred" ? builtUpEdgeLm * (Math.max(thickness, stripWidthMm) / 1e3) : 0;
   const substrateSqm = buildUp === "mitred" ? builtUpEdgeLm * (thickness / 1e3) : 0;
   if (buildUp === "mitred") {
@@ -2773,15 +3483,15 @@ function prepareRow(row, sheet, defaultThickness) {
   };
 }
 function unitPiecesOf(row, thickness, warnings) {
-  const given = (row.benchtopPieces ?? []).filter((p) => pos(p?.l) > 0 && pos(p?.w) > 0).map((p) => ({ l: p.l, w: p.w }));
+  const given = (row.benchtopPieces ?? []).filter((p) => pos2(p?.l) > 0 && pos2(p?.w) > 0).map((p) => ({ l: p.l, w: p.w }));
   if (given.length > 0) return { unitPieces: given, waterfallJoins: 0 };
   const unitPieces = [];
   let waterfallJoins = 0;
-  if (pos(row.w) > 0 && pos(row.d) > 0) unitPieces.push({ l: row.w, w: row.d });
+  if (pos2(row.w) > 0 && pos2(row.d) > 0) unitPieces.push({ l: row.w, w: row.d });
   const ends = Math.max(0, Math.round(row.benchtopWaterfallEnds ?? 0));
   if (ends > 0) {
     const legL = row.h - thickness;
-    if (legL > 0 && pos(row.d) > 0) {
+    if (legL > 0 && pos2(row.d) > 0) {
       for (let i = 0; i < ends; i++) unitPieces.push({ l: legL, w: row.d });
       waterfallJoins = ends;
     } else {
@@ -2797,7 +3507,7 @@ function prepareBlankRow(row, sheet, trimMm) {
   const warnings = [];
   const qty = Math.max(1, Math.round(row.qty ?? 1));
   const thickness = sheet.thickness;
-  const asked = pos(row.benchtopThickness);
+  const asked = pos2(row.benchtopThickness);
   if (asked > 0 && Math.abs(asked - thickness) > 0.01) {
     warnings.push(`${row.name}: ${asked} mm asked - a pre-made blank is one layer, so it is priced at its own ${thickness} mm`);
   }
@@ -2900,7 +3610,7 @@ function packBlankLengths(segments, blankLengthMm) {
   return bins.length;
 }
 function priceLaminatedBenchtops(rows, materials, opts = {}) {
-  const defaultThickness = pos(opts.defaultThickness) || 24;
+  const defaultThickness = pos2(opts.defaultThickness) || 24;
   const wasteFactor = typeof opts.wasteFactor === "number" && opts.wasteFactor >= 0 ? opts.wasteFactor : DEFAULT_BENCHTOP_WASTE;
   const adhesiveUnitCost = typeof opts.adhesiveUnitCost === "number" && opts.adhesiveUnitCost >= 0 ? opts.adhesiveUnitCost : DEFAULT_ADHESIVE_UNIT_COST;
   const blankTrimMm = typeof opts.blankTrimMm === "number" && opts.blankTrimMm >= 0 ? opts.blankTrimMm : DEFAULT_BLANK_TRIM_MM;
@@ -2958,17 +3668,17 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       const jobBlanks = Math.max(1, packBlankLengths(allSegments, sheet.sheet_length));
       const price = blankPrice(jobBlanks, sheet);
       const materialCost2 = price.cost;
-      const basis = `${sheet.name} (${sheet.item_code}): a pre-made blank is bought by the lineal metre of its ${sheet.sheet_width} mm stock width - ${jobBlanks} x ${r3(sheet.sheet_length / 1e3)} m at $${sheet.area_cost.toFixed(2)}/lm = ${fmtMoney(price.cost)}. material_pricing labels that rate "per m2"; read that way the same blanks would be ${fmtMoney(price.asArea)}. Check the blank rate against the supplier price list.`;
+      const basis = `${sheet.name} (${sheet.item_code}): a pre-made blank is bought by the lineal metre of its ${sheet.sheet_width} mm stock width - ${jobBlanks} x ${r32(sheet.sheet_length / 1e3)} m at $${sheet.area_cost.toFixed(2)}/lm = ${fmtMoney(price.cost)}. material_pricing labels that rate "per m2"; read that way the same blanks would be ${fmtMoney(price.asArea)}. Check the blank rate against the supplier price list.`;
       for (const p of group) p.warnings.push(basis);
       const totalLen = group.reduce((s, p) => s + p.segments.reduce((a, b) => a + b, 0), 0);
       let assignedBlank = 0;
       group.forEach((p, gi) => {
         const share = totalLen > 0 ? p.segments.reduce((a, b) => a + b, 0) / totalLen : 1 / group.length;
-        const cost = gi === group.length - 1 ? money2(materialCost2 - assignedBlank) : money2(materialCost2 * share);
-        assignedBlank = money2(assignedBlank + cost);
+        const cost = gi === group.length - 1 ? money3(materialCost2 - assignedBlank) : money3(materialCost2 * share);
+        assignedBlank = money3(assignedBlank + cost);
         rowMaterial.set(p, {
           materialCost: cost,
-          sheetsShare: r3(jobBlanks * share),
+          sheetsShare: r32(jobBlanks * share),
           jobSheets: jobBlanks,
           parts: p.segments.length,
           sharedBy: group.length
@@ -2981,8 +3691,8 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
         chargedUnits: price.units,
         unitCost: price.unitCost,
         rows: group.map((p) => p.input.index),
-        sheetAreaSqm: r3(sheetAreaSqm),
-        layeredAreaSqm: r3(group.reduce((s, p) => s + p.areaSqm, 0)),
+        sheetAreaSqm: r32(sheetAreaSqm),
+        layeredAreaSqm: r32(group.reduce((s, p) => s + p.areaSqm, 0)),
         wasteFactor: 0,
         packedSheets: jobBlanks,
         areaSheets: 0,
@@ -3017,23 +3727,23 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
     const packedSheets = packed.sheets.length;
     const areaSheets = Math.ceil(layeredAreaSqm * (1 + wasteFactor) / sheetAreaSqm - 1e-9);
     const jobSheets = Math.max(1, packedSheets, areaSheets);
-    const materialCost = money2(jobSheets * sheetAreaSqm * sheet.area_cost);
+    const materialCost = money3(jobSheets * sheetAreaSqm * sheet.area_cost);
     let assigned = 0;
     group.forEach((p, gi) => {
       const share = layeredAreaSqm > 0 ? (p.areaSqm + p.stripSqm) / layeredAreaSqm : 1 / group.length;
-      const cost = gi === group.length - 1 ? money2(materialCost - assigned) : money2(materialCost * share);
-      assigned = money2(assigned + cost);
-      rowMaterial.set(p, { materialCost: cost, sheetsShare: r3(jobSheets * share), jobSheets, parts: partsByRow[gi], sharedBy: group.length });
+      const cost = gi === group.length - 1 ? money3(materialCost - assigned) : money3(materialCost * share);
+      assigned = money3(assigned + cost);
+      rowMaterial.set(p, { materialCost: cost, sheetsShare: r32(jobSheets * share), jobSheets, parts: partsByRow[gi], sharedBy: group.length });
     });
     sheets.push({
       sheet,
       kind: "laminated",
       priceUnit: "m2",
-      chargedUnits: r3(jobSheets * sheetAreaSqm),
+      chargedUnits: r32(jobSheets * sheetAreaSqm),
       unitCost: sheet.area_cost,
       rows: group.map((p) => p.input.index),
-      sheetAreaSqm: r3(sheetAreaSqm),
-      layeredAreaSqm: r3(layeredAreaSqm),
+      sheetAreaSqm: r32(sheetAreaSqm),
+      layeredAreaSqm: r32(layeredAreaSqm),
       wasteFactor,
       packedSheets,
       areaSheets,
@@ -3056,7 +3766,7 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       blankSink: p.cutouts.sink,
       blankCooktop: p.cutouts.cooktop,
       blankTapHole: p.cutouts.tapHole,
-      benchtopLm: r3(p.benchtopLm),
+      benchtopLm: r32(p.benchtopLm),
       products: p.qty,
       blankCuts: p.cuts,
       endEdges: p.exposedEnds,
@@ -3066,23 +3776,23 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
     } : {
       ...EMPTY_BENCHTOP_FABRICATION,
       parts: mat.parts,
-      cutLm: r3(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
-      laminateSqm: r3(laminateSqm),
-      buildUpLm: r3(buildUpLm),
-      mitreLm: p.buildUp === "mitred" ? r3(p.builtUpEdgeLm) : 0,
-      substrateSqm: r3(p.substrateSqm),
+      cutLm: r32(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
+      laminateSqm: r32(laminateSqm),
+      buildUpLm: r32(buildUpLm),
+      mitreLm: p.buildUp === "mitred" ? r32(p.builtUpEdgeLm) : 0,
+      substrateSqm: r32(p.substrateSqm),
       joins,
-      polishSqm: r3(p.areaSqm),
-      edgePolishLm: r3(p.edgeLm),
+      polishSqm: r32(p.areaSqm),
+      edgePolishLm: r32(p.edgeLm),
       sink: p.cutouts.sink,
       cooktop: p.cutouts.cooktop,
       tapHole: p.cutouts.tapHole,
-      benchtopLm: r3(p.benchtopLm),
+      benchtopLm: r32(p.benchtopLm),
       products: p.qty
     };
     const sharedBy = mat.sharedBy;
     const rowWarnings = [
-      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut, end and join minutes are Ben's own (5 / 15 / 30 min), cut-out minutes are not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r3(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
+      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut, end and join minutes are Ben's own (5 / 15 / 30 min), cut-out minutes are not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r32(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
       ...p.warnings
     ];
     warnings.push(...rowWarnings);
@@ -3099,9 +3809,9 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       layers: p.layers,
       nominalThickness: p.nominalThickness,
       pieces: p.pieces,
-      areaSqm: r3(p.areaSqm),
-      edgeLm: r3(p.edgeLm),
-      benchtopLm: r3(p.benchtopLm),
+      areaSqm: r32(p.areaSqm),
+      edgeLm: r32(p.edgeLm),
+      benchtopLm: r32(p.benchtopLm),
       joins,
       stockJoins: p.stockJoins,
       cutouts: p.cutouts,
@@ -3109,7 +3819,7 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       jobSheets: mat.jobSheets,
       materialCost: mat.materialCost,
       adhesiveCartridges,
-      adhesiveCost: money2(adhesiveCartridges * adhesiveUnitCost),
+      adhesiveCost: money3(adhesiveCartridges * adhesiveUnitCost),
       fabrication,
       warnings: rowWarnings
     };
@@ -3125,7 +3835,7 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       name: "Solid surface adhesive cartridge",
       quantity: adhesiveQty,
       unitCost: adhesiveUnitCost,
-      cost: money2(adhesiveQty * adhesiveUnitCost)
+      cost: money3(adhesiveQty * adhesiveUnitCost)
     },
     warnings
   };
@@ -3133,8 +3843,9 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
 
 // src/lib/pricing/quoteFromSchedule.ts
 var BENCHTOP_RE = /countertop|benchtop/i;
+var ROBE_LOUD_RE = /^(ROBE NOT PRICED BY BOWEROS|POSSIBLE DOUBLE CHARGE|KIT PRICE UNCONFIRMED|MIRROR NOT PRICED|SOFT-CLOSE DAMPERS NOT PRICED):/;
 var g0 = (n) => n ?? 0;
-var money3 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+var money4 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 var DEFAULT_DIMENSIONS = {
   toeKickHeight: 135,
   shelfSetback: 5,
@@ -3161,9 +3872,14 @@ var DEFAULT_DIMENSIONS = {
   handleDrillSpacing: 32
 };
 function robeNotPricedWarning(r, room, qty, total) {
-  const what = `ROBE NOT PRICED BY BOWEROS: "${r.name}" (${room}, qty ${qty}, ${r.w} x ${r.h} x ${r.d}) is a robe opening / sliding robe door. Robe openings are not priced by BowerOS yet.`;
+  const what = `ROBE NOT PRICED BY BOWEROS: "${r.name}" (${room}, qty ${qty}, ${r.w} x ${r.h} x ${r.d}) is a robe opening / sliding robe door with no robe fields, so BowerOS cannot price it. Send it as a Hafele Slider SC opening (robe fields - in Build Flow, Price with BowerOS > Robe openings) to have it priced.`;
   return total > 0 ? `${what} It is carried at the source quote's own figure, $${total.toFixed(2)}, with no board, hinges, plates, shelf pins, edge tape, workshop or install minutes added for it - check that figure covers the door kit, panels and fitting.` : `${what} This row carries NO source price (mv_total missing or $0), so it is on the quote at $0.00 - price it by hand before the quote goes out.`;
 }
+function robeBlockedWarning(r, room, qty, total, reasons) {
+  const what = `ROBE NOT PRICED BY BOWEROS: "${r.name}" (${room}, qty ${qty}) has Hafele Slider SC robe fields but cannot be priced: ${reasons.join("; ")}.`;
+  return total > 0 ? `${what} It is carried at the source quote's own figure, $${total.toFixed(2)}, with nothing added for it - fix the opening or check that figure.` : `${what} This row carries NO source price (mv_total missing or $0), so it is on the quote at $0.00 - fix the opening or price it by hand before the quote goes out.`;
+}
+var hasRobeSpec = (r) => r.robe != null && typeof r.robe === "object";
 function roomOf(item, fallback) {
   const raw = String(item.room ?? "").trim();
   return !raw || /^\(?unnamed\)?$/i.test(raw) ? fallback : raw;
@@ -3189,8 +3905,9 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const defaultRoom = opts.defaultRoom ?? "Kitchen";
   const supplyMode = commercial.supplyMode ?? "assembled_installed";
   const uplift = (1 + (commercial.overheadPct ?? 0)) * (1 + commercial.markupPct);
-  const robeRows = schedule.map((r, index) => ({ r, index })).filter(({ r }) => isRobeDoorProduct(r.name));
-  const robeIndexes = new Set(robeRows.map(({ index }) => index));
+  const robeSpecRows = schedule.map((r, index) => ({ r, index })).filter(({ r }) => hasRobeSpec(r));
+  const robeRows = schedule.map((r, index) => ({ r, index })).filter(({ r }) => !hasRobeSpec(r) && isRobeDoorProduct(r.name));
+  const robeIndexes = new Set([...robeSpecRows, ...robeRows].map(({ index }) => index));
   const cabinetRows = schedule.filter((r, index) => !robeIndexes.has(index) && !BENCHTOP_RE.test(r.name));
   const benchtopRows = schedule.map((r, index) => ({ r, index })).filter(({ r, index }) => !robeIndexes.has(index) && BENCHTOP_RE.test(r.name));
   const items = [];
@@ -3275,10 +3992,10 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const pricedBenchtops = lam.rows.map((row, i) => {
     const isLast = i === lam.rows.length - 1;
     const share = btWeightTotal > 0 ? btRowWorkshop[i].shopCost / btWeightTotal : 1 / lam.rows.length;
-    const laborCost = isLast ? money3(btShopCost - btLaborAssigned) : money3(btShopCost * share);
-    btLaborAssigned = money3(btLaborAssigned + laborCost);
-    const materialCost = money3(row.materialCost + row.adhesiveCost);
-    const costPrice = money3(materialCost + laborCost);
+    const laborCost = isLast ? money4(btShopCost - btLaborAssigned) : money4(btShopCost * share);
+    btLaborAssigned = money4(btLaborAssigned + laborCost);
+    const materialCost = money4(row.materialCost + row.adhesiveCost);
+    const costPrice = money4(materialCost + laborCost);
     return {
       index: row.index,
       name: row.name,
@@ -3307,7 +4024,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       laborMinutes: btRowWorkshop[i].shopMinutes,
       installMinutes: btRowWorkshop[i].installMinutes,
       costPrice,
-      total: money3(costPrice * uplift),
+      total: money4(costPrice * uplift),
       warnings: row.warnings
     };
   });
@@ -3315,21 +4032,151 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const passthroughRows = benchtopRows.filter(({ index }) => !benchtopByIndex.has(index));
   const benchtopCost = pricedBenchtops.reduce((s, b) => s + b.costPrice, 0);
   const benchtopMaterial = lam.sheets.reduce((s, sh) => s + sh.materialCost, 0);
-  const installCost = (bom.workshop?.installCost ?? 0) + (btWorkshop?.installCost ?? 0);
-  const cabinetCost = lineCost.reduce((a, b) => a + b, 0) + benchtopCost;
-  const marginPercent = money3(commercial.markupPct * 100);
+  const jobEdgeMetres = {};
+  for (const e of bom.consolidatedEdgeTape) jobEdgeMetres[e.edgeType] = (jobEdgeMetres[e.edgeType] ?? 0) + e.linearMeters;
+  const robe = priceRobeOpenings(
+    robeSpecRows.map(({ r, index }) => ({
+      index,
+      name: r.name,
+      qty: r.qty,
+      robe: r.robe,
+      edgeId: r.edgeId,
+      exteriorMaterialId: r.exteriorMaterialId
+    })),
+    {
+      materials: pricing.materials,
+      edges: pricing.edges,
+      hardware: pricing.hardware,
+      hafeleTradePrices: pricing.hafeleTradePrices,
+      defaultInfillMaterialId: selections.exteriorMaterialId,
+      defaultEdgeId: selections.edgeId,
+      supplyMode,
+      jobEdgeMetres
+    }
+  );
+  const priorLines = [...bom.workshop?.lines ?? [], ...btWorkshop?.lines ?? []];
+  const priorMinutes = (re) => priorLines.filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
+  const robeWorkshop = robe.rows.length ? calculateWorkshopCost([], {
+    mode: supplyMode,
+    robes: robe.fabrication,
+    edgeApplicationAlreadyPriced: robe.edgeApplicationPriced,
+    jobMinimums: commercial.jobMinimums ?? true,
+    // real minutes and top-up minutes apart: a top-up an earlier call already charged is shared with the robe,
+    // so the robe's own minutes use it up rather than being charged on top of it
+    jobMinimumCredit: {
+      draftingMin: priorMinutes(/^Drafting$/),
+      draftingTopUpMin: priorMinutes(/^Drafting \(job minimum top-up\)$/),
+      machiningMin: priorMinutes(/^(Panel lead-in \/ lead-out|Panel cutting|Vertical drilling|Part labelling)$/),
+      machiningTopUpMin: priorMinutes(/^Panel cutting - CNC set-up \(job minimum top-up\)$/)
+    }
+  }) : null;
+  const robeRowWorkshop = robe.rows.map((row) => calculateWorkshopCost([], {
+    mode: supplyMode,
+    robes: row.fabrication,
+    edgeApplicationAlreadyPriced: robe.edgeApplicationPriced
+  }));
+  const robeWeightTotal = robeRowWorkshop.reduce((s, w) => s + w.shopCost, 0);
+  const robeShopCost = robeWorkshop?.shopCost ?? 0;
+  const robeShopMinutes = robeWorkshop?.shopMinutes ?? 0;
+  let robeLaborAssigned = 0;
+  let robeMinutesAssigned = 0;
+  const pricedRobes = robe.rows.map((row, i) => {
+    const isLast = i === robe.rows.length - 1;
+    const share = robeWeightTotal > 0 ? robeRowWorkshop[i].shopCost / robeWeightTotal : 1 / robe.rows.length;
+    const laborCost = isLast ? money4(robeShopCost - robeLaborAssigned) : money4(robeShopCost * share);
+    robeLaborAssigned = money4(robeLaborAssigned + laborCost);
+    const shopMinutes2 = isLast ? money4(robeShopMinutes - robeMinutesAssigned) : money4(robeShopMinutes * share);
+    robeMinutesAssigned = money4(robeMinutesAssigned + shopMinutes2);
+    const costPrice = money4(row.materialCost + laborCost);
+    const g2 = row.geometry;
+    const b = row.board;
+    return {
+      index: row.index,
+      name: row.name,
+      room: roomOf(schedule[row.index], defaultRoom),
+      qty: row.qty,
+      spec: row.spec,
+      geometry: {
+        icw: g2.icw,
+        ih: g2.ih,
+        doorWidth: g2.doorWidth,
+        doorHeight: g2.doorHeight,
+        leafWidth: g2.leafWidth,
+        closureError: Math.round(g2.closureError * 1e6) / 1e6,
+        trackCut: g2.trackCut,
+        verticalProfileCut: g2.verticalProfileCut,
+        horizontalProfileCut: g2.horizontalProfileCut,
+        panelCut: { ...row.panelCut },
+        panelFinished: { ...row.panelFinished },
+        kitLength: g2.kitLength,
+        profileAllowance: g2.profileAllowance,
+        softCloseSetback: g2.softCloseSetback,
+        tracks: [...g2.tracks],
+        verticalProfiles: g2.verticalProfiles,
+        horizontalProfiles: g2.horizontalProfiles
+      },
+      kit: {
+        item_code: row.kit.item_code,
+        name: row.kit.name,
+        price: row.kit.price,
+        unconfirmed: row.kit.unconfirmed,
+        priceSource: row.kit.priceSource,
+        priceBasis: row.kit.priceBasis,
+        quantity: row.kit.quantity,
+        cost: row.kit.cost
+      },
+      boards: b ? {
+        material: b.material,
+        materialId: b.materialId,
+        itemCode: b.itemCode,
+        thickness: b.thickness,
+        sheetLength: b.sheetLength,
+        sheetWidth: b.sheetWidth,
+        sheets: b.sheets,
+        sheetsShare: b.sheetsShare,
+        fitOk: b.fitOk,
+        panels: b.panels,
+        cost: b.cost
+      } : { material: null, materialId: null, itemCode: null, thickness: null, sheetLength: null, sheetWidth: null, sheets: 0, sheetsShare: 0, fitOk: null, panels: 0, cost: 0 },
+      edgeMetres: row.edgeMetres,
+      edge: row.edge ? { edgeType: row.edge.edgeType, name: row.edge.name, cost: row.edge.cost } : null,
+      dampers: row.dampers,
+      mirror: row.mirror,
+      leafMassKg: row.leafMassKg,
+      minutes: row.minutes,
+      shopMinutes: shopMinutes2,
+      kitCost: row.kitCost,
+      boardCost: row.boardCost,
+      edgeCost: row.edgeCost,
+      materialCost: row.materialCost,
+      laborCost,
+      costPrice,
+      total: money4(costPrice * uplift),
+      unpricedItems: row.unpricedItems,
+      warnings: row.warnings
+    };
+  });
+  const robeByIndex = new Map(pricedRobes.map((x) => [x.index, x]));
+  const robeBlockedByIndex = new Map(robe.blocked.map((x) => [x.index, x]));
+  const robeCost = pricedRobes.reduce((s, x) => s + x.costPrice, 0);
+  const robeBoardCost = robe.sheets.reduce((s, x) => s + x.cost, 0);
+  const robeEdgeCost = robe.edges.reduce((s, x) => s + x.cost, 0);
+  const robeKitCost = robe.kits.reduce((s, x) => s + x.cost, 0);
+  const installCost = (bom.workshop?.installCost ?? 0) + (btWorkshop?.installCost ?? 0) + (robeWorkshop?.installCost ?? 0);
+  const cabinetCost = lineCost.reduce((a, b) => a + b, 0) + benchtopCost + robeCost;
+  const marginPercent = money4(commercial.markupPct * 100);
   const lines = cabinetRows.map((r, idx) => {
     const qty = Math.max(1, Math.round(r.qty ?? 1));
-    const total = money3(lineCost[idx] * uplift);
+    const total = money4(lineCost[idx] * uplift);
     return {
       description: r.name,
       quantity: qty,
       unit: "ea",
-      unitPrice: money3(total / qty),
+      unitPrice: money4(total / qty),
       total,
-      costPrice: money3(lineCost[idx]),
-      materialCost: money3(lineSplit[idx].material),
-      laborCost: money3(lineSplit[idx].labor),
+      costPrice: money4(lineCost[idx]),
+      materialCost: money4(lineSplit[idx].material),
+      laborCost: money4(lineSplit[idx].labor),
       marginPercent,
       category: "cabinetry",
       roomName: roomOf(r, defaultRoom),
@@ -3344,7 +4191,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
         description: r.name,
         quantity: qty,
         unit: "ea",
-        unitPrice: money3(b.total / qty),
+        unitPrice: money4(b.total / qty),
         total: b.total,
         costPrice: b.costPrice,
         materialCost: b.materialCost,
@@ -3356,7 +4203,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       });
       continue;
     }
-    const total = money3(r.mv_total ?? 0);
+    const total = money4(r.mv_total ?? 0);
     if (total <= 0) continue;
     lines.push({
       description: r.name,
@@ -3374,16 +4221,37 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     });
   }
   const robeWarnings = [];
-  for (const { r } of robeRows) {
+  const robesNotPriced = [];
+  const allRobeRows = [...robeSpecRows, ...robeRows].sort((a, b) => a.index - b.index);
+  for (const { r, index } of allRobeRows) {
     const qty = Math.max(1, Math.round(r.qty ?? 1));
-    const mv = Number(r.mv_total);
-    const total = Number.isFinite(mv) && mv > 0 ? money3(mv) : 0;
     const room = roomOf(r, defaultRoom);
+    const priced = robeByIndex.get(index);
+    if (priced) {
+      lines.push({
+        description: r.name,
+        quantity: priced.qty,
+        unit: "ea",
+        unitPrice: money4(priced.total / priced.qty),
+        total: priced.total,
+        costPrice: priced.costPrice,
+        materialCost: priced.materialCost,
+        laborCost: priced.laborCost,
+        marginPercent,
+        category: "cabinetry",
+        roomName: room,
+        source: "bower"
+      });
+      robeWarnings.push(...priced.warnings);
+      continue;
+    }
+    const mv = Number(r.mv_total);
+    const total = Number.isFinite(mv) && mv > 0 ? money4(mv) : 0;
     lines.push({
       description: r.name,
       quantity: qty,
       unit: "ea",
-      unitPrice: money3(total / qty),
+      unitPrice: money4(total / qty),
       total,
       costPrice: total,
       materialCost: total,
@@ -3394,10 +4262,29 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       source: "passthrough",
       unpriced: true
     });
-    robeWarnings.push(robeNotPricedWarning(r, room, qty, total));
+    const blocked = robeBlockedByIndex.get(index);
+    if (blocked) {
+      robesNotPriced.push({ index, name: r.name, room, qty, reasons: blocked.reasons, geometry: blocked.geometry });
+      robeWarnings.push(robeBlockedWarning(r, room, qty, total, blocked.reasons));
+    } else {
+      robeWarnings.push(robeNotPricedWarning(r, room, qty, total));
+    }
+  }
+  const roomKey = (s) => s.trim().toLowerCase();
+  for (const { r } of robeRows) {
+    const room = roomOf(r, defaultRoom);
+    const same = robeSpecRows.filter(({ r: s }) => roomKey(roomOf(s, defaultRoom)) === roomKey(room));
+    if (!same.length) continue;
+    const mv = Number(r.mv_total);
+    const carried = Number.isFinite(mv) && mv > 0 ? money4(mv) : 0;
+    const others = same.map(({ r: s, index: si }) => {
+      const p = robeByIndex.get(si);
+      return p ? `"${s.name}" (priced by BowerOS at $${p.total.toFixed(2)})` : `"${s.name}" (Hafele Slider SC fields, not priced)`;
+    });
+    robeWarnings.push(`POSSIBLE DOUBLE CHARGE: "${r.name}" (${room}) is carried at $${carried.toFixed(2)} and ${others.join(" and ")} ${others.length === 1 ? "is" : "are"} in the same room - if they are the same robe, take one off the quote.`);
   }
   if (installCost > 0) {
-    const total = money3(installCost);
+    const total = money4(installCost);
     const mainRoom = lines.length ? [...lines.reduce((m, l) => m.set(l.roomName, (m.get(l.roomName) ?? 0) + 1), /* @__PURE__ */ new Map()).entries()].sort((a, b) => b[1] - a[1])[0][0] : defaultRoom;
     lines.push({
       description: "Installation \u2014 onsite",
@@ -3414,7 +4301,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       source: "bower"
     });
   }
-  const sellExGst = money3(lines.reduce((s, l) => s + l.total, 0));
+  const sellExGst = money4(lines.reduce((s, l) => s + l.total, 0));
   const hwCategory = (t) => {
     const k = t.toLowerCase();
     if (/hinge/.test(k)) return "hinge";
@@ -3428,57 +4315,91 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const sheetStock = bom.consolidatedSheets.map((sh) => ({
     material: sh.materialName,
     thickness: pricing.materials.find((m) => m.id === sh.materialId)?.thickness,
-    wastePercent: money3((1 - (sh.yieldFactor ?? 1)) * 100),
-    markupPercent: money3(mk * 100),
-    units: money3(sh.chargeableArea ?? sh.totalPartArea),
-    unitCost: money3(sh.areaCostPerSqm),
-    markupCost: money3(sh.totalMaterialCost * mk),
-    cost: money3(sh.totalMaterialCost)
+    wastePercent: money4((1 - (sh.yieldFactor ?? 1)) * 100),
+    markupPercent: money4(mk * 100),
+    units: money4(sh.chargeableArea ?? sh.totalPartArea),
+    unitCost: money4(sh.areaCostPerSqm),
+    markupCost: money4(sh.totalMaterialCost * mk),
+    cost: money4(sh.totalMaterialCost)
   }));
   for (const sh of lam.sheets) {
     sheetStock.push({
       material: `${sh.sheet.name} (${sh.kind === "blank" ? "Benchtop blank" : "Benchtop"}, ${sh.jobSheets} x ${sh.sheet.sheet_length}x${sh.sheet.sheet_width}${sh.priceUnit === "lm" ? ", per lm" : ""})`,
       thickness: sh.sheet.thickness,
-      wastePercent: money3(sh.wasteFactor * 100),
-      markupPercent: money3(mk * 100),
-      units: money3(sh.chargedUnits),
-      unitCost: money3(sh.unitCost),
-      markupCost: money3(sh.materialCost * mk),
-      cost: money3(sh.materialCost)
+      wastePercent: money4(sh.wasteFactor * 100),
+      markupPercent: money4(mk * 100),
+      units: money4(sh.chargedUnits),
+      unitCost: money4(sh.unitCost),
+      markupCost: money4(sh.materialCost * mk),
+      cost: money4(sh.materialCost)
+    });
+  }
+  for (const sh of robe.sheets) {
+    sheetStock.push({
+      material: `${sh.name} (Robe infill, ${sh.sheets} x ${sh.sheetLength}x${sh.sheetWidth})`,
+      thickness: sh.thickness,
+      wastePercent: 0,
+      markupPercent: money4(mk * 100),
+      units: money4(sh.chargedSqm),
+      unitCost: money4(sh.areaCost),
+      markupCost: money4(sh.cost * mk),
+      cost: money4(sh.cost)
     });
   }
   const edgebanding = bom.consolidatedEdgeTape.map((e) => ({
     color: e.edgeName,
     width: 22,
     thickness: e.thickness,
-    linearMeters: money3(e.linearMeters),
-    unitCost: money3(e.costPerMeter),
-    cost: money3(e.totalCost)
+    linearMeters: money4(e.linearMeters),
+    unitCost: money4(e.costPerMeter),
+    cost: money4(e.totalCost)
   }));
+  for (const e of robe.edges) {
+    const at = bom.consolidatedEdgeTape.findIndex((c) => c.edgeType === e.edgeType);
+    if (at >= 0) {
+      const c = bom.consolidatedEdgeTape[at];
+      edgebanding[at].linearMeters = money4(c.linearMeters + e.metres);
+      edgebanding[at].cost = money4(c.totalCost + e.cost);
+    } else {
+      edgebanding.push({ color: e.name, width: 22, thickness: e.thickness, linearMeters: money4(e.metres), unitCost: money4(e.costPerMeter), cost: money4(e.cost) });
+    }
+  }
   const hardware = bom.consolidatedHardware.map((h) => ({
     code: h.itemCode,
     description: h.name,
     quantity: h.quantity,
-    unitCost: money3(h.unitCost),
-    markupCost: money3(h.totalCost * mk),
-    cost: money3(h.totalCost),
+    unitCost: money4(h.unitCost),
+    markupCost: money4(h.totalCost * mk),
+    cost: money4(h.totalCost),
     category: hwCategory(h.hardwareType ?? "")
   }));
+  for (const k of robe.kits) {
+    hardware.push({
+      code: k.code,
+      description: k.unconfirmed ? `${k.name} (price unconfirmed - pending Hafele capture)` : k.name,
+      quantity: k.quantity,
+      unitCost: money4(k.unitCost),
+      markupCost: money4(k.cost * mk),
+      cost: money4(k.cost),
+      category: "other"
+    });
+  }
   if (lam.adhesive.quantity > 0) {
     hardware.push({
       code: lam.adhesive.code,
       description: lam.adhesive.name,
       quantity: lam.adhesive.quantity,
-      unitCost: money3(lam.adhesive.unitCost),
-      markupCost: money3(lam.adhesive.cost * mk),
-      cost: money3(lam.adhesive.cost),
+      unitCost: money4(lam.adhesive.unitCost),
+      markupCost: money4(lam.adhesive.cost * mk),
+      cost: money4(lam.adhesive.cost),
       category: "other"
     });
   }
-  const st = mergeStations(bom.workshop?.lines ?? [], btWorkshop?.lines ?? []);
-  const minutesOf = (re) => money3(st.filter((l) => re.test(l.station)).reduce((a, l) => a + l.minutes, 0));
-  const installMinutes = (bom.workshop?.installMinutes ?? 0) + (btWorkshop?.installMinutes ?? 0);
-  const installHours = (bom.workshop?.installHours ?? 0) + (btWorkshop?.installHours ?? 0);
+  const merged = mergeStations(mergeStations(bom.workshop?.lines ?? [], btWorkshop?.lines ?? []), robeWorkshop?.lines ?? []);
+  const st = robeWorkshop ? merged.filter((l) => !(/job minimum top-up/.test(l.station) && Math.abs(l.minutes) < 5e-3)) : merged;
+  const minutesOf = (re) => money4(st.filter((l) => re.test(l.station)).reduce((a, l) => a + l.minutes, 0));
+  const installMinutes = (bom.workshop?.installMinutes ?? 0) + (btWorkshop?.installMinutes ?? 0) + (robeWorkshop?.installMinutes ?? 0);
+  const installHours = (bom.workshop?.installHours ?? 0) + (btWorkshop?.installHours ?? 0) + (robeWorkshop?.installHours ?? 0);
   const laborMinutes = {
     drafting: minutesOf(/draft/i),
     machining: minutesOf(/lead|cutting|drill|label/i),
@@ -3488,14 +4409,15 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     finishing: minutesOf(/lamination|polish|build-up|joins?|cut-?outs?/i),
     // 'Hardware pick & box' (flat_pack_hw_loose) had no bucket, so its minutes never reached Build Flow's schedule
     productHandling: minutesOf(/handling|packag|loading|pick/i),
-    installation: money3(installMinutes),
+    installation: money4(installMinutes),
     total: 0
   };
-  laborMinutes.total = money3(Object.entries(laborMinutes).filter(([k]) => k !== "total").reduce((a, [, v]) => a + v, 0));
-  const labor = st.map((l) => ({ category: l.station, hours: money3(l.hours), rate: l.rate, cost: money3(l.cost) }));
-  if (bom.workshop || btWorkshop) labor.push({ category: "Installation (onsite)", hours: money3(installHours), rate: 0, cost: money3(installCost) });
-  const shopLaborTotal = money3((bom.workshop?.shopCost ?? g0(bom.grandTotal.labor)) + btShopCost);
-  const totalMaterials = money3(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware + benchtopMaterial + lam.adhesive.cost);
+  laborMinutes.total = money4(Object.entries(laborMinutes).filter(([k]) => k !== "total").reduce((a, [, v]) => a + v, 0));
+  const labor = st.map((l) => ({ category: l.station, hours: money4(l.hours), rate: l.rate, cost: money4(l.cost) }));
+  if (bom.workshop || btWorkshop || robeWorkshop) labor.push({ category: "Installation (onsite)", hours: money4(installHours), rate: 0, cost: money4(installCost) });
+  const shopLaborTotal = money4((bom.workshop?.shopCost ?? g0(bom.grandTotal.labor)) + btShopCost + robeShopCost);
+  const totalMaterials = money4(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware + benchtopMaterial + lam.adhesive.cost + robeBoardCost + robeEdgeCost + robeKitCost);
+  const robeUnpriced = pricedRobes.flatMap((x) => x.unpricedItems);
   const rooms = new Set(lines.map((l) => l.roomName ?? defaultRoom));
   const workshopCosting = {
     sheetStock,
@@ -3507,66 +4429,83 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     fileName: "BowerOS pricing engine",
     cabinetCount: items.length,
     roomCount: rooms.size,
-    partCount: bom.cabinets.reduce((a, c) => a + c.parts.reduce((b, p) => b + Math.max(1, p.quantity ?? 1), 0), 0) + lam.fabrication.parts,
+    partCount: bom.cabinets.reduce((a, c) => a + c.parts.reduce((b, p) => b + Math.max(1, p.quantity ?? 1), 0), 0) + lam.fabrication.parts + robe.fabrication.boardParts + robe.fabrication.boughtParts,
     // Any benchtop row flags stone; only rows still carried from the source
     // quote are buyouts.
     hasStone: benchtopRows.length > 0,
     hasLaminex: false,
     hasTwoPack: false,
-    // Robe rows are carried from the source quote too.
-    hasBuyout: passthroughRows.length + robeRows.length > 0,
-    buyoutItems: [...passthroughRows.map(({ r }) => r.name), ...robeRows.map(({ r }) => r.name)],
-    sheetStockTotal: money3(sheetStock.reduce((a, x) => a + x.cost, 0)),
+    // Robe rows not priced by the robe module are carried from the source quote too, and a priced opening's
+    // unpriced parts (mirror glass, extra dampers) still have to be bought.
+    hasBuyout: passthroughRows.length + robeRows.length + robesNotPriced.length + robeUnpriced.length > 0,
+    buyoutItems: [
+      ...passthroughRows.map(({ r }) => r.name),
+      ...robeRows.map(({ r }) => r.name),
+      ...robesNotPriced.map((x) => x.name),
+      ...robeUnpriced
+    ],
+    sheetStockTotal: money4(sheetStock.reduce((a, x) => a + x.cost, 0)),
     solidStockTotal: 0,
-    edgebandingTotal: money3(edgebanding.reduce((a, x) => a + x.cost, 0)),
-    hardwareTotal: money3(hardware.reduce((a, x) => a + x.cost, 0)),
+    edgebandingTotal: money4(edgebanding.reduce((a, x) => a + x.cost, 0)),
+    hardwareTotal: money4(hardware.reduce((a, x) => a + x.cost, 0)),
     totalMaterials,
     shopLaborTotal,
-    onsiteLaborTotal: money3(installCost),
-    totalLabor: money3(shopLaborTotal + installCost),
-    markupPercent: money3(mk * 100),
-    markupAmount: money3(cabinetCost * mk),
-    overheadPercent: money3((commercial.overheadPct ?? 0) * 100),
-    overheadAmount: money3(cabinetCost * (commercial.overheadPct ?? 0)),
-    totalProjectPrice: money3(sellExGst * 1.1),
+    onsiteLaborTotal: money4(installCost),
+    totalLabor: money4(shopLaborTotal + installCost),
+    markupPercent: money4(mk * 100),
+    markupAmount: money4(cabinetCost * mk),
+    overheadPercent: money4((commercial.overheadPct ?? 0) * 100),
+    overheadAmount: money4(cabinetCost * (commercial.overheadPct ?? 0)),
+    totalProjectPrice: money4(sellExGst * 1.1),
     totalProjectPriceExGst: sellExGst,
-    totalCost: money3(cabinetCost + installCost)
+    totalCost: money4(cabinetCost + installCost)
   };
-  const gst = money3(sellExGst * 0.1);
+  const gst = money4(sellExGst * 0.1);
   const g = bom.grandTotal;
-  const shopMinutes = (bom.workshop?.shopMinutes ?? 0) + (btWorkshop?.shopMinutes ?? 0);
+  const shopMinutes = (bom.workshop?.shopMinutes ?? 0) + (btWorkshop?.shopMinutes ?? 0) + robeShopMinutes;
   return {
     workshopCosting,
     lines,
     benchtops: pricedBenchtops,
+    robes: pricedRobes,
+    robesNotPriced,
     totals: {
-      cabinetCost: money3(cabinetCost),
-      installCost: money3(installCost),
+      cabinetCost: money4(cabinetCost),
+      installCost: money4(installCost),
       sellExGst,
       gst,
-      sellIncGst: money3(sellExGst + gst),
+      sellIncGst: money4(sellExGst + gst),
       markupPct: commercial.markupPct,
       markupSource: commercial.markupSource,
       supplyMode
     },
     cost: {
-      materials: money3(g.materials + benchtopMaterial),
-      edging: money3(g.edging),
-      hardware: money3(g.hardware + lam.adhesive.cost),
-      labor: money3(g.labor + btShopCost),
-      processing: money3(g.handling + g.machining + g.assembly)
+      materials: money4(g.materials + benchtopMaterial + robeBoardCost),
+      edging: money4(g.edging + robeEdgeCost),
+      hardware: money4(g.hardware + lam.adhesive.cost + robeKitCost),
+      labor: money4(g.labor + btShopCost + robeShopCost),
+      processing: money4(g.handling + g.machining + g.assembly)
     },
-    workshop: bom.workshop || btWorkshop ? {
-      shopMinutes: money3(shopMinutes),
-      installMinutes: money3(installMinutes),
-      stations: st.map((l) => ({ station: l.station, minutes: money3(l.minutes), cost: money3(l.cost) }))
+    workshop: bom.workshop || btWorkshop || robeWorkshop ? {
+      shopMinutes: money4(shopMinutes),
+      installMinutes: money4(installMinutes),
+      stations: st.map((l) => ({ station: l.station, minutes: money4(l.minutes), cost: money4(l.cost) }))
     } : null,
-    // Robe warnings first: each one is a line BowerOS did not price.
-    warnings: [...robeWarnings, ...bom.warnings ?? [], ...lam.warnings, ...scheduleWarnings]
+    // Robe warnings first: lines BowerOS did not price, and the unpriced / unconfirmed parts of the ones it did
+    // (the LOUD ones ahead of every robe row's working, each group in schedule order).
+    warnings: [
+      ...robeWarnings.filter((w) => ROBE_LOUD_RE.test(w)),
+      ...robeWarnings.filter((w) => !ROBE_LOUD_RE.test(w)),
+      ...bom.warnings ?? [],
+      ...lam.warnings,
+      ...scheduleWarnings
+    ]
   };
 }
 export {
   DEFAULT_DIMENSIONS,
+  hasRobeSpec,
   quoteFromSchedule,
+  robeBlockedWarning,
   robeNotPricedWarning
 };

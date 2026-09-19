@@ -35,7 +35,7 @@ export function generateCabinetBOM(
     if (robeName) {
       // Say what it is rather than "no part mapping": a robe opening priced here goes out at $0.
       empty.warnings = [
-        `${cabinet.cabinetNumber || robeName}: "${robeName}" is a robe opening / sliding robe door - robe openings are not priced by BowerOS yet, so it is priced at $0 with no board, hinges, edge tape or workshop time. Price it by hand.`,
+        `${cabinet.cabinetNumber || robeName}: "${robeName}" is a robe opening / sliding robe door - a cabinet BOM cannot price a robe opening (BowerOS prices one only from a schedule row with Hafele Slider SC robe fields), so it is priced at $0 with no board, hinges, edge tape or workshop time. Price it by hand.`,
       ];
     }
     return empty;

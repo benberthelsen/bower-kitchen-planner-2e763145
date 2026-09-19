@@ -1,7 +1,8 @@
 # Pricing Engine Deep Dive
 
 How a placed cabinet becomes a priced quote, and how the linked pricing sheets feed it.
-Last updated: 2026-09-17 (robe openings carried at the source price, and the part-fits-board
+Last updated: 2026-09-17 (Hafele Slider SC robe openings priced by BowerOS from a `robe` block — see "Hafele
+Slider SC robe openings"; robe-named rows without one carried at the source price, and the part-fits-board
 warning — see "Robe openings and sliding robe doors" and "Part fits board" below; 2026-09-16
 benchtops priced from a schedule; the rest of this file still describes the planner
 `calculateBenchtops` path).
@@ -38,8 +39,8 @@ generateQuoteBOM (all cabinets in the room)
 
 ## Robe openings and sliding robe doors (17 Sep 2026)
 
-BowerOS does **not** price robe openings or sliding robe doors yet (Ben's Hafele Slider SC program is
-designed, not built). Until it does, `quoteFromSchedule` splits robe rows off **first** — before the
+A row that carries a `robe` block is PRICED — see "Hafele Slider SC robe openings" below. A robe-NAMED row
+**without** one is not priced: `quoteFromSchedule` splits robe rows off **first** — before the
 benchtop split and before the part mapping's faces-only / opening / carcase rules can see them — and
 carries each at the row's own `mv_total`:
 
@@ -48,7 +49,11 @@ carries each at the row's own `mv_total`:
 - **no** carcase board, hinges, plates, shelf pins, edge tape, workshop stations, install minutes or
   job-minimum top-ups — the row never becomes a `PlacedItem`;
 - a warning starting `ROBE NOT PRICED BY BOWEROS:` naming the row, its room, qty and size, placed
-  **first** in `warnings`;
+  **first** in `warnings`, saying the row has no robe fields so BowerOS cannot price it and to send it as a Hafele
+  Slider SC opening (Build Flow: Price with BowerOS > Robe openings);
+- when such a row shares its room with a row that HAS robe fields (priced or refused), a LOUD
+  `POSSIBLE DOUBLE CHARGE:` warning names both rows and the carried figure — most likely the same robe twice
+  (a Microvellum or hand-typed robe line beside the opening that replaces it). Nothing is removed;
 - a robe row with **no** `mv_total` (or 0) still gets a **$0.00 line** (unlike a benchtop passthrough,
   which is dropped) and its warning says it has NO source price and must be priced by hand;
 - `workshopCosting.hasBuyout` / `buyoutItems` include robe rows (carried from the source quote).
@@ -91,6 +96,244 @@ What the live engine did before (probe on the live catalogue, 2400 × 2400 rows,
 | "Slider SC 2 Door Robe Door Set" | same as above | same as above |
 | "Sliding Robe Door" | $637.48 cost / $965.98 job sell (carcase, 1 door) | same as above |
 | "Robe Door Faces Only" qty 2, 1234 × 2345 | $750.83 cost / $1,198.16 job sell: hinged loose fronts, 8 hinges, 14.32 m edge | same as above |
+
+## Hafele Slider SC robe openings — PRICED by BowerOS (17 Sep 2026, not deployed)
+
+Ben's standalone robe program (`Hafele_Slider_SC_Pricing_Program.html`) is folded into the engine as a product
+kind, like benchtop blanks. A schedule row that carries a **`robe` block** is priced by
+`src/lib/pricing/robeSliderDoors.ts` (money) on top of `src/lib/pricing/robeGeometry.ts` (pure geometry). A
+robe-NAMED row **without** a `robe` block keeps the guard above: carried at `mv_total`, `ROBE NOT PRICED`.
+Nothing is live until the kit seed is applied and `price-quote` is redeployed.
+
+### The contract (engine <-> Build Flow)
+
+A robe row is a normal schedule row `{ name, qty, room, w, h, d, mv_total? }` plus:
+
+```ts
+robe: {
+  kind: 'hafele_slider_sc',
+  profile: 'handle' | 'slimline', leaves: 2 | 3, finish: 'silver' | 'black',
+  openingWidth, openingHeight,                         // measured opening, mm
+  allowances?: { left, right, top, bottom },           // positive deductions, mm, default 0
+  infill: 'board' | 'mirror',
+  infillMaterialId?: string,                           // board infill (material_pricing id / item_code)
+  infillThickness?: number,                            // 16-18 mm: board = checked against the board bought;
+                                                       // mirror = the glass + backer build-up (checked, used for the mass)
+  softCloseAllLeaves?: boolean                         // default true (Ben)
+}
+```
+
+- The `robe` block decides, not the name: "Bedroom 1 wall unit" with a robe block is a priced opening.
+  `w` / `h` / `d` are not read for a robe row (the opening sizes are).
+- `qty` = identical openings on the row; **one quote line per row**, `quantity` = qty, `source: 'bower'`,
+  `marginPercent` = the catalogue markup (40%, `client_markup_settings "Standard Default"`), install NOT in it.
+- The response adds **`robes: PricedRobeOpening[]`** — one entry per PRICED row:
+  `{ index, name, room, qty, spec, geometry { icw, ih, doorWidth, doorHeight, leafWidth, closureError, trackCut,
+  verticalProfileCut, horizontalProfileCut, panelCut { w, h }, panelFinished { w, h }, kitLength, profileAllowance,
+  softCloseSetback, tracks, verticalProfiles, horizontalProfiles }, kit { item_code, name, price, unconfirmed, priceSource,
+  priceBasis, quantity, cost }, boards { material, materialId, itemCode, thickness, sheetLength, sheetWidth,
+  sheets, sheetsShare, fitOk, panels, cost }, edgeMetres, edge, dampers { inKit, needed, extra, priced: false },
+  mirror { required, priced: false, panels, panelCut }, leafMassKg, minutes { setUp, leaves, install },
+  shopMinutes, kitCost, boardCost, edgeCost, materialCost, laborCost, costPrice, total, unpricedItems, warnings }`.
+  - `geometry.panelFinished` = the finished infill panel the profile channel holds (doorWidth × doorHeight);
+    `geometry.panelCut` = its SAW size: a board panel is edged on all four sides, so it is cut one edge thickness
+    in from each side (cut = finished − 2 × edge; 1152 × 2343 for the worked example's 1 mm tape). A mirror panel is
+    cut at its finished size. The sheet nest, fit check, edge metres and mass all use the finished size, as
+    Microvellum nests an edged part.
+  - `boards.sheets` = whole sheets bought for EVERY robe row on that board (they nest together);
+    `sheetsShare` = this row's share by panel area. On a mirror opening `material` / `materialId` / `itemCode` /
+    `thickness` / sheet sizes are null, `sheets` 0 and `fitOk` null. On a priced board row `fitOk` is always
+    true — a leaf that does not fit is a hard stop, so it is never priced.
+  - `total` = `costPrice` × uplift (sell ex GST, no install). `minutes.install` is this row's part of the job's
+    "Installation — onsite" line, which is billed at cost exactly as for cabinets.
+- **`robesNotPriced: [{ index, name, room, qty, reasons[], geometry | null }]`** — rows WITH a robe block the
+  module refused. Each is carried like a guard row (its `mv_total`, or a visible `$0.00` line marked
+  `unpriced: true`) with a warning `ROBE NOT PRICED BY BOWEROS: "<name>" (...) has Hafele Slider SC robe fields
+  but cannot be priced: <reasons>`.
+- A quote with no robe rows returns `robes: []` and `robesNotPriced: []`; nothing else changes.
+- `GET price-quote?catalog=1` adds `robeKits` (hardware_type `robe_kit`, Available, with the `robe_*` columns
+  and `price_basis`). Informational: the engine selects the kit itself, Build Flow never sends a kit id.
+
+### Geometry — closure primary, checked against Ben's app
+
+Hafele (installation p3) prints `ICW - 92 ÷ 2`, `ICW - 108 ÷ 3` (Handle), `ICW + 60 - 14 ÷ 2`,
+`ICW + 120 - 21 ÷ 3` (Slimline) with no parentheses. Read as (sum) ÷ n all four are ONE identity:
+
+```
+icw        = openingWidth  - left - right          ih = openingHeight - top - bottom   (both snapped to 1e-6 mm)
+leafWidth  = (icw + 60 × (leaves - 1)) / leaves    (finished leaf, 60 mm overlap per junction, p1)
+doorWidth  = leafWidth - allowance                 (the panel cut, Hafele "DW"; allowance 76 Handle, 7 Slimline)
+doorHeight = ih - 55                               (p3)
+trackCut = icw; verticalProfileCut = doorHeight (2 a leaf); horizontalProfileCut = doorWidth (2 a leaf)
+panel (finished) = doorWidth x doorHeight; softCloseSetback 35 Handle / 0 Slimline (p6)
+kit: 2 leaves ≤1800 → 1800, ≤2700 → 2700, else none; 3 leaves ≤2700 → 2700, ≤3600 → 3600, else none (inclusive)
+tracks: 2 leaves front / rear; 3 leaves front / rear / front
+```
+
+The printed formula is kept as an assertion (`printedDoorWidth`, `printedFormulaError` = 0). Ben's app
+computes DW from the printed formula and ADDS the allowance, so a measured allowance of 80 gives a closure error
+of 8 mm and blocks the job; here an optional `calibration.profileAllowance` moves only the panel cut and the
+closure stays 0 (not exposed in the contract until a profile is measured).
+
+The clear sizes are snapped to 1e-6 mm before any comparison. Unrounded, a measured 2700.3 less 0.1 and 0.2 was
+2700.0000000000005 and lost the 2700 kit (blocked), 1800.2 less 0.1 twice took the 2700 kit instead of the 1800
+one, and 2805.6 less 0.3 twice made a 2749.9999999999995 mm door that dodged the 2750 stop. Ben's app has the same
+unrounded sums, which is why the oracle below never saw it; the smoke test now checks all three.
+
+**Proven:** `scratchpad/robeeng/oracle_compare.mjs` runs Ben's own `calcCabinet` (verbatim extraction) and this
+module over **114,912** openings (both profiles, 2 and 3 leaves, widths 1000–3800 mm in 7.3 mm steps plus every
+boundary, 12 heights either side of the limit, three allowance sets, panel and mirror, 16–19 mm): largest
+difference in icw, ih, DW, door height, leaf width, closure, infill cut, track, profile cuts, setback, kit length
+and leaf mass **4.5e-13 mm**; SKU selection, track planes and the pass / block status identical in every case
+(his 900–1350 width BLOCK counted as our WARNING). His 7 self-tests pass on his code, and the smoke test
+re-expresses all 7 plus the build pack's Validation Tests T01–T10 (core DW, door height, finished width, insert,
+leaf kg, stock length, closure, PASS / BLOCK) to 0.001 through the geometry helpers, and runs T09 (the 19 mm mirror
+build-up) through `quoteFromSchedule` itself as well.
+
+### Hard stops and warnings
+
+| Rule | Source | Result |
+|---|---|---|
+| door height ≥ 2750 mm (IH ≥ 2805) | Hafele p3 "Door Height: <2750mm", strict | NOT priced |
+| no packaged kit (2 leaves over 2700, 3 leaves over 3600) | build pack Kit_Nominal_Length | NOT priced; a 2-leaf ≤3600 says "three leaves on the 3600 kit covers it" |
+| leaf panel does not fit its board (10 mm trim, either way round) | `partFitsSheet` | NOT priced — e.g. a 2400 Slimline 2-leaf panel is 1223 wide and cannot come off 2400 × 1200 or 3115 × 1200 |
+| board leaf estimated ≥ 50 kg | Hafele p3 "<50kg", per door (build pack SC-04) | NOT priced (board at 700 kg/m³ + 3 kg profiles/hardware — Ben's app estimate) |
+| board thickness outside 16–18 mm, or `infillThickness` outside 16–18 (board OR mirror build-up) | Ben 17 Sep: 16–18 accepted; build pack SC-17 "no mirror-specific exception", T09 | NOT priced |
+| no robe_kit row / no matching row / two matching rows / kit with no price | catalogue | NOT priced |
+| infill material missing, or with no thickness / sheet size / area_cost | catalogue | NOT priced |
+| finished leaf outside 900–1350 mm | Ben's app only — no Hafele page or build-pack rule; source unknown | WARNING, priced |
+| `infillThickness` ≠ the board's thickness (both 16–18) | | WARNING, priced as the board bought |
+| no `infillMaterialId` | | WARNING, priced in the job's door finish (`exteriorMaterialId`) |
+| mirror leaf mass | Hafele does not specify mirror (build pack USR-01) | WARNING with Ben's estimate on the `infillThickness` build-up sent (default 16), split as 4 mm glass + the rest backer — the split is an ASSUMPTION (16 mm = 4 + 12: 51.2 kg on 2400 × 2400 Handle, OVER; 18 mm on 2200 × 2400 Handle = 4 + 14: 50.2 kg, OVER) |
+| `infillMaterialId` on a mirror opening | | WARNING, ignored (a thickness alone raises nothing) |
+
+### What is charged
+
+- **Kit** — one `hardware_pricing` row per opening: `hardware_type 'robe_kit'`, matched on `robe_profile`,
+  `robe_leaves`, `robe_finish`, `robe_track_length_mm`. Price = the Hafele trade-price capture
+  (`hafele_trade_prices.trade_cost_ex_gst`, Bower's buy price ex GST, either article shape) when positive —
+  `unconfirmed: false`, `priceSource 'hafele_capture'`; else `unit_cost` flagged `unconfirmed: true` with its
+  `price_basis` and a LOUD `KIT PRICE UNCONFIRMED:` warning (Ben 17 Sep: GST basis of the 31 Aug Net prices
+  unknown — "add the items to the scraper list"). Rollers, guides, the 4 dampers, tracks and profile stock are
+  inside the kit and never listed; `workshopCosting.hardware` carries the kit line once.
+- **Board infill** — WHOLE sheets from a real nest (`packWholeSheetCuts`): each leaf as (long side + 10) ×
+  (short side + 10) on the nominal sheet, long side along the sheet's long side — the same 10 mm as
+  `partFitsSheet`'s trim for one leaf and 10 mm between neighbours (**assumed** router path, not calibrated).
+  No yield factor and no area rule: two 1154 × 2345 leaves are 2 sheets of 3600 × 1800 ($330.87 at $25.53/m²),
+  where area ÷ sheet area says 1. Robe rows on the same board nest together; cost split by panel area. Robe
+  leaves do NOT nest with the kitchen's boards (as benchtops do not).
+- **Edge tape** — all four sides of every board panel through `calculateEdgeTape` (edge = row `edgeId`, else
+  `selections.edgeId`; warned when it falls back to $2.50/m). Bought under the job's 20 m minimum then by the
+  metre, counting what the cabinets already buy of the SAME tape: the robe pays
+  `order(kitchen + robe) - order(kitchen)` metres + application on its own metres + handling, and the tape stays
+  ONE `workshopCosting.edgebanding` row. Robe-only 2400 × 2400: 13.996 m → 20 m × $1.50 + 13.996 × $0.90 + $0.50
+  = $43.10. Mirror: no tape.
+- **Mirror** — Ben: charged as a WHOLE SHEET as bought, but no mirror sheet size, price or supplier exists. The
+  opening prices everything else and raises `MIRROR NOT PRICED:` (panels and cut size); `mirror.priced false`,
+  the glass is on `workshopCosting.buyoutItems`. Nothing is invented.
+- **Dampers** — every kit has 4 (2-door and 3-door alike, p1 / SC-15). Soft close on all leaves (default) needs 2
+  a leaf (one each end of travel, as the 2-door kit's 4 imply): a 3-leaf opening needs 2 more. Counted in
+  `dampers.extra`, `SOFT-CLOSE DAMPERS NOT PRICED:` warning, on `buyoutItems`. `softCloseAllLeaves: false` on 3
+  leaves buys none and warns not to describe every leaf as soft close.
+- **Stations** (`workshopModel.ts`, `robes` input; all no-ops at 0) — Ben, 17 Sep 2026:
+
+| Station | Minutes | Rate | Bucket |
+|---|---|---|---|
+| Robe opening assembly set-up | 30 per opening (`robeOpeningSetupMin`) | assembly $100 | assembly |
+| Robe leaf assembly | 30 per leaf (`robeLeafAssemblyMin`) | assembly $100 | assembly |
+| Drafting / Part handling | per panel (board and mirror) | as cabinets | drafting / productHandling |
+| Panel lead-in / out, Panel cutting, Part labelling | board panels only | machining $250 | machining |
+| Edgebanding | only if the edge row has no application_cost | $100 | edgebanding |
+| Loading & unloading (large loose panels) / (loose fronts & boards) | per leaf, 2 crew when ≥ 2000 mm and ≥ 1 m² | loading $80 | productHandling |
+| Install | 45 per opening (`installRobeOpeningMin`) | install $98, at cost | installation |
+
+  Profile / track cutting and fitting rollers, guides and dampers are inside Ben's 30 + 30. No vertical
+  drilling, shop part assembly, hardware assembly or cabinet loading. Flat pack: no set-up, leaf assembly or
+  install (panels wrapped); assembled: no install. Every station name lands in exactly one `laborMinutes`
+  bucket (smoke-tested), so no robe minute vanishes from Build Flow's schedule.
+- **Robe minutes land on the robe line**: robes run as their own `calculateWorkshopCost([], { robes })` call;
+  each row's labour is its share of that call, weighted by what the model says the row costs alone. Kitchen
+  lines are exactly as without the robe (smoke-tested).
+- **Job minimums** — the robe call applies the 20 min drafting / 10 min CNC floors when `jobMinimums` is on. The
+  floor is on the JOB: drafting = max(20, every call's real drafting), CNC = max(10, every call's real machining).
+  `jobMinimumCredit` carries the earlier calls' real minutes and their top-up minutes separately:
+  - no earlier top-up: the robe call tops up to the floor as usual — a robe-only quote pays $54.44 on the worked
+    example;
+  - the kitchen call already topped up: the robe's own minutes use that top-up up first, as a NEGATIVE line under the
+    same top-up station name, which merges into the kitchen's top-up line (a line left at 0 min is dropped). The
+    kitchen lines keep their cost; the robe line pays its minutes less the part of the top-up it used. Before this, a
+    robe beside a small kitchen paid its 2.74 drafting and 3.70 machining minutes on top of the full top-up (ten-sands:
+    drafting 22.74 and CNC 13.70 where both should stay 20 / 10);
+  - the CNC floor needs something on the machine: a mirror-only robe quote pays the drafting floor but no CNC set-up;
+  - `jobMinimums: false` gets none. (A benchtop-only quote still gets no floor, and a benchtop's drafting still
+    stacks on the kitchen's top-up — both unchanged.)
+
+### Catalogue seed — `supabase/migrations/20260917120000_slider_sc_robe_kits.sql` (NOT APPLIED)
+
+Additive and re-runnable: nullable `robe_profile` / `robe_leaves` / `robe_finish` / `robe_track_length_mm` /
+`price_basis` / `source_url` on `hardware_pricing` (with CHECK constraints), the 16 kits from Ben's PRICE_SEED
+(`robe_kit`, never `handle`; `unit_cost` = his 31 Aug Net price; `price_basis` "unconfirmed - pending Hafele
+capture (… GST basis not confirmed)"), `ON CONFLICT (item_code)` on the two existing unique indexes (checked
+read-only with `pg_indexes`; `EXPLAIN` shows both as arbiters) — a re-run never overwrites a price whose basis
+no longer says unconfirmed. The same 16 articles go on the **capture list**: `hafele_trade_prices` rows with the
+family product URL and NO price (`ON CONFLICT (article_code) DO NOTHING`); the next logged-in capture fills
+`trade_cost_ex_gst` and the engine switches to it with no catalogue change. A closing DO block asserts 16 kits,
+16 variants, 0 typed handle, 16 on the list. `price-quote` loads only the `944%` capture rows and keeps pricing
+(unconfirmed) if that read fails. The smoke test parses the SQL itself and checks every row against Ben's
+PRICE_SEED.
+
+### Worked example — 2400 × 2400, 2 leaves, Handle, silver, Polytec Polar White Sheen 16 mm (POLY25832), assembled + installed
+
+Live catalogue rows (17 Sep 2026): POLY25832 2400 × 1200 $31.47/m²; edge bk1403 Polar White SolidSheen $1.50/m,
+$0.50 handling, $0.90/m application; markup 40%; kit rows from the seed. Run through the rebuilt `engine.mjs`
+exactly as `price-quote` calls it (`scratchpad/robeeng/worked_example.mjs`, and `fnsim/run_fn.mjs` through
+`index.ts` itself with a mocked client).
+
+| | BowerOS cost | Sell ex GST |
+|---|---|---|
+| Geometry | icw 2400, leaf 1230, panels 2 × 1154 × 2345 finished (cut 1152 × 2343 before the 1 mm edge), closure 0, track 2400, 4 verticals 2345, 4 horizontals 1154 | |
+| Kit 944.02.002 (2700), unconfirmed | $324.01 | |
+| Board: 2 whole 2400 × 1200 sheets (5.76 m²) | $181.27 | |
+| Edge: 13.996 m, bought 20 m | $43.10 | |
+| Shop: drafting 2.74 + top-up 17.26 min ($32.67); lead-in 0.70 + cutting 2.80 + labelling 0.20 + CNC top-up 6.30 min ($41.66); handling 0.50 min ($0.83); set-up 30 min ($50); leaf assembly 60 min ($100); loading 2 leaves × 3 min × 2 crew ($16) — 132.5 min | $241.16 | |
+| **Opening line** | **$789.54** | **$1,105.36** |
+| Install 45 min × $98 (at cost) | $73.50 | $73.50 |
+| **Job** | $863.04 | **$1,178.86** ex GST ($1,296.75 inc) |
+
+Ben's app, same opening, its defaults (markup 30%, waste 10%, $90/h, panel $45/m², 1 h set-up + 1.5 h a leaf,
+3 h install): kit $324.01, panel $267.91, fabrication $360, install $270 → direct $1,221.92 → **$1,588.49** ex GST.
+BowerOS is **$409.63 lower**, every dollar attributed (sell dollars; 1 cent is line rounding):
+
+| Difference | Sell $ | Why |
+|---|---|---|
+| Kit markup 30% → 40% | +32.40 | same $324.01 cost; the catalogue default markup (Ben: 40% on a bought-in kit) |
+| Board rate $45 placeholder → $31.47 live POLY25832, on his 5.953 m² | −112.77 | −$80.55 cost × 1.4 |
+| Board quantity: area × 2 × 1.1 waste (5.953 m²) → 2 whole sheets (5.76 m²) | −8.52 | −$6.09 cost × 1.4 (on a 2400 × 1200 the whole-sheet rule is the smaller here; on 3600 × 1800 it is larger) |
+| Board markup 30% → 40% on his panel cost | +26.79 | |
+| Edge tape on all four sides (his app: none) | +60.34 | $43.10 × 1.4 — Ben's rule 6 |
+| Set-up + leaves: 240 min at $90 → 90 min at $100 | −294.00 | −$210 cost × 1.4 — Ben's 30 + 30 a leaf |
+| Per-part stations (drafting, cutting, labelling, handling) | +29.01 | $20.72 × 1.4 — his app has none |
+| Job minimums on a robe-only quote | +76.22 | $54.44 × 1.4 |
+| Loading 2 large loose panels | +22.40 | $16.00 × 1.4 |
+| Labour markup 30% → 40% on his $360 | +36.00 | |
+| Install 180 → 45 min | −202.50 | at his $90 |
+| Install rate $90 → $98 | +6.00 | 45 min |
+| Install not marked up (BowerOS bills install at cost) | −81.00 | his 30% on $270 |
+| **Total** | **−409.63** | = $1,178.86 − $1,588.49 |
+
+### Not decided / still open
+
+- Mirror sheet size, price and supplier; whether a backer is used; mirror mass (Hafele does not specify mirror). The
+  glass / backer split of a 17 or 18 mm build-up is assumed (4 mm glass + the rest backer) for the mass estimate.
+- Extra damper part number and price.
+- Where the 900–1350 mm leaf range came from (warned, not blocked).
+- The IH datum: the engine takes `openingHeight − top − bottom` as Hafele's IH (a carcase-internal measure on p3);
+  a builder's plasterboard opening to a finished floor may need a different allowance. Floor level / covering
+  and out-of-square are not modelled.
+- The SKU → profile / leaves / finish / length mapping is Ben's (build pack SC-16, brochure p3); the installation
+  pages cannot confirm it.
+- The 10 mm spacing between leaves in the nest is assumed; grain is taken as along the sheet's long side.
+- A benchtop-only quote still gets no job minimums (pre-existing).
 
 ## Part fits board — WARNING ONLY (17 Sep 2026)
 
