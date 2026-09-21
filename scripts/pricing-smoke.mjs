@@ -10,7 +10,10 @@
  * Checks engine INVARIANTS across all cabinet families plus degenerate inputs.
  */
 import { generateQuoteBOM, generateCabinetBOM, calculateBenchtops, quoteFromSchedule, priceLaminatedBenchtops, isBenchtopBlankSheet, resolveBenchtopKind, inferFrontCounts, isFacesOnlyProduct, isRobeDoorProduct, buildGenericCabinetMapping, partFitsSheet, boardThinAxis, DEFAULT_WORKSHOP_RATES, hardwareFitMinutes, calculateWorkshopCost, EDGE_MIN_ORDER_M, edgeOrderMetres,
-  sliderScGeometry, sliderScKitLength, sliderScLeafMassKg, sliderScValidationStatus, sliderScTrackForLeaf, SLIDER_SC_PROFILE_ALLOWANCE_MM, selectRobeKit } from '../.tmp-snap-test/pricing.mjs';
+  sliderScGeometry, sliderScKitLength, sliderScLeafMassKg, sliderScValidationStatus, sliderScTrackForLeaf, SLIDER_SC_PROFILE_ALLOWANCE_MM, selectRobeKit,
+  DEFAULT_DIMENSIONS, scheduleKickHeights, itemKickMm, carcaseFamily,
+  ladderKickCutList, pickKickPlyMaterial, ladderSubBackInsetMm, KICK_FACING_WASTE, splitOversizeParts,
+  glassMeasureSqm, GLASSTECH_MIRROR_ITEM_CODE } from '../.tmp-snap-test/pricing.mjs';
 import { readFileSync } from 'node:fs';
 
 // ---------- synthetic pricing fixture ----------
@@ -106,6 +109,8 @@ const check = (name, cond, detail = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '   ← ' + detail}`);
 };
 const finite = (n) => typeof n === 'number' && Number.isFinite(n);
+/** Module-scope tolerance helper. Several blocks below declare their own `near`, which shadows this one. */
+const near = (a, b, tol = 0.02) => finite(a) && finite(b) && Math.abs(a - b) <= tol;
 
 // Legacy jobs stored a display label rather than the material UUID. The
 // resolver must tolerate status words and supplier description suffixes
@@ -310,8 +315,20 @@ for (const [id, w, h, d] of families) {
   const q3 = generateQuoteBOM(three, dims, { ...hw, adjustableLegs: true }, pricingData);
   const kickSheet = q3.consolidatedSheets.find(s => s.materialName.includes('Kick'));
   check('kick: sheet allocation exists for base cabs', !!kickSheet, kickSheet ? 'found' : 'missing');
-  check('kick: 2200mm run needs 1 piece (fits in 2400)', kickSheet?.sheetsRequired === 1, String(kickSheet?.sheetsRequired));
-  check('kick: cost > 0', (kickSheet?.totalMaterialCost ?? 0) > 0, String(kickSheet?.totalMaterialCost));
+  // Ben, 21 Sep 2026: "a lm of face board". The metres are what each cabinet's LINE says, but the JOB buys whole
+  // stock lengths of the board it cuts them from - it never billed a fraction of a board Bower cannot buy.
+  check('kick: 2200 mm of face is 2.200 lm on the lines, and the job buys ONE whole 2400 mm stock length to cut it from',
+    kickSheet?.sheetsRequired === 1 && kickSheet?.sheetLength === 2400 && kickSheet?.sheetWidth === 135
+    && near(kickSheet?.totalPartArea ?? 0, 2.2 * 0.135, 0.001) && near(kickSheet?.chargeableArea ?? 0, 2.4 * 0.135, 0.001)
+    && /2\.200 lm at 135 mm high, bought whole as 1 x 2400 mm stock length\)/.test(kickSheet?.materialName ?? ''),
+    JSON.stringify(kickSheet));
+  check('kick: the charge is the whole 2400 x 135 piece ($34.50/m2 = $11.18), not the 2.200 lm fraction ($10.25)',
+    near(kickSheet?.totalMaterialCost ?? 0, 2.4 * 0.135 * 34.5, 0.02)
+    && (kickSheet?.totalMaterialCost ?? 0) > 2.2 * 0.135 * 34.5,
+    String(kickSheet?.totalMaterialCost));
+  check('kick: each cabinet carries its OWN metres (800 / 700 / 700 mm), so the face sits on the line it belongs to',
+    q3.cabinets.map((c) => c.kickFace?.metresLm).join(',') === '0.8,0.7,0.7',
+    JSON.stringify(q3.cabinets.map((c) => c.kickFace)));
   check('kick takeoff: one complete 2200mm face, not three cabinet pieces',
     q3.kickboards.length === 1
       && q3.kickboards[0].runLengthMm === 2200
@@ -353,7 +370,11 @@ for (const [id, w, h, d] of families) {
   ];
   const q4 = generateQuoteBOM(four, dims, { ...hw, adjustableLegs: true }, pricingData);
   const kickSheet4 = q4.consolidatedSheets.find(s => s.materialName.includes('Kick'));
-  check('kick: 3300mm run needs 2 pieces', kickSheet4?.sheetsRequired === 2, String(kickSheet4?.sheetsRequired));
+  check('kick: 3300 mm of face is 3.300 lm on the lines and TWO whole 2400 mm stock lengths on the job, and the ordering note quotes the same 2400 it charged',
+    kickSheet4?.sheetsRequired === 2 && near(kickSheet4?.chargeableArea ?? 0, 2 * 2.4 * 0.135, 0.001)
+    && near(kickSheet4?.totalMaterialCost ?? 0, 2 * 2.4 * 0.135 * 34.5, 0.02)
+    && q4.warnings.some((w) => /^Kick face ordering: 3\.300 lm charged across 4 cabinets comes off 2 x 2400 mm stock length\(s\)/.test(w)),
+    JSON.stringify(kickSheet4));
 
   // Wall cabs only - NO kick panels
   const wallOnly = [cab('wall_2_door', 900, 720, 350, 1)];
@@ -1293,6 +1314,19 @@ for (const [id, w, h, d] of families) {
     minutesAt(megNoCut, /cut-?outs?/i) === 0 && megNoCut.benchtops?.[0]?.cutouts?.sink === 0,
     JSON.stringify(megNoCut.benchtops?.[0]?.cutouts));
   const sinkAsked = price([E({ benchtopPieces: [{ l: 2931, w: 600 }], benchtopCutouts: { sink: 1 } })]);
+  {
+    // Ben, 21 Sep 2026: a DROP-IN cut-out is 30 minutes and an UNDERMOUNT 1.5 hours. Two counts, not a type flag,
+    // so a top can carry one of each and a payload that sends only `sink` keeps meaning drop-in.
+    const cut = (c) => price([E({ benchtopPieces: [{ l: 2931, w: 600 }], benchtopCutouts: c })]);
+    const cutMin = (q) => (q.workshop?.stations ?? []).filter((s) => /cut-?outs?/i.test(s.station)).reduce((a, s) => a + s.minutes, 0);
+    const dropIn = cut({ sink: 1 }), under = cut({ sinkUndermount: 1 }), both = cut({ sink: 1, sinkUndermount: 1 });
+    check('benchtop blank: an UNDERMOUNT sink cut-out is 90 minutes where a drop-in is 30 (Ben, 21 Sep 2026), the row carries both counts, and one of each is 120',
+      cutMin(dropIn) === 30 && cutMin(under) === 90 && cutMin(both) === 120
+      && dropIn.benchtops[0].cutouts.sink === 1 && dropIn.benchtops[0].cutouts.sinkUndermount === 0
+      && under.benchtops[0].cutouts.sinkUndermount === 1 && under.benchtops[0].cutouts.sink === 0
+      && under.lines[0].total > dropIn.lines[0].total,
+      JSON.stringify([cutMin(dropIn), cutMin(under), cutMin(both), under.benchtops[0].cutouts]));
+  }
   check('benchtop blank: an asked-for sink cut-out IS priced',
     sinkAsked.benchtops?.[0]?.cutouts?.sink === 1
     && Math.abs(minutesAt(sinkAsked, /cut-?outs?/i) - DEFAULT_WORKSHOP_RATES.benchtopSinkCutoutMin) < 1e-9,
@@ -2000,8 +2034,11 @@ for (const [id, w, h, d] of families) {
 }
 
 
-// 15. Part fits board (17 Sep 2026). The sheet count is area / yield against SHEET AREA and never looked at a part's
-//     shape: a 1223 x 2345 part priced out of a 3115 x 1200 board it cannot be cut from. WARNING ONLY - no price moves.
+// 15. Part fits board (17 Sep 2026), and what happens when it does not (Ben, 21 Sep 2026: "too long parts still price
+//     but split the items in half and make a not"). The sheet count is area / yield against SHEET AREA and never
+//     looked at a part's shape: a 1223 x 2345 part priced out of a 3115 x 1200 board it cannot be cut from. It is now
+//     SPLIT into equal pieces that do fit, both halves are priced, the join is charged and the quote carries a note.
+//     The BOARD does not move - n equal pieces have exactly the area of the part they came from.
 {
   const board3115 = {
     id: 'm3115', item_code: 'LONG3115', name: 'Long Board 3115', material_type: 'Melamine',
@@ -2015,7 +2052,11 @@ for (const [id, w, h, d] of families) {
     hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar',
   };
   const comm = { markupPct: 0.4, markupSource: 'test', supplyMode: 'assembled_installed' };
-  const fitWarnings = (q) => q.warnings.filter((w) => /^Part too big for its board/.test(w));
+  // The note Ben asked for: which part, what it was split into, and that it needs a join. (The old "Part too big for
+  // its board" warning survives only for a part a split cannot help - today nothing reaches it.)
+  const fitWarnings = (q) => q.warnings.filter((w) => /does not fit .* even turned 90 degrees\./.test(w));
+  const unhelpable = (q) => q.warnings.filter((w) => /^Part too big for its board/.test(w));
+  const joinMinutes = (q) => (q.workshop?.stations ?? []).filter((x) => /Part joins/.test(x.station)).reduce((a, x) => a + x.minutes, 0);
 
   check('fit: 1223 x 2345 does not fit a 3115 x 1200 sheet either way round', !partFitsSheet(1223, 2345, 3115, 1200) && !partFitsSheet(2345, 1223, 1200, 3115));
   check('fit: 600 x 720 fits; so does 1190 x 2390 turned onto a 2400 x 1200 sheet (2390 x 1190 usable after the 10 mm trim)',
@@ -2031,31 +2072,43 @@ for (const [id, w, h, d] of families) {
   // A 1223 wide x 2345 high replacement front on the 3115 x 1200 board: the door part is 2345 x 1223.
   const big = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 1223, h: 2345, d: 0, room: 'k' }], pd, sel, comm, { defaultRoom: 'k' });
   const bw = fitWarnings(big);
-  check('fit: the 1223 x 2345 part on the 3115 x 1200 board warns once, naming the part, its size, the board and its size',
-    bw.length === 1 && /"Door" 2345 x 1223/.test(bw[0]) && bw[0].includes('Long Board 3115') && bw[0].includes('3115 x 1200 mm sheet')
-    && /turned 90 degrees/.test(bw[0]) && /grain direction is not modelled/.test(bw[0]),
+  // A DOOR is a hard stop, not a split: a front cannot be butt-joined across its face and sold as a front. Same rule
+  // the robe module already applies to an over-long leaf (robeSliderDoors), now applied to a hinged door too.
+  check('fit: the 1223 x 2345 replacement front on a 3115 x 1200 board is NOT split - a door face is a hard stop, it is named, no join is charged, and the note says a longer sheet is what it needs',
+    bw.length === 0 && unhelpable(big).length === 1
+    && /1 x "Door" 2345 x 1223/.test(unhelpable(big)[0]) && unhelpable(big)[0].includes('Long Board 3115')
+    && /A DOOR or DRAWER FRONT is never split/.test(unhelpable(big)[0])
+    && /NEEDS a longer sheet in the same decor/.test(unhelpable(big)[0])
+    && joinMinutes(big) === 0,
     JSON.stringify(big.warnings));
   const bigBom = generateQuoteBOM([{ ...cab('Cabinet Faces Only', 1223, 2345, 0, 1601), productName: 'Cabinet Faces Only', exteriorMaterialId: 'm3115' }],
     dims, hw, pd, { supplyMode: 'assembled_installed' });
   const sheet = bigBom.consolidatedSheets.find((s) => s.materialId === 'm3115');
   const area = (2345 * 1223) / 1e6;
-  check('fit: WARNING ONLY - the board is still priced by area / yield in whole sheets, exactly as before',
+  check('fit: the BOARD is still priced by area as if the door fitted - the whole-sheet count and cost are what they always were - and the part stays on the unfittable list instead of becoming two halves',
     sheet && sheet.sheetsRequired === Math.ceil(area / 0.85 / ((3115 * 1200) / 1e6)) && Math.abs(sheet.totalMaterialCost - sheet.sheetsRequired * 3.738 * 50) < 0.01
-    && bigBom.cabinets[0].sheets.find((s) => s.materialId === 'm3115')?.oversizeParts?.length === 1,
+    && Math.abs(sheet.totalPartArea - area) < 1e-9
+    && bigBom.cabinets[0].sheets.find((s) => s.materialId === 'm3115')?.oversizeParts?.[0]?.unjoinableFace === true
+    && !bigBom.cabinets[0].splitParts?.length,
     JSON.stringify(sheet));
   const small = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 600, h: 720, d: 0, room: 'k' }], pd, sel, comm, { defaultRoom: 'k' });
   check('fit: a 600 x 720 part on the same board raises no fit warning', fitWarnings(small).length === 0, JSON.stringify(small.warnings));
-  const noSizeQ = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 1300, h: 2345, d: 0, room: 'k', exteriorMaterialId: 'mnosize' }], pd, sel, comm, { defaultRoom: 'k' });
-  check('fit: a board with no sheet size says the 2400 x 1200 default was assumed',
+  const noSizeQ = quoteFromSchedule([{ name: 'Under Panel', qty: 1, w: 2500, h: 16, d: 600, room: 'k', exteriorMaterialId: 'mnosize' }], pd, sel, comm, { defaultRoom: 'k' });
+  check('fit: a board with no sheet size says the 2400 x 1200 default was assumed before it splits anything against it',
     fitWarnings(noSizeQ).length === 1 && /default was assumed/.test(fitWarnings(noSizeQ)[0]), JSON.stringify(noSizeQ.warnings));
+  const noSizeDoor = quoteFromSchedule([{ name: 'Cabinet Faces Only', qty: 1, w: 1300, h: 2345, d: 0, room: 'k', exteriorMaterialId: 'mnosize' }], pd, sel, comm, { defaultRoom: 'k' });
+  check('fit: the same default-sheet note is given for a DOOR that is hard-stopped rather than split',
+    unhelpable(noSizeDoor).length === 1 && /default was assumed/.test(unhelpable(noSizeDoor)[0])
+    && /A DOOR or DRAWER FRONT is never split/.test(unhelpable(noSizeDoor)[0]) && joinMinutes(noSizeDoor) === 0,
+    JSON.stringify(noSizeDoor.warnings));
 
   // The trim on a real schedule row: a 2400 under panel on a 2400 x 1200 board warns and says what is usable; 2390 does not.
   const under = (w) => quoteFromSchedule([{ name: 'Under Panel', qty: 1, w, h: 16, d: 600, room: 'k', exteriorMaterialId: 'm1' }],
     pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
   const u2400 = fitWarnings(under(2400));
-  check('fit: a 2400 x 600 under panel on a 2400 x 1200 board warns, giving the 2390 x 1190 usable size; a 2390 one does not',
-    u2400.length === 1 && /2400 x 600/.test(u2400[0]) && u2400[0].includes('2400 x 1200 mm sheet - 2390 x 1190 mm usable once 10 mm is trimmed')
-    && fitWarnings(under(2390)).length === 0,
+  check('fit: a 2400 x 600 under panel on a 2400 x 1200 board is split, and the note gives the 2390 x 1190 usable size; a 2390 one is untouched',
+    u2400.length === 1 && /2400 x 600/.test(u2400[0]) && u2400[0].includes('2400 x 1200 mm sheet (2390 x 1190 mm usable)')
+    && /cut as 2 x 1200 x 600 mm/.test(u2400[0]) && fitWarnings(under(2390)).length === 0 && joinMinutes(under(2390)) === 0,
     JSON.stringify({ u2400, u2390: fitWarnings(under(2390)) }));
 
   // One warning per material, however many cabinets carry the part.
@@ -2066,20 +2119,24 @@ for (const [id, w, h, d] of families) {
     { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'k', exteriorMaterialId: 'm1' },
   ], pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
   const rw = fitWarnings(run);
-  check('fit: two 2700 tall panels and a 2984 under panel on one 2400 x 1200 board are ONE warning (2 x the panel, 1 x the under panel); the base cabinets are not in it',
-    rw.length === 1 && /2 x "[^"]+" 2700 x 580/.test(rw[0]) && /1 x "[^"]+" 2984 x 330/.test(rw[0]) && !/Base 1 Door/.test(rw[0]),
+  check('fit: two 2700 tall panels and a 2984 under panel are each split and noted on their OWN line (a note belongs to the part it is about), the base cabinets are untouched, and the job carries 3 joins',
+    rw.length === 3 && rw.filter((w) => /2700 x 580 mm does not fit/.test(w)).length === 2
+    && rw.some((w) => /2984 x 330 mm does not fit/.test(w) && /cut as 2 x 1492 x 330 mm/.test(w))
+    && !rw.some((w) => /Base 1 Door/.test(w)) && joinMinutes(run) === 3 * DEFAULT_WORKSHOP_RATES.partJoinMin,
     JSON.stringify(run.warnings));
   // A floor-standing panel over the sheet only by its toe kick is not reported (generateCabinetBOM: the engine's tall
   // heights include the kick, Microvellum's cuts do not): 2460 - 135 = 2325 fits the 2390 usable length.
   const kickOnly = quoteFromSchedule([{ name: 'Tall Applied Panel', qty: 1, w: 16, h: 2460, d: 580, room: 'k', exteriorMaterialId: 'm1' }],
     pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
-  check('fit: a 2460 tall applied panel, over its 2400 board only by the 135 kick, raises no part-fit warning',
-    fitWarnings(kickOnly).length === 0, JSON.stringify(kickOnly.warnings));
+  check('fit: a 2460 tall applied panel, over its 2400 board only by the 135 kick, is NOT split and raises no note - a phantom join would charge work that never happens',
+    fitWarnings(kickOnly).length === 0 && joinMinutes(kickOnly) === 0, JSON.stringify(kickOnly.warnings));
   // ...but an item no taller than the kick is not standing on one: Regal's 3000 x 100 x 350 "Pelmet BC" still warns.
   const pelmet = quoteFromSchedule([{ name: 'Pelmet BC', qty: 1, w: 3000, h: 100, d: 350, room: 'k', exteriorMaterialId: 'm1' }],
     pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'k' });
-  check('fit: a 3000 x 100 pelmet (shorter than the kick) on a 2400 x 1200 board still warns',
-    fitWarnings(pelmet).length === 1 && /"Pelmet BC" 3000 x 100 x 350/.test(fitWarnings(pelmet)[0]), JSON.stringify(pelmet.warnings));
+  check('fit: a 3000 x 100 pelmet (shorter than the kick, so not standing on one) IS split into two 1500 halves and priced',
+    fitWarnings(pelmet).length === 1 && /100 x 3000 mm does not fit/.test(fitWarnings(pelmet)[0])
+    && /cut as 2 x 100 x 1500 mm/.test(fitWarnings(pelmet)[0]) && joinMinutes(pelmet) === DEFAULT_WORKSHOP_RATES.partJoinMin,
+    JSON.stringify(pelmet.warnings));
 
   // Never on benchtops: blanks and laminated tops nest against their own sheet with their own join rules.
   const egg600 = {
@@ -2103,16 +2160,21 @@ for (const [id, w, h, d] of families) {
     JSON.stringify(tops.warnings));
 
   // A normal kitchen on 2400 x 1200 board: not one fit warning.
+  const kitchenPly = { id: 'mply', item_code: 'PHWE2122150UBCJ', name: 'Plywood 15mm 2440x1220 BB/CC WBP Hardwood',
+    material_type: 'sheet_material', thickness: 15, sheet_length: 2440, sheet_width: 1220, area_cost: 32.8,
+    expected_yield_factor: 1, minimum_job_area: 0, visibility_status: 'Available' };
   const kitchen = quoteFromSchedule([
     { name: 'Base 1 Door', qty: 2, w: 600, h: 870, d: 575, room: 'kitchen' },
     { name: 'Base 3 Drawer', qty: 1, w: 900, h: 870, d: 575, room: 'kitchen' },
     { name: 'Upper 2 Door', qty: 2, w: 900, h: 720, d: 350, room: 'kitchen' },
     { name: 'Tall 2 Door', qty: 1, w: 600, h: 2100, d: 580, room: 'kitchen' },
-    { name: 'Toe Kick Base', qty: 1, w: 2400, h: 135, d: 530, room: 'kitchen' },
+    { name: 'Toe Kick Base', qty: 1, w: 2400, h: 135, d: 530, room: 'kitchen', kickPlyMaterialId: 'PHWE2122150UBCJ' },
     { name: 'Base Applied Panel', qty: 2, w: 16, h: 876, d: 555, room: 'kitchen' },
     { name: 'Upper Return Filler', qty: 1, w: 16, h: 720, d: 348, room: 'kitchen' },
-  ], pricingData, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'kitchen' });
-  check('fit: a normal kitchen raises no part-fit warning', fitWarnings(kitchen).length === 0, JSON.stringify(fitWarnings(kitchen)));
+  ], { ...pricingData, materials: [...pricingData.materials, kitchenPly] }, { ...sel, exteriorMaterialId: 'm1' }, comm, { defaultRoom: 'kitchen' });
+  check('fit: a normal kitchen splits nothing and needs no join - including its 2400 Toe Kick Base, whose 2400 mm Sub Front comes off a 2440 ply board',
+    fitWarnings(kitchen).length === 0 && unhelpable(kitchen).length === 0 && joinMinutes(kitchen) === 0,
+    JSON.stringify(fitWarnings(kitchen)));
 }
 
 // 16. Hafele Slider SC robe openings priced by BowerOS (17 Sep 2026). A schedule row carrying a `robe` block is priced
@@ -2450,6 +2512,50 @@ for (const [id, w, h, d] of families) {
     && mir.warnings.some((w) => /USR-01/.test(w) && /51\.2 kg/.test(w) && /OVER the 50 kg/.test(w))
     && mir.workshopCosting.buyoutItems.some((b) => /mirror glass 2 x 1154 x 2345 mm - NOT PRICED/.test(b)), JSON.stringify(mir.warnings));
 
+  // ── mirror priced from the Glasstech invoice (Ben, 21 Sep 2026: "mirror see attached eamil with invoice") ──────
+  // Glasstech (QLD) proforma 180617, 1 Sep 2026, ref "4MM MIRROR", Bower Building: 2 x 2009 x 760 measured
+  // 3.0536 m2 at $90.21 = $275.47 and 2 x 1991 x 724 measured 2.8830 = $260.08, sub-total $535.54 ex GST. Mirror is
+  // CUT TO SIZE and charged on the measured area - this supersedes Ben's 17 Sep "whole sheet" instruction.
+  check('mirror measure: the glazier measures the exact cut area to 4 dp - 2009 x 760 -> 1.5268 m2 (x2 = 3.0536) and 1991 x 724 -> 1.4415 (x2 = 2.8830), exactly as Glasstech print it: no over-measure, no minimum',
+    glassMeasureSqm(2009, 760) === 1.5268 && Math.round(glassMeasureSqm(2009, 760) * 2 * 1e4) / 1e4 === 3.0536
+    && glassMeasureSqm(1991, 724) === 1.4415 && Math.round(glassMeasureSqm(1991, 724) * 2 * 1e4) / 1e4 === 2.8830,
+    JSON.stringify([glassMeasureSqm(2009, 760), glassMeasureSqm(1991, 724)]));
+  check('mirror money: at $90.21/m2 ex GST the two Glasstech lines come back to the cent - $275.47 and $260.08, sub-total $535.54',
+    (() => {
+      const net = (w, h, n) => (Math.round(glassMeasureSqm(w, h) * n * 1e4) / 1e4) * 90.21;
+      const a = net(2009, 760, 2), b = net(1991, 724, 2);
+      return Math.round(a * 100) / 100 === 275.47 && Math.round(b * 100) / 100 === 260.08 && Math.round((a + b) * 100) / 100 === 535.54;
+    })());
+  const glassRow = {
+    id: 'uuid-GT-MIR-4SVB', item_code: 'GT-MIR-4SVB', name: 'Mirror 4mm Silver Vinylback Safety (cut to size)',
+    material_type: 'glass_cut_to_size', brand: 'Glasstech', source_supplier: 'Glasstech', thickness: 4,
+    sheet_length: null, sheet_width: null, area_cost: 90.21, expected_yield_factor: 1, minimum_job_area: 0,
+    visibility_status: 'Available',
+  };
+  const smokeLaminate = { id: 'uuid-AU1003078', item_code: 'AU1003078', name: 'Mirror Smoke', material_type: 'laminate', brand: 'Laminex', thickness: 1, sheet_length: 2440, sheet_width: 1220, area_cost: 273.73, expected_yield_factor: 1, visibility_status: 'Available' };
+  const mirNameTrap = priceRobe([robeRow({ infill: 'mirror', infillMaterialId: undefined, infillThickness: undefined })], { ...pdRobe, materials: [...pdRobe.materials, smokeLaminate] });
+  check('mirror lookup: the item_code is the ONLY lookup - a catalogue holding Laminex "Mirror Smoke" (a $273.73/m2 LAMINATE) and no glass row still prices NO mirror',
+    mirNameTrap.robes[0].mirror.priced === false && mirNameTrap.robes[0].mirrorCost === 0
+    && mirNameTrap.warnings.some((w) => /^MIRROR NOT PRICED:/.test(w) && /Do NOT resolve mirror by name/.test(w))
+    && GLASSTECH_MIRROR_ITEM_CODE === 'GT-MIR-4SVB',
+    JSON.stringify(mirNameTrap.warnings.filter((w) => /MIRROR/.test(w))));
+  const mirPriced = priceRobe([robeRow({ infill: 'mirror', infillMaterialId: undefined, infillThickness: undefined })], { ...pdRobe, materials: [...pdRobe.materials, glassRow] });
+  const mp = mirPriced.robes[0];
+  const mpExpect = Math.round((Math.round(glassMeasureSqm(1154, 2345) * 2 * 1e4) / 1e4) * 90.21 * 100) / 100;
+  check('mirror priced: the worked example\'s 2 x 1154 x 2345 leaves measure 5.4122 m2 at $90.21 = $488.23 of glass, charged by AREA and never as a sheet, and the LOUD NOT PRICED warning is gone',
+    mp.mirror.priced === true && mp.mirror.use.panels === 2 && mp.mirror.use.rate === 90.21
+    && near(mp.mirror.use.measureSqm, 5.4122, 0.0001) && near(mp.mirrorCost, mpExpect, 0.01) && mpExpect === 488.23
+    && near(mp.materialCost, money2(mp.kitCost + mp.boardCost + mp.edgeCost + mp.mirrorCost), 0.01)
+    && !mirPriced.warnings.some((w) => /^MIRROR NOT PRICED:/.test(w))
+    && mirPriced.warnings.some((w) => /CUT TO SIZE - measure/.test(w) && /NOT as a whole sheet/.test(w)),
+    JSON.stringify({ m: mp.mirror, c: mp.mirrorCost, expect: mpExpect }));
+  check('mirror priced: it reaches the quote as a MEASURED-AREA line (units x rate = cost, like the proforma), and the BACKER behind the glass is still on the buyout list',
+    mirPriced.workshopCosting.sheetStock.some((r) => /Mirror glass.*measured area, NOT a sheet/.test(r.material)
+      && near(r.units, 5.4122, 0.0001) && r.unitCost === 90.21 && near(r.cost, mpExpect, 0.01))
+    && mirPriced.workshopCosting.buyoutItems.some((b) => /mirror backer board/.test(b))
+    && mirPriced.robes[0].total > mir.robes[0].total,
+    JSON.stringify(mirPriced.workshopCosting.sheetStock.filter((r) => /Mirror/.test(r.material))));
+
   // blocks and warnings
   const heavyBoard = priceRobe([robeRow({ profile: 'slimline', openingWidth: 2700, openingHeight: 2800, infillMaterialId: 'BIG18', infillThickness: 18 })]);
   check('robe mass: an 1373 x 2745 x 18 mm board leaf is estimated at 50.5 kg - not under Hafele\'s 50 kg a door, so NOT priced',
@@ -2581,6 +2687,685 @@ for (const [id, w, h, d] of families) {
     && dbl.warnings.some((w) => /^ROBE NOT PRICED BY BOWEROS: "Robe Sliding Doors"/.test(w) && /no robe fields, so BowerOS cannot price it/.test(w))
     && !dbl.warnings.some((w) => /not priced by BowerOS yet/.test(w)) && !guard.warnings.some((w) => /POSSIBLE DOUBLE CHARGE/.test(w)),
     JSON.stringify(dbl.warnings.slice(0, 4)));
+}
+
+// 17. Part sizes match Microvellum (19 Sep 2026). Against the LIVE catalogue the engine sized every door height x DEPTH
+//     (the Door row has no formula), every drawer face as a (W - 32) x 110 drawer-box front, and every floor-standing
+//     base and tall side and back at the full schedule height, which includes the toe kick. Every size below is a
+//     finished part in a Microvellum Toolbox work order (Regal, Kenfrost, Donkin, Hibiscus, Forest Glen, 10 Sands,
+//     Erin & Matt v2). The fixture here mirrors the live parts_pricing rows the generic mapping resolves, first match
+//     by id as in the live table: sides and backs plain `CabHeight`, Door and the flat-board rows with no formula,
+//     Drawer Front the box-front formula.
+{
+  const L = (name, part_type, lf, wf, edging) => ({
+    name, part_type, length_function: lf, width_function: wf, edging,
+    handling_cost: 0, area_handling_cost: 0, machining_cost: 0, area_machining_cost: 0, assembly_cost: 0, area_assembly_cost: 0,
+    visibility_status: 'Available',
+  });
+  const livePd = {
+    ...pricingData,
+    parts: [
+      L('Ls Rail On Edge', 'Cabinet Top', 'CabWidth-CarcaseThick*2+CabLeftDepth', '90', 'Len1/-/-/-'),
+      L('Ls Base Right Side', 'Carcase', 'CabHeight', 'CabRightDepth', 'Len1/-/-/-'),
+      L('Door', 'Component', null, null, 'Len1/Wid1/Len2/Wid2'),
+      L('Drawer', 'Component', null, null, 'Len1/Wid1/Len2/Wid2'),
+      L('Tall Right Side', 'Carcase', 'CabHeight', 'CabDepth', 'Len1/-/-/-'),
+      L('Base Applied End', 'Applied Panel', null, null, 'Len1/-/Len2/Wid2'),
+      L('L Shape Shelf', 'Component', null, null, '-/-/-/-'),
+      L('Drawer Bottom', 'Carcase', 'CabWidth-CarcaseThick*2', 'DrawerRunnerDepth', '-/-/-/-'),
+      L('Upper Right Return', 'Return Panel', null, null, 'Len1/Wid1/-/Wid2'),
+      L('Tall Filler', 'Filler', null, null, 'Len1/-/Len2/Wid2'),
+      L('Ls Base Right Back', 'Carcase', 'CabHeight', 'CabRightWidth-CarcaseThick*2', '-/-/-/-'),
+      L('Tall Back', 'Carcase', 'CabHeight', 'CabWidth-CarcaseThick*2', '-/-/-/-'),
+      L('Tall Top', 'Carcase', 'CabWidth-CarcaseThick*2', 'CabDepth-CarcaseThick', 'Len1/-/-/-'),
+      L('Drawer Left Side', 'Carcase', ' DrawerRunnerDepth', 'DrawerRunnerHeight-30', 'Len1/-/-/-'),
+      L('Upper Left Side', 'Carcase', 'CabHeight', 'CabDepth', 'Len1/-/Len2/-'),
+      L('Base Right Side', 'Carcase', 'CabHeight', 'CabDepth', 'Len1/-/-/-'),
+      L('Base Left Side', 'Carcase', 'CabHeight', 'CabDepth', 'Len1/-/-/-'),
+      L('Upper Top', 'Carcase', 'CabWidth-CarcaseThick*2', 'CabDepth-CarcaseThick', 'Len1/-/-/-'),
+      L('Rail On Flat', 'Cabinet Top', 'CabWidth-CarcaseThick*2', '150', 'Len1/-/-/-'),
+      L('Drawer Back', 'Carcase', ' CabWidth-CarcaseThick*2', 'DrawerRunnerHeight-30', 'Len1/-/-/-'),
+      L('Upper Back', 'Carcase', 'CabHeight', 'CabWidth-CarcaseThick*2', '-/-/Len2/-'),
+      L('Ls Base Left Side', 'Carcase', 'CabHeight', 'CabLeftDepth', 'Len1/-/-/-'),
+      L('Upper Bottom', 'Carcase', 'CabWidth-CarcaseThick*2', 'CabDepth-CarcaseThick', 'Len1/-/-/-'),
+      L('Drawer Right Side', 'Carcase', ' DrawerRunnerDepth', 'DrawerRunnerHeight-30', 'Len1/-/-/-'),
+      L('Ls Base Left Back', 'Carcase', 'CabHeight', 'CabLeftWidth-CarcaseThick', '-/-/-/-'),
+      L('Adjustable Shelf', 'Carcase', 'CabWidth-CarcaseThick*2', 'CabDepth-CarcaseThick-ShelfOffset', 'Len1/-/-/-'),
+      L('Tall Left Side', 'Carcase', 'CabHeight', 'CabDepth', 'Len1/-/-/-'),
+      L('Drawer Front', 'Carcase', ' CabWidth-CarcaseThick*2', 'DrawerRunnerHeight-30', 'Len1/-/-/-'),
+      L('Upper Right Side', 'Carcase', 'CabHeight', 'CabDepth', 'Len1/-/Len2/-'),
+      L('Base Bottom', 'Carcase', 'CabWidth-CarcaseThick*2', 'CabDepth-CarcaseThick', 'Len1/-/-/-'),
+      L('Tall Bottom', 'Carcase', 'CabWidth-CarcaseThick*2', 'CabDepth-CarcaseThick', 'Len1/-/-/-'),
+      L('Ls Base Bottom', 'Carcase', 'CabLeftWidth-CarcaseThick*2', 'CabRightWidth-CarcaseThick*2', '-/-/-/-'),
+      L('Base Back', 'Carcase', 'CabHeight', 'CabWidth-CarcaseThick*2', '-/-/-/-'),
+    ],
+  };
+  const DD = DEFAULT_DIMENSIONS; // what quoteFromSchedule prices with: kick 135, DoorGap 2, DrawerGap 2
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const sz = (p) => (p ? `${r1(p.length)} x ${r1(p.width)}` : 'none');
+  let n17 = 1700;
+  const bomOf = (name, w, h, d, extra = {}, pd = livePd, gd = DD) =>
+    generateCabinetBOM({ ...cab(name, w, h, d, ++n17), productName: name, ...extra }, gd, hw, pd, name);
+  const of = (bom, type) => bom.parts.filter((p) => p.partType === type);
+  const one = (bom, type) => of(bom, type)[0];
+  const sizes = (bom, type) => of(bom, type).map(sz).join(', ');
+  const drawerFaces = (bom) => of(bom, 'Drawer Front');
+  const stack = (bom) => r1(drawerFaces(bom).reduce((s, p) => s + p.width * p.quantity, 0));
+
+  // ── carcase sides and backs: H - kick for a floor-standing base / tall carcase ─────────────────────────────────
+  const broom = bomOf('Tall 1 Door Broom Cabinet', 250, 2460, 580, { toeKickHeight: 135 });
+  check('MV sizes: Regal Tall 1 Door Broom 250 x 2460 x 580 on a 135 kick - sides 2325 x 580, back 2325 x 218, door 2325 x 248 (was 2460 / 2460 / 2460 x 580)',
+    sz(one(broom, 'Tall Left Side')) === '2325 x 580' && sz(one(broom, 'Tall Right Side')) === '2325 x 580'
+    && sz(one(broom, 'Tall Back')) === '2325 x 218' && sizes(broom, 'Door') === '2325 x 248' && !one(broom, 'Door').sizePlaceholder,
+    broom.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const b1dl = bomOf('Base 1 Door Left', 500, 880, 400, { toeKickHeight: 135 });
+  check('MV sizes: Regal Base 1 Door Left 500 x 880 x 400 - sides 745 x 400, back 745 x 468, door 743 x 498 (2 mm top reveal, 1 + 1 side reveals)',
+    sz(one(b1dl, 'Base Left Side')) === '745 x 400' && sz(one(b1dl, 'Base Back')) === '745 x 468' && sizes(b1dl, 'Door') === '743 x 498',
+    b1dl.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const sink = bomOf('Base 2 Door Sink', 900, 876, 555, { toeKickHeight: 135 });
+  check('MV sizes: Kenfrost Base 2 Door Sink 900 x 876 x 555 - sides 741 x 555, back 741 x 868, 2 doors 739 x 448 (MV 739 x 447.5: one exposed end has a 2 mm reveal)',
+    sz(one(sink, 'Base Right Side')) === '741 x 555' && sz(one(sink, 'Base Back')) === '741 x 868'
+    && one(sink, 'Door').quantity === 2 && sz(one(sink, 'Door')) === '739 x 448',
+    sink.parts.map((p) => `${p.partType} ${sz(p)} x${p.quantity}`).join('; '));
+  const fgSink = bomOf('Base 2 Door Sink', 610, 622, 555, { toeKickHeight: 100 });
+  check('MV sizes: Forest Glen Base 2 Door Sink 610 x 622 x 555 on a 100 kick - sides 522, 2 doors 520 x 303 (MV 5-piece doors 520 x 303)',
+    sz(one(fgSink, 'Base Left Side')) === '522 x 555' && sz(one(fgSink, 'Door')) === '520 x 303' && one(fgSink, 'Door').quantity === 2,
+    fgSink.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const dbl = bomOf('Tall 1 Door Double Door', 600, 1939, 580, { toeKickHeight: 135 });
+  check('MV sizes: Regal Tall 1 Door Double Door 600 x 1939 - sides 1804; one 1804 x 598 door = MV\'s stacked 1063 + 2 gap + 739 x 598 (same board, same edge metres less one gap)',
+    sz(one(dbl, 'Tall Left Side')) === '1804 x 580' && sizes(dbl, 'Door') === '1804 x 598', dbl.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const inner = bomOf('Tall 2 Door With Inner Drawers', 600, 2340, 710, { toeKickHeight: 135 });
+  check('MV sizes: Erin & Matt Tall 2 Door With Inner Drawers 600 x 2340 x 710 - sides 2205 x 710, 2 doors 2205 x 298; its drawer (doors AND drawers) keeps the catalogue formula - no face is invented',
+    sz(one(inner, 'Tall Left Side')) === '2205 x 710' && sz(one(inner, 'Door')) === '2205 x 298' && one(inner, 'Door').quantity === 2
+    && sizes(inner, 'Drawer Front') === '568 x 110',
+    inner.parts.map((p) => `${p.partType} ${sz(p)} x${p.quantity}`).join('; '));
+
+  // ── drawer banks: faces are the finished face, W - 2 wide, filling H - kick - 2 less a 2 mm gap between faces ────
+  const d1 = bomOf('Base 1 Drawer', 600, 480, 555, { toeKickHeight: 135 });
+  const d1face = one(d1, 'Drawer Front');
+  check('MV sizes: Regal Base 1 Drawer 600 x 480 x 555 - sides 345 x 555, back 345 x 568, face 598 x 343 edged all round (was 568 x 110 on one edge)',
+    sz(one(d1, 'Base Left Side')) === '345 x 555' && sz(one(d1, 'Base Back')) === '345 x 568' && sz(d1face) === '598 x 343'
+    && d1face.edging.len1 && d1face.edging.len2 && d1face.edging.wid1 && d1face.edging.wid2 && d1face.materialRole === 'exterior' && !d1face.sizePlaceholder,
+    d1.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const kf3 = bomOf('Base 3 Drawer', 600, 876, 555, { toeKickHeight: 135 });
+  check('MV sizes: Kenfrost Base 3 Drawer 600 x 876 - 3 faces 598 wide adding up to 735 (MV 3 x 245 = 876 - 135 - 2 - 2 x 2), sides 741',
+    drawerFaces(kf3).length === 3 && drawerFaces(kf3).every((p) => p.length === 598 && p.quantity === 1) && stack(kf3) === 735
+    && sz(one(kf3, 'Base Left Side')) === '741 x 555',
+    drawerFaces(kf3).map(sz).join(', '));
+  const dk4 = bomOf('Base 4 Drawer', 450, 880, 555, { toeKickHeight: 135 });
+  check('MV sizes: Donkin Base 4 Drawer 450 x 880 - 4 faces 448 wide adding up to 737 (MV 4 x 184.25), back 745 x 418',
+    drawerFaces(dk4).length === 4 && drawerFaces(dk4).every((p) => p.length === 448) && stack(dk4) === 737 && sz(one(dk4, 'Base Back')) === '745 x 418',
+    drawerFaces(dk4).map(sz).join(', '));
+  const hb3 = bomOf('Base 3 Drawer', 454, 865, 555, { toeKickHeight: 100 });
+  check('MV sizes: Hibiscus Base 3 Drawer 454 x 865 on a 100 kick - sides 765, faces 452 wide adding up to 759 (MV 380 + 189.5 + 189.5, 451 wide at a 2 mm end reveal)',
+    sz(one(hb3, 'Base Right Side')) === '765 x 555' && drawerFaces(hb3).every((p) => p.length === 452) && stack(hb3) === 759,
+    hb3.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const fg2 = bomOf('Base 2 Drawer', 600, 880, 555, { toeKickHeight: 100 });
+  check('MV sizes: Forest Glen Base 2 Drawer 600 x 880 on a 100 kick - sides 780 x 555, faces adding up to 776 (MV 5-piece 596 + 180)',
+    sz(one(fg2, 'Base Left Side')) === '780 x 555' && stack(fg2) === 776, fg2.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+
+  // ── uppers: no kick; doors W/n - 2 wide by the carcase height ──────────────────────────────────────────────────
+  const up2 = bomOf('Upper 2 Door', 600, 939, 330, { toeKickHeight: 135 });
+  check('MV sizes: Regal Upper 2 Door 600 x 939 x 330 - no kick taken off (sides 939 x 330, back 939 x 568); doors 939 x 298 (MV 955 x 298 where the door drops 16 mm over the under panel - not in a schedule)',
+    sz(one(up2, 'Upper Left Side')) === '939 x 330' && sz(one(up2, 'Upper Back')) === '939 x 568' && sz(one(up2, 'Door')) === '939 x 298' && one(up2, 'Door').quantity === 2,
+    up2.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const lift = bomOf('Upper Liftup Door', 600, 421, 580);
+  check('MV sizes: Regal Upper Liftup Door 600 x 421 x 580 - door 421 x 598 (MV Liftup Door 421 x 598; was 421 x 580)',
+    sizes(lift, 'Door') === '421 x 598', sizes(lift, 'Door'));
+
+  // ── stacked units: only kickMm / toeKickHeight 0 knows ─────────────────────────────────────────────────────────
+  const openStacked = bomOf('Base Open', 600, 382, 573, { toeKickHeight: 0 });
+  const openDefault = bomOf('Base Open', 600, 382, 573, { toeKickHeight: 135 });
+  check('MV sizes: Regal Base Open 600 x 382 x 573 stacked on a Base 1 Drawer (Toe_Kick_Height 0) - with kick 0 its sides are 382 x 573 and back 382 x 568; given the room\'s 135 kick it is cut 247 (the known miss the kickMm field fixes)',
+    sz(one(openStacked, 'Base Left Side')) === '382 x 573' && sz(one(openStacked, 'Base Back')) === '382 x 568'
+    && sz(one(openDefault, 'Base Left Side')) === '247 x 573',
+    `${sz(one(openStacked, 'Base Left Side'))} / ${sz(one(openDefault, 'Base Left Side'))}`);
+
+  // ── what must NOT move: replacement fronts, flat boards, kick bases ─────────────────────────────────────────────
+  const faces = [bomOf('Cabinet Faces Only', 600, 769, 0, { toeKickHeight: 135 }), bomOf('Cabinet Faces Only', 399, 769, 0)];
+  check('MV sizes: 10 Sands Cabinet Faces Only 600 / 399 x 769 are still exactly their finished size, 769 x 600 and 769 x 399, whatever the kick',
+    sizes(faces[0], 'Door') === '769 x 600' && sizes(faces[1], 'Door') === '769 x 399', faces.map((b) => sizes(b, 'Door')).join(' | '));
+  const tap = bomOf('Tall Applied Panel', 16, 2460, 580, { toeKickHeight: 135 });
+  const brf = bomOf('Base Return Filler', 16, 880, 573, { toeKickHeight: 135 });
+  const tkb = bomOf('Toe Kick Base', 1480, 135, 530, { toeKickHeight: 135 });
+  check('MV sizes: flat boards do not move - Tall Applied Panel 2460 x 580, Base Return Filler 880 x 100',
+    tap.parts.length === 1 && sz(tap.parts[0]) === '2460 x 580' && brf.parts.length === 1 && sz(brf.parts[0]) === '880 x 100',
+    [tap, brf].map((b) => b.parts.map(sz).join(',')).join(' | '));
+  // A Toe Kick Base is no longer a single 135 x 530 stand-in board: it is the ladder Microvellum cuts (Regal 1.27,
+  // Toe Kick Base 1480 x 135 x 530 - Sub Front 1480 x 135, Sub Back 1450 x 90, two end sleepers, two intermediate
+  // sleepers, two cleats). Its WIDTH used to be ignored entirely, so a 599 and a 3320 kick priced the same.
+  check('MV sizes: Regal 1.27 Toe Kick Base 1480 x 135 x 530 is the 8 ply parts Microvellum cuts, not one 135 x 530 board',
+    tkb.parts.length === 8 && sz(tkb.parts[0]) === '1480 x 135' && sz(tkb.parts[1]) === '1450 x 90'
+    && tkb.parts.filter((x) => /^Sleeper \d/.test(x.name)).length === 2 && tkb.parts.filter((x) => /^Cleat/.test(x.name)).length === 2
+    && tkb.ladderKick.cutList.length === 9,
+    tkb.parts.map((x) => `${x.name} ${sz(x)}`).join(', '));
+
+  // ── which items stand on the kick ───────────────────────────────────────────────────────────────────────────────
+  const map = (name, w, h, d) => buildGenericCabinetMapping(name, { width: w, height: h, depth: d });
+  const kickOf = (name, w, h, d, extra = {}, gd = DD) => {
+    const m = map(name, w, h, d);
+    return itemKickMm({ ...cab(name, w, h, d, ++n17), ...extra }, m.config, carcaseFamily(m.parts.map((p) => ({ partType: p.partType }))), gd, name);
+  };
+  check('kick: a base / tall carcase takes its own toeKickHeight, else the room setting (planner) - 135, 100, and the planner\'s 150',
+    kickOf('Base 3 Drawer', 600, 880, 555, { toeKickHeight: 135 }) === 135 && kickOf('Tall 1 Door Broom Cabinet', 250, 2460, 580, { toeKickHeight: 100 }) === 100
+    && kickOf('base_1_door', 600, 870, 575) === 135 && kickOf('Base 1 Door', 600, 880, 575, {}, { ...DD, toeKickHeight: 150 }) === 150);
+  check('kick: none for uppers, anything off the floor, wall-hung / floating names, names that are not a base or tall cabinet, and items no taller than the kick',
+    kickOf('Upper 2 Door', 600, 939, 330, { toeKickHeight: 135 }) === 0 && kickOf('Base 1 Door', 600, 880, 555, { y: 1500, toeKickHeight: 135 }) === 0
+    && kickOf('Wall Hung Vanity Base 2 Drawer', 900, 500, 460, { toeKickHeight: 135 }) === 0 && kickOf('Floating Base 1 Door', 600, 400, 460) === 0
+    && kickOf('Any Angle Spacer', 247, 692, 349, { toeKickHeight: 100 }) === 0 && kickOf('Base Open', 600, 120, 573) === 0);
+
+  // ── the kick a schedule row stands on: its room's Toe Kick Base rows ────────────────────────────────────────────
+  const skRows = [
+    { name: 'Base 3 Drawer', w: 600, h: 876, d: 555, room: 'kitchen' },
+    { name: 'Tall 1 Door Broom Cabinet', w: 250, h: 2460, d: 580, room: '' },
+    { name: 'Base 3 Drawer', w: 581, h: 576, d: 455, room: 'main bath' },
+    { name: 'Base Open', w: 632, h: 382, d: 573, room: 'kitchen', kickMm: 0 },
+    { name: 'Toe Kick Base', w: 1908, h: 135, d: 530, room: 'Kitchen' },
+    { name: 'Toe Kick Base With Angled Ends', w: 880, h: 100, d: 545, room: 'laundry' },
+    { name: 'Base 2 Drawer', w: 600, h: 880, d: 555, room: 'Laundry' },
+  ];
+  const sk = scheduleKickHeights(skRows, { defaultRoom: 'kitchen' });
+  check('kick rows: a row takes its room\'s Toe Kick Base height (135 kitchen, 100 laundry, case-insensitive; a blank room is the default room), kickMm wins (0 for a stacked unit), a room with no kick rows gets 0',
+    JSON.stringify(sk.kicks) === JSON.stringify([135, 135, 0, 0, 135, 100, 100]) && sk.warnings.length === 0, JSON.stringify(sk));
+  const skLegs = scheduleKickHeights([{ name: 'Base 1 Door', w: 600, h: 880, d: 555, room: 'k' }], { defaultRoom: 'k', fallbackKickMm: 135 });
+  const skMixed = scheduleKickHeights([
+    { name: 'Toe Kick Base', w: 1000, h: 135, d: 530, room: 'k' }, { name: 'Toe Kick Base', w: 600, h: 135, d: 530, room: 'k' },
+    { name: 'Toe Kick Base', w: 600, h: 100, d: 530, room: 'k' }, { name: 'Base 1 Door', w: 600, h: 880, d: 555, room: 'k' },
+  ], { defaultRoom: 'k' });
+  check('kick rows: no kick rows on a job on legs uses the fallback (the kick the engine prices a run for); kick rows that disagree take the commonest height and warn',
+    skLegs.kicks[0] === 135 && skMixed.kicks[3] === 135 && skMixed.warnings.length === 1 && /2 x 135, 1 x 100/.test(skMixed.warnings[0]),
+    JSON.stringify({ skLegs, skMixed }));
+
+  // ── end to end through quoteFromSchedule ─────────────────────────────────────────────────────────────────────────
+  const qsel = { carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1', hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar' };
+  const qcomm = { markupPct: 0.4, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const q = (rows) => quoteFromSchedule(rows, livePd, qsel, qcomm, { defaultRoom: 'kitchen' });
+  const fitW = (qq) => qq.warnings.filter((w) => /does not fit .* even turned 90 degrees\./.test(w));
+  const broomRow = { name: 'Tall 1 Door Broom Cabinet', qty: 1, w: 250, h: 2460, d: 580, room: 'kitchen' };
+  const kickRow = { name: 'Toe Kick Base', qty: 1, w: 1480, h: 135, d: 530, room: 'kitchen' };
+  const onKick = q([broomRow, kickRow]);
+  const viaKickMm = q([{ ...broomRow, kickMm: 135 }, kickRow]);
+  const noKick = q([{ ...broomRow, kickMm: 0 }, kickRow]);
+  check('schedule: the Regal broom with its room\'s 135 Toe Kick Base row is cut 2325 - nothing is split, and the same line as kickMm: 135; with kickMm: 0 its 2460 CARCASE parts do not fit the 2400 sheet, so each is split in half, priced and noted',
+    fitW(onKick).length === 0 && onKick.lines[0].total === viaKickMm.lines[0].total
+    && fitW(noKick).length >= 3 && fitW(noKick).some((w) => /"Tall (Left|Right) Side" 2460 x 580 mm does not fit/.test(w))
+    && fitW(noKick).some((w) => /"Tall Back" 2460 x /.test(w))
+    && fitW(noKick).every((w) => /It is PRICED, cut as 2 x /.test(w)) && noKick.lines[0].total > onKick.lines[0].total,
+    JSON.stringify({ onKick: onKick.lines[0], noKick: fitW(noKick) }));
+  check('schedule: the same kickMm: 0 broom does NOT split its 2460 x 248 door - the front is hard-stopped and named, and only the carcase parts carry joins',
+    !fitW(noKick).some((w) => /"Door"/.test(w))
+    && noKick.warnings.some((w) => /^Part too big for its board/.test(w) && /"Door" 2460 x 248/.test(w)
+      && /A DOOR or DRAWER FRONT is never split/.test(w))
+    && (noKick.workshop?.stations ?? []).find((s) => /Part joins/.test(s.station))?.minutes
+      === 3 * DEFAULT_WORKSHOP_RATES.partJoinMin,
+    JSON.stringify(noKick.warnings.filter((w) => /Door/.test(w))));
+
+  // ── the catalogue still wins; old-style kick formulas are not taken off twice; corners are estimates ────────────
+  const withFormula = { ...livePd, parts: livePd.parts.map((p) => (p.name === 'Door' ? { ...p, length_function: '500', width_function: '300' } : p)) };
+  check('catalogue wins: a Door row WITH a formula is used as written (500 x 300), not the code default',
+    sizes(bomOf('Base 1 Door', 600, 880, 555, { toeKickHeight: 135 }, withFormula), 'Door') === '500 x 300');
+  const oldStyle = bomOf('base_1_door', 600, 870, 575, { toeKickHeight: 135 }, pricingData, dims);
+  check('compatibility: a formula that names ToeKickHeight ("CabHeight-ToeKickHeight") is evaluated on the full height as before - side 735, not 600',
+    sz(one(oldStyle, 'Base Left Side')) === '735 x 575' && sz(one(oldStyle, 'Base Back')) === '568 x 735', oldStyle.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  const pie = bomOf('Base Corner Cabinet', 880, 880, 1200, { toeKickHeight: 135 });
+  check('corners: a pie-cut corner\'s doors are an estimate - 2 x 743 x 438 across the width, flagged (sizePlaceholder) and warned; its Ls sides are cut 745 high',
+    one(pie, 'Door').quantity === 2 && sz(one(pie, 'Door')) === '743 x 438' && one(pie, 'Door').sizePlaceholder
+    && pie.warnings.some((w) => /is a corner cabinet - its door board is an estimate/.test(w)) && one(pie, 'Ls Base Left Side').length === 745,
+    JSON.stringify({ parts: pie.parts.map((p) => `${p.partType} ${sz(p)}`), w: pie.warnings }));
+
+  // ── 18. review fixes (19 Sep 2026) ────────────────────────────────────────────────────────────────────────────────
+  const m2 = (bom, re = /./) => bom.parts.filter((p) => p.materialRole === 'exterior' && re.test(p.partType))
+    .reduce((s, p) => s + (p.length * p.width * p.quantity) / 1e6, 0);
+  const allEdged = (p) => Boolean(p && p.edging.len1 && p.edging.len2 && p.edging.wid1 && p.edging.wid2);
+
+  // blind corners: 2 doors (Base Left / Right Door) over W - Blind_Corner_Width, reveals 2 + 1; without it, W - D, estimated
+  const hbBlind = bomOf('Base Blind Corner', 1263, 865, 555, { toeKickHeight: 100, blindCornerWidth: 473 });
+  const emBlind = bomOf('Base Blind Corner', 1269, 876, 555, { toeKickHeight: 135, blindCornerWidth: 623 });
+  check('blind corner: with its Blind_Corner_Width the doors are Microvellum\'s exactly - Hibiscus 2 x 763 x 392.5 (473 blind), Erin & Matt 2 x 739 x 320.5 (623 blind); not estimates, no blind-corner warning',
+    one(hbBlind, 'Door').quantity === 2 && sz(one(hbBlind, 'Door')) === '763 x 392.5' && !one(hbBlind, 'Door').sizePlaceholder
+    && one(emBlind, 'Door').quantity === 2 && sz(one(emBlind, 'Door')) === '739 x 320.5'
+    && !hbBlind.warnings.some((w) => /blind corner/.test(w)),
+    JSON.stringify({ hb: sizes(hbBlind, 'Door'), em: sizes(emBlind, 'Door'), w: hbBlind.warnings }));
+  const hbEst = bomOf('Base Blind Corner', 1263, 865, 555, { toeKickHeight: 100 });
+  const emEst = bomOf('Base Blind Corner', 1253, 876, 555, { toeKickHeight: 135 });
+  check('blind corner: without it the doors span W - D as an estimate (flagged, warned) - Hibiscus 2 x 763 x 351.5 = 0.54 m2 (MV 0.60), Erin & Matt 1253 2 x 739 x 346.5 = 0.51 m2 (MV 0.47 at 1269): both within 15%, not the 0.96 / 0.92 of one full-width door',
+    sz(one(hbEst, 'Door')) === '763 x 351.5' && one(hbEst, 'Door').quantity === 2 && one(hbEst, 'Door').sizePlaceholder
+    && Math.abs(m2(hbEst, /^Door$/) / 0.599 - 1) < 0.15 && Math.abs(m2(emEst, /^Door$/) / 0.474 - 1) < 0.15
+    && hbEst.warnings.some((w) => /is a blind corner - its door board is an estimate.*blindCornerWidthMm/.test(w)),
+    JSON.stringify({ hb: sizes(hbEst, 'Door'), hbM2: m2(hbEst, /^Door$/), emM2: m2(emEst, /^Door$/), w: hbEst.warnings }));
+  const blindQ = q([{ name: 'Base Blind Corner', qty: 1, w: 1263, h: 865, d: 555, room: 'kitchen', blindCornerWidthMm: 473 },
+    { name: 'Toe Kick Base', qty: 1, w: 1263, h: 100, d: 530, room: 'kitchen' }]);
+  check('blind corner: the schedule\'s blindCornerWidthMm reaches the doors (quoteFromSchedule) - no blind-corner warning on the quote',
+    !blindQ.warnings.some((w) => /blind corner/.test(w)), JSON.stringify(blindQ.warnings));
+
+  // "Upper Rangehood Cabinet": Bottom_Reveal = Rangehood_Facia_Height (40); the undermount one has none
+  const rh = bomOf('Upper Rangehood Cabinet', 600, 695, 330);
+  const rh80 = bomOf('Upper Rangehood Cabinet', 600, 511, 330, { rangehoodFaciaHeight: 80 });
+  const rhUnder = bomOf('Upper Undermount Rangehood Cabinet', 600, 939, 330);
+  check('rangehood: Donkin Upper Rangehood Cabinet 600 x 695 - 2 doors 655 x 298 (MV, 40 facia); an 80 facia (older Donkin) 431 x 298; the undermount cabinet keeps 939 x 298',
+    sz(one(rh, 'Door')) === '655 x 298' && one(rh, 'Door').quantity === 2 && sz(one(rh80, 'Door')) === '431 x 298' && sz(one(rhUnder, 'Door')) === '939 x 298',
+    `${sizes(rh, 'Door')} | ${sizes(rh80, 'Door')} | ${sizes(rhUnder, 'Door')}`);
+
+  // top-drawer products: a 180 face over the doors (Top_Drawer 1, Top_Drawer_Front_Height 180, Horizontal_Drawer_Gap 2)
+  const b1d1 = bomOf('Base 1 Door 1 Drawer', 450, 880, 555, { toeKickHeight: 135 });
+  const b2d2 = bomOf('Base 2 Door 2 Drawer', 900, 880, 555, { toeKickHeight: 135 });
+  check('top drawer: Base 1 Door 1 Drawer 450 x 880 - door 561 x 448 (880 - 135 - 2 - 180 - 2) under a 448 x 180 face edged all round; the drawer zone is not counted twice',
+    sz(one(b1d1, 'Door')) === '561 x 448' && drawerFaces(b1d1).length === 1 && sz(drawerFaces(b1d1)[0]) === '448 x 180'
+    && allEdged(drawerFaces(b1d1)[0]) && drawerFaces(b1d1)[0].materialRole === 'exterior' && !b1d1.warnings.some((w) => /not modelled/.test(w)),
+    b1d1.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+  check('top drawer: Base 2 Door 2 Drawer 900 x 880 (Double_Top_Drawer) - 2 doors 561 x 448 under 2 faces 448 x 180 side by side',
+    one(b2d2, 'Door').quantity === 2 && sz(one(b2d2, 'Door')) === '561 x 448' && drawerFaces(b2d2).map(sz).join(', ') === '448 x 180, 448 x 180',
+    b2d2.parts.map((p) => `${p.partType} ${sz(p)}`).join('; '));
+
+  // drawers-only products whose drawers do not fill the front
+  const open1 = bomOf('Base Open 1 Drawer', 600, 880, 555, { toeKickHeight: 135 });
+  const open2 = bomOf('Base Open 2 Drawer', 900, 876, 573, { toeKickHeight: 135 });
+  const micro = bomOf('Base 1 Drawer Microwave', 600, 876, 555, { toeKickHeight: 135 });
+  const bays = bomOf('Base 2 Door 4 Drawer Cabinet', 1000, 876, 555, { toeKickHeight: 135 });
+  check('drawer layouts: Base Open 1 Drawer is one 598 x 180 top face over the open bay, Base Open 2 Drawer two 448 x 180 (not a 739-high bank)',
+    drawerFaces(open1).map(sz).join(', ') === '598 x 180' && drawerFaces(open2).map(sz).join(', ') === '448 x 180, 448 x 180',
+    `${drawerFaces(open1).map(sz)} | ${drawerFaces(open2).map(sz)}`);
+  check('drawer layouts: a microwave drawer unit and a doors-beside-drawers cabinet are not modelled - catalogue drawer fronts, estimated doors, and a warning',
+    drawerFaces(micro).map(sz).join(', ') === '568 x 110' && micro.warnings.some((w) => /drawer layout is not modelled/.test(w))
+    && one(bays, 'Door').sizePlaceholder && bays.warnings.some((w) => /drawer layout is not modelled/.test(w)),
+    JSON.stringify({ micro: drawerFaces(micro).map(sz), mw: micro.warnings, bays: sizes(bays, 'Door') }));
+
+  // the face row: "Drawer" (Component) sizes an engine-sized face, as "Door" does a door
+  const drawerRowFormula = { ...livePd, parts: livePd.parts.map((p) => (p.name === 'Drawer' ? { ...p, length_function: '500' } : p)) };
+  const noDrawerRow = { ...livePd, parts: livePd.parts.filter((p) => p.name !== 'Drawer') };
+  const faceByRow = bomOf('Base 1 Drawer', 600, 480, 555, { toeKickHeight: 135 }, drawerRowFormula);
+  const faceNoRow = bomOf('Base 1 Drawer', 600, 480, 555, { toeKickHeight: 135 }, noDrawerRow);
+  check('face row: a formula on the "Drawer" row wins on its axis (500 x 343); with no "Drawer" row the face is still 598 x 343 edged all round',
+    sz(one(faceByRow, 'Drawer Front')) === '500 x 343' && sz(one(faceNoRow, 'Drawer Front')) === '598 x 343' && allEdged(one(faceNoRow, 'Drawer Front')),
+    `${sz(one(faceByRow, 'Drawer Front'))} | ${sz(one(faceNoRow, 'Drawer Front'))}`);
+
+  // a formula naming ToeKickHeight uses the item's own kick
+  const tkPd = { ...livePd, parts: livePd.parts.map((p) => (p.name === 'Tall Left Side' ? { ...p, length_function: 'CabHeight-ToeKickHeight' } : p)) };
+  const tall100 = bomOf('Tall 2 Door', 600, 2200, 580, { toeKickHeight: 100 }, tkPd);
+  check('ToeKickHeight: "CabHeight-ToeKickHeight" on a 100 kick is the item\'s kick - left side 2100 like its mate, not 2065',
+    sz(one(tall100, 'Tall Left Side')) === '2100 x 580' && sz(one(tall100, 'Tall Right Side')) === '2100 x 580',
+    `${sz(one(tall100, 'Tall Left Side'))} / ${sz(one(tall100, 'Tall Right Side'))}`);
+
+  // stacked units: a base row that adds up to the room's base height with a same-width base row stands on it
+  const regalRows = [
+    ...[600, 900, 450, 1000].map((w) => ({ name: 'Base 2 Door', w, h: 880, d: 555, room: 'kitchen' })),
+    { name: 'Base 1 Drawer', w: 600, h: 480, d: 555, room: 'kitchen' },
+    { name: 'Base 1 Drawer', w: 600, h: 498, d: 555, room: 'kitchen' },
+    { name: 'Base Open', w: 600, h: 382, d: 573, room: 'kitchen' },
+    { name: 'Toe Kick Base', w: 3000, h: 135, d: 530, room: 'kitchen' },
+  ];
+  const regalK = scheduleKickHeights(regalRows, { defaultRoom: 'kitchen' });
+  const emK = scheduleKickHeights([
+    ...Array.from({ length: 8 }, () => ({ name: 'Base 1 Door', w: 450, h: 876, d: 555, room: 'kitchen' })),
+    { name: 'Base 1 Drawer', w: 632, h: 494, d: 555, room: 'kitchen' }, { name: 'Base Open', w: 632, h: 382, d: 573, room: 'kitchen' },
+    { name: 'Toe Kick Base', w: 3000, h: 135, d: 530, room: 'kitchen' },
+  ], { defaultRoom: 'kitchen' });
+  const regalKmm = scheduleKickHeights(regalRows.map((r) => (r.name === 'Base Open' ? { ...r, kickMm: 135 } : r)), { defaultRoom: 'kitchen' });
+  check('stacked: Regal\'s Base Open 600 x 382 on its Base 1 Drawer 600 x 498 (= 880) and Erin & Matt\'s 632 x 382 on 632 x 494 (= 876) stand on no kick, with a warning; the drawer units keep 135; kickMm still wins',
+    regalK.kicks[6] === 0 && regalK.kicks[4] === 135 && regalK.kicks[5] === 135 && regalK.kicks[0] === 135
+    && regalK.warnings.length === 1 && /"Base Open" 600 x 382 .* standing on the "Base 1 Drawer" 600 x 498/.test(regalK.warnings[0])
+    && emK.kicks[9] === 0 && emK.kicks[8] === 135 && regalKmm.kicks[6] === 135 && regalKmm.warnings.length === 0,
+    JSON.stringify({ regalK, emK: emK.kicks, regalKmm }));
+  const stackQ = q(regalRows.map((r) => ({ ...r, qty: 1 })));
+  const stack0 = q(regalRows.map((r) => ({ ...r, qty: 1, ...(r.name === 'Base Open' ? { kickMm: 0 } : {}) })));
+  const stack135 = q(regalRows.map((r) => ({ ...r, qty: 1, ...(r.name === 'Base Open' ? { kickMm: 135 } : {}) })));
+  check('stacked: end to end the Regal Base Open prices exactly as kickMm: 0 (cut 382 high, MV 382 x 573), not as a 135 kick (247), and the quote says why',
+    stackQ.lines[6].total === stack0.lines[6].total && stackQ.lines[6].total !== stack135.lines[6].total
+    && stackQ.warnings.some((w) => /"Base Open" 600 x 382 .* no kick is taken off it/.test(w)),
+    JSON.stringify({ l: [stackQ.lines[6], stack0.lines[6], stack135.lines[6]], w: stackQ.warnings }));
+}
+
+
+// 18. Legs, ladder kicks, the kick face, split over-long parts and sink cut-outs (Ben, 21 Sep 2026): "if there is
+//     adjusble leg price four legs per cabinet then a lm of face board if ladder kick buikld a cut list and price the
+//     kicks as ply with the selected lamnate face, too long parts still price but split the items in half and make a
+//     not ... cut outs are for drop in 30 min and under mounte 1.5 hrs". Every size below is a finished part in a
+//     Microvellum Toolbox work order (Donkin, Regal, Coral Lodge, Kenfrost), and the catalogue rows are the live ones.
+{
+  const M = (id, item_code, name, t, L, W, cost, extra = {}) => ({
+    id, item_code, name, material_type: 'sheet_material', thickness: t, sheet_length: L, sheet_width: W,
+    area_cost: cost, expected_yield_factor: 1, minimum_job_area: 0, visibility_status: 'Available', ...extra,
+  });
+  const ply15 = M('uuid-PHWE', 'PHWE2122150UBCJ', 'Plywood 15mm 2440x1220 BB/CC WBP Hardwood', 15, 2440, 1220, 32.80);
+  const kickLam = M('uuid-POLY6428', 'POLY6428', 'Kickboard Laminate (only) Brushed Stainless 3600 x 1200', 0.7, 3600, 1200, 88.99, { material_type: 'laminate' });
+  const kickPanel = M('uuid-POLY10679', 'POLY10679', 'Particle 163612 Face Lam Brushed Stainless Kickboard', 16, 3600, 1200, 99.03);
+  const kickStrip = M('uuid-POLY12745', 'POLY12745', 'Particle 1636150 Face Lam Brushed Stainless Kickboard', 16, 3600, 150, 110.09);
+  const ashMdf = M('uuid-POLY52661', 'POLY52661', 'MDF 162412 DS Plantation Ash Woodmatt MR E0', 16, 2400, 1200, 51.52);
+  const legRow = { id: 'h-leg', item_code: 'HW-LEG-100', name: 'Adjustable Leg 100mm', hardware_type: 'Leg', unit_cost: 3.5, machining_cost: 0.3, assembly_cost: 0.5 };
+  const K = (name, part_type, lf, wf, edging) => ({
+    name, part_type, length_function: lf, width_function: wf, edging,
+    handling_cost: 0, area_handling_cost: 0, machining_cost: 0, area_machining_cost: 0, assembly_cost: 0, area_assembly_cost: 0,
+    visibility_status: 'Available',
+  });
+  const kickPd = {
+    ...pricingData,
+    parts: [...pricingData.parts,
+      K('Kick Frame Length', 'Carcase', 'CabWidth', 'CabHeight', '-/-/-/-'),
+      K('Tall Filler', 'Filler', null, null, 'Len1/-/Len2/Wid2'),
+    ],
+    materials: [...pricingData.materials, ply15, kickLam, kickPanel, kickStrip, ashMdf],
+    hardware: [...pricingData.hardware, legRow],
+  };
+  const kcomm = { markupPct: 0.4, markupSource: 'test', supplyMode: 'assembled_installed', jobMinimums: false };
+  const kSel = { carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'EW1', hingeType: 'Series 200', drawerType: 'Alto', handleId: 'bar' };
+  const kq = (rows, sel = kSel, comm = kcomm) => quoteFromSchedule(rows, kickPd, sel, comm, { defaultRoom: 'kitchen' });
+  const near2 = (a, b, tol = 0.02) => typeof a === 'number' && Math.abs(a - b) <= tol;
+  let kn = 9000;
+  const kItem = (name, w, h, d, extra = {}) => ({
+    ...cab(name, w, h, d, ++kn), productName: name,
+    carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'EW1', ...extra,
+  });
+
+  // ── FOUR legs a cabinet on a legs job, none on a ladder-kick job ────────────────────────────────────────────
+  const legItems = [kItem('Base 2 Door', 900, 880, 560), kItem('Base 3 Drawer', 600, 880, 560), kItem('Upper 2 Door', 900, 720, 330)];
+  const legsOn = generateQuoteBOM(legItems, DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  const floorLegs = legsOn.cabinets.filter((c) => c.legs);
+  check('legs: FOUR adjustable legs a cabinet on the two FLOOR cabinets and none on the upper, stated on the line (Ben, 21 Sep 2026: "price four legs per cabinet")',
+    floorLegs.length === 2 && floorLegs.every((c) => c.legs.perCabinet === 4 && c.legs.quantity === 4 && c.legs.unitCost === 3.5 && near2(c.legs.cost, 14))
+    && legsOn.cabinets.find((c) => c.cabinetName === 'Upper 2 Door')?.legs === undefined
+    && legsOn.warnings.some((w) => /^Adjustable legs: 4 per cabinet on 2 floor cabinets = 8 x Adjustable Leg 100mm at \$3\.50 each/.test(w)),
+    JSON.stringify(legsOn.cabinets.map((c) => [c.cabinetName, c.legs])));
+  const ladderJob = generateQuoteBOM(
+    [legItems[0], legItems[1], kItem('Toe Kick Base', 1500, 135, 560, { kickPlyMaterialId: 'PHWE2122150UBCJ' })],
+    DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  check('legs: a job standing on Toe Kick Base ladder bases carries NO legs at all - the ladder IS the base (Microvellum bills no leg on any of the 9 work orders)',
+    ladderJob.cabinets.every((c) => !c.legs && !c.hardware.some((h) => h.hardwareType === 'leg'))
+    && !ladderJob.warnings.some((w) => /^Adjustable legs:/.test(w)),
+    JSON.stringify(ladderJob.cabinets.map((c) => [c.cabinetName, c.hardware.filter((h) => h.hardwareType === 'leg').length])));
+
+  // ── the kick FACE by the lineal metre of that cabinet's own face ────────────────────────────────────────────
+  const faceItems = legItems.map((i) => ({ ...i, kickFacingMaterialId: 'POLY10679' }));
+  const faceJob = generateQuoteBOM(faceItems, DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  const faceBase = faceJob.cabinets.find((c) => c.cabinetName === 'Base 2 Door');
+  const faceDrw = faceJob.cabinets.find((c) => c.cabinetName === 'Base 3 Drawer');
+  check('kick face: each floor cabinet carries the lineal metres of its OWN kick face (900 -> 0.900 lm, 600 -> 0.600 lm) and the upper carries none',
+    faceBase?.kickFace?.metresLm === 0.9 && faceDrw?.kickFace?.metresLm === 0.6
+    && faceJob.cabinets.find((c) => c.cabinetName === 'Upper 2 Door')?.kickFace === undefined,
+    JSON.stringify(faceJob.cabinets.map((c) => [c.cabinetName, c.kickFace])));
+  check('kick face: the LINE rate is the selected face board per metre (POLY10679 $99.03/m2 cut 135 high = $13.37/lm), never the carcase board',
+    near2(faceBase.kickFace.ratePerM, 13.37) && faceBase.kickFace.chargedWidthMm === 135
+    && faceBase.kickFace.materialId === 'uuid-POLY10679',
+    JSON.stringify([faceBase.kickFace, faceDrw.kickFace]));
+  // Whole stock as bought: 1.5 lm of face still buys one whole 3600 mm length of POLY10679 ripped 135 high
+  // ($99.03/m2 x 3.6 x 0.135 = $48.13), split between the two cabinets by their metres. It used to bill the bare
+  // fraction, $20.05, and never rounded up however small the job.
+  check('kick face: the JOB buys a whole 3600 mm stock length ($48.13), spread over the cabinets by metres - not the $20.05 fraction',
+    near2(faceBase.kickFace.cost + faceDrw.kickFace.cost, 3.6 * 0.135 * 99.03, 0.02)
+    && near2(faceBase.kickFace.cost, (3.6 * 0.135 * 99.03) * 0.9 / 1.5, 0.02)
+    && near2(faceDrw.kickFace.cost, (3.6 * 0.135 * 99.03) * 0.6 / 1.5, 0.02)
+    && (() => {
+      const row = faceJob.consolidatedSheets.find((s) => /Kick face board/.test(s.materialName));
+      return row?.sheetsRequired === 1 && row?.sheetLength === 3600
+        && /bought whole as 1 x 3600 mm stock length\)/.test(row.materialName);
+    })(),
+    JSON.stringify([faceBase.kickFace, faceDrw.kickFace, faceJob.consolidatedSheets.find((s) => /Kick face board/.test(s.materialName))]));
+  const stripJob = generateQuoteBOM(legItems.map((i) => ({ ...i, kickFacingMaterialId: 'POLY12745' })), DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  const strip = stripJob.cabinets.find((c) => c.cabinetName === 'Base 2 Door');
+  check('kick face: a 3600 x 150 kickboard STRIP is bought whole - the full 150 mm is charged on a 135 kick ($16.51/lm) and the job buys the whole $59.45 strip, not 1.5 lm of it',
+    strip.kickFace.chargedWidthMm === 150 && near2(strip.kickFace.ratePerM, 16.51)
+    && near2(stripJob.cabinets.reduce((s, c) => s + (c.kickFace?.cost ?? 0), 0), 3.6 * 0.150 * 110.09, 0.02)
+    && stripJob.consolidatedSheets.find((s) => /Kick face board/.test(s.materialName))?.sheetsRequired === 1,
+    JSON.stringify(strip.kickFace));
+  const returnJob = generateQuoteBOM(
+    faceItems.map((i) => (i.productName === 'Base 2 Door' ? { ...i, kickExposedEnds: 1 } : i)),
+    DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  check('kick face: a returned end adds that cabinet\'s own DEPTH to its metres (900 + 560 = 1.460 lm) - across Bower\'s 15 kicks the returns are a quarter of the finished face',
+    returnJob.cabinets.find((c) => c.cabinetName === 'Base 2 Door')?.kickFace?.metresLm === 1.46,
+    JSON.stringify(returnJob.cabinets.find((c) => c.cabinetName === 'Base 2 Door')?.kickFace));
+
+
+  // ── the kick face is NOT charged on top of a kick the job already carries ───────────────────────────────────
+  // The block this replaced inherited that gate through `kickboards` (forced to [] when the schedule lists its own
+  // kicks), and the rewrite lost it: a planner base_kick row or a Microvellum Toe Kick Base was billed its face
+  // twice - once in the kick's own line, once per lineal metre - and on a ladder job the engine had already
+  // decided there are no legs at all.
+  const ladderFaceJob = generateQuoteBOM(
+    [...faceItems.slice(0, 2), kItem('Toe Kick Base', 1500, 135, 560, { kickPlyMaterialId: 'PHWE2122150UBCJ', kickFacingMaterialId: 'POLY6428' })],
+    DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  check('kick face: a job on Toe Kick Base ladders carries NO leg kick face - the ladder cuts its own Finished Front, and the engine has already stripped every leg',
+    ladderFaceJob.cabinets.every((c) => c.kickFace === undefined)
+    && !ladderFaceJob.consolidatedSheets.some((s) => /Kick face board/.test(s.materialName))
+    && ladderFaceJob.cabinets.some((c) => c.ladderKick?.facing),
+    JSON.stringify(ladderFaceJob.cabinets.map((c) => [c.cabinetName, c.kickFace])));
+  const explicitKickJob = generateQuoteBOM(
+    [...faceItems.slice(0, 2), kItem('base_kick', 1500, 135, 20, { kickFacingMaterialId: 'POLY10679' })],
+    DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  check('kick face: a job that already lists a base_kick row carries no per-metre face either - the kick board is on the job as its own product',
+    explicitKickJob.cabinets.every((c) => c.kickFace === undefined)
+    && !explicitKickJob.consolidatedSheets.some((s) => /Kick face board/.test(s.materialName)),
+    JSON.stringify(explicitKickJob.cabinets.map((c) => [c.cabinetName, c.kickFace])));
+
+  // ── the face material is a PER-ROW selection, not the first cabinet's ───────────────────────────────────────
+  const orderA = generateQuoteBOM([
+    kItem('Upper 2 Door', 900, 720, 330),
+    kItem('Base 2 Door', 900, 880, 560, { kickFacingMaterialId: 'POLY10679' }),
+  ], DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  const orderB = generateQuoteBOM([
+    kItem('Base 2 Door', 900, 880, 560, { kickFacingMaterialId: 'POLY10679' }),
+    kItem('Upper 2 Door', 900, 720, 330),
+  ], DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  const faceOf = (q) => q.cabinets.find((c) => c.cabinetName === 'Base 2 Door')?.kickFace;
+  check('kick face: listing an UPPER first no longer decides the whole job\'s kick board - the material is read per cabinet, so item order cannot change the price',
+    faceOf(orderA)?.materialId === 'uuid-POLY10679' && near2(faceOf(orderA)?.ratePerM ?? 0, 13.37)
+    && faceOf(orderA)?.cost === faceOf(orderB)?.cost && faceOf(orderA)?.materialId === faceOf(orderB)?.materialId
+    && !orderA.warnings.some((w) => /^No kickFacingMaterialId sent/.test(w)),
+    JSON.stringify([faceOf(orderA), faceOf(orderB)]));
+  const mixedFaceJob = generateQuoteBOM([
+    kItem('Base 2 Door', 900, 880, 560, { kickFacingMaterialId: 'POLY10679' }),
+    kItem('Base 3 Drawer', 600, 880, 560, { kickFacingMaterialId: 'POLY12745' }),
+  ], DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  check('kick face: two rows that ask for different kick boards get one stock line each, at their own rate',
+    mixedFaceJob.cabinets.find((c) => c.cabinetName === 'Base 2 Door')?.kickFace?.materialId === 'uuid-POLY10679'
+    && mixedFaceJob.cabinets.find((c) => c.cabinetName === 'Base 3 Drawer')?.kickFace?.materialId === 'uuid-POLY12745'
+    && mixedFaceJob.consolidatedSheets.filter((s) => /Kick face board/.test(s.materialName)).length === 2,
+    JSON.stringify(mixedFaceJob.consolidatedSheets.filter((s) => /Kick face board/.test(s.materialName)).map((s) => s.materialName)));
+
+  // ── the kick runs straight through a dishwasher opening, and that board is bought ───────────────────────────
+  const dwRun = [
+    { ...kItem('Base 2 Door', 800, 880, 560), x: 400, z: 287.5 },
+    { instanceId: 'dw-face', definitionId: 'dishwasher_opening', itemType: 'Appliance', layoutRole: 'dishwasher',
+      x: 1100, y: 0, z: 287.5, rotation: 0, width: 600, height: 730, depth: 575 },
+    { ...kItem('Base 2 Door', 800, 880, 560), x: 1800, z: 287.5 },
+  ].map((i) => (i.itemType === 'Cabinet' ? { ...i, kickFacingMaterialId: 'POLY10679' } : i));
+  const dwJob = generateQuoteBOM(dwRun, DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  const dwMetres = dwJob.cabinets.reduce((s, c) => s + (c.kickFace?.metresLm ?? 0), 0);
+  check('kick face: the 600 mm of kick across a dishwasher opening is CHARGED - 2.200 lm, the same span calculateKickboardRuns counts, not the 1.600 lm of cabinet widths',
+    near2(dwMetres, 2.2, 0.001) && dwJob.kickboards[0]?.runLengthMm === 2200
+    && dwJob.cabinets.some((c) => c.kickFace?.adjacentSpanMm === 600),
+    JSON.stringify(dwJob.cabinets.map((c) => c.kickFace)));
+
+  // ── a unit stacked on the one below carries neither kick face nor legs ──────────────────────────────────────
+  const stackedJob = generateQuoteBOM([
+    kItem('Base 1 Drawer', 632, 498, 560, { kickFacingMaterialId: 'POLY10679' }),
+    kItem('Base Open', 632, 382, 560, { kickFacingMaterialId: 'POLY10679', toeKickHeight: 0 }),
+  ], DEFAULT_DIMENSIONS, { ...hw, adjustableLegs: true }, kickPd);
+  check('kick face: a unit the engine has already decided is STACKED (toeKickHeight 0) carries no kick face and no legs - the 0.632 m of floor under it is billed once, to the cabinet it stands on',
+    stackedJob.cabinets.find((c) => c.cabinetName === 'Base Open')?.kickFace === undefined
+    && stackedJob.cabinets.find((c) => c.cabinetName === 'Base Open')?.legs === undefined
+    && near2(stackedJob.cabinets.reduce((s, c) => s + (c.kickFace?.metresLm ?? 0), 0), 0.632, 0.001)
+    && stackedJob.cabinets.filter((c) => c.legs).length === 1,
+    JSON.stringify(stackedJob.cabinets.map((c) => [c.cabinetName, c.kickFace?.metresLm, c.legs?.quantity])));
+
+  // ── a floor carcase the kick test did not recognise ─────────────────────────────────────────────────────────
+  // "Appliance Tower 2 Door" is a base-family carcase 2460 high. Its name matched none of base|tall|pantry|broom|
+  // linen|vanity|sink, so no kick came off it, its sides and back were cut the full 2460, and once parts began to be
+  // split that bought 150 min of joins it can never do. Microvellum cuts them 2325.
+  const towerKick = (name) => itemKickMm(
+    { ...cab(name, 600, 2460, 580, 1), toeKickHeight: 135 },
+    { numDoors: 2, numDrawers: 0, numShelves: 4 }, 'tall', { ...DEFAULT_DIMENSIONS, toeKickHeight: 135 }, name);
+  check('kick: a floor carcase named Appliance Tower / Utility Cupboard / Larder / Oven Tower stands on its kick like any other - none of them did before',
+    ['Appliance Tower 2 Door', 'Utility Cupboard 2 Door', 'Larder Unit', 'Oven Tower', 'Bookcase Unit']
+      .every((n) => towerKick(n) === 135)
+    && towerKick('Upper 2 Door') === 0 && towerKick('Wall Oven Cabinet') === 0,
+    JSON.stringify(['Appliance Tower 2 Door', 'Upper 2 Door', 'Wall Oven Cabinet'].map((n) => [n, towerKick(n)])));
+  const unnamedFloor = kq([
+    { name: 'Toe Kick Base', qty: 1, w: 3000, h: 135, d: 555, room: 'kitchen' },
+    { name: 'Spice Unit 2 Door', qty: 1, w: 600, h: 2460, d: 580, room: 'kitchen' },
+  ]);
+  check('kick: a base/tall carcase whose name still says nothing about where it stands is flagged honestly - the engine cannot tell (Hibiscus lists an "Any Angle Spacer" on the floor AND one on the wall), so it names both readings instead of guessing',
+    unnamedFloor.warnings.some((w) => /BowerOS cannot tell whether this (base|tall) carcase stands on the floor/.test(w)
+      && /priced standing on NO kick, cut the full 2460; on the floor Microvellum would cut it 2325/.test(w)
+      && /Send kickMm on the row/.test(w)),
+    JSON.stringify(unnamedFloor.warnings.filter((w) => /cannot tell whether/.test(w))));
+
+  // ── the ladder cut list, against Microvellum's own parts ────────────────────────────────────────────────────
+  const donkin = ladderKickCutList({ width: 1284, height: 135, depth: 530 }, 1);
+  const cutOf = (name) => donkin.parts.find((p) => p.name === name);
+  const mvDonkin = [
+    ['Sub Front', 1283.6, 135, 'ply'], ['Sub Back', 1253.6, 90, 'ply'],
+    ['Sleeper Left', 514.6, 135, 'ply'], ['Sleeper Right', 514.6, 135, 'ply'],
+    ['Sleeper 1', 499.6, 90, 'ply'], ['Sleeper 2', 499.6, 90, 'ply'],
+    ['Cleat Left', 499.6, 75, 'ply'], ['Cleat Right', 499.6, 75, 'ply'],
+    ['Finished Front', 1284, 135, 'facing'], ['Finished Side', 530, 135, 'facing'],
+  ];
+  check('ladder kick: the cut list for Donkin kitchen 1.10 (Toe Kick Base 1284 x 135 x 530, one finished side) IS Microvellum\'s own 10 parts, dimension for dimension',
+    donkin.parts.length === 10 && !donkin.variant
+    && mvDonkin.every(([n, l, w, m]) => { const p = cutOf(n); return p && near2(p.length, l) && near2(p.width, w) && p.material === m; }),
+    JSON.stringify(donkin.parts));
+  const donkinBom = generateCabinetBOM(kItem('Toe Kick Base', 1284, 135, 530, { kickPlyMaterialId: 'PHWE2122150UBCJ', kickExposedEnds: 1 }), DEFAULT_DIMENSIONS, hw, kickPd);
+  check('ladder kick: the 8 PLY parts are the cabinet\'s parts (the 2 facing pieces are not, so the whole-board sheet path can never reach them), and no part carries edge tape - Microvellum tapes none',
+    donkinBom.parts.length === 8 && donkinBom.parts.every((p) => p.materialId === 'uuid-PHWE' && p.thickness === 15)
+    && donkinBom.edgeTape.length === 0 && donkinBom.ladderKick.cutList.length === 10,
+    JSON.stringify(donkinBom.parts.map((p) => `${p.name} ${p.length}x${p.width}`)));
+  const regal3320 = ladderKickCutList({ width: 3320, height: 135, depth: 530 }, 1);
+  check('ladder kick: Regal\'s 3320 kick cuts 5 intermediate sleepers (ceil(W/600)-1) and 3 cleats (2 + floor(W/2400)) - 14 parts, exactly as Microvellum does',
+    regal3320.parts.filter((p) => /^Sleeper \d/.test(p.name)).length === 5
+    && regal3320.parts.filter((p) => /^Cleat/.test(p.name)).length === 3 && regal3320.parts.length === 14,
+    JSON.stringify(regal3320.parts.map((p) => p.name)));
+  const cl100 = ladderKickCutList({ width: 680.5, height: 100, depth: 530 }, 0);
+  check('ladder kick: a 100 mm kick (Coral Lodge robe 680.5) - Sub Back 634.5 x 66.667 (inset 46, two thirds high), one intermediate sleeper, no finished side',
+    near2(cl100.parts.find((p) => p.name === 'Sub Back').length, 634.5) && near2(cl100.parts.find((p) => p.name === 'Sub Back').width, 66.667)
+    && cl100.parts.filter((p) => /^Sleeper \d/.test(p.name)).length === 1 && cl100.parts.length === 8
+    && ladderSubBackInsetMm(135) === 30 && ladderSubBackInsetMm(100) === 46,
+    JSON.stringify(cl100.parts));
+  check('ladder kick: a variant Microvellum cuts differently is named rather than pretended - an angled-end kick and a 30 mm deep return kick both say so',
+    /angled ends/.test(ladderKickCutList({ width: 880.344, height: 100, depth: 545 }, 1, 'Toe Kick Base With Angled Ends').variant ?? '')
+    && /only 30 mm deep/.test(ladderKickCutList({ width: 1250, height: 135, depth: 30 }, 0).variant ?? '')
+    && ladderKickCutList({ width: 1250, height: 135, depth: 30 }, 0).parts.filter((p) => /Cleat|Sleeper \d/.test(p.name)).length === 0);
+
+  // ── the kick FACE is charged by area + waste, never a whole sheet; warned when none is chosen ───────────────
+  const kickRow = (over = {}) => ({ name: 'Toe Kick Base', qty: 1, w: 1284, h: 135, d: 530, room: 'kitchen', kickPlyMaterialId: 'PHWE2122150UBCJ', kickExposedEnds: 1, ...over });
+  const faced = kq([kickRow({ kickFacingMaterialId: 'POLY6428' })]);
+  const faceArea = (1284 * 135 + 530 * 135) / 1e6;
+  const faceCharged = Math.round(faceArea * (1 + KICK_FACING_WASTE) * 1000) / 1000;
+  const faceLine = faced.workshopCosting.sheetStock.find((r) => /Kick facing/.test(r.material));
+  check('ladder kick facing: charged by the AREA USED + 15% waste at $88.99/m2 = $25.10 - never the $384 whole 3600 x 1200 sheet (Ben, 16 Sep 2026: "kick it does not have to use the full board rule")',
+    faceLine && near2(faceLine.units, faceCharged, 0.002) && near2(faceLine.unitCost, 88.99)
+    && near2(faceLine.cost, Math.round(faceCharged * 88.99 * 100) / 100, 0.02) && faceLine.cost < 30
+    && /NOT whole sheets/.test(faceLine.material) && KICK_FACING_WASTE === 0.15,
+    JSON.stringify(faceLine));
+  check('ladder kick facing: bonding the laminate to the ply is a station of its own at Ben\'s own ~65 min/m2 (his hand-priced Kenfrost line), not Microvellum\'s 40',
+    (faced.workshop?.stations ?? []).some((s) => s.station === 'Kick facing lamination'
+      && near2(s.minutes, faceArea * DEFAULT_WORKSHOP_RATES.kickFacingBondMinPerSqm, 0.05))
+    && DEFAULT_WORKSHOP_RATES.kickFacingBondMinPerSqm === 65,
+    JSON.stringify((faced.workshop?.stations ?? []).filter((s) => /Kick/.test(s.station))));
+  const bare = kq([kickRow()]);
+  check('ladder kick facing: with NO kickFacingMaterialId the kick is priced as BARE PLY, no facing is charged, and the quote says so plainly - a decor is never guessed',
+    !bare.workshopCosting.sheetStock.some((r) => /Kick facing/.test(r.material))
+    && bare.warnings.some((w) => /no kickFacingMaterialId sent - the kick is priced as BARE PLY/.test(w))
+    && bare.warnings.some((w) => /priced as BARE PLY with no facing laminate - 0\.245 m2 of face is NOT charged/.test(w))
+    && bare.lines[0].total < faced.lines[0].total,
+    JSON.stringify(bare.warnings.filter((w) => /kick|BARE/i.test(w))));
+  check('ladder kick: the PLY is a real board on the WHOLE-board rule - one 2440 x 1220 sheet at $32.80/m2 = $97.64 (only the facing takes the area exception)',
+    near2(bare.workshopCosting.sheetStock.find((r) => /Plywood 15mm/.test(r.material))?.cost ?? 0, 2.44 * 1.22 * 32.80, 0.02),
+    JSON.stringify(bare.workshopCosting.sheetStock));
+  check('ladder kick: a Toe Kick Base is no longer one 135 x 530 board - its WIDTH drives the price now (599 < 1480 < 3320)',
+    (() => { const at = (w) => kq([kickRow({ w })]).lines[0].total; return at(599) < at(1480) && at(1480) < at(3320); })(),
+    JSON.stringify([599, 1480, 3320].map((w) => kq([kickRow({ w })]).lines[0].total)));
+  check('ladder kick: with no kickPlyMaterialId and a MELAMINE row board the engine finds the catalogue\'s 15 mm plywood and says so; a row already carrying plywood (as a Microvellum export does) is used as it stands, silently',
+    pickKickPlyMaterial(kickPd.materials)?.item_code === 'PHWE2122150UBCJ'
+    && kq([{ name: 'Toe Kick Base', qty: 1, w: 1284, h: 135, d: 530, room: 'kitchen' }]).warnings
+      .some((w) => /no kickPlyMaterialId sent and the row's own board is not plywood - the ladder is priced on Plywood 15mm/.test(w))
+    && !kq([{ name: 'Toe Kick Base', qty: 1, w: 1284, h: 135, d: 530, room: 'kitchen', carcaseMaterialId: 'PHWE2122150UBCJ' }]).warnings
+      .some((w) => /kickPlyMaterialId/.test(w)),
+    JSON.stringify(kq([{ name: 'Toe Kick Base', qty: 1, w: 1284, h: 135, d: 530, room: 'kitchen' }]).warnings));
+
+  // ── over-long parts are SPLIT and priced, with a note and a join ────────────────────────────────────────────
+  // Coral Lodge C07: "Under Panel" 2582 x 16 x 307 in Plantation Ash on a 2400 x 1200 board (2390 x 1190 usable).
+  const upRow = (w) => ({ name: 'Upper Open Under Panel', qty: 1, w, h: 16, d: 307, room: 'kitchen', exteriorMaterialId: 'POLY52661' });
+  const splitQ = kq([upRow(2582)]);
+  const fitQ = kq([upRow(2000)]);
+  check('over-long: Coral Lodge\'s 2582 x 307 under panel on a 2400 board is PRICED as two 1291 x 307 halves that need a join, with the note Ben asked for',
+    splitQ.warnings.some((w) => /2582 x 307 mm does not fit .*Plantation Ash/.test(w) && /It is PRICED, cut as 2 x 1291 x 307 mm and NEEDS A JOIN/.test(w))
+    && (splitQ.workshop?.stations ?? []).some((s) => s.station === 'Part joins (split over-long parts)' && s.minutes === DEFAULT_WORKSHOP_RATES.partJoinMin)
+    && DEFAULT_WORKSHOP_RATES.partJoinMin === 30,
+    JSON.stringify(splitQ.warnings));
+  check('over-long: the BOARD costs the same - two halves have exactly the area of the part they came from; only the join and the extra part through the shop move the price',
+    (() => {
+      const board = (q) => (q.workshopCosting.sheetStock.find((r) => /Plantation Ash/.test(r.material))?.cost ?? 0);
+      return near2(board(splitQ), 2.4 * 1.2 * 51.52, 0.02) && splitQ.lines[0].total > fitQ.lines[0].total;
+    })(),
+    JSON.stringify(splitQ.workshopCosting.sheetStock));
+  check('over-long: a part that FITS is untouched - no split, no join, no note',
+    !fitQ.warnings.some((w) => /NEEDS A JOIN|too big for its board/.test(w))
+    && !(fitQ.workshop?.stations ?? []).some((s) => /Part joins/.test(s.station)),
+    JSON.stringify(fitQ.warnings));
+  check('over-long: the JOIN edges are left bare - the halves carry the original part\'s tape and nothing more, so the job\'s edged metres do not move',
+    (() => {
+      const bom = generateCabinetBOM(kItem('Upper Open Under Panel', 2582, 16, 307, { exteriorMaterialId: 'POLY52661' }), DEFAULT_DIMENSIONS, hw, kickPd);
+      const halves = bom.parts.filter((p) => p.splitPiece);
+      // Tall Filler is edged Len1/-/Len2/Wid2: both halves keep len1 + len2, and ONE keeps the single wid2 end
+      return halves.length === 2 && bom.splitParts?.length === 1 && bom.splitParts[0].joins === 1
+        && halves.every((p) => p.edging.len1 && p.edging.len2 && !p.edging.wid1)
+        && halves.filter((p) => p.edging.wid2).length === 1;
+    })());
+  const splitFixture = (over) => {
+    const board = [{ id: 'x', item_code: 'X', name: 'Tall board', thickness: 16, sheet_length: 3115, sheet_width: 1200, area_cost: 26.82, expected_yield_factor: 1 }];
+    const part = { ...over, length: 1223, width: 2345, area: (1223 * 2345) / 1e6, thickness: 16, materialId: 'X', materialRole: 'exterior', edging: { len1: true, wid1: true, len2: true, wid2: true }, quantity: 1, handlingCost: 0, machiningCost: 0, assemblyCost: 0 };
+    return { part, out: splitOversizeParts([part], board) };
+  };
+  check('over-long: splitOversizeParts is geometry for a BOARD - a 1223 x 2345 panel on a 3115 x 1200 board splits on the axis that overruns, both pieces fit, and the area is preserved exactly',
+    (() => {
+      const { part, out } = splitFixture({ name: 'Tall Applied Panel', partType: 'Applied Panel' });
+      return out.parts.length === 2 && out.splits.length === 1 && out.splits[0].pieces === 2 && out.splits[0].joins === 1
+        && out.parts.every((p) => partFitsSheet(p.length, p.width, 3115, 1200))
+        && Math.abs(out.parts.reduce((s, p) => s + p.area, 0) - part.area) < 1e-9;
+    })());
+  // Ben's "too long parts still price but split the items in half" is about boards. A FRONT is never split: it cannot
+  // be butt-joined across its face and sold as a front, which is why an over-long robe LEAF is already a hard stop.
+  check('over-long: the same part as a DOOR, a DRAWER FRONT or a FALSE FRONT is NOT split - it comes back whole with no join, exactly as a robe leaf is refused',
+    [{ name: 'Leaf', partType: 'Door' }, { name: 'Drawer Front', partType: 'Drawer Front' }, { name: 'False Front', partType: 'False Front' }]
+      .every((over) => {
+        const { out } = splitFixture(over);
+        return out.parts.length === 1 && out.splits.length === 0 && !out.parts[0].splitPiece;
+      }));
+  check('over-long: a Tall Filler, an Applied Panel, an Under Panel and a Pelmet are exterior-role too, and they DO still split - only the fronts are excluded, never the role',
+    [['Tall Filler', 'Filler'], ['Tall Applied Panel', 'Applied Panel'], ['Under Panel', 'Return Panel'], ['Pelmet BC', 'Pelmet']]
+      .every(([name, partType]) => splitFixture({ name, partType }).out.splits.length === 1)
+    && ['Drawer Box Side', 'Drawer Box Back'].every((name) => splitFixture({ name, partType: name }).out.splits.length === 1));
+  check('over-long: Regal\'s 3320 kick splits its ply rails too - the Sub Front and Sub Back do not fit a 2440 ply board, so each is two halves and a join',
+    (() => {
+      const q = kq([kickRow({ w: 3320, kickExposedEnds: 0 })]);
+      const st = (q.workshop?.stations ?? []).find((s) => /Part joins/.test(s.station));
+      return q.warnings.filter((w) => /NEEDS A JOIN/.test(w)).length === 2
+        && q.warnings.some((w) => /"Sub Front" 3320 x 135 mm does not fit Plywood 15mm/.test(w))
+        && st && st.minutes === 2 * DEFAULT_WORKSHOP_RATES.partJoinMin;
+    })(),
+    JSON.stringify(kq([kickRow({ w: 3320, kickExposedEnds: 0 })]).warnings.filter((w) => /JOIN/.test(w))));
+
+  // ── sink cut-outs: drop-in 30 min, undermount 90 (Ben, 21 Sep 2026), nothing unless asked ───────────────────
+  check('cut-outs: Ben\'s minutes - a DROP-IN sink is 30 and an UNDERMOUNT 90 ("cut outs are for drop in 30 min and under mounte 1.5 hrs"); cooktop 20 and tap 5 are unchanged',
+    DEFAULT_WORKSHOP_RATES.benchtopSinkCutoutMin === 30 && DEFAULT_WORKSHOP_RATES.benchtopUndermountSinkCutoutMin === 90
+    && DEFAULT_WORKSHOP_RATES.benchtopCooktopCutoutMin === 20 && DEFAULT_WORKSHOP_RATES.benchtopTapHoleMin === 5);
+  {
+    const btw = (cutouts) => calculateWorkshopCost([], { mode: 'assembled_installed', benchtops: cutouts });
+    const minutesAt = (w, re) => (w.lines ?? []).filter((l) => re.test(l.station)).reduce((s, l) => s + l.minutes, 0);
+    check('cut-outs: one drop-in is 30 min, one undermount 90, one of each 120 - and a top with no cut-out asked for pays nothing at all',
+      minutesAt(btw({ sink: 1 }), /cut-?outs?/i) === 30
+      && minutesAt(btw({ sinkUndermount: 1 }), /cut-?outs?/i) === 90
+      && minutesAt(btw({ sink: 1, sinkUndermount: 1 }), /cut-?outs?/i) === 120
+      && minutesAt(btw({}), /cut-?outs?/i) === 0,
+      JSON.stringify([minutesAt(btw({ sink: 1 }), /cut-?outs?/i), minutesAt(btw({ sinkUndermount: 1 }), /cut-?outs?/i), minutesAt(btw({ sink: 1, sinkUndermount: 1 }), /cut-?outs?/i)]));
+    check('cut-outs: an undermount in a pre-made BLANK is the same 90 minutes at the bench rate, not the $250/h solid-surface CNC',
+      (() => {
+        const solid = btw({ sinkUndermount: 1 }).lines.find((l) => l.station === 'Benchtop cut-outs');
+        const blank = btw({ blankSinkUndermount: 1 }).lines.find((l) => l.station === 'Benchtop blank cut-outs');
+        return solid.minutes === 90 && solid.rate === DEFAULT_WORKSHOP_RATES.machiningRate
+          && blank.minutes === 90 && blank.rate === DEFAULT_WORKSHOP_RATES.assemblyRate;
+      })());
+    check('cut-outs: a payload that sends only `sink` still means DROP-IN, so every stored quote keeps the price it already had',
+      minutesAt(btw({ sink: 2 }), /cut-?outs?/i) === 60);
+  }
 }
 
 

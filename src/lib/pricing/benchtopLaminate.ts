@@ -31,7 +31,18 @@ export interface BenchtopPiece {
 }
 
 export interface BenchtopCutouts {
+  /**
+   * DROP-IN sink cut-outs: the bowl sits in the hole on its own rim, so the cut edge is covered and only needs
+   * sealing. Ben, 21 Sep 2026: 30 minutes each. A payload that sends only `sink` means drop-in, which is why the
+   * undermount is a SECOND count rather than a type flag on the row: a top can carry one of each, and every
+   * stored quote keeps the price it already had.
+   */
   sink?: number;
+  /**
+   * UNDERMOUNT sink cut-outs: the hole is the finished visible edge, so it is routed to a template, the cut edge
+   * is dressed and polished and the bowl is clamped from below. Ben, 21 Sep 2026: 1.5 hours each.
+   */
+  sinkUndermount?: number;
   cooktop?: number;
   tapHole?: number;
 }
@@ -127,7 +138,7 @@ export interface LaminatedBenchtopRow {
   joins: number;
   /** The subset of `joins` forced by pieces larger than the stock sheet. */
   stockJoins: number;
-  cutouts: { sink: number; cooktop: number; tapHole: number };
+  cutouts: { sink: number; sinkUndermount: number; cooktop: number; tapHole: number };
   /** Fractional share of the shared sheet count attributed to this row. */
   sheetsShare: number;
   /** Whole sheets bought for every row sharing this sheet id. */
@@ -363,7 +374,7 @@ interface PreparedRow {
   benchtopLm: number;
   declaredJoins: number;
   stockJoins: number;
-  cutouts: { sink: number; cooktop: number; tapHole: number };
+  cutouts: { sink: number; sinkUndermount: number; cooktop: number; tapHole: number };
   warnings: string[];
 }
 
@@ -424,6 +435,7 @@ function prepareRow(
   const c = row.benchtopCutouts ?? {};
   const cutouts = {
     sink: Math.max(0, Math.round(c.sink ?? 0)) * qty,
+    sinkUndermount: Math.max(0, Math.round(c.sinkUndermount ?? 0)) * qty,
     cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty,
   };
@@ -578,6 +590,7 @@ function prepareBlankRow(
   const c = row.benchtopCutouts ?? {};
   const cutouts = {
     sink: Math.max(0, Math.round(c.sink ?? 0)) * qty,
+    sinkUndermount: Math.max(0, Math.round(c.sinkUndermount ?? 0)) * qty,
     cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty,
   };
@@ -815,6 +828,7 @@ export function priceLaminatedBenchtops(
           // a cut-out in a 38 mm laminate blank is bench work (jigsaw and router), not the
           // $250/h solid-surface CNC the fabricated tops pay for
           blankSink: p.cutouts.sink,
+          blankSinkUndermount: p.cutouts.sinkUndermount,
           blankCooktop: p.cutouts.cooktop,
           blankTapHole: p.cutouts.tapHole,
           benchtopLm: r3(p.benchtopLm),
@@ -837,6 +851,7 @@ export function priceLaminatedBenchtops(
           polishSqm: r3(p.areaSqm),
           edgePolishLm: r3(p.edgeLm),
           sink: p.cutouts.sink,
+          sinkUndermount: p.cutouts.sinkUndermount,
           cooktop: p.cutouts.cooktop,
           tapHole: p.cutouts.tapHole,
           benchtopLm: r3(p.benchtopLm),

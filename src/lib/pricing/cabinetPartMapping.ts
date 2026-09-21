@@ -671,7 +671,12 @@ export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize
         hasRails: false, isSinkCabinet: false, isCorner: false, isBlind: false,
         // only a ladder base; a planner base_kick / return_kick board keeps the old treatment
         toeKick: /toe\s*kick\s*base/.test(id),
+        // A "Toe Kick Base" is a ply LADDER faced with the selected kick laminate, not a board: calculatePartDimensions
+        // cuts its Sub Front / Sub Back / Sleepers / Cleats from the work orders (Ben, 21 Sep 2026: "if ladder kick
+        // buikld a cut list and price the kicks as ply with the selected lamnate face").
+        ladderKick: /toe\s*kick\s*base/.test(id),
       },
+      // A ladder's parts are built by ladderKickCutList, not by this list; a planner kick board keeps the Filler.
       parts: [{ partType: 'Filler', quantity: 1 }],
     };
   }
@@ -699,8 +704,12 @@ export function buildGenericCabinetMapping(definitionId: string, size?: ItemSize
   // fronts. "Base Blind Corner" and "Upper Undermount Rangehood Cabinet" carry
   // no door word, so both inferred zero and priced as open boxes. Bower's own
   // SKU definitions settle it: base-1000-bc is 1 door, wall-600-rh is 2.
+  // A BASE blind corner is 2 doors: Microvellum's "Base Blind Corner" has a Left and a Right Door (Hibiscus
+  // 2 x 763 x 392.5, Erin & Matt 2 x 739 x 320.5; 4 hinges and 2 pulls on each). Bower's base-1000-bc is a
+  // specific mapping above and keeps its 1 door. An OPEN blind corner ("Base Open Blind Corner") has none.
   const isRangehood = /rangehood|range.?hood|canopy/.test(id);
-  if (isBlind && numDoors === 0 && numDrawers === 0) numDoors = 1;
+  const isOpen = /\bopen\b|open_|_open/.test(id);
+  if (isBlind && !isOpen && numDoors === 0 && numDrawers === 0) numDoors = !isWall && !isTall ? 2 : 1;
   if (isRangehood && numDoors === 0 && numDrawers === 0) numDoors = 2;
 
   // A rangehood cabinet is a shell around the hood — it carries no shelves.

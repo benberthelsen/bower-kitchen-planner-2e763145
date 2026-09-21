@@ -13,8 +13,15 @@
  *     nearly a whole board, so an area count under-buys). A leaf that cannot be cut from its board is a hard stop.
  *   - Edge tape on ALL FOUR sides of every board panel, through edgeCalculator, bought under the job's 20 m minimum
  *     then by the metre (counting the metres the rest of the job already buys of the same tape).
- *   - Mirror infill: Ben wants it charged as a whole sheet, but no mirror sheet size, price or supplier exists in the
- *     catalogue - so everything else is priced and the mirror is a loud NOT PRICED warning. Never invented.
+ *   - Mirror infill: CUT TO SIZE by the glazier and charged on the MEASURED AREA of each piece. This is the second
+ *     standing exception to the whole-board rule (the toe-kick facing is the other), and it replaces Ben's 17 Sep
+ *     instruction to charge a whole sheet: his own Glasstech (QLD) proforma 180617 of 1 Sep 2026 (ref "4MM MIRROR",
+ *     Bower Building) bills 2 x 2009 x 760 as 3.0536 m2 at $90.21/m2 = $275.47 and 2 x 1991 x 724 as 2.8830 m2 =
+ *     $260.08, sub-total $535.54 ex GST. Their MEASURE is the exact cut area rounded to 4 dp per piece - no
+ *     over-measure, no minimum - which is what glassMeasureSqm reproduces. The mirror row must be resolved by an
+ *     EXPLICIT item_code, never by name: the catalogue's only "mirror" hit is Laminex "Mirror Smoke" (AU1003078), a
+ *     decorative LAMINATE at $273.73/m2, three times the glass. With no row, everything else is priced and the
+ *     mirror stays a loud NOT PRICED warning - never invented.
  *   - Dampers: every kit has 4 (2-door and 3-door alike). Soft close on all leaves (Ben: default) needs 2 per leaf,
  *     so a 3-leaf opening needs 2 more. No part number or price exists - counted and warned, never priced.
  *   - Stations: 30 min set-up per opening + 30 min per leaf (assembly rate), install 45 min per opening, board panels
@@ -133,6 +140,31 @@ export interface PriceRobeOptions {
   /** Loose-panel thresholds (default DEFAULT_WORKSHOP_RATES). */
   largeLooseLongestSideMm?: number;
   largeLooseAreaSqm?: number;
+  /**
+   * material_pricing item_code (or id) of the mirror glass. Default GLASSTECH_MIRROR_ITEM_CODE. Matched EXACTLY -
+   * never by name - and it needs only a positive area_cost, no sheet size: mirror is cut to size by the glazier.
+   */
+  mirrorMaterialId?: string;
+}
+
+/** Mirror glass on one robe row, charged the way the glazier measures it. */
+export interface RobeMirrorUse {
+  materialId: string;
+  itemCode: string;
+  name: string;
+  thicknessMm: number;
+  /** panels of this size */
+  panels: number;
+  /** the cut piece, mm */
+  panelCut: { w: number; h: number };
+  /** m2 the glazier measures ONE piece at (glassMeasureSqm) */
+  measurePerPanelSqm: number;
+  /** measurePerPanelSqm x panels - the "MEASURE" column of the Glasstech proforma */
+  measureSqm: number;
+  /** $/m2 ex GST */
+  rate: number;
+  /** measureSqm x rate - the "NET $" column */
+  cost: number;
 }
 
 export interface RobeKitPrice {
@@ -199,14 +231,20 @@ export interface RobeOpeningRow {
   /** metres of edge tape applied: all four sides of every board panel */
   edgeMetres: number;
   dampers: { inKit: number; needed: number; extra: number; priced: false };
-  mirror: { required: boolean; priced: false; panels: number; panelCut: { w: number; h: number } | null };
+  /**
+   * Mirror infill. `priced` is true once the glass resolves to a catalogue row: it is then charged on the MEASURED
+   * cut area (glassMeasureSqm), never as a whole sheet. The BACKER behind the glass is still not priced.
+   */
+  mirror: { required: boolean; priced: boolean; panels: number; panelCut: { w: number; h: number } | null; use?: RobeMirrorUse };
   /** estimated, kg per leaf */
   leafMassKg: number;
   fabrication: RobeFabricationInputs;
   kitCost: number;
   boardCost: number;
   edgeCost: number;
-  /** kit + board + edge */
+  /** glass cut to size, by measured area (0 when the mirror has no catalogue row) */
+  mirrorCost: number;
+  /** kit + board + edge + mirror */
   materialCost: number;
   /** Ben's minutes for this row under the supply mode (install only when installed) */
   minutes: { setUp: number; leaves: number; install: number };
@@ -271,6 +309,8 @@ export interface PriceRobeResult {
   sheets: RobeSheetUse[];
   edges: RobeEdgeGroup[];
   kits: RobeKitLine[];
+  /** Mirror glass cut to size, one entry per priced mirror row - charged on the measured area, never a sheet. */
+  mirrors: RobeMirrorUse[];
   fabrication: RobeFabricationInputs;
   /** true when the robe edge tape already carries an application cost (skip the Edgebanding station) */
   edgeApplicationPriced: boolean;
@@ -286,8 +326,29 @@ export const ROBE_NEST_SPACING_MM = 10;
 /** Soft close on every leaf needs a damper at each end of its travel - what the 2-door kit's 4 dampers imply. */
 export const ROBE_DAMPERS_PER_LEAF = 2;
 
+/**
+ * material_pricing.item_code of the mirror glass, resolved by CODE ONLY.
+ *
+ * Bower's own code - the Glasstech proforma prints no supplier part number at all, only the description
+ * "4.00mm SILVER VINYLBACK SAFETY" twice. Resolving by name would find Laminex "Mirror Smoke" (AU1003078), a
+ * decorative laminate at $273.73/m2 instead of $90.21, so the lookup is exact or nothing. Override with
+ * PriceRobeOptions.mirrorMaterialId.
+ */
+export const GLASSTECH_MIRROR_ITEM_CODE = 'GT-MIR-4SVB';
+
+/**
+ * The m2 a glazier MEASURES one cut piece at: the exact cut area, rounded to 4 decimal places.
+ *
+ * Verified against Glasstech proforma 180617 (1 Sep 2026) to the printed digit: 2009 x 760 = 1.52684 -> 1.5268,
+ * x2 = 3.0536 exactly as printed; 1991 x 724 = 1.441484 -> 1.4415, x2 = 2.8830 exactly as printed. No over-measure,
+ * no minimum charge, no rounding up to a size band.
+ */
+export const glassMeasureSqm = (widthMm: number, heightMm: number): number =>
+  Math.round(((widthMm * heightMm) / 1e6) * 1e4) / 1e4;
+
 const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const r3 = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
+const r4 = (n: number) => Math.round((n + Number.EPSILON) * 10000) / 10000;
 const fin = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 const toNum = (v: unknown): number => {
   const n = typeof v === 'string' ? Number(v) : v;
@@ -435,6 +496,8 @@ interface Prepared {
   leafMassKg: number;
   /** mirror infill: the build-up the mass estimate used (glass assumed 4 mm, the rest backer) */
   mirrorBuildUp: { totalMm: number; glassMm: number; backerMm: number; sent: boolean } | null;
+  /** mirror infill: the glass, cut to size and charged on the measured area. null when no catalogue row resolved. */
+  mirror: RobeMirrorUse | null;
   warnings: string[];
 }
 
@@ -478,6 +541,7 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
     let leafMassKg = NaN;
     let edgeAlloc: EdgeTapeAllocation | null = null;
     let mirrorBuildUp: Prepared['mirrorBuildUp'] = null;
+    let mirror: RobeMirrorUse | null = null;
     if (spec && geometry && geometry.blocks.length === 0) {
       const { w: panelW, h: panelH } = geometry.panelCut;
       const panels = spec.leaves * qty;
@@ -554,6 +618,27 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
         if (spec.infillMaterialId) {
           warnings.push(`${input.name}: robe.infillMaterialId is for board infill and is ignored on a mirror opening`);
         }
+        // The glass, cut to size and charged on the measured area - never a whole sheet, never resolved by name.
+        // It needs no sheet size: the glazier cuts it, so there is nothing to nest and no waste to carry.
+        const mirrorKey = String(opts.mirrorMaterialId ?? GLASSTECH_MIRROR_ITEM_CODE).trim();
+        const g = opts.materials.find((m) => m.id === mirrorKey)
+          ?? opts.materials.find((m) => String(m.item_code ?? '') === mirrorKey);
+        if (g && pos(g.area_cost) > 0) {
+          const measurePerPanelSqm = glassMeasureSqm(panelW, panelH);
+          const measureSqm = r4(measurePerPanelSqm * panels);
+          mirror = {
+            materialId: g.id,
+            itemCode: String(g.item_code ?? mirrorKey),
+            name: g.name,
+            thicknessMm: pos(g.thickness),
+            panels,
+            panelCut: { w: panelW, h: panelH },
+            measurePerPanelSqm,
+            measureSqm,
+            rate: g.area_cost,
+            cost: money(measureSqm * g.area_cost),
+          };
+        }
       }
     }
 
@@ -565,7 +650,7 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
     prepared.push({
       input, qty, spec, geometry,
       kit: { ...kit, quantity: qty, cost: money(kit.price * qty) },
-      material, panels: spec.leaves * qty, edgeAlloc, leafMassKg, mirrorBuildUp, warnings,
+      material, panels: spec.leaves * qty, edgeAlloc, leafMassKg, mirrorBuildUp, mirror, warnings,
     });
   }
 
@@ -690,6 +775,7 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
     const kitCost = p.kit.cost;
     const boardCost = board?.cost ?? 0;
     const edgeCost = edge?.cost ?? 0;
+    const mirrorCost = p.mirror?.cost ?? 0;
     const unpricedItems: string[] = [];
     /** LOUD warnings (a price that is missing or unconfirmed) come before the row's working. */
     const loud: string[] = [];
@@ -709,9 +795,21 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
     if (p.kit.unconfirmed) {
       loud.push(`KIT PRICE UNCONFIRMED: ${n} - ${p.kit.item_code} ${p.kit.name} at ${fmt(p.kit.price)} is ${p.kit.priceBasis}. The GST basis of that Net price is not confirmed; the article is on the Hafele trade-price capture list and the captured ex GST buy price replaces it automatically.`);
     }
-    if (!isBoard) {
+    if (!isBoard && !p.mirror) {
       unpricedItems.push(`${n}: mirror glass ${p.panels} x ${mm(panelW)} x ${mm(panelH)} mm - NOT PRICED`);
-      loud.push(`MIRROR NOT PRICED: ${n} needs ${p.panels} mirror panel(s) ${mm(panelW)} x ${mm(panelH)} mm. Mirror is charged as a whole sheet as bought, but no mirror sheet size, price or supplier is in the catalogue, so this line EXCLUDES the mirror (and any backer) - price it by hand before the quote goes out. Everything else on the opening is priced.`);
+      loud.push(`MIRROR NOT PRICED: ${n} needs ${p.panels} mirror panel(s) ${mm(panelW)} x ${mm(panelH)} mm. Mirror is cut to size and charged on the measured area (Glasstech proforma 180617, 1 Sep 2026: $90.21/m2 ex GST), but no mirror glass row is in the catalogue under item_code "${opts.mirrorMaterialId ?? GLASSTECH_MIRROR_ITEM_CODE}", so this line EXCLUDES the mirror (and any backer) - price it by hand before the quote goes out. Everything else on the opening is priced. Do NOT resolve mirror by name: the catalogue's only "mirror" row is a decorative laminate at three times the price.`);
+    }
+    if (!isBoard && p.mirror) {
+      const g = p.mirror;
+      info.push(
+        `${n}: mirror glass ${g.panels} x ${mm(g.panelCut.w)} x ${mm(g.panelCut.h)} mm CUT TO SIZE - measure`
+        + ` ${g.measurePerPanelSqm.toFixed(4)} m2 each, ${g.measureSqm.toFixed(4)} m2 at ${fmt(g.rate)}/m2 ex GST = ${fmt(g.cost)}`
+        + ` (${g.name}, ${g.itemCode}). Charged on the measured cut area, NOT as a whole sheet - the two standing`
+        + ` exceptions to the whole-board rule are this and the toe-kick facing. The BACKER behind the glass is still not priced.`,
+      );
+      unpricedItems.push(`${n}: mirror backer board behind ${g.panels} x ${mm(g.panelCut.w)} x ${mm(g.panelCut.h)} mm of glass - NOT PRICED`);
+    }
+    if (!isBoard) {
       const bu = p.mirrorBuildUp;
       const buText = bu
         ? `${bu.totalMm} mm build-up${bu.sent ? '' : ' (none sent - 16 mm assumed)'}, taken as ${bu.glassMm} mm glass + ${bu.backerMm} mm backer (the split is an ASSUMPTION)`
@@ -740,13 +838,20 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
       edge,
       edgeMetres,
       dampers: { inKit, needed, extra, priced: false },
-      mirror: { required: !isBoard, priced: false, panels: isBoard ? 0 : p.panels, panelCut: isBoard ? null : { w: panelW, h: panelH } },
+      mirror: {
+        required: !isBoard,
+        priced: Boolean(p.mirror),
+        panels: isBoard ? 0 : p.panels,
+        panelCut: isBoard ? null : { w: panelW, h: panelH },
+        ...(p.mirror ? { use: p.mirror } : {}),
+      },
       leafMassKg: r3(p.leafMassKg),
       fabrication,
       kitCost,
       boardCost,
       edgeCost,
-      materialCost: money(kitCost + boardCost + edgeCost),
+      mirrorCost,
+      materialCost: money(kitCost + boardCost + edgeCost + mirrorCost),
       minutes,
       unpricedItems,
       warnings: rowWarnings,
@@ -772,6 +877,7 @@ export function priceRobeOpenings(rows: RobeRowInput[], opts: PriceRobeOptions):
     sheets,
     edges,
     kits: [...kitLines.values()],
+    mirrors: out.map((r) => r.mirror.use).filter((m): m is RobeMirrorUse => Boolean(m)),
     fabrication: sumRobeFabrication(out.map((r) => r.fabrication)),
     edgeApplicationPriced: edges.some((e) => e.applicationPriced),
     warnings,

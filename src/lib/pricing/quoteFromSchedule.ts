@@ -19,6 +19,7 @@ import { calculateWorkshopCost, type SupplyMode, type WorkshopCost, type Worksho
 import {
   priceRobeOpenings,
   type RobeBlockedRow,
+  type RobeMirrorUse,
   type RobeSpec,
   type RobeSpecNormalised,
 } from './robeSliderDoors';
@@ -45,6 +46,45 @@ export interface ScheduleItem {
   carcaseMaterialId?: string;
   exteriorMaterialId?: string;
   edgeId?: string;
+  /**
+   * mm of toe kick this row stands on - Microvellum's per-product Toe_Kick_Height prompt. Omitted: the height of the
+   * Toe Kick Base rows in the row's room (see scheduleKickHeights). Only a floor-standing base / tall carcase uses it:
+   * its sides, back and fronts are cut to h - kickMm. Send 0 for a unit that stands on another (Microvellum's
+   * "Base Open" on a "Base 1 Drawer", Toe_Kick_Height 0). Without it, a base row whose height and a same-width base
+   * row's in its room add up to the room's base height is taken as standing on that row (kick 0, with a warning).
+   */
+  kickMm?: number;
+  /**
+   * mm of a blind corner's width that is blind - Microvellum's Blind_Corner_Width prompt (Erin & Matt 623, Hibiscus
+   * 473). Its doors are then Microvellum's exactly: 2 doors over W - this less the 2 + 1 reveals and the door gap.
+   * Omitted: the doors are sized over W - depth and flagged as an estimate.
+   */
+  blindCornerWidthMm?: number;
+  /**
+   * mm of an "Upper Rangehood Cabinet"'s facia under its doors - Microvellum's Rangehood_Facia_Height (its
+   * Bottom_Reveal): the doors are that much shorter than the carcase. Omitted: 40, the library default (Donkin, Coral
+   * Lodge). Undermount rangehood cabinets do not use it.
+   */
+  rangehoodFaciaMm?: number;
+  /**
+   * Toe kick rows only. The ply the LADDER is cut from (material_pricing id or item_code): Bower's kicks are a
+   * 15 mm ply ladder (Microvellum "Plywood 15mm_Clone"). Omitted: the cheapest 12-19 mm plywood row in the
+   * catalogue, warned - never the carcase melamine, which is not what a kick is built from.
+   */
+  kickPlyMaterialId?: string;
+  /**
+   * The kick FACE. On a Toe Kick Base this is the facing laminate glued to the ladder (e.g. POLY6428 Kickboard
+   * Laminate Brushed Stainless); on a job standing on adjustable legs it is the face board charged per lineal
+   * metre. Charged by the AREA USED plus waste, NEVER a whole sheet (Ben, 16 Sep 2026). Omitted on a ladder kick:
+   * no facing is charged at all and the quote says so - the face is never guessed.
+   */
+  kickFacingMaterialId?: string;
+  /**
+   * Ends of this row's kick that RETURN and are faced - Microvellum's "Finished Side" (0, 1 or 2). Each adds a
+   * ply return and D of finished face. Omitted: 0, warned. Across Bower's 15 exported kicks the returns are 24%
+   * of the finished face, so leaving it out under-bills the facing by about a quarter.
+   */
+  kickExposedEnds?: number;
 
   // ---- laminated benchtop rows (name matches /countertop|benchtop/i) --------
   // A benchtop row is ENGINE-PRICED only when it resolves to a priced sheet
@@ -94,6 +134,15 @@ export interface QuoteSelections {
   benchtopMaterialId?: string;
   /** Default finished thickness (mm) for benchtop rows. */
   benchtopThickness?: number;
+  /** Default ply for Toe Kick Base ladders (material_pricing id / item_code) when a row carries none. */
+  kickPlyMaterialId?: string;
+  /** Default kick FACE material (facing laminate, or the face board on a legs job) when a row carries none. */
+  kickFacingMaterialId?: string;
+  /**
+   * material_pricing item_code of the mirror glass for robe openings. Default GLASSTECH_MIRROR_ITEM_CODE
+   * ('GT-MIR-4SVB'). Matched by CODE only - resolving mirror by name finds a decorative laminate at 3x the price.
+   */
+  mirrorMaterialId?: string;
 }
 
 /** One engine-priced laminated benchtop row — the working behind its PricedLine. */
@@ -121,7 +170,7 @@ export interface PricedBenchtop {
   /** Declared mitres/field joins + joins forced by stock size (stockJoins), x layers for the latter. */
   joins: number;
   stockJoins: number;
-  cutouts: { sink: number; cooktop: number; tapHole: number };
+  cutouts: { sink: number; sinkUndermount: number; cooktop: number; tapHole: number };
   /** Fractional share of jobSheets attributed to this row. */
   sheetsShare: number;
   /** Whole sheets bought for every benchtop row sharing this sheet. */
@@ -245,7 +294,12 @@ export interface PricedRobeOpening {
   edgeMetres: number;
   edge: { edgeType: string; name: string; cost: number } | null;
   dampers: { inKit: number; needed: number; extra: number; priced: false };
-  mirror: { required: boolean; priced: false; panels: number; panelCut: { w: number; h: number } | null };
+  /**
+   * Mirror infill. `priced` is true once the glass resolves to its catalogue row by item_code: the glass is then
+   * charged on the MEASURED cut area (Glasstech proforma 180617), never as a whole sheet. The backer is still not
+   * priced and stays on the buyout list.
+   */
+  mirror: { required: boolean; priced: boolean; panels: number; panelCut: { w: number; h: number } | null; use?: RobeMirrorUse };
   /** estimated kg per leaf */
   leafMassKg: number;
   /** Ben's minutes (17 Sep 2026) for this row under the supply mode */
@@ -255,7 +309,9 @@ export interface PricedRobeOpening {
   kitCost: number;
   boardCost: number;
   edgeCost: number;
-  /** kit + boards + edge */
+  /** mirror glass cut to size, by measured area (0 when it has no catalogue row) */
+  mirrorCost: number;
+  /** kit + boards + edge + mirror */
   materialCost: number;
   /** this row's share of the robe shop cost */
   laborCost: number;
@@ -397,6 +453,93 @@ function roomOf(item: ScheduleItem, fallback: string): string {
   return !raw || /^\(?unnamed\)?$/i.test(raw) ? fallback : raw;
 }
 
+const TOE_KICK_BASE_ROW_RE = /toe\s*kick\s*base/i;
+
+/**
+ * The toe kick each schedule row stands on, mm (PlacedItem.toeKickHeight). A floor-standing base or tall item's
+ * height includes it, so bomGenerator cuts its carcase and fronts that much shorter (itemKickMm decides which items
+ * are floor-standing; everything else ignores this).
+ *
+ *   1. the row's own kickMm (Microvellum Toe_Kick_Height), when it is a number >= 0;
+ *   2. else the height of the Toe Kick Base rows in the row's room. In all 7 exported work orders with kicks that height
+ *      IS every carcase's Toe_Kick_Height (135 on Regal, Donkin, Kenfrost and Erin & Matt; 100 on Forest Glen, Hibiscus
+ *      and Coral Lodge's robe). A room whose kick rows disagree takes the commonest height and says so;
+ *   3. else `fallbackKickMm`: quoteFromSchedule passes the job's kick height when the job is on adjustable legs (the
+ *      engine prices a kick run under those cabinets) and 0 otherwise - nothing taken off, as before this rule existed
+ *      (Erin & Matt's main bath vanities and robe units have no kick rows and may well be off the floor).
+ *
+ * Except a unit STACKED on another, which stands on no kick (Microvellum Toe_Kick_Height 0): with no kickMm, a base row
+ * shorter than its room's base height (the commonest height of its base rows) is taken as standing on a taller base
+ * row of the same width in the same room when the two heights add up to that base height - Regal's "Base Open"
+ * 600 x 382 on its "Base 1 Drawer" 600 x 498 (= 880), Donkin's 632 x 382 on 632 x 498 (= 880), Erin & Matt's 632 x 382
+ * on 632 x 494 (= 876). Every one is at Z 494-498 with Toe_Kick_Height 0 in its work order. It gets 0 and a warning.
+ */
+export function scheduleKickHeights(
+  rows: ScheduleItem[],
+  opts: { defaultRoom: string; fallbackKickMm?: number },
+): { kicks: number[]; warnings: string[] } {
+  const key = (r: ScheduleItem) => roomOf(r, opts.defaultRoom).toLowerCase();
+  const ownKick = (r: ScheduleItem) => (typeof r.kickMm === 'number' && Number.isFinite(r.kickMm) && r.kickMm >= 0 ? r.kickMm : null);
+  const heights = new Map<string, Map<number, number>>();
+  for (const r of rows) {
+    if (!TOE_KICK_BASE_ROW_RE.test(r.name ?? '') || !(Number(r.h) > 0)) continue;
+    const byHeight = heights.get(key(r)) ?? new Map<number, number>();
+    byHeight.set(Number(r.h), (byHeight.get(Number(r.h)) ?? 0) + 1);
+    heights.set(key(r), byHeight);
+  }
+  const warnings: string[] = [];
+  const roomKick = new Map<string, number>();
+  for (const [room, byHeight] of heights) {
+    const ranked = [...byHeight.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+    roomKick.set(room, ranked[0][0]);
+    if (ranked.length > 1) {
+      warnings.push(`Toe Kick Base rows in "${room}" are ${ranked.map(([h, n]) => `${n} x ${h}`).join(', ')} high - base and tall carcases there are cut for a ${ranked[0][0]} mm kick. Send kickMm on the rows that stand on another height.`);
+    }
+  }
+  const fallback = Number.isFinite(opts.fallbackKickMm) ? Math.max(0, Number(opts.fallbackKickMm)) : 0;
+
+  // Base cabinet rows per room, and each room's base height (the commonest, by units; ties to the taller).
+  const baseRows = rows.map((r, i) => ({ r, i })).filter(({ r }) => BASE_CARCASE_ROW_RE.test(normName(r.name))
+    && !NOT_A_BASE_CARCASE_RE.test(normName(r.name)) && Number(r.h) > 0 && Number(r.w) > 0);
+  const baseHeight = new Map<string, number>();
+  const unitsByHeight = new Map<string, Map<number, number>>();
+  for (const { r } of baseRows) {
+    const m = unitsByHeight.get(key(r)) ?? new Map<number, number>();
+    m.set(Number(r.h), (m.get(Number(r.h)) ?? 0) + Math.max(1, Math.round(r.qty ?? 1)));
+    unitsByHeight.set(key(r), m);
+  }
+  for (const [room, m] of unitsByHeight) baseHeight.set(room, [...m.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]);
+  const stackedOn = new Map<number, ScheduleItem>();
+  for (const { r, i } of baseRows) {
+    const full = baseHeight.get(key(r));
+    const h = Number(r.h);
+    if (ownKick(r) !== null || full === undefined || h >= full) continue;
+    const under = baseRows.find(({ r: o, i: j }) => j !== i && key(o) === key(r) && Math.abs(Number(o.w) - Number(r.w)) <= 1
+      && Number(o.h) > h && Math.abs(Number(o.h) + h - full) <= 1);
+    if (under) stackedOn.set(i, under.r);
+  }
+
+  const kicks = rows.map((r, i) => {
+    const own = ownKick(r);
+    if (own !== null) return own;
+    const kick = roomKick.get(key(r)) ?? fallback;
+    const under = stackedOn.get(i);
+    if (under && kick > 0) {
+      warnings.push(`"${r.name}" ${r.w} x ${r.h} in "${roomOf(r, opts.defaultRoom)}" is priced standing on the "${under.name}" ${under.w} x ${under.h} below it (${r.h} + ${under.h} = the room's ${baseHeight.get(key(r))} base height), so no kick is taken off it. Send kickMm on the row if it stands on the floor.`);
+      return 0;
+    }
+    return kick;
+  });
+  return { kicks, warnings };
+}
+
+/** A schedule's optional mm prompt: a finite number above 0. */
+const finiteMm = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const normName = (s: string | null | undefined) => String(s ?? '').toLowerCase().replace(/[_\-/]+/g, ' ').replace(/\s+/g, ' ').trim();
+/** A base cabinet row, for the stacked-unit rule in scheduleKickHeights. */
+const BASE_CARCASE_ROW_RE = /^base\b/;
+const NOT_A_BASE_CARCASE_RE = /kick|panel|filler|applied|return|scribe|\bend\b|pelmet|faces? only/;
+
 /**
  * Merge two station lists by station name (cabinet workshop + benchtop
  * workshop). Returns `a` untouched when there is nothing to merge so a
@@ -448,6 +591,12 @@ export function quoteFromSchedule(
     .map((r, index) => ({ r, index }))
     .filter(({ r, index }) => !robeIndexes.has(index) && BENCHTOP_RE.test(r.name));
 
+  // The toe kick each row stands on (its Toe Kick Base rows' height): a floor-standing carcase is cut that much shorter.
+  const kick = scheduleKickHeights(cabinetRows, {
+    defaultRoom,
+    fallbackKickMm: (selections.adjustableLegs ?? false) ? dims.toeKickHeight : 0,
+  });
+
   // One PlacedItem per unit so a qty-3 line prices as three cabinets.
   const items: PlacedItem[] = [];
   const originOf: number[] = [];
@@ -463,9 +612,19 @@ export function quoteFromSchedule(
         cabinetNumber: `C${String(items.length + 1).padStart(2, '0')}`,
         x: 0, y: 0, z: 0, rotation: 0,
         width: r.w, height: r.h, depth: r.d,
+        toeKickHeight: kick.kicks[idx],
+        ...(finiteMm(r.blindCornerWidthMm) ? { blindCornerWidth: Number(r.blindCornerWidthMm) } : {}),
+        ...(finiteMm(r.rangehoodFaciaMm) || r.rangehoodFaciaMm === 0 ? { rangehoodFaciaHeight: Number(r.rangehoodFaciaMm) } : {}),
         carcaseMaterialId: r.carcaseMaterialId ?? selections.carcaseMaterialId,
         exteriorMaterialId: r.exteriorMaterialId ?? selections.exteriorMaterialId,
         edgeId: r.edgeId ?? selections.edgeId,
+        ...(r.kickPlyMaterialId ?? selections.kickPlyMaterialId
+          ? { kickPlyMaterialId: r.kickPlyMaterialId ?? selections.kickPlyMaterialId }
+          : {}),
+        ...(r.kickFacingMaterialId ?? selections.kickFacingMaterialId
+          ? { kickFacingMaterialId: r.kickFacingMaterialId ?? selections.kickFacingMaterialId }
+          : {}),
+        ...(finiteMm(r.kickExposedEnds) || r.kickExposedEnds === 0 ? { kickExposedEnds: Number(r.kickExposedEnds) } : {}),
       } as PlacedItem);
     }
   });
@@ -485,11 +644,11 @@ export function quoteFromSchedule(
 
   // The whole-quote path applies the per-job drafting / CNC minimums unless told not to (a room priced on its own).
   const bom = generateQuoteBOM(items, dims, hardwareOptions, pricing, { supplyMode, jobMinimums: commercial.jobMinimums ?? true });
-  const scheduleWarnings: string[] = [];
+  const scheduleWarnings: string[] = [...kick.warnings];
   if (!hardwareOptions.adjustableLegs && !cabinetRows.some((r) => /kick/i.test(r.name))
       && cabinetRows.some((r) => /^(base|tall|pantry|sink|corner|drawer)/i.test(r.name.trim())
         && !/panel|filler|applied|scribe|end\b|pelmet|shelf|faces?\s*only/i.test(r.name))) {
-    scheduleWarnings.push('No toe kick in this schedule and no adjustable legs - no kick board or legs are priced. Add the Toe Kick Base rows, or send adjustableLegs: true for a job on legs.');
+    scheduleWarnings.push('No toe kick in this schedule and no adjustable legs - no kick board or legs are priced, and base and tall carcases are cut to their full height (no kick taken off). Add the Toe Kick Base rows, or send adjustableLegs: true for a job on legs.');
   }
 
   // Fold per-unit costs back onto their schedule line.
@@ -599,6 +758,7 @@ export function quoteFromSchedule(
       defaultEdgeId: selections.edgeId,
       supplyMode,
       jobEdgeMetres,
+      mirrorMaterialId: selections.mirrorMaterialId,
     },
   );
   const priorLines = [...(bom.workshop?.lines ?? []), ...(btWorkshop?.lines ?? [])];
@@ -674,6 +834,7 @@ export function quoteFromSchedule(
       kitCost: row.kitCost,
       boardCost: row.boardCost,
       edgeCost: row.edgeCost,
+      mirrorCost: row.mirrorCost,
       materialCost: row.materialCost,
       laborCost,
       costPrice,
@@ -688,6 +849,9 @@ export function quoteFromSchedule(
   const robeBoardCost = robe.sheets.reduce((s, x) => s + x.cost, 0);
   const robeEdgeCost = robe.edges.reduce((s, x) => s + x.cost, 0);
   const robeKitCost = robe.kits.reduce((s, x) => s + x.cost, 0);
+  // Mirror glass, cut to size and charged on the measured area - one of the two materials in the engine that is
+  // deliberately NOT bought as whole sheets (the other is the toe-kick facing).
+  const robeMirrorCost = robe.mirrors.reduce((s, x) => s + x.cost, 0);
 
   const installCost = (bom.workshop?.installCost ?? 0) + (btWorkshop?.installCost ?? 0) + (robeWorkshop?.installCost ?? 0);
   const cabinetCost = lineCost.reduce((a, b) => a + b, 0) + benchtopCost + robeCost;
@@ -851,6 +1015,20 @@ export function quoteFromSchedule(
       cost: money(sh.materialCost),
     });
   }
+  // Mirror glass: the glazier cuts it, so it is listed at the MEASURED area, not as sheets. `units x unitCost` is
+  // the cost on the line exactly as the Glasstech proforma reads (MEASURE x RATE = NET).
+  for (const g of robe.mirrors) {
+    sheetStock.push({
+      material: `${g.name} (Mirror glass, ${g.panels} x ${g.panelCut.w} x ${g.panelCut.h} mm cut to size - measured area, NOT a sheet)`,
+      thickness: g.thicknessMm,
+      wastePercent: 0,
+      markupPercent: money(mk * 100),
+      units: g.measureSqm,
+      unitCost: money(g.rate),
+      markupCost: money(g.cost * mk),
+      cost: money(g.cost),
+    });
+  }
   // Robe board sheets: whole sheets from the leaf nest, bought in m2 like the cabinet rows.
   for (const sh of robe.sheets) {
     sheetStock.push({
@@ -938,7 +1116,7 @@ export function quoteFromSchedule(
   if (bom.workshop || btWorkshop || robeWorkshop) labor.push({ category: 'Installation (onsite)', hours: money(installHours), rate: 0, cost: money(installCost) });
   const shopLaborTotal = money((bom.workshop?.shopCost ?? g0(bom.grandTotal.labor)) + btShopCost + robeShopCost);
   const totalMaterials = money(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware + benchtopMaterial + lam.adhesive.cost
-    + robeBoardCost + robeEdgeCost + robeKitCost);
+    + robeBoardCost + robeEdgeCost + robeKitCost + robeMirrorCost);
   // Parts of a robe opening that have no price (mirror glass, extra dampers) are bought outside the catalogue.
   const robeUnpriced = pricedRobes.flatMap((x) => x.unpricedItems);
   const rooms = new Set(lines.map((l) => l.roomName ?? defaultRoom));
@@ -997,7 +1175,7 @@ export function quoteFromSchedule(
       supplyMode,
     },
     cost: {
-      materials: money(g.materials + benchtopMaterial + robeBoardCost),
+      materials: money(g.materials + benchtopMaterial + robeBoardCost + robeMirrorCost),
       edging: money(g.edging + robeEdgeCost),
       hardware: money(g.hardware + lam.adhesive.cost + robeKitCost),
       labor: money(g.labor + btShopCost + robeShopCost),

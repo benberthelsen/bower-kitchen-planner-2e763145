@@ -53,11 +53,134 @@ export interface PartDimension {
   machiningCost: number;
   assemblyCost: number;
   /**
-   * The size is a stand-in, not a cut size: the catalogue row has no usable length or width formula (the live "Door"
-   * row has neither, so a door is sized height x DEPTH), or its formula needs a corner's second arm
-   * (CabRightWidth / CabRightDepth) the item does not carry. Priced as before; never judged by the part-fit warning.
+   * The size is a stand-in or an estimate, not a cut size: the catalogue row has no usable length or width formula
+   * and the engine has no default for the part (it is then sized height x DEPTH - the live "L Shape Shelf"), a
+   * corner's doors sized by the code default (the corner geometry is not in a schedule), or the formula needs a
+   * corner's second arm (CabRightWidth / CabRightDepth) the item does not carry. Priced as it is; never judged by the
+   * part-fit warning. A door on an ordinary carcase is NOT one: the code default is Microvellum's door size.
    */
   sizePlaceholder?: boolean;
+  /**
+   * This piece is one HALF (or one of n equal pieces) of a part that could not be cut from its board, split by
+   * sheetOptimizer.splitOversizeParts so it still prices (Ben, 21 Sep 2026: "too long parts still price but split the
+   * items in half and make a not"). The join edge carries no tape - see SplitPart.
+   */
+  splitPiece?: { pieces: number; index: number; originalLength: number; originalWidth: number };
+}
+
+/**
+ * A part that did not fit its board and was split into `pieces` equal pieces that do. Recorded per cabinet so the
+ * quote can say which part was split, into what, and that it needs a join.
+ */
+export interface SplitPart {
+  name: string;
+  partType: string;
+  /** the part as the engine sized it */
+  originalLength: number;
+  originalWidth: number;
+  /** each piece after the split */
+  pieceLength: number;
+  pieceWidth: number;
+  /** pieces along the part's LENGTH x pieces along its WIDTH (pieces = lengthPieces x widthPieces) */
+  lengthPieces: number;
+  widthPieces: number;
+  pieces: number;
+  /** units of the original part (its quantity) */
+  quantity: number;
+  /** joins this split adds to the job: (pieces - 1) x quantity */
+  joins: number;
+  materialName: string;
+  sheetLength: number;
+  sheetWidth: number;
+  /** the material carries no sheet size and the 2400 x 1200 default was assumed */
+  sheetSizeAssumed: boolean;
+}
+
+/** One cut piece of a Microvellum "Toe Kick Base" ladder (bomGenerator.ladderKickCutList). */
+export interface LadderKickPart {
+  /** Microvellum's own part name: Sub Front, Sub Back, Sleeper Left, Sleeper 1, Cleat Left, Finished Front, ... */
+  name: string;
+  length: number;
+  width: number;
+  quantity: number;
+  /** 'ply' = the 15 mm ladder frame (whole boards, like every other board); 'facing' = the kick front laminate (by area) */
+  material: 'ply' | 'facing';
+}
+
+/** What a "Toe Kick Base" row was priced as: the ladder cut list, its ply, and its facing. */
+export interface LadderKickBuild {
+  width: number;
+  height: number;
+  depth: number;
+  /** ends of the kick that return and are faced (Microvellum's "Finished Side") */
+  exposedEnds: number;
+  /** false when the schedule sent no kickExposedEnds and 0 was assumed */
+  exposedEndsSent: boolean;
+  cutList: LadderKickPart[];
+  /** m2 of ply the ladder cuts (charged as whole boards through the normal sheet path) */
+  plySqm: number;
+  plyMaterialId: string;
+  plyMaterialName: string;
+  /** false when no kickPlyMaterialId was sent and the engine picked a ply row (or fell back to the carcase board) */
+  plyFromSelection: boolean;
+  /**
+   * The kick face. Charged by the AREA USED plus waste, NEVER a whole sheet - Ben, 16 Sep 2026: "kick it does not
+   * have to use the full board rule". null when no facing material was chosen (the kick is priced as bare ply).
+   */
+  facing: {
+    materialId: string;
+    materialName: string;
+    itemCode?: string | null;
+    /** thickness, mm - a laminate (<= 3 mm) is bonded to the ply in the shop, a pre-faced board is not */
+    thicknessMm: number;
+    /** m2 of finished face cut: the front, plus one return per exposed end */
+    areaSqm: number;
+    wastePct: number;
+    chargedSqm: number;
+    areaCost: number;
+    cost: number;
+    /** true when the facing is thin laminate that has to be bonded and trimmed onto the ply */
+    bonded: boolean;
+  } | null;
+  /** This kick is a Microvellum variant whose real cut list differs from the standard ladder. */
+  variant?: string;
+}
+
+/** The kick FACE metres a cabinet on adjustable legs carries (bomGenerator.kickFaceMetres). */
+export interface KickFaceUse {
+  /**
+   * lineal metres of this cabinet's own kick face: its width + its fillers, plus its depth per exposed end, plus any
+   * adjoining appliance opening the kick runs straight through (adjacentSpanMm).
+   */
+  metresLm: number;
+  exposedEnds: number;
+  /**
+   * mm of an adjoining appliance opening (a dishwasher gap) charged to this cabinet, because the kick board runs
+   * through it in one piece. Absent when there is none.
+   */
+  adjacentSpanMm?: number;
+  /** mm of board height charged per lineal metre (the kick height, or the whole strip on a narrow stock board) */
+  chargedWidthMm: number;
+  materialId: string;
+  materialName: string;
+  /** $ per lineal metre of the board itself = chargedWidthMm / 1000 x area_cost */
+  ratePerM: number;
+  /**
+   * This cabinet's share of the WHOLE stock the job buys for its kick face, apportioned by metres. It is >=
+   * metresLm x ratePerM: Bower buys whole boards and whole kickboard lengths, so a short job still pays for the
+   * length it bought (Ben's whole-board rule; the two sanctioned exceptions are ladder-kick facing and mirror).
+   */
+  cost: number;
+}
+
+/** Adjustable legs under one cabinet - four a cabinet, always (Ben, 21 Sep 2026). */
+export interface LegUse {
+  perCabinet: number;
+  quantity: number;
+  unitCost: number;
+  cost: number;
+  itemCode: string;
+  name: string;
 }
 
 export interface SheetAllocation {
@@ -97,6 +220,11 @@ export interface OversizePart {
   quantity: number;
   /** true when the material has no sheet_length / sheet_width and the 2400 x 1200 default sheet was assumed */
   sheetSizeAssumed: boolean;
+  /**
+   * This part is a visible FRONT (sheetOptimizer.isUnjoinableFace), so it was not split into joinable pieces: a door
+   * or a drawer front cannot be butt-joined across its face and sold as a front. It needs a longer board, not a join.
+   */
+  unjoinableFace?: true;
 }
 
 export interface EdgeTapeAllocation {
@@ -171,6 +299,14 @@ export interface CabinetBOM {
    * boards are never box-assembled and are carried by one person, not loaded like a cabinet. Absent = cabinet.
    */
   itemKind?: 'cabinet' | 'fronts' | 'board';
+  /** Parts that could not be cut from their board and were split into equal pieces that can (see SplitPart). */
+  splitParts?: SplitPart[];
+  /** Present on a "Toe Kick Base": the ladder cut list, its ply and its facing. */
+  ladderKick?: LadderKickBuild;
+  /** Present when this cabinet stands on adjustable legs and carries kick FACE board (per lineal metre). */
+  kickFace?: KickFaceUse;
+  /** Present when this cabinet is billed adjustable legs - always four (Ben, 21 Sep 2026). */
+  legs?: LegUse;
 }
 
 /** Per-client commercial layers applied to cost (P3). All optional; defaults = pass-through. */
@@ -662,6 +798,12 @@ export interface CabinetConfig {
    * which would make it a loose board in the door finish.
    */
   toeKick?: boolean;
+  /**
+   * A Microvellum "Toe Kick Base" specifically: a ply LADDER (Sub Front, Sub Back, Sleepers, Cleats) faced with the
+   * selected kick laminate, cut by bomGenerator.ladderKickCutList off the work orders. A planner `base_kick` /
+   * `return_kick` board keeps `toeKick` alone and prices as one flat board.
+   */
+  ladderKick?: boolean;
   /**
    * The doors slide on a track ("Base Sliding Door Cabinet", "Upper 2 Door Slider" - cabinetPartMapping.hasSlidingDoors).
    * The door board is priced; hinges and hinge plates are not fitted, and the track kit is not priced (warned).

@@ -1,11 +1,32 @@
 # Pricing Engine Deep Dive
 
 How a placed cabinet becomes a priced quote, and how the linked pricing sheets feed it.
-Last updated: 2026-09-17 (Hafele Slider SC robe openings priced by BowerOS from a `robe` block — see "Hafele
+Last updated: 2026-09-21 — toe kicks priced as the ply LADDER Microvellum cuts with the selected laminate face by
+AREA, four adjustable legs a cabinet with the kick face by the LINEAL METRE, over-long parts SPLIT and priced with
+a join instead of only warned, mirror glass charged on its MEASURED cut area at the Glasstech rate, and sink
+cut-outs split into drop-in 30 min / undermount 90 min. See "Toe kicks: the ladder, the ply, the facing and the
+legs", "Part fits board — and what happens when it does not", the Mirror bullet under "What is charged", and
+"Benchtop minutes".
+(2026-09-19 carcase parts cut to the carcase height, doors and drawer faces at Microvellum's finished
+size — see "Part sizes: carcase height, doors and drawer faces"; 2026-09-17 Hafele Slider SC robe openings priced by BowerOS from a `robe` block — see "Hafele
 Slider SC robe openings"; robe-named rows without one carried at the source price, and the part-fits-board
 warning — see "Robe openings and sliding robe doors" and "Part fits board" below; 2026-09-16
 benchtops priced from a schedule; the rest of this file still describes the planner
 `calculateBenchtops` path).
+
+## The whole-board rule, and its two exceptions
+
+Bower buys whole boards and charges whole boards — one small door in a job still pays for the sheet. Edge tape is a
+20 m minimum then by the metre; benchtop blanks are whole blanks as bought. **Exactly two materials are charged by
+the area used instead**, both on Ben's own instruction and both flagged wherever they are written:
+
+1. **Toe-kick facing laminate** — area used + 15% waste (Ben, 16 Sep 2026: "kick it does not have to use the full
+   board rule"). Microvellum does the same, at 20%.
+2. **Mirror glass** — the measured cut area, to 4 decimal places, at the Glasstech rate (Ben's own invoice,
+   21 Sep 2026). **This replaced his 17 Sep instruction to charge a whole sheet.**
+
+Nothing else may be charged by area. Both exceptions reach the quote with `sheetsRequired: 0` or an explicit
+"measured area, NOT a sheet" label so no one reading a sheet-stock list mistakes them for boards.
 
 ## The pipeline at a glance
 
@@ -20,8 +41,10 @@ generateCabinetBOM (src/lib/pricing/bomGenerator.ts)
    1. getCabinetPartMapping(definitionId)      → which parts this cabinet needs
    2. getPartQuantities(config)                → perDoor / perDrawer / perShelf → numbers
    3. calculatePartDimensions(...)             → parts_pricing formulas → real part sizes
+      (a Toe Kick Base instead cuts the ladder: ladderKickCutList → Sub Front / Sub Back / Sleepers / Cleats)
+   3b. splitOversizeParts(parts)               → a part that cannot be cut from its board becomes equal pieces
+                                                 that can, priced, with a note and a join (Ben, 21 Sep 2026)
    4. calculateSheetRequirements(parts)        → whole sheets per material by area / yield
-                                                 (+ oversizeParts: parts that cannot fit one sheet — warning only)
    5. calculateEdgeTape(parts)                 → edge metres per edge material, bought as a 20 m minimum then by the metre
    6. calculateHardware(config, ...)           → hinges + plates, runners, screws, legs
    7. calculateLaborCost(...)                  → calibrated labor model (labor_rates)
@@ -31,7 +54,8 @@ generateCabinetBOM (src/lib/pricing/bomGenerator.ts)
 generateQuoteBOM (all cabinets in the room)
    • consolidateSheets / EdgeTape / Hardware   → job-level bulk yield
    • P5 reconciliation                         → bulk sheet savings pushed back per cabinet
-   • kick panels                               → job-level line
+   • kick facing / kick face board             → BY AREA + waste (ladder) or BY THE LINEAL METRE (legs), never sheets
+   • adjustable legs                            → FOUR a cabinet, or none at all on a job with ladder bases
    • calculateBenchtops (benchtopCalculator)   → per_sheet / per_lm / per_sqm methods
    • commercial layer (client_markup_settings) → margin, design fee, delivery, install, markup
    • GST                                       → grandTotal { subtotalExGst, gst, total }
@@ -133,8 +157,13 @@ robe: {
   softCloseSetback, tracks, verticalProfiles, horizontalProfiles }, kit { item_code, name, price, unconfirmed, priceSource,
   priceBasis, quantity, cost }, boards { material, materialId, itemCode, thickness, sheetLength, sheetWidth,
   sheets, sheetsShare, fitOk, panels, cost }, edgeMetres, edge, dampers { inKit, needed, extra, priced: false },
-  mirror { required, priced: false, panels, panelCut }, leafMassKg, minutes { setUp, leaves, install },
-  shopMinutes, kitCost, boardCost, edgeCost, materialCost, laborCost, costPrice, total, unpricedItems, warnings }`.
+  mirror { required, priced, panels, panelCut, use? }, leafMassKg, minutes { setUp, leaves, install },
+  shopMinutes, kitCost, boardCost, edgeCost, mirrorCost, materialCost, laborCost, costPrice, total, unpricedItems,
+  warnings }`.
+  - `mirror.priced` is true once the glass resolves to its catalogue row BY ITEM_CODE, and `mirror.use` then
+    carries `{ materialId, itemCode, name, thicknessMm, panels, panelCut, measurePerPanelSqm, measureSqm, rate,
+    cost }` — the Glasstech proforma's own columns (QTY, SIZE, MEASURE, RATE, NET), so a quote can be held next to
+    an invoice. `materialCost` = kit + board + edge + mirror.
   - `geometry.panelFinished` = the finished infill panel the profile channel holds (doorWidth × doorHeight);
     `geometry.panelCut` = its SAW size: a board panel is edged on all four sides, so it is cut one edge thickness
     in from each side (cut = finished − 2 × edge; 1152 × 2343 for the worked example's 1 mm tape). A mirror panel is
@@ -228,9 +257,21 @@ build-up) through `quoteFromSchedule` itself as well.
   `order(kitchen + robe) - order(kitchen)` metres + application on its own metres + handling, and the tape stays
   ONE `workshopCosting.edgebanding` row. Robe-only 2400 × 2400: 13.996 m → 20 m × $1.50 + 13.996 × $0.90 + $0.50
   = $43.10. Mirror: no tape.
-- **Mirror** — Ben: charged as a WHOLE SHEET as bought, but no mirror sheet size, price or supplier exists. The
-  opening prices everything else and raises `MIRROR NOT PRICED:` (panels and cut size); `mirror.priced false`,
-  the glass is on `workshopCosting.buyoutItems`. Nothing is invented.
+- **Mirror** — CUT TO SIZE and charged on the MEASURED AREA of each piece (21 Sep 2026). **This reverses Ben's
+  17 Sep instruction to charge a whole sheet**, on the strength of his own invoice: Glasstech (QLD) proforma
+  180617, 1 Sep 2026, ref "4MM MIRROR", bills 2 × 2009 × 760 as 3.0536 m² at $90.21/m² ex GST = $275.47 and
+  2 × 1991 × 724 as 2.8830 m² = $260.08. Their MEASURE is `round(w × h in m², 4 dp) × qty` — the exact cut area,
+  no over-measure, no minimum, no size band (`glassMeasureSqm`, checked to the printed digit on both lines).
+  With the toe-kick facing this is one of only **two** exceptions to the whole-board rule.
+  The row is resolved **by `item_code` only** (`GLASSTECH_MIRROR_ITEM_CODE`, default `GT-MIR-4SVB`, overridable
+  with `selections.mirrorMaterialId`) — **never by name**: the catalogue's only other "mirror" row is Laminex
+  `Mirror Smoke` (AU1003078), a decorative LAMINATE at $273.73/m², three times the glass. With no such row the
+  opening prices everything else and still raises `MIRROR NOT PRICED:`; `mirror.priced false`, glass on
+  `workshopCosting.buyoutItems`. Priced, it lands in `workshopCosting.sheetStock` as a measured-area line
+  (units × rate = cost, exactly as the proforma reads) and the **backer board is still not priced** and stays on
+  the buyout list. The catalogue row is written but NOT applied:
+  `docs/sql/glasstech-mirror-4mm-silver-vinylback.sql`. The proforma carries no supplier part number at all, so
+  that item_code is Bower's own.
 - **Dampers** — every kit has 4 (2-door and 3-door alike, p1 / SC-15). Soft close on all leaves (default) needs 2
   a leaf (one each end of travel, as the 2-door kit's 4 imply): a 3-leaf opening needs 2 more. Counted in
   `dampers.extra`, `SOFT-CLOSE DAMPERS NOT PRICED:` warning, on `buyoutItems`. `softCloseAllLeaves: false` on 3
@@ -300,6 +341,20 @@ exactly as `price-quote` calls it (`scratchpad/robeeng/worked_example.mjs`, and 
 | Install 45 min × $98 (at cost) | $73.50 | $73.50 |
 | **Job** | $863.04 | **$1,178.86** ex GST ($1,296.75 inc) |
 
+**The same opening with MIRROR infill** (21 Sep 2026), two 1154 × 2345 panels:
+
+| | before | after (no `GT-MIR-4SVB` row) | after (row seeded) |
+|---|---|---|---|
+| Kit 944.02.002 | $324.01 | $324.01 | $324.01 |
+| Board / edge | — | — | — |
+| Mirror glass: 2 × round(1154 × 2345 / 1e6, 4) = 2 × 2.7061 = 5.4122 m² × $90.21 | **not priced** | **not priced** | **$488.23** |
+| Shop (drafting + handling on 2 bought panels, set-up 30, leaves 60, loading) | $199.50 | $199.50 | $199.50 |
+| **Opening line** | $732.91 | $732.91 | **$1,416.44** |
+| **Job ex GST** (+ $73.50 install at cost) | $806.41 | $806.41 | **$1,489.94** |
+
+Nothing moves until the row exists — the change is the RULE (measured area, by code only), not a guess at a price.
+The board-infill worked example above is byte-identical before and after.
+
 Ben's app, same opening, its defaults (markup 30%, waste 10%, $90/h, panel $45/m², 1 h set-up + 1.5 h a leaf,
 3 h install): kit $324.01, panel $267.91, fabrication $360, install $270 → direct $1,221.92 → **$1,588.49** ex GST.
 BowerOS is **$409.63 lower**, every dollar attributed (sell dollars; 1 cent is line rounding):
@@ -323,8 +378,13 @@ BowerOS is **$409.63 lower**, every dollar attributed (sell dollars; 1 cent is l
 
 ### Not decided / still open
 
-- Mirror sheet size, price and supplier; whether a backer is used; mirror mass (Hafele does not specify mirror). The
-  glass / backer split of a 17 or 18 mm build-up is assumed (4 mm glass + the rest backer) for the mass estimate.
+- Mirror: the glass is priced (above), the **backer is not** — which board is it? Mirror mass is still an estimate
+  (Hafele does not specify a mirror infill), and the glass / backer split of a 17 or 18 mm build-up is assumed
+  (4 mm glass + the rest backer). Does the $90.21/m² rate hold for sizes other than the two on the proforma?
+- A robe LEAF that cannot be cut from its board is a HARD STOP, not a split: a leaf is a door face and cannot be
+  joined down the middle. Since 21 Sep 2026 a hinged cabinet DOOR, a drawer front and a false front are hard stops
+  for exactly the same reason, so the engine no longer contradicts itself on the two halves of the same object.
+  Ben's "too long parts still price" therefore covers boards, not fronts — confirm.
 - Extra damper part number and price.
 - Where the 900–1350 mm leaf range came from (warned, not blocked).
 - The IH datum: the engine takes `openingHeight − top − bottom` as Hafele's IH (a carcase-internal measure on p3);
@@ -335,7 +395,188 @@ BowerOS is **$409.63 lower**, every dollar attributed (sell dollars; 1 cent is l
 - The 10 mm spacing between leaves in the nest is assumed; grain is taken as along the sheet's long side.
 - A benchtop-only quote still gets no job minimums (pre-existing).
 
-## Part fits board — WARNING ONLY (17 Sep 2026)
+## Part sizes: carcase height, doors and drawer faces (19 Sep 2026, not deployed)
+
+The part-fits-board warning (below) exposed three sizing faults against the LIVE catalogue. All three were
+checked part by part against the Microvellum Toolbox work orders of 11 jobs (152 products: Regal, Donkin
+kitchen / laundry / bathroom, Hibiscus, Forest Glen, Coral Lodge kitchen / robe, Kenfrost, 10 Sands, Erin & Matt
+v2):
+
+1. **Doors were height × DEPTH.** The live `Door` row (`Component`) has no length or width formula, so every door
+   fell back to the item's height × depth: Regal's 250-wide broom priced a 2460 × 580 door (Microvellum
+   2325 × 248); a 900 × 880 × 555 "Base 2 Door" carried 2 × 880 × 555 = 0.98 m² of door where Microvellum cuts
+   2 × 743 × 448 = 0.67 m².
+2. **Floor-standing carcases kept the kick.** The live base and tall sides and backs are plain `CabHeight`, and
+   the schedule height includes the toe kick, so every base AND tall side and back was one kick too long
+   (Regal broom 2460 vs 2325; every base side 880 vs 745). Microvellum cuts all 113 of them at
+   H − Toe_Kick_Height.
+3. **Drawer faces were drawer-box fronts.** The live `Drawer Front` row is `(CabWidth − 32) × (DrawerRunnerHeight
+   − 30)` = (W − 32) × 110, edged on one side, and the engine prices it as the face: Regal's 600 × 480 Base 1 Drawer
+   had a 568 × 110 face where Microvellum cuts 598 × 343. Face board over the 11 jobs was 2.69 m² against 6.47.
+
+**Fixed in code, not in the catalogue.** The kick cannot be written as a formula (no per-item variable, no
+conditional: `CabHeight-ToeKickHeight` would cut 135 off uppers and stacked units and use 135 on a 100-kick job),
+a re-import through `import-pricing` (upsert on name) would wipe a hand edit, and a row edit would change the
+planner (main's older engine) and Build Flow at the same moment, untested. `parts_pricing` is untouched.
+
+### The rules (all numbers from the Microvellum parts and prompts)
+
+- **Kick per item** (`bomGenerator.itemKickMm`). A floor-standing base or tall carcase stands on
+  `PlacedItem.toeKickHeight`, else `GlobalDimensions.toeKickHeight` (the planner's room setting). Zero for
+  replacement fronts, flat boards, kick bases, uppers, anything with y > 1 or named upper / wall / suspended /
+  floating / wall-hung, any name that does not say base / tall / pantry / broom / linen / vanity / sink (Hibiscus's
+  "Any Angle Spacer" exists at both levels) unless its `layoutRole` is a floor role, and anything no taller than
+  the kick.
+- **Kick per schedule row** (`quoteFromSchedule.scheduleKickHeights`): the row's own `kickMm`, else the height of
+  the Toe Kick Base rows in its room (a blank room is the default room; case-insensitive), else 0 - or the job's
+  kick height when the job is on adjustable legs. In all 7 work orders with kicks that height IS every carcase's
+  Toe_Kick_Height: 135 on Regal, Donkin, Kenfrost and Erin & Matt, 100 on Forest Glen, Hibiscus and Coral Lodge's
+  robe. Kick rows in one room that disagree take the commonest height, with a warning.
+- **Stacked units** (same function): with no `kickMm`, a base row shorter than its room's base height (the
+  commonest height of the room's base cabinet rows, by units) stands on NO kick when a taller base row of the same
+  width in the same room makes up that height - Regal's "Base Open" 600 × 382 on its "Base 1 Drawer" 600 × 498
+  (= 880), Donkin's 632 × 382 on 632 × 498 (= 880), Erin & Matt's 632 × 382 on 632 × 494 (= 876). All three are at Z
+  494-498 with Toe_Kick_Height 0 in their work orders. The quote says so (`"Base Open" 600 x 382 in "kitchen" is
+  priced standing on the "Base 1 Drawer" 600 x 498 below it …`). Only when the room has a kick to take off.
+- **`ScheduleItem.kickMm`** (new, optional): Microvellum's per-product Toe_Kick_Height. It wins over both rules
+  above; Build Flow should send it when it has the work order.
+- **`CabHeight` is the carcase height**: item height − its kick. Uppers and anything off a kick are unchanged. A
+  formula that names `ToeKickHeight` (the 2 July seed's `CabHeight-ToeKickHeight`, the smoke fixture) is evaluated
+  on the full item height with `ToeKickHeight` = the item's own kick (100 on a 100-kick room, not the job default
+  135), so it cuts the carcase height and the kick never comes off twice. No live row names it (0 of 288).
+- **Doors** - a code default used only where the matched row has no formula for that axis (the catalogue still
+  wins when it has one): height = carcase height − Top_Reveal (2 on a base, under the benchtop; 0 on tall and upper),
+  width = (W − 1 − 1 − DoorGap × (n − 1)) / n with n from the name as before. Microvellum: Left/Right_Reveal 1 (2 at
+  some exposed ends - 1 mm, not in a schedule), Door_Gap 2 on 34 of 34 door pairs, Top_Reveal 2 on 10 of 10 base
+  door products, 0 on 5 of 6 tall and 26 of 28 upper, Bottom_Reveal 0 except:
+  - an **"Upper Rangehood Cabinet"** (not the undermount one): Bottom_Reveal = Rangehood_Facia_Height, 40 by default
+    (Donkin 1.22: 695 − 40 = 655 × 298, as cut; Coral Lodge 208: 784 − 2 − 40 = 742; an older Donkin revision had 80).
+    New optional `ScheduleItem.rangehoodFaciaMm` carries the prompt; without it, 40.
+  - under a **top drawer** (below): height − Top_Drawer_Front_Height 180 − Horizontal_Drawer_Gap 2.
+  A default-sized door is a cut size (judged by the part-fit warning), except a pie-cut corner's, a blind corner's
+  without its blind width, and an unmodelled drawer layout's.
+- **How the drawers sit** (`bomGenerator.frontLayout`, read off the Microvellum library's product prompts:
+  Top_Drawer, Double_Top_Drawer, Drawer_Bank, Bay_Qty, Appliance_Top_Opening):
+  - **Drawer bank** - drawers only, and they fill the front: "Base 1…7 Drawer", "… Waste Bin", "N Drawer Suspended
+    Cabinet", the planner's drawer SKUs (Top_Drawer 0). Each face is W − 2 wide by its share of the face stack
+    H − kick − Top_Reveal − DrawerGap × (n − 1) (Microvellum: 14 of 14 standard banks; Donkin's 4-drawer 880 high is
+    4 × 184.25 = 737), split by `distributeDrawerHeights` as before. How the stack is split does not change the
+    board, the edge metres or the cut perimeter.
+  - **Top drawer** - one row of 180-high faces (Top_Drawer 1, Top_Drawer_Front_Height 180) over the doors or an open
+    bay: "Base 1 Door 1 Drawer" (450 × 880 on a 135 kick: door 561 × 448 under a 448 × 180 face), "Base 2 Door 1
+    Drawer", "Base Open 1 Drawer" (598 × 180 - not a 739-high face), and with Double_Top_Drawer 1 two faces side by
+    side, (W − 2 − 2) / 2 wide: "Base 2 Door 2 Drawer", "Base Open 2 Drawer"; plus the two "… Door 1 Drawer Blind
+    Corner" products (spanned as a blind corner). From the prompts - no work order has one yet.
+  - **Inner** - drawers behind doors ("… With Inner Drawers", Top_Drawer 0): full-height doors; the drawer front
+    keeps the catalogue formula as before (Microvellum has no face there).
+  - **Unmodelled** - any other drawer product: a microwave or oven opening ("Base 1 Drawer Microwave",
+    Appliance_Top_Opening), bays of doors beside drawers ("Base 2 Door 4 Drawer Cabinet", "Base 3 Drawer 2 Door
+    Cabinet", Bay_Qty), "… Waste Bin With Top Drawer", "Base 2 Bay Drawer", "Tall Pantry With Drawers", "Base Drawer
+    Sink With False Front", corner drawers. Doors full height and flagged as estimates, drawer fronts from the
+    catalogue `Drawer Front` row (as live), and a warning: `… its drawer layout is not modelled, so its fronts are an
+    estimate …`.
+- **The face row.** An engine-sized face (bank or top drawer) is priced on the catalogue's **`Drawer`** row
+  (`Component`, no formula, edged all round, the same costs as `Drawer Front`), exactly as a door is on `Door`: a
+  formula on `Drawer` wins on its axis, the code default fills the other. `Drawer Front` - the (W − 32) × 110
+  drawer-box front - now only sizes drawer fronts the engine has no layout for (inner, unmodelled). With no `Drawer`
+  row in the catalogue the face is priced on `Drawer Front` at the default size, edged all round. Edged all round:
+  50 of 52 Microvellum drawer fronts. The part keeps the name "Drawer Front".
+- **Pie-cut corners**: the doors take the default across the full width, are flagged `sizePlaceholder` and the
+  item gets a warning (`… is a corner cabinet - its door board is an estimate …`). Microvellum puts them on the two
+  faces left by the arm depths (Regal 880 × 880 × 1200: 325 + 645 with 555 arms), which no schedule carries.
+- **Blind corners** ("Base Blind Corner"): **2 doors** (Microvellum's Base Left Door and Base Right Door: Hibiscus 2 ×
+  763 × 392.5, Erin & Matt 2 × 739 × 320.5, each with 4 hinges and 2 pulls - the mapping used to give 1), over the
+  width less the blind part, with Left_Reveal 2 + Right_Reveal 1: width = (W − blind − 3 − DoorGap) / 2. The blind
+  part is the new optional `ScheduleItem.blindCornerWidthMm` (Microvellum's Blind_Corner_Width: 623 Erin & Matt, 473
+  Hibiscus) - with it the doors are exact and not flagged. Without it the depth stands in (W − D) and the doors are
+  flagged and warned (`… is a blind corner - its door board is an estimate … send blindCornerWidthMm …`): Hibiscus 2 ×
+  763 × 351.5 = 0.54 m² against 0.60, Erin & Matt 2 × 739 × 354.5 = 0.52 against 0.47. (The first pass sized one door
+  across the full width, 0.96 / 0.94 m², worse than live.) Tall / upper blind corners keep 1 door; Bower's
+  base-1000-bc keeps its own mapping; an open blind corner ("Base Open Blind Corner") now gets no door. All corners'
+  sides and backs take the kick off.
+
+**Not moved**: replacement fronts (the `exact` faces-only path - 10 Sands 769 × 600 / 769 × 399 still equal
+Microvellum), flat boards (applied panels, fillers, pelmets, under panels - still cut to their full height; the
+kick-only part-fit exclusion stays for them), Toe Kick Base rows, benchtops, robe openings, drawer boxes, bottoms,
+tops, shelves and rails, and hinge counts (still from the item height and door count - a Base Blind Corner's second
+door brings its 2 hinges, 2 plates and pull, as in Microvellum). Checked: all 83 flat-board, replacement-front,
+kick-base and spacer products of the 11 work orders have identical parts before and after; benchtop and robe output
+is identical on the 11 saved jobs.
+
+### Size accuracy against Microvellum (11 work orders, finished sizes, ± 3 mm on both sides)
+
+"First pass" is the first version of this change; "Now" adds the review fixes (stacked units, blind corners,
+rangehood facia, top drawers). The last column also sends what Build Flow has in the work order: `kickMm`,
+`blindCornerWidthMm`, `rangehoodFaciaMm`.
+
+| Parts | Before (541614d, live) | First pass | Now | Now + work-order prompts |
+|---|---|---|---|---|
+| Base doors | 0 of 9; 3.96 m² vs MV 2.31 | 9 of 9; 2.32 | 9 of 9; 2.32 | same |
+| Tall doors | 0 of 9; 9.08 m² vs 7.47 | 5 of 9; 7.48 | 5 of 9; 7.48 | same |
+| Upper doors (not rangehood) | 0 of 45; 11.75 m² vs 11.30 | 17 of 45; 11.05 | 17 of 45; 11.05 | same |
+| Rangehood cabinet doors | 0 of 8; 2.29 m² vs 2.16 | 0 of 8; 2.15 | 2 of 8; 2.12 | same |
+| Pie-cut corner doors (estimate) | 3.31 m² vs 1.29 | 1.60 | 1.60 | same |
+| Blind corner doors | 0 of 4; 0.97 m² vs 1.07 (1 door each) | 0 of 4; 1.90 | 0 of 4 (estimate); 1.06 | 4 of 4; 1.07 |
+| Drawer banks (count, width, stack) | 0 of 18; faces 2.69 m² vs 6.47 | 14 of 18; 6.65 | 14 of 18; 6.65 | same |
+| Base + tall side and back heights | 9 of 122 | 113 of 122 | 122 of 122 | 122 of 122 |
+| Replacement fronts | 3 of 3 | 3 of 3 | 3 of 3 | 3 of 3 |
+
+The misses that remain are all things a schedule row does not carry: the upper doors that drop 16 mm over an
+under panel (24 upper doors and the 6 undermount rangehood doors on Regal, Erin & Matt, Coral Lodge; Forest Glen's 4
+drop 80 with a 2 mm top reveal); the 4 tall doors on two products whose door count or split is not in the name (Erin
+& Matt's "Tall 1 Door Broom" has 2 doors of 346, Regal's "Tall 1 Door Double Door" is 739 + 1063 stacked - the
+engine's single 1804 × 598 door is the same board); Coral Lodge's robe drawer banks (30 mm shadow-line reveals and
+gaps: stack 694 vs 778); pie-cut corners; blind corners until Build Flow sends the blind width; rangehood internals.
+
+### Money on the 11 saved jobs (sell ex GST, the harness catalogue)
+
+| Job | Before (live) | First pass | Now | Change vs live | Why |
+|---|---|---|---|---|---|
+| Regal kitchen | 8195.63 | 8037.91 | 8039.40 | −156.23 (−1.9 %) | Polar White fronts 6 → 5 sheets (−$90.63 cost: the 2460 × 580 broom and 880 × 1200 corner doors); edge −4.7 m; cutting and lead-in −2.6 min. The review fixes add back $1.49: the stacked Base Open is 382 again |
+| Donkin kitchen | 7039.24 | 6922.64 | 6921.61 | −117.63 (−1.7 %) | Classic White carcase 9 → 8 sheets (−$77.24: base sides and backs 135 shorter); cutting −1.7 min. Review fixes: stacked Base Open 382 again, rangehood doors 40 shorter |
+| Erin & Matt (saved request) | 16317.77 | 16422.99 | 16520.72 | +202.95 (+1.2 %) | Polar White fronts 2 → 3 sheets (+$90.63: drawer faces at full size); carcase 22 → 21 sheets (−$64.23); edge +21.9 m (+$52.71). Review fixes +$97.73: the blind corner's second door (+$25.50 hinges, plates and pull; +21 min hardware assembly, +$34.30) and the stacked Base Open |
+| Hibiscus kitchen | 6636.07 | 6671.13 | 6767.53 | +131.46 (+2.0 %) | no sheet changes; edge +10.3 m (+$24.22). Review fixes +$96.40: the blind corner's second door (hardware +$25.50, shop labour +$42.97) |
+| Coral Lodge robe | 6904.63 | 6927.34 | 6927.34 | +22.71 (+0.3 %) | no sheet changes; edge +11.2 m (+$13.93); cutting +$2.29 |
+| Coral Lodge kitchen | 3327.10 | 3332.95 | 3332.95 | +5.85 | upper doors W/n − 2 wide instead of the depth: edge +1.4 m (+$2.75), cutting +$1.44 |
+| Donkin laundry | 1155.31 | 1153.07 | 1153.07 | −2.24 | no sheet changes; edge −0.5 m, cutting −0.3 min |
+| Forest Glen laundry | 4679.94 | 4679.26 | 4679.26 | −0.68 | no sheet changes; edge +1.1 m, cutting −0.4 min |
+| Donkin bathroom, 10 Sands, 10 Sands (Arabica) | 393.69 / 679.50 / 795.28 | same | same | 0 | flat panels and replacement fronts only |
+| **All 11** | **56,124.16** | **56,015.76** | **56,210.35** | **+86.19 (+0.15 %)** | |
+
+"Now" above is the state **before** the 21 Sep 2026 kick / split work; for what that moved see "Toe kicks: the
+ladder, the ply, the facing and the legs".
+
+Whole sheets absorb most of the area change; the edge-tape moves are the drawer faces (edged all round, where the
+box-front row edged one side) and doors whose perimeter changed; minutes move through Panel lead-in / cutting
+(perimeter), and on the two blind corners through the second door's hinges and pull (drafting, drilling, labelling,
+handling, shop and hardware assembly - BowerOS minutes × station rates). Nothing else is added or removed, and each
+Toe Kick Base line moves only by cents of its share of the job's shop labour.
+
+### Not done here (each needs Ben's say or a schedule field)
+
+- Build Flow sends none of the three new prompts yet (`kickMm`, `blindCornerWidthMm`, `rangehoodFaciaMm`). The
+  stacked-unit rule and the 40 default cover the 11 jobs; the blind corners stay estimates until it sends the width.
+- Flat boards: Microvellum cuts a floor-standing applied panel H − kick high and D + board + 2 wide
+  (Regal 2325 × 598, Erin & Matt 2305 × 728) and a base / tall return filler H − kick; the engine still cuts
+  H × D and H × 100.
+- Upper doors over an under panel (+16), pie-cut corners (arm depths), shadow-line drawer banks, an upper's
+  Top_Reveal 2 (Coral Lodge 208 rangehood 744 vs 742).
+- Unmodelled drawer layouts (above) - microwave / oven openings, door and drawer bays, bin with top drawer, 2-bay
+  drawer, pantry with drawers, false-front sink, corner drawers: they need a work order each. "Split Top Drawer"
+  banks are priced as a plain bank (the same board; the top face is one piece where Microvellum has two).
+- Top-drawer products and "Base Open 2 Drawer" come from the library prompts only; no exported work order has one.
+- The oven's two facias (W − 2) × (H − kick − 2 − 602) / 2 (3 of 3 Base Under Counter Ovens); the catalogue has an
+  unmapped `Base Ubo Fascia` row, `(CabHeight-600)/2` × `CabWidth-CarcaseThick*2`.
+- In-cabinet applied ends (Left/Right_Applied_End prompts: 15 parts, 7.90 m² of front board across the 11 jobs).
+- Rail On Flat 2 × 150 (Microvellum 1 × 100 front rail plus a Base Top), shelves in sinks / ovens / open units,
+  the Toe Kick Base stand-in.
+- Admin → Pricing → Parts still shows the Door row with no formula while the code default is in use. Once both
+  apps run this code, writing the same default into the row (`CabHeight-2` / `(CabWidth-2-DoorGap*(NumDoors-1))/NumDoors`
+  for a base) would only be cosmetic - and base / tall / upper need different top reveals, which one row cannot say.
+- The planner gets this on merge to main; its base items already include the kick in their height and its 3D model
+  already draws `carcassHeight = height − kick`, so its BOM will then match its own drawing.
+
+## Part fits board — and what happens when it does not (17 Sep, split 21 Sep 2026)
 
 The whole-sheet count (`calculateMaterialSheets`, `consolidateSheetRequirements`) is part AREA ÷ yield ÷
 SHEET AREA, rounded up. It never looked at a part's shape, so a 1223 × 2345 part priced out of a
@@ -355,37 +596,94 @@ SHEET AREA, rounded up. It never looked at a part's shape, so a 1223 × 2345 par
 - A material with no `sheet_length` / `sheet_width` is judged against the 2400 × 1200 default and the
   warning says so.
 
-`calculateSheetRequirements` records the offenders on the cabinet's `SheetAllocation.oversizeParts`;
-`generateQuoteBOM` turns them into **one warning per sheet material** (`Part too big for its board: …`),
-each part name + size listed once with its count and the cabinets carrying it. **No price changes**: the
-sheet count is still area-based. Only cabinet parts are checked — kick runs are job-level stock lengths, and
-schedule benchtops (blanks and laminated tops) are nested by `benchtopLaminate` with their own join rules,
-so neither can trigger it.
+### The part is SPLIT and priced (Ben, 21 Sep 2026)
 
-Two kinds of size are not judged: a stand-in size (`PartDimension.sizePlaceholder` — a door with no catalogue
-formula, or a corner part needing a second arm the item does not carry), and a floor-standing part that is over
-its sheet only by the toe kick (`generateCabinetBOM`; see the modelling fault below). The kick is only taken
-off an item taller than the kick: a 100-high "Pelmet BC" is not standing on one.
+> "too long parts still price but split the items in half and make a not"
 
-New warnings on the 11 saved jobs against 23e7b08, with the 10 mm trim (every money and minute figure
-byte-identical; the trim added no part on any job, only the usable size to the text):
+`splitOversizeParts(parts, materials)` in `sheetOptimizer.ts` cuts every part that does not fit into **equal
+pieces that do**, and the quote carries a note saying which part, into what, and that it needs a join. It is
+called from `generateCabinetBOM` **between `calculatePartDimensions` and `calculateSheetRequirements`** — not
+inside `sheetOptimizer` — because `parts` is the one list the sheet count, the edge tape, the per-part costs and
+every workshop station all read; splitting inside the sheet call would reach the sheet count and nothing else.
 
-| Job | Board (all 2400 × 1200) | Part(s) the engine priced | Real? |
-|---|---|---|---|
-| Coral Lodge kitchen | Plantation Ash | Under Panel 2582 × 307 | yes — longer than the sheet; needs a longer board or a join |
-| Coral Lodge robe | Blonde Oak | Under Panel 2770 × 70 | yes — same |
-| Regal kitchen | Polar White | Under Panel 2984 × 330; Pelmet BC 3000 × 100 | yes — same |
+- **Equal pieces, not stock lengths.** `ceil(dimension / usable)` of them, so anything up to twice the board is
+  Ben's two halves and a 3.32 m kick rail on a 2.44 m ply board is still two. Both axes split when both overrun
+  (a grid), and the orientation needing fewer pieces wins — rotation is allowed exactly as `partFitsSheet` allows
+  it, since grain is not modelled anywhere.
+- **The join edges are left BARE.** Each piece keeps the original part's edging on the edges it still owns and the
+  freshly cut ends get none, so the job's taped metres do not move. A visible raw edge at the seam is **Ben's
+  call** — say if the join should be taped (it is $0.18–$1.58 a part).
+- **The board does not move.** `n` equal pieces have exactly the area of the part they came from and the sheet
+  count is area ÷ yield, so the material cost is identical. If board cost changes on a split, the split is being
+  double-counted. What moves is the extra part through drafting / labelling / handling / cutting, the join, and
+  occasionally the LOADING CLASS: halving a 2582 mm panel drops it under `largeLooseLongestSideMm` (2000), so it
+  reclassifies from a 2-crew large loose panel to an ordinary loose item and gives $5.33 back.
+- **Join labour**: `partJoinMin` = 30 min at `assemblyRate` $100, station `Part joins (split over-long parts)`
+  (the name contains "joins", so it lands in the finishing bucket). **30 is NOT Ben's figure for a board seam** —
+  he has not set one — it is the 30 min he DID confirm for a bolted benchtop blank join on 16 Sep. His to confirm.
+- **Never split**:
+  - a stand-in / estimated size (`sizePlaceholder`, never judged either);
+  - a floor-standing flat board over its sheet only by the toe kick — that correction runs BEFORE the split, so a
+    2460 tall applied panel is not charged a phantom join for work that never happens;
+  - **a VISIBLE FRONT** — a Door, a Drawer Front, a False Front (`sheetOptimizer.isUnjoinableFace`, matched on
+    partType/name). Ben's "split the items in half" is about BOARDS. A front cannot be butt-joined across its face
+    and sold as a front, which is the same reason an over-long robe LEAF is a hard stop. A front that does not fit
+    falls through to the `Part too big for its board: …` warning, which then says so in as many words and asks for a
+    longer sheet in the same decor. The board is still priced by area as if it fitted, and **no join is charged**.
+    This is deliberately NOT keyed on `materialRole === 'exterior'`: a Tall Filler, an Applied Panel, an Under Panel
+    and a Pelmet are all exterior-role and they DO split — they are exactly the parts Ben asked for (Coral Lodge's
+    2770 × 70 filler, Regal's 2984 × 330 under panel).
+- The old `Part too big for its board: …` warning is now the fronts' hard stop, and still covers a part a split
+  cannot help. Only cabinet parts are split — kick runs are job-level stock lengths, benchtops are nested by
+  `benchtopLaminate` with their own join rules, and a robe LEAF that will not fit is a hard stop for the same reason
+  a hinged door now is.
 
-Without the kick and stand-in exclusions the tall ones also reported: Regal 2 × Tall Applied Panel 2460 × 580
-and the broom's 2460 sides / back / door, Erin & Matt 3 × Tall Applied Panel 2440 × 710 (Microvellum cuts
-2305 × 728, which fits), and Donkin's corner Ls Base Bottom 1252 × 1252 (no second arm in the schedule).
+**A floor carcase the kick test does not recognise.** The kick name list is `base|tall|pantry|broom|linen|vanity|
+sink|tower|appliance|oven|larder|utility|cupboard|robe|bookcase|dresser` (widened 21 Sep 2026 — it used to stop at
+`sink`). A base/tall carcase named outside it gets NO kick taken off, so its parts are cut the full item height;
+before the split existed that was only a wrong size, and afterwards it bought phantom joins as well ("Appliance
+Tower 2 Door" 600 × 2460 was charged 210 min of joins; it is now 60, all of them its kick's real ply rails).
+BowerOS cannot resolve the remaining cases on its own — a schedule carries no Z, and Hibiscus lists TWO "Any Angle
+Spacer", 406 × 865 at Z 0 (on the floor) and 247 × 692 at Z 1508 (on the wall) — so it now says plainly that it
+cannot tell, gives both readings and asks for `kickMm` on the row.
 
-The tall ones are the warning doing its job on a **modelling** fault it did not cause: schedule heights
-for tall items include the toe kick (E&M 2440 → MV cut 2305), but `Tall Left/Right Side` and `Tall Back`
-are `CabHeight` and a board-thin applied panel is cut to its full height. Separately, the live `Door` row has
-no length/width formula, so `calculatePartDimensions` falls back to **height × DEPTH** per door — the Regal
-250-wide broom door is priced as 2460 × 580, and a 900 × 880 × 555 "Base 2 Door" carries 0.98 m² of door
-where 2 × 880 × 449 is 0.79 m². Neither is changed here.
+Two kinds of size are not judged:
+
+- a stand-in or estimated size (`PartDimension.sizePlaceholder`): a part whose catalogue row has no formula and
+  for which the engine has no default (the live "L Shape Shelf"), a corner's doors (an estimate - the corner
+  geometry is not in a schedule), or a corner part needing a second arm the item does not carry (Donkin's
+  Ls Base Bottom 1252 × 1252);
+- a floor-standing **flat board** that is over its sheet only by the toe kick (`generateCabinetBOM`). Flat boards
+  are still cut to their full schedule height, kick included - Regal's 2 × Tall Applied Panel 2460 × 580 and
+  Erin & Matt's 3 × 2440 × 710, which Microvellum cuts 2325 × 598 and 2305 × 728 - and that is deliberately not
+  changed yet (see "Part sizes" below). The kick is only taken off a board taller than the kick: a 100-high
+  "Pelmet BC" is not standing on one.
+
+Carcases no longer need either exclusion: since 19 Sep 2026 their sides, backs and doors are cut to the carcase
+height and their doors are sized by the code default (see "Part sizes: carcase height, doors and drawer faces"),
+so the Regal broom's sides, back and door are 2325 long and fit a 2400 sheet on their own.
+
+Splits on the 11 saved jobs (21 Sep 2026). Every one of these is a SINGLE over-long part in the Microvellum work
+order too, so the sizes are right and the split is a production decision, not a sizing bug:
+
+| Job | Board | Part the engine priced | Split into | Join |
+|---|---|---|---|---|
+| Coral Lodge kitchen | Plantation Ash 2400 × 1200 | Under Panel "Tall Filler" 2582 × 307 | 2 × 1291 × 307 | 1 |
+| Coral Lodge robe | Blonde Oak 2400 × 1200 | Under Panel "Tall Filler" 2770 × 70 | 2 × 1385 × 70 | 1 |
+| Regal kitchen | Polar White 2400 × 1200 | Under Panel "Tall Filler" 2984 × 330 | 2 × 1492 × 330 | 1 |
+| Regal kitchen | Polar White 2400 × 1200 | Pelmet BC "Tall Filler" 100 × 3000 | 2 × 100 × 1500 | 1 |
+| Regal kitchen | Plywood 15 mm 2440 × 1220 | 3320 Toe Kick Base "Sub Front" 3320 × 135 | 2 × 1660 × 135 | 1 |
+| Regal kitchen | Plywood 15 mm 2440 × 1220 | 3320 Toe Kick Base "Sub Back" 3290 × 90 | 2 × 1645 × 90 | 1 |
+
+The last two are new: the old single-board kick part was `sizePlaceholder` and therefore exempt from judging
+entirely, so Regal's 3.32 m kick raised nothing.
+
+**FOR BEN — split, or buy the long board?** Every one of the four MDF parts above exists in the SAME decor on a
+3115 × 1200 board at the SAME $/m²: POLY54313 Plantation Ash, POLY57144 Blonde Oak, POLY43159 Polar White Sheen
+(Blonde Oak and Plantation Ash also come 3600 × 1800). One extra 3115 board costs $118–$265 more than the split's
+~$50 of join labour, but it gives a ONE-PIECE part — and two of the three decors are grained, which makes a central
+butt join on a visible filler a finish decision, not just a cost one. Microvellum cuts all four one-piece. The
+engine splits today; say if it should prefer a longer board in the same decor when the catalogue has one.
 
 ## Benchtops priced from a schedule (Build Flow / price-quote)
 
@@ -468,8 +766,25 @@ minutes are still uncalibrated defaults. `workshopModel.ts`:
 | `benchtopBlankCutMin` | 5 min / cut (Ben, 16 Sep 2026) | Benchtop blank cutting | `assemblyRate` $100 (bench work, not the $250 CNC) |
 | `benchtopBlankEndEdgeMin` | 15 min / end (Ben, 16 Sep 2026) | Benchtop cut-end edge strip | `edgebandingRate` $100 |
 | `benchtopBlankJoinMin` | 30 min / join (Ben, 16 Sep 2026) | Benchtop blank joins | `assemblyRate` $100 |
-| `benchtopSinkCutoutMin` / `Cooktop` / `TapHole` | 30 / 20 / 5 min | Benchtop cut-outs (fabricated top) | `machiningRate` $250 |
-| the same three minutes on a blank | 30 / 20 / 5 min | Benchtop blank cut-outs | `assemblyRate` $100 — a jigsaw and a router on the bench, like every other blank station |
+| `benchtopSinkCutoutMin` | 30 min / DROP-IN sink (Ben, 21 Sep 2026) | Benchtop cut-outs (fabricated top) | `machiningRate` $250 |
+| `benchtopUndermountSinkCutoutMin` | 90 min / UNDERMOUNT sink (Ben, 21 Sep 2026: "under mounte 1.5 hrs") | Benchtop cut-outs | `machiningRate` $250 |
+| `benchtopCooktopCutoutMin` / `benchtopTapHoleMin` | 20 / 5 min | Benchtop cut-outs | `machiningRate` $250 |
+| the same four minutes on a blank | 30 / 90 / 20 / 5 min | Benchtop blank cut-outs | `assemblyRate` $100 — a jigsaw and a router on the bench, like every other blank station |
+
+**Drop-in vs undermount (21 Sep 2026).** A drop-in bowl sits in the hole on its own rim, so the cut edge is covered
+and only needs sealing; an undermount hole IS the finished visible edge, so it is routed to a template, dressed,
+polished and the bowl clamped from below. The distinction is a SECOND COUNT on the row, `benchtopCutouts`:
+
+```ts
+benchtopCutouts?: { sink?: number; sinkUndermount?: number; cooktop?: number; tapHole?: number }
+```
+
+not a type flag — a top can carry one of each, and a payload that sends only `sink` keeps meaning drop-in, so every
+stored quote and every Build Flow payload written before today prices exactly as it did. The rule that **a cut-out
+costs nothing unless the row asks for it** is unchanged: the counts default to 0, nothing is ever inferred from a
+product name or a sink cabinet, and the station only fires when minutes > 0.
+Build Flow's `PriceWithBowerDialog` does not send `sinkUndermount` yet (`Cutouts` type, `NO_CUTOUTS`, one more
+Counter) — until it does, every Build Flow cut-out is a drop-in, which is the right default.
 
 Station names are chosen so `quoteFromSchedule`'s `laborMinutes` buckets catch them: *cutting* →
 machining, *edge* → edgebanding, *joins* and *cut-outs* → finishing. ("edging" does not contain
@@ -502,42 +817,170 @@ Every blank row carries the warning that says so.
 - `workshopCosting.hasStone` is still true for ANY benchtop row, blank included. Left alone until
   Build Flow's use of it is checked.
 
-## Toe-kick facing laminate — DESIGNED, NOT BUILT (16 Sep 2026)
+## Toe kicks: the ladder, the ply, the facing and the legs (21 Sep 2026)
 
-Ben's kicks are 15 mm ply faced with a Polytec laminate (POLY6428 'Kickboard Laminate (only)
-Brushed Stainless 3600 × 1200', 0.7 mm, $88.99/m²). The engine cannot see the facing at all: a
-Toe Kick Base row prices its ply and its labour and nothing else, so on Q-0042 the facing had to
-be added by hand ($43.27 material + $65 labour). Ben's rule, 16 Sep 2026: **"kick it does not
-have to use the full board rule"** — the thin facing laminate is charged by the AREA USED plus
-waste, never as a whole 3600 × 1200 sheet (that would be $643 sell for 0.31 m² of laminate).
-Boards and benchtop blanks keep the whole-board rule; only the facing is by area.
+> Ben, 21 Sep 2026: "if there is adjusble leg price four legs per cabinet then a lm of face board if ladder kick
+> buikld a cut list and price the kicks as ply with the selected lamnate face"
 
-Design to build:
+A Bower job stands on one of two things, and they are priced quite differently.
 
-1. `ScheduleItem` gains `kickFacingMaterialId?: string` (material_pricing id or item_code),
-   `kickFacingAreaSqm?: number` (override) and `kickFacingWaste?: number` (default 0.15 — a
-   facing is cut in strips off a wide sheet and the offcut is usable).
-2. Area, when not given: `(w × h) / 1e6 × qty` off the row's own face, +`kickFacingWaste`.
-   A wrapped return adds `d` per exposed end — collect it as a count, like `benchtopExposedEnds`,
-   rather than guessing.
-3. Cost: `area × (1 + waste) × area_cost`, folded onto that row's `lineCost` / `materialCost` and
-   into `workshopCosting.sheetStock` as an area row (`units` = m² used, `wastePercent` = the
-   facing waste), NOT as whole sheets. This is the one material in the engine that is deliberately
-   not whole-sheet, so it needs its own comment where it is written.
-4. Labour: a new `BenchtopFabricationInputs`-style input is the wrong home; add
-   `kickFacingSqm` to `calculateWorkshopCost` opts beside `extraParts`, and a station
-   'Kick facing bonding' at `kickFacingBondMinPerSqm` (placeholder ~20 min/m², `assemblyRate`) —
-   contact adhesive both faces, lay up, roller, trim. Ben's hand-priced line was $65 for two kicks
-   (39 min at $100/h), which is the figure to calibrate against.
-5. Warning: any row matching `TOE_KICK_BASE_RE` (or a `/kick/i` product) priced **without**
-   `kickFacingMaterialId` must warn "priced as bare ply - no facing laminate is charged", so a
-   faced kick is never quoted bare again.
-6. Tests: facing area by hand for Q-0042's two kicks (1908 + 400 long), the whole-sheet rule NOT
-   applied, a kick without a facing warned, a job with no kick unchanged.
+### A LADDER base — a Microvellum "Toe Kick Base" product
 
-Not built in this run: it touches the cabinet line path (`lineCost`, `generateQuoteBOM`'s
-workshop call), which the benchtop work deliberately stayed out of, and the waste figure, the
-bonding minutes and whether the facing wraps the returns are all still Ben's to confirm.
+Every Microvellum kitchen Bower builds lists its kicks as their own rows. Until now a `Toe Kick Base` was mapped to
+a single `Filler` part and priced as **one 135 × 530 board of CARCASE melamine with its WIDTH ignored entirely**: a
+599, a 1480 and a 3320 mm kick all came out at exactly the same money. It is now the ply ladder the work order
+actually cuts, faced with the selected kick laminate.
+
+**The cut list** (`ladderKickCutList` in `bomGenerator.ts`; `CabinetBOM.ladderKick.cutList`). Every dimension and
+count is read off the 15 `Toe Kick Base` products in Bower's 7 exported work orders (Coral Lodge robe, Donkin
+kitchen + laundry, Forest Glen laundry, Hibiscus kitchen, Regal kitchen, Kenfrost WO2) and reproduces **11 of 11**
+standard kicks part for part:
+
+| Part | Length | Width | Count |
+|---|---|---|---|
+| Sub Front | `W − 0.4 × finishedSides` | `H` | 1 |
+| Sub Back | `W − 0.4 × finishedSides − K` | `2⁄3 H` | 1 |
+| Sleeper Left / Right | `D − 15.4` | `H` | 2 |
+| Sleeper 1…n | `D − 30.4` | `2⁄3 H` | `ceil(W / 600) − 1` |
+| Cleat Left / Right (+ extras) | `D − 30.4` | `75` (constant, both kick heights) | `2 + floor(W / 2400)` |
+| Finished Front (facing) | `W` | `H` | 1 |
+| Finished Side (facing) | `D` | `H` | one per exposed end |
+
+All ply parts are 15 mm (`LADDER_PLY_THICKNESS_MM`, Microvellum's "Plywood 15mm_Clone"); the facing is Microvellum's
+"Laminate Kick Front". **No ladder part carries edge tape** — `EdgeNameTop/Bottom/Left/Right` are blank on all 15
+kicks — so a ladder takes no edging charge. When `D − 30.4 ≤ 0` (Donkin's 30 mm deep return kick) there is no room
+for cleats or intermediate sleepers and none are cut, which is what Microvellum does.
+
+**`K` = 30 or 46 — OBSERVED, NOT DERIVED, and FOR BEN.** The Sub Back is inset exactly 30 mm on every 135 mm kick
+(Donkin, Regal, Kenfrost) and exactly 46 mm on every 100 mm kick (Coral Lodge robe, Forest Glen, Hibiscus), 11 for
+11. 30 is the two 15 mm sleepers it sits between; the extra 16 on a 100 kick is not derivable from anything in the
+work orders, and Donkin's 30 mm-deep 135 kick also uses 46. Confirm against the Microvellum library before this is
+trusted further (`ladderSubBackInsetMm`).
+
+**Variants the engine names rather than pretends.** `LadderKickBuild.variant` and a plain warning fire for an
+angled-end kick ("Toe Kick Base With Angled Ends" — Microvellum cuts the Sub Front and Finished Front to the angled
+length, the Sub Back full width at full height, sleepers 85 wide) and for a kick too shallow for cleats. A **NOTCHED**
+kick (Forest Glen's 1226, with a Notched Sleeper and Notched Sub Back round a short arm) **cannot be told from a
+schedule row at all** — nothing in W × H × D says so — so it prices as the square ladder and the job-level warning
+says to check notched and angled kicks against the work order.
+
+**Exposed ends.** Microvellum returns the face on 11 of the 15 kicks, and across them the returns are **24% of the
+finished face**, so it is not a rounding error. A schedule cannot infer it, so it is a field: `kickExposedEnds`
+(0–2). Omitted, the kick is priced with NO return and the quote says so rather than guessing.
+
+**The ply is a BOARD on the whole-board rule** — nothing changes there. It comes from `kickPlyMaterialId` if sent;
+else the row's own board when that is already plywood (which is what a Microvellum export sends, so Bower's jobs
+need no new field); else the catalogue's cheapest 12–19 mm PLYWOOD row (`pickKickPlyMaterial`, matched on the word
+"plywood" — never "ply", which appears in the decor name "MDF 162412 DS Natural Ply Woodmatt"), warned; else the
+carcase board, warned loudly. Every one of the 11 saved jobs fits its kick ply in ONE 2440 × 1220 board.
+
+**The FACING is the exception.** Ben, 16 Sep 2026: *"kick it does not have to use the full board rule"*. The face is
+charged by the **AREA USED plus waste**, never as a sheet:
+
+```
+areaSqm   = Finished Front (W × H) + Finished Side (D × H) per exposed end
+chargedSqm = areaSqm × (1 + KICK_FACING_WASTE)          KICK_FACING_WASTE = 0.15
+cost       = chargedSqm × material.area_cost
+```
+
+Microvellum's own costing report does the same: Kenfrost charges "Laminate Kick Front" as **solid stock**, 0.72
+units at $83.00/m² — exactly that job's 0.5978 m² of face × 1.20 — never a 3600 × 1200 sheet at $384.44. It reaches
+the job as an AREA row in `consolidatedSheets` / `workshopCosting.sheetStock` with **`sheetsRequired: 0`**, which is
+the flag that says no sheet was bought, and it is kept OUT of `parts` so the whole-board sheet path can never reach
+it. The facing material is a SELECTION (`kickFacingMaterialId`, e.g. POLY6428 Kickboard Laminate Brushed Stainless,
+$88.99/m²). **With none sent the kick is priced as bare ply, no facing is charged, and the quote says so plainly** —
+a decor is never guessed.
+
+**Facing labour**: `kickFacingBondMinPerSqm` = **65 min/m²** at `assemblyRate` $100, station `Kick facing lamination`
+(the name lands it in the finishing bucket). That is BEN'S OWN figure — his hand-priced Q-0042 line was $65 for
+Kenfrost's two kicks = 39 min over 0.598 m² ≈ 65 min/m². Microvellum says 40 min/m² and 20% waste. **Both the
+minutes and the 15% waste are his to settle.** Bonding is only charged when the facing is thin enough to BE a
+laminate (`KICK_FACING_LAMINATE_MAX_MM` = 3 mm) — a pre-faced 16 mm kickboard panel is bought finished and needs none.
+
+### ADJUSTABLE LEGS — a planner job with no kick product
+
+- **FOUR legs a cabinet, always** (`DEFAULT_RULES.legsPerCabinet`), not a count computed from the width. That was
+  already true; what is new is that it is **visible**: `CabinetBOM.legs` states the count, the unit cost and the
+  line cost, and the job carries `Adjustable legs: 4 per cabinet on N floor cabinets = …`.
+- Legs are still suppressed for anything not standing on the floor (`carriesKickFace`: wall units, floating
+  shelves, replacement fronts, boards) and for **every** cabinet on a job that has `Toe Kick Base` ladder bases —
+  the ladder IS the base. Microvellum bills **no leg, plinth, foot or pedestal on any of the 9 work orders**, so
+  four-a-cabinet is Ben's number for planner-origin jobs and cannot be checked against Microvellum at all.
+- **Only on a job that has no kick product of its own.** The block is gated on
+  `adjustableLegs !== false && !hasExplicitKicks && !standsOnLadderBases`. A job that lists its kicks — a planner
+  `base_kick` row, or a Microvellum `Toe Kick Base` ladder — already pays for that face once, in the kick's own
+  line, and on a ladder job the engine has just deleted every leg. (The block this replaced inherited the gate
+  through `kickboards`; the rewrite lost it and billed the same physical kick face twice.)
+- **Each cabinet's LINE carries the lineal metres of its own face**: its width + the fillers it carries + its depth
+  for every end that returns + any adjoining appliance opening the kick runs straight through
+  (`KickFaceUse.adjacentSpanMm` — a 600 mm dishwasher gap is bought, cut and fitted, and `calculateKickboardRuns`
+  has always counted it in the run).
+- **The JOB buys whole stock LENGTHS**, and that cost is spread back over the cabinets by their metres. Bower buys
+  whole boards; 0.900 lm of POLY12745 is not something you can buy. One 900 mm cabinet takes one whole 3600 mm
+  length: $59.45 on POLY12745 (the full 150 mm strip on a 135 kick), $48.13 on POLY10679 (ripped to 135 off the
+  3600 × 1200 sheet — a whole SHEET is deliberately *not* the unit, or that one cabinet would carry $427). The
+  per-metre rate stays on the line as `ratePerM`; `cost` is the share of what was bought, so it is always ≥
+  metres × rate.
+- `calculateKickboardRuns` says what to ORDER (the job-level `Kick face ordering: …` note), **recomputed at the
+  stock length actually charged** — the note used to quote its own 2400 mm default next to a 3600 mm charge.
+- A stock board **narrower than twice the kick height is a kickboard STRIP** and the whole width is bought:
+  POLY12745 (3600 × 150, $110.09/m²) charges its full 150 mm on a 135 kick = $16.51/lm, where the wide POLY10679
+  (3600 × 1200, $99.03/m²) is cut to 135 and charges $13.37/lm.
+- **`kickFacingMaterialId` is a PER-ROW selection** and is resolved per cabinet, falling back to the first cabinet
+  that sent one and then to that cabinet's own carcase board. It used to be read once from `cabinetItems[0]` — the
+  first cabinet of any kind — so listing a wall unit first silently priced the whole job's kick on carcase melamine
+  and printed "no kickFacingMaterialId sent" although a row had sent one. Rows asking for different boards get one
+  stock line each.
+- **A unit the engine knows is STACKED carries neither kick face nor legs.** `quoteFromSchedule`'s stacked-unit rule
+  marks it with an explicit `toeKickHeight: 0`, and `carriesKickFace` now reads that — a schedule has no Z, so the
+  `y > 1` test could never see it, and a stacked "Base Open" was billed a full width of kick face and four legs on
+  top of the cabinet it stands on, next to the quote's own warning saying it was off the floor.
+
+**FOR BEN**: on a leg job, is "a lm of face board … with the selected lamnate face" a pre-faced kickboard panel
+bought ready (POLY10679 / POLY12745), or ply plus a separate laminate as the ladder is? The engine charges whatever
+material is selected, per metre, and adds the bonding station only when that material is thin laminate — so both
+readings work, but the money differs a lot and the selection should say which.
+
+### What it did to the 11 saved jobs
+
+Only the 7 jobs with kicks moved, and **not one dollar of it is material**: every job's kick ply already fitted one
+whole board before and after, so `cost.materials` is identical on all 11. The whole move is labour — a kick that was
+one part is now 7–14.
+
+| Job | sell ex GST before → after | kick lines before → after |
+|---|---|---|
+| coral-lodge-kitchen | 3,332.95 → 3,409.07 | no kicks (the +$76 is the 2582 under-panel split) |
+| coral-lodge-robe | 6,927.34 → 7,170.50 | 2 kicks $411.38 → $520.41 |
+| donkin-bathroom | 393.69 → 393.69 | none |
+| donkin-kitchen | 6,921.61 → 7,130.97 | 3 kicks $485.18 → $589.44 |
+| donkin-laundry | 1,153.07 → 1,207.81 | 1 kick $229.10 → $258.78 |
+| erin-matt | 16,520.72 → 16,900.62 | 4 kicks $691.58 → $906.26 |
+| forest-glen-laundry | 4,679.26 → 4,846.17 | 2 kicks $348.40 → $431.29 |
+| hibiscus-kitchen | 6,767.53 → 7,012.83 | 3 kicks $545.25 → $689.66 |
+| regal-kitchen | 8,039.40 → 8,598.70 | 2 kicks $355.00 → $499.49, plus 4 splits ($200 of joins) |
+| ten-sands / ten-sands-arabica | 679.50 / 795.28 unchanged | none |
+
+Context only, never a calibration target: Microvellum charges Kenfrost's flat-pack 1908 kick $240.60 and its 400
+kick $126.31 (material + labour), and Erin & Matt's assembled + installed kicks $271–$591. BowerOS used to charge
+$118–$229 for every kick whatever its width; it now charges by what the kick actually is.
+
+## Schedule fields added 21 Sep 2026
+
+`ScheduleItem` (and `QuoteSelections`, as a job-wide default) gained three kick fields; `PlacedItem` carries the
+same three for the planner path. All are optional and every one of them warns rather than guesses when absent, so
+a payload written before today prices exactly as it did.
+
+| Field | On | What it does | Absent |
+|---|---|---|---|
+| `kickPlyMaterialId` | row + selections | the ply a `Toe Kick Base` LADDER is cut from | the row's own board when that is plywood (a Microvellum export), else the catalogue's cheapest 12–19 mm plywood, warned |
+| `kickFacingMaterialId` | row + selections | the kick FACE: the facing laminate on a ladder, or the face board charged per lineal metre on a legs job | ladder: **no facing is charged** and the quote says so; legs: the carcase board, warned |
+| `kickExposedEnds` | row (`PlacedItem.kickExposedEnds`) | 0–2 ends of this kick that RETURN and are faced (Microvellum's "Finished Side") | 0, warned — returns are 24% of the finished face across Bower's 15 kicks |
+| `benchtopCutouts.sinkUndermount` | row | undermount sink cut-outs, 90 min each | 0 — `sink` alone still means drop-in at 30 min |
+| `selections.mirrorMaterialId` | selections | `material_pricing.item_code` of the mirror glass | `GT-MIR-4SVB` (Glasstech); with no such row the mirror is not priced and warns |
+
+Nothing in the response was removed. `CabinetBOM` gained `ladderKick` (the cut list, the ply and the facing),
+`kickFace` (the lineal metres a legs cabinet carries), `legs` (four a cabinet, stated) and `splitParts` (what was
+cut in half and how many joins it needs).
 
 ## Where each number comes from (the linked pricing sheets)
 
@@ -560,14 +1003,25 @@ hands them to the engine as `PricingData`.
 
 `parts_pricing` rows carry formulas evaluated by `formulaParser.ts` with variables like
 `CabWidth`, `CabHeight`, `CabDepth`, `CarcaseThick`, `ToeKickHeight`, `DoorGap`,
-`NumDrawers`, `DrawerFrontHeight`, `DrawerHeight`. Example: a gable might be
-`length = CabHeight - ToeKickHeight`, `width = CabDepth`.
+`NumDrawers`, `DrawerFrontHeight`, `DrawerHeight`. The live gable is
+`length = CabHeight`, `width = CabDepth`.
+
+**`CabHeight` is the CARCASE height** (since 19 Sep 2026): the item's height less the toe kick it stands on
+(`itemKickMm` - only a floor-standing base or tall carcase has one; see "Part sizes: carcase height, doors and
+drawer faces"). A formula that names `ToeKickHeight` takes the kick off by itself (`CabHeight - ToeKickHeight`,
+the 2 July seed's style) and is evaluated on the full item height with `ToeKickHeight` = the item's own kick
+(its room's Toe Kick Base height or `kickMm` - 100 on a 100-kick job, not the job default 135), so it gives the
+carcase height. A formula that evaluates to 0 (missing, blank, or naming an unknown variable) falls back: to the engine's
+default where it has one (a carcase `Door`), else to the stand-in height × depth, flagged `sizePlaceholder`.
 
 Drawer parts are expanded **per drawer** (since #20): each drawer face gets its own
-height — custom heights from the cabinet editor or the standard Microvellum
-distribution — with `DrawerFrontHeight = face` and `DrawerHeight = face − 20mm`
-(box side rule, min 60mm). Shared logic lives in `src/lib/drawerHeights.ts` so the
-3D render and the BOM always agree.
+height — custom heights from the cabinet editor or the standard distribution, over the face stack (carcase height
+less the top reveal and a `DrawerGap` between faces) — with `DrawerFrontHeight = face` and `DrawerHeight = face −
+20mm` (box side rule, min 60mm). Shared logic lives in `src/lib/drawerHeights.ts` so the 3D render and the BOM use
+the same split. A drawer FACE the engine has a layout for (a drawer bank, a top drawer - see `frontLayout`) is
+priced on the `Drawer` row (`Component`, like `Door`): its formula wins on an axis that has one, else W − 2 by the
+face height, edged all round. The `Drawer Front` row's formula, a drawer-box front, only sizes the rest (inner drawers,
+unmodelled layouts).
 
 ## Material selection and cost basis
 

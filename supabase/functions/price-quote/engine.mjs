@@ -608,8 +608,13 @@ function buildGenericCabinetMapping(definitionId, size) {
         isCorner: false,
         isBlind: false,
         // only a ladder base; a planner base_kick / return_kick board keeps the old treatment
-        toeKick: /toe\s*kick\s*base/.test(id)
+        toeKick: /toe\s*kick\s*base/.test(id),
+        // A "Toe Kick Base" is a ply LADDER faced with the selected kick laminate, not a board: calculatePartDimensions
+        // cuts its Sub Front / Sub Back / Sleepers / Cleats from the work orders (Ben, 21 Sep 2026: "if ladder kick
+        // buikld a cut list and price the kicks as ply with the selected lamnate face").
+        ladderKick: /toe\s*kick\s*base/.test(id)
       },
+      // A ladder's parts are built by ladderKickCutList, not by this list; a planner kick board keeps the Filler.
       parts: [{ partType: "Filler", quantity: 1 }]
     };
   }
@@ -626,7 +631,8 @@ function buildGenericCabinetMapping(definitionId, size) {
   const numDrawers = counts.drawers;
   if (isSink && numDoors === 0) numDoors = 2;
   const isRangehood = /rangehood|range.?hood|canopy/.test(id);
-  if (isBlind && numDoors === 0 && numDrawers === 0) numDoors = 1;
+  const isOpen = /\bopen\b|open_|_open/.test(id);
+  if (isBlind && !isOpen && numDoors === 0 && numDrawers === 0) numDoors = !isWall && !isTall ? 2 : 1;
   if (isRangehood && numDoors === 0 && numDrawers === 0) numDoors = 2;
   const numShelves = isRangehood ? 0 : isTall ? 4 : isWall ? 2 : numDrawers > 0 && numDoors === 0 ? 0 : 1;
   const prefix = isWall ? "Upper" : isTall ? "Tall" : "Base";
@@ -763,6 +769,100 @@ function partFitsSheet(length, width, sheetLength, sheetWidth, trimMm = SHEET_TR
   const EPS = 1e-6;
   return Math.max(length, width) <= Math.max(sheetLength, sheetWidth) - trim + EPS && Math.min(length, width) <= Math.min(sheetLength, sheetWidth) - trim + EPS;
 }
+function resolveSheetSpec(materialId, materials) {
+  const exactMatch = materials.find((m) => m.id === materialId || m.item_code === materialId);
+  const material = exactMatch ?? pickFallbackMaterial(materials);
+  const assumed = !(material && material.sheet_width && material.sheet_length);
+  const spec = assumed ? DEFAULT_SHEET_SPECS[0] : {
+    width: material.sheet_width,
+    length: material.sheet_length,
+    area: material.sheet_width * material.sheet_length / 1e6
+  };
+  return { material, spec, assumed };
+}
+function isUnjoinableFace(part) {
+  const s = `${part.partType ?? ""} ${part.name ?? ""}`.toLowerCase();
+  if (/\bdrawer\s+box\b/.test(s)) return false;
+  return /\b(?:door|drawer\s+front|false\s+front|drawer\s+face)\b/.test(s);
+}
+function splitOversizeParts(parts, materials) {
+  const out = [];
+  const splits = [];
+  const specCache = /* @__PURE__ */ new Map();
+  for (const part of parts) {
+    const materialId = part.materialId || "default";
+    if (part.sizePlaceholder || isUnjoinableFace(part) || !(part.length > 0) || !(part.width > 0) || !Number.isFinite(part.length) || !Number.isFinite(part.width)) {
+      out.push(part);
+      continue;
+    }
+    let resolved = specCache.get(materialId);
+    if (!resolved) {
+      resolved = resolveSheetSpec(materialId, materials);
+      specCache.set(materialId, resolved);
+    }
+    const { spec, assumed } = resolved;
+    if (partFitsSheet(part.length, part.width, spec.length, spec.width)) {
+      out.push(part);
+      continue;
+    }
+    const usableLong = Math.max(spec.length, spec.width) - SHEET_TRIM_MM;
+    const usableShort = Math.min(spec.length, spec.width) - SHEET_TRIM_MM;
+    if (!(usableLong > 0) || !(usableShort > 0)) {
+      out.push(part);
+      continue;
+    }
+    const count = (dim, usable) => Math.max(1, Math.ceil(dim / usable - 1e-9));
+    const a = { nl: count(part.length, usableLong), nw: count(part.width, usableShort) };
+    const b = { nl: count(part.length, usableShort), nw: count(part.width, usableLong) };
+    const pick = a.nl * a.nw <= b.nl * b.nw ? a : b;
+    const pieces = pick.nl * pick.nw;
+    if (pieces <= 1) {
+      out.push(part);
+      continue;
+    }
+    const pieceLength = part.length / pick.nl;
+    const pieceWidth = part.width / pick.nw;
+    const quantity = Math.max(1, part.quantity ?? 1);
+    const e = part.edging;
+    for (let i = 0; i < pick.nl; i++) {
+      for (let j = 0; j < pick.nw; j++) {
+        const edging = {
+          wid1: i === 0 ? e.wid1 : false,
+          wid2: i === pick.nl - 1 ? e.wid2 : false,
+          len1: j === 0 ? e.len1 : false,
+          len2: j === pick.nw - 1 ? e.len2 : false
+        };
+        out.push({
+          ...part,
+          name: `${part.name} (${pieces === 2 ? "half" : "piece"} ${i * pick.nw + j + 1} of ${pieces})`,
+          length: pieceLength,
+          width: pieceWidth,
+          area: pieceLength * pieceWidth / 1e6,
+          edging,
+          splitPiece: { pieces, index: i * pick.nw + j + 1, originalLength: part.length, originalWidth: part.width }
+        });
+      }
+    }
+    splits.push({
+      name: part.name,
+      partType: part.partType,
+      originalLength: part.length,
+      originalWidth: part.width,
+      pieceLength,
+      pieceWidth,
+      lengthPieces: pick.nl,
+      widthPieces: pick.nw,
+      pieces,
+      quantity,
+      joins: (pieces - 1) * quantity,
+      materialName: resolved.material?.name ?? "Unresolved Material",
+      sheetLength: spec.length,
+      sheetWidth: spec.width,
+      sheetSizeAssumed: assumed
+    });
+  }
+  return { parts: out, splits };
+}
 function calculateSheetRequirements(parts, materials) {
   const partsByMaterial = /* @__PURE__ */ new Map();
   for (const part of parts) {
@@ -795,7 +895,14 @@ function calculateSheetRequirements(parts, materials) {
     allocation.materialRole = materialParts[0]?.materialRole ?? "carcase";
     if (unresolved) allocation.unresolved = true;
     const sheetSizeAssumed = !(material && material.sheet_width && material.sheet_length);
-    const oversizeParts = materialParts.filter((p) => !p.sizePlaceholder && !partFitsSheet(p.length, p.width, sheetSpec.length, sheetSpec.width)).map((p) => ({ name: p.name, length: p.length, width: p.width, quantity: p.quantity, sheetSizeAssumed }));
+    const oversizeParts = materialParts.filter((p) => !p.sizePlaceholder && !partFitsSheet(p.length, p.width, sheetSpec.length, sheetSpec.width)).map((p) => ({
+      name: p.name,
+      length: p.length,
+      width: p.width,
+      quantity: p.quantity,
+      sheetSizeAssumed,
+      ...isUnjoinableFace(p) ? { unjoinableFace: true } : {}
+    }));
     if (oversizeParts.length) allocation.oversizeParts = oversizeParts;
     allocations.push(allocation);
   }
@@ -1566,6 +1673,7 @@ var EMPTY_BENCHTOP_FABRICATION = {
   polishSqm: 0,
   edgePolishLm: 0,
   sink: 0,
+  sinkUndermount: 0,
   cooktop: 0,
   tapHole: 0,
   benchtopLm: 0,
@@ -1576,6 +1684,7 @@ var EMPTY_BENCHTOP_FABRICATION = {
   longParts: 0,
   blankProducts: 0,
   blankSink: 0,
+  blankSinkUndermount: 0,
   blankCooktop: 0,
   blankTapHole: 0
 };
@@ -1641,9 +1750,18 @@ var DEFAULT_WORKSHOP_RATES = {
   benchtopJoinMin: 45,
   benchtopPolishMinPerSqm: 25,
   benchtopEdgePolishMinPerM: 8,
+  // Cut-out minutes are BEN'S OWN, not placeholders: drop-in 30 and undermount 90 (Ben, 21 Sep 2026 -
+  // "cut outs are for drop in 30 min and under mounte 1.5 hrs"). Cooktop 20 and tap 5 are unchanged from his
+  // earlier figures. A cut-out is never inferred - it costs nothing unless the row asks for it.
   benchtopSinkCutoutMin: 30,
+  benchtopUndermountSinkCutoutMin: 90,
   benchtopCooktopCutoutMin: 20,
   benchtopTapHoleMin: 5,
+  // Split cabinet parts and toe-kick facing - see the field comments above. partJoinMin starts at Ben's confirmed
+  // bolted-blank figure because he has not set one for a board seam; kickFacingBondMinPerSqm is his own hand-priced
+  // Kenfrost rate (~65 min/m2) rather than Microvellum's 40.
+  partJoinMin: 30,
+  kickFacingBondMinPerSqm: 65,
   // pre-made laminate blanks — CONFIRMED by Ben, 16 Sep 2026: "5 min a cut is right, joins 30 is
   // fine", and 15 min to laminate and finish each cut end. Do not change without asking him.
   benchtopBlankCutMin: 5,
@@ -1820,23 +1938,26 @@ function calculateWorkshopCost(cabinets, opts = {}) {
   add("Benchtop cut-end edge strip", bt.endEdges, "end", r.benchtopBlankEndEdgeMin, r.edgebandingRate);
   add("Benchtop blank joins", bt.blankJoins, "join", r.benchtopBlankJoinMin, r.assemblyRate);
   {
-    const cutout = (sink, cooktop, tapHole) => ({
-      minutes: Math.max(0, sink) * r.benchtopSinkCutoutMin + Math.max(0, cooktop) * r.benchtopCooktopCutoutMin + Math.max(0, tapHole) * r.benchtopTapHoleMin,
-      count: Math.max(0, sink) + Math.max(0, cooktop) + Math.max(0, tapHole)
+    const cutout = (sink, sinkUndermount, cooktop, tapHole) => ({
+      minutes: Math.max(0, sink) * r.benchtopSinkCutoutMin + Math.max(0, sinkUndermount) * r.benchtopUndermountSinkCutoutMin + Math.max(0, cooktop) * r.benchtopCooktopCutoutMin + Math.max(0, tapHole) * r.benchtopTapHoleMin,
+      count: Math.max(0, sink) + Math.max(0, sinkUndermount) + Math.max(0, cooktop) + Math.max(0, tapHole)
     });
-    const solid = cutout(bt.sink, bt.cooktop, bt.tapHole);
+    const solid = cutout(bt.sink, bt.sinkUndermount, bt.cooktop, bt.tapHole);
     if (solid.minutes > 0) {
       add("Benchtop cut-outs", solid.minutes, "min", 1, r.machiningRate);
       lines[lines.length - 1].units = round2(solid.count);
       lines[lines.length - 1].unitLabel = "cut-out";
     }
-    const blank = cutout(bt.blankSink, bt.blankCooktop, bt.blankTapHole);
+    const blank = cutout(bt.blankSink, bt.blankSinkUndermount, bt.blankCooktop, bt.blankTapHole);
     if (blank.minutes > 0) {
       add("Benchtop blank cut-outs", blank.minutes, "min", 1, r.assemblyRate);
       lines[lines.length - 1].units = round2(blank.count);
       lines[lines.length - 1].unitLabel = "cut-out";
     }
   }
+  const splitJoins = priced.reduce((s, c) => s + (c.splitParts ?? []).reduce((t, x) => t + Math.max(0, x.joins), 0), 0);
+  add("Part joins (split over-long parts)", splitJoins, "join", r.partJoinMin, r.assemblyRate);
+  add("Kick facing lamination", Math.max(0, opts.kickFacingSqm ?? 0), "m2", r.kickFacingBondMinPerSqm, r.assemblyRate);
   if (assembles) {
     add("Robe opening assembly set-up", rbOpenings, "opening", r.robeOpeningSetupMin, r.assemblyRate);
     add("Robe leaf assembly", Math.max(0, rb.leaves), "leaf", r.robeLeafAssemblyMin, r.assemblyRate);
@@ -2006,6 +2127,28 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   }
   const itemName = catalogItemName ?? cabinet.definitionId ?? "";
   const flatCut = config.flatBoard ? flatBoardCutSize(itemName, size) : null;
+  const family = carcaseFamily(partRequirements);
+  const kickMm = itemKickMm(cabinet, config, family, globalDims, `${itemName} ${cabinet.definitionId ?? ""}`);
+  {
+    const jobKick = (typeof cabinet.toeKickHeight === "number" && Number.isFinite(cabinet.toeKickHeight) ? cabinet.toeKickHeight : globalDims.toeKickHeight) ?? 0;
+    if (kickMm === 0 && jobKick > 0 && (family === "base" || family === "tall") && !config.facesOnly && !config.flatBoard && !config.toeKick && (cabinet.y ?? 0) <= 1 && cabinet.height > jobKick + 300) {
+      warnings.push(
+        `${cabLabel}: "${itemName}" ${mmTxt(cabinet.width)} x ${mmTxt(cabinet.height)} - BowerOS cannot tell whether this ${family} carcase stands on the floor. Its name says none of base / tall / pantry / broom / linen / vanity / sink / tower / appliance / oven / larder / utility / cupboard, and a schedule carries no Z. It is priced standing on NO kick, cut the full ${mmTxt(cabinet.height)}; on the floor Microvellum would cut it ${mmTxt(cabinet.height - jobKick)}. Send kickMm on the row to settle it either way.`
+      );
+    }
+  }
+  const layout = frontLayout(itemName, config, family);
+  const hasFronts = partRequirements.some((p) => p.partType === "Door" || /^drawer front$/i.test(p.partType));
+  const fronted = config.numDoors > 0 && !config.facesOnly && !config.flatBoard;
+  if (fronted && config.isCorner && !config.isBlind) {
+    warnings.push(`${cabLabel}: "${itemName}" is a corner cabinet - its door board is an estimate (${config.numDoors} door${config.numDoors === 1 ? "" : "s"} across the full ${cabinet.width} width). Microvellum sizes corner doors from the arm depths, which the schedule does not carry.`);
+  }
+  if (fronted && config.isBlind && !blindWidthOf(cabinet)) {
+    warnings.push(`${cabLabel}: "${itemName}" is a blind corner - its door board is an estimate (${config.numDoors} door${config.numDoors === 1 ? "" : "s"} over ${cabinet.width} - ${cabinet.depth}, the width less its depth). Microvellum sizes them over the width less its Blind_Corner_Width - send blindCornerWidthMm to price them exactly.`);
+  }
+  if (layout.kind === "unmodelled" && hasFronts) {
+    warnings.push(`${cabLabel}: "${itemName}" - its drawer layout is not modelled, so its fronts are an estimate: ${config.numDoors > 0 ? "doors sized to the full carcase height and " : ""}each drawer front sized by the catalogue "Drawer Front" row. Check the front board against Microvellum.`);
+  }
   if (config.flatBoard === "shape" && flatCut) {
     warnings.push(`${cabLabel}: "${itemName}" is ${cabinet.width} x ${cabinet.height} x ${cabinet.depth} - one board thick, priced as a single ${flatCut.length} x ${flatCut.width} panel, not a cabinet`);
   }
@@ -2031,7 +2174,8 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
       warnings.push(`${m.name}${m.brand ? ` (${m.brand})` : ""}: no price captured \u2014 quote understates`);
     }
   }
-  const parts = calculatePartDimensions(
+  const ladder = config.ladderKick ? buildLadderKick(cabinet, pricingData, cabLabel, itemName, carcaseMaterialId, warnings) : null;
+  let parts = ladder ? ladder.parts : calculatePartDimensions(
     partRequirements,
     cabinet,
     globalDims,
@@ -2039,14 +2183,36 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     pricingData.parts,
     carcaseMaterialId,
     exteriorMaterialId,
-    flatCut
+    flatCut,
+    kickMm,
+    family,
+    layout,
+    isRangehoodWithFacia(itemName, family) ? rangehoodFaciaOf(cabinet) : 0
   );
-  const sheets = calculateSheetRequirements(parts, pricingData.materials);
-  const kickMm = globalDims.toeKickHeight ?? 0;
+  const boardKickMm = globalDims.toeKickHeight ?? 0;
   const lowerName = itemName.toLowerCase();
   const wallHung = (cabinet.y ?? 0) > 1 || lowerName.startsWith("wall") || lowerName.includes("upper");
-  if (kickMm > 0 && cabinet.height > kickMm && !wallHung && !config.facesOnly && !config.toeKick) {
-    const lessKick = (mm3) => Math.abs(mm3 - cabinet.height) < 0.5 ? mm3 - kickMm : mm3;
+  const kickShortens = Boolean(config.flatBoard) && boardKickMm > 0 && cabinet.height > boardKickMm && !wallHung;
+  const fitsOnceKickIsOff = (p) => {
+    if (!kickShortens) return false;
+    const lessKick = (mm3) => Math.abs(mm3 - cabinet.height) < 0.5 ? mm3 - boardKickMm : mm3;
+    return partFitsSheetFor(lessKick(p.length), lessKick(p.width), p.materialId, pricingData.materials);
+  };
+  const splitParts = [];
+  parts = parts.flatMap((p) => {
+    if (fitsOnceKickIsOff(p)) return [p];
+    const out = splitOversizeParts([p], pricingData.materials);
+    splitParts.push(...out.splits);
+    return out.parts;
+  });
+  for (const s of splitParts) {
+    warnings.push(
+      `${cabLabel}: "${s.name}" ${mmTxt(s.originalLength)} x ${mmTxt(s.originalWidth)} mm does not fit ${s.materialName}${s.sheetSizeAssumed ? " (no sheet size in the catalogue - the 2400 x 1200 default was assumed)" : ""}, a ${Math.max(s.sheetLength, s.sheetWidth)} x ${Math.min(s.sheetLength, s.sheetWidth)} mm sheet (${Math.max(s.sheetLength, s.sheetWidth) - SHEET_TRIM_MM} x ${Math.min(s.sheetLength, s.sheetWidth) - SHEET_TRIM_MM} mm usable), even turned 90 degrees. It is PRICED, cut as ${s.pieces} x ${mmTxt(s.pieceLength)} x ${mmTxt(s.pieceWidth)} mm and NEEDS ${s.joins === 1 ? "A JOIN" : `${s.joins} JOINS`} - the board costs the same (the area is unchanged), the join labour and the extra part do not. The join edges are left bare. A longer sheet in the same decor avoids the join if the catalogue has one.`
+    );
+  }
+  const sheets = calculateSheetRequirements(parts, pricingData.materials);
+  if (kickShortens) {
+    const lessKick = (mm3) => Math.abs(mm3 - cabinet.height) < 0.5 ? mm3 - boardKickMm : mm3;
     for (const sh of sheets) {
       if (!sh.oversizeParts) continue;
       const stillOversize = sh.oversizeParts.filter((p) => !partFitsSheet(lessKick(p.length), lessKick(p.width), sh.sheetLength, sh.sheetWidth));
@@ -2074,7 +2240,7 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
   const labor = calculateLaborCost(config, cabinet.width, isTall, laborRates, isFlatPanel);
   const buildHours = calculateBuildHours(sheets, edgeTape, config, isTall, cabinet.definitionId);
   const subtotals = {
-    materials: sheets.reduce((s, sh) => s + sh.totalMaterialCost, 0),
+    materials: sheets.reduce((s, sh) => s + sh.totalMaterialCost, 0) + (ladder?.build.facing?.cost ?? 0),
     edging: edgeTape.reduce((s, e) => s + e.totalCost, 0),
     hardware: hardware.reduce((s, h) => s + h.totalCost, 0),
     handling: parts.reduce((s, p) => s + p.handlingCost * p.quantity, 0),
@@ -2097,11 +2263,218 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     totalCost,
     buildHours,
     warnings,
-    itemKind: config.facesOnly ? "fronts" : config.flatBoard ? "board" : "cabinet"
+    itemKind: config.facesOnly ? "fronts" : config.flatBoard ? "board" : "cabinet",
+    ...splitParts.length ? { splitParts } : {},
+    ...ladder ? { ladderKick: ladder.build } : {}
   };
 }
 var TOE_KICK_BASE_RE = /toe\s*kick\s*base/i;
+var LADDER_PLY_THICKNESS_MM = 15;
+var LADDER_FINISHED_END_MM = 0.4;
+var ladderSubBackInsetMm = (kickHeightMm) => kickHeightMm >= 120 ? 30 : 46;
+var LADDER_SLEEPER_END_MM = 15.4;
+var LADDER_INNER_END_MM = 30.4;
+var LADDER_CLEAT_WIDTH_MM = 75;
+var LADDER_SLEEPER_PITCH_MM = 600;
+var LADDER_CLEAT_PITCH_MM = 2400;
+var LADDER_INNER_HEIGHT_FRACTION = 2 / 3;
+var KICK_FACING_WASTE = 0.15;
+var KICK_FACING_LAMINATE_MAX_MM = 3;
+var r3 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
+function ladderKickCutList(size, exposedEnds, productName = "") {
+  const W = Math.max(0, size.width);
+  const H = Math.max(0, size.height);
+  const D = Math.max(0, size.depth);
+  const sides = Math.min(2, Math.max(0, Math.round(exposedEnds)));
+  const innerH = r3(H * LADDER_INNER_HEIGHT_FRACTION);
+  const subFrontL = r3(W - LADDER_FINISHED_END_MM * sides);
+  const sleeperL = r3(D - LADDER_SLEEPER_END_MM);
+  const innerL = r3(D - LADDER_INNER_END_MM);
+  const parts = [];
+  const push = (name2, length, width, material, quantity = 1) => {
+    if (length > 0 && width > 0 && quantity > 0) parts.push({ name: name2, length: r3(length), width: r3(width), quantity, material });
+  };
+  push("Sub Front", subFrontL, H, "ply");
+  push("Sub Back", subFrontL - ladderSubBackInsetMm(H), innerH, "ply");
+  push("Sleeper Left", sleeperL, H, "ply");
+  push("Sleeper Right", sleeperL, H, "ply");
+  if (innerL > 0) {
+    const sleepers = Math.max(0, Math.ceil(W / LADDER_SLEEPER_PITCH_MM - 1e-9) - 1);
+    for (let i = 1; i <= sleepers; i++) push(`Sleeper ${i}`, innerL, innerH, "ply");
+    const cleats = 2 + Math.floor(W / LADDER_CLEAT_PITCH_MM + 1e-9);
+    push("Cleat Left", innerL, LADDER_CLEAT_WIDTH_MM, "ply");
+    push("Cleat Right", innerL, LADDER_CLEAT_WIDTH_MM, "ply");
+    for (let i = 3; i <= cleats; i++) push(`Cleat ${i}`, innerL, LADDER_CLEAT_WIDTH_MM, "ply");
+  }
+  push("Finished Front", W, H, "facing");
+  if (sides > 0) push("Finished Side", D, H, "facing", sides);
+  const name = (productName || "").toLowerCase();
+  const variant = /angled/.test(name) ? "angled ends - Microvellum cuts the Sub Front and Finished Front to the ANGLED length, the Sub Back to the full width at full height, and the sleepers beside the angle 85 wide. This cut list is the square ladder for the same W x H x D." : /notch/.test(name) ? "notched - Microvellum cuts a Notched Sleeper and a Notched Sub Back round the short arm. This cut list is the square ladder for the same W x H x D." : innerL <= 0 ? `only ${D} mm deep - no cleats and no intermediate sleepers fit, which matches Microvellum, but its Sub Back on a kick this shallow is inset 46 mm where a ${H} mm kick is otherwise inset ${ladderSubBackInsetMm(H)}.` : void 0;
+  return variant ? { parts, variant } : { parts };
+}
+var mmTxt = (n) => Number.isInteger(n) ? String(n) : (Math.round(n * 10) / 10).toFixed(1);
+function partFitsSheetFor(length, width, materialId, materials) {
+  const exact = materials.find((m) => m.id === materialId || m.item_code === materialId);
+  const material = exact ?? pickFallbackMaterial(materials);
+  const sheetLength = material?.sheet_length ?? 2400;
+  const sheetWidth = material?.sheet_width ?? 1200;
+  return partFitsSheet(length, width, sheetLength, sheetWidth);
+}
+function isPlywoodRow(m) {
+  return /plywood/i.test(`${m.name ?? ""} ${m.substrate ?? ""} ${m.material_type ?? ""}`) && (m.thickness ?? 0) >= 12 && (m.thickness ?? 0) <= 19;
+}
+function pickKickPlyMaterial(materials) {
+  const ply = materials.filter((m) => (m.area_cost ?? 0) > 0 && isPlywoodRow(m));
+  return ply.sort((a, b) => Math.abs((a.thickness ?? 0) - LADDER_PLY_THICKNESS_MM) - Math.abs((b.thickness ?? 0) - LADDER_PLY_THICKNESS_MM) || (a.area_cost ?? 0) - (b.area_cost ?? 0))[0];
+}
+function buildLadderKick(cabinet, pricingData, cabLabel, itemName, carcaseMaterialId, warnings) {
+  const size = { width: cabinet.width, height: cabinet.height, depth: cabinet.depth };
+  const sentEnds = cabinet.kickExposedEnds;
+  const exposedEndsSent = typeof sentEnds === "number" && Number.isFinite(sentEnds) && sentEnds >= 0;
+  const exposedEnds = exposedEndsSent ? Math.min(2, Math.round(sentEnds)) : 0;
+  const { parts: cutList, variant } = ladderKickCutList(size, exposedEnds, itemName);
+  const askedPly = cabinet.kickPlyMaterialId;
+  const plyExact = askedPly ? pricingData.materials.find((m) => m.id === askedPly || m.item_code === askedPly) ?? pricingData.materials.find((m) => m.id === resolveMaterialId(askedPly, pricingData.materials)) : void 0;
+  const rowBoard = pricingData.materials.find((m) => m.id === carcaseMaterialId);
+  const rowBoardIsPly = rowBoard ? isPlywoodRow(rowBoard) : false;
+  const plyFallback = rowBoardIsPly ? rowBoard : pickKickPlyMaterial(pricingData.materials);
+  const ply = plyExact ?? plyFallback ?? rowBoard;
+  if (askedPly && !plyExact) {
+    warnings.push(`${cabLabel}: kick ply "${askedPly}" is not a material_pricing id or item_code - the ladder is priced on ${ply?.name ?? "no priced board"} instead`);
+  } else if (!askedPly && rowBoardIsPly) {
+  } else if (!askedPly && plyFallback) {
+    warnings.push(`${cabLabel}: no kickPlyMaterialId sent and the row's own board is not plywood - the ladder is priced on ${plyFallback.name} (${plyFallback.item_code}), the cheapest 12-19 mm plywood in the catalogue at $${(plyFallback.area_cost ?? 0).toFixed(2)}/m2. Send the ply Bower actually buys.`);
+  } else if (!askedPly && !plyFallback) {
+    warnings.push(`${cabLabel}: no kickPlyMaterialId sent and the catalogue holds no plywood row - the ladder is priced on ${rowBoard?.name ?? "the carcase board"}, which is not what a kick is built from.`);
+  }
+  const plyRow = pricingData.parts.find((p) => p.name === "Kick Frame Length") ?? pricingData.parts.find((p) => p.name === "Kick Frame Ladder");
+  const parts = cutList.filter((c) => c.material === "ply").map((c) => {
+    const area = c.length * c.width / 1e6;
+    return {
+      name: c.name,
+      partType: "Kick Frame",
+      length: c.length,
+      width: c.width,
+      area,
+      thickness: LADDER_PLY_THICKNESS_MM,
+      materialId: ply?.id ?? carcaseMaterialId,
+      materialRole: "carcase",
+      // Microvellum tapes NO edge on any ladder part: EdgeNameTop/Bottom/Left/Right are blank on all 15 kicks.
+      edging: { len1: false, wid1: false, len2: false, wid2: false },
+      quantity: c.quantity,
+      handlingCost: (plyRow?.handling_cost ?? 0) + area * (plyRow?.area_handling_cost ?? 0),
+      machiningCost: (plyRow?.machining_cost ?? 0) + area * (plyRow?.area_machining_cost ?? 0),
+      assemblyCost: (plyRow?.assembly_cost ?? 0) + area * (plyRow?.area_assembly_cost ?? 0)
+    };
+  });
+  const faceParts = cutList.filter((c) => c.material === "facing");
+  const areaSqm = r3(faceParts.reduce((s, c) => s + c.length * c.width * c.quantity / 1e6, 0));
+  const askedFace = cabinet.kickFacingMaterialId;
+  const faceMat = askedFace ? pricingData.materials.find((m) => m.id === askedFace || m.item_code === askedFace) ?? pricingData.materials.find((m) => m.id === resolveMaterialId(askedFace, pricingData.materials)) : void 0;
+  let facing = null;
+  if (!askedFace) {
+    warnings.push(`${cabLabel}: no kickFacingMaterialId sent - the kick is priced as BARE PLY and no facing laminate is charged (${areaSqm.toFixed(3)} m2 of face). Send the kick laminate (e.g. POLY6428 Kickboard Laminate Brushed Stainless) to have it priced.`);
+  } else if (!faceMat) {
+    warnings.push(`${cabLabel}: kick facing "${askedFace}" is not a material_pricing id or item_code - the kick is priced as BARE PLY and no facing laminate is charged.`);
+  } else if (!((faceMat.area_cost ?? 0) > 0)) {
+    warnings.push(`${cabLabel}: kick facing ${faceMat.name} (${faceMat.item_code}) has no captured price - the kick is priced as BARE PLY.`);
+  } else {
+    const chargedSqm = r3(areaSqm * (1 + KICK_FACING_WASTE));
+    const thicknessMm = Number(faceMat.thickness ?? 0);
+    facing = {
+      materialId: faceMat.id,
+      materialName: faceMat.name,
+      itemCode: faceMat.item_code ?? null,
+      thicknessMm,
+      areaSqm,
+      wastePct: KICK_FACING_WASTE,
+      chargedSqm,
+      areaCost: faceMat.area_cost ?? 0,
+      cost: roundMoney(chargedSqm * (faceMat.area_cost ?? 0)),
+      bonded: thicknessMm > 0 && thicknessMm <= KICK_FACING_LAMINATE_MAX_MM
+    };
+    const sheetLong = Math.max(Number(faceMat.sheet_length ?? 0), Number(faceMat.sheet_width ?? 0));
+    const tooLong = sheetLong > 0 ? faceParts.filter((c) => c.length > sheetLong - SHEET_TRIM_MM) : [];
+    for (const c of tooLong) {
+      warnings.push(`${cabLabel}: the ${mmTxt(c.length)} mm "${c.name}" kick face will not come off ${faceMat.name} in one piece (${sheetLong} mm stock) - it needs a join in the facing.`);
+    }
+  }
+  if (variant) {
+    warnings.push(`${cabLabel}: "${itemName}" ${mmTxt(cabinet.width)} x ${mmTxt(cabinet.height)} x ${mmTxt(cabinet.depth)} is a ${variant} Check the cut list against the work order.`);
+  }
+  if (!exposedEndsSent) {
+    warnings.push(`${cabLabel}: no kickExposedEnds sent - the kick is priced with NO returned end, so no "Finished Side" is cut or faced. Microvellum returns the face on 11 of the 15 kicks in Bower's work orders, worth about a quarter of the finished face metres.`);
+  }
+  return {
+    parts,
+    build: {
+      width: cabinet.width,
+      height: cabinet.height,
+      depth: cabinet.depth,
+      exposedEnds,
+      exposedEndsSent,
+      cutList,
+      plySqm: r3(parts.reduce((s, p) => s + p.area * p.quantity, 0)),
+      plyMaterialId: ply?.id ?? carcaseMaterialId,
+      plyMaterialName: ply?.name ?? "Unresolved Material",
+      plyFromSelection: Boolean(plyExact),
+      facing,
+      ...variant ? { variant } : {}
+    }
+  };
+}
 var EXTERIOR_PART = /door|drawer front|false front|appliance panel|end panel|fascia/i;
+var FRONT_EDGE_REVEAL_MM = 1;
+var BASE_FRONT_TOP_REVEAL_MM = 2;
+var BLIND_CORNER_SIDE_REVEALS_MM = 3;
+var TOP_DRAWER_FRONT_HEIGHT_MM = 180;
+var RANGEHOOD_FACIA_HEIGHT_MM = 40;
+var ALL_EDGES = { len1: true, wid1: true, len2: true, wid2: true };
+var TOP_DRAWER_NAME_RE = /^base (?:[12] doors? |open )([12]) drawers?(?: blind corner)?(?: (?:left|right))?$/;
+var NOT_A_DRAWER_BANK_RE = /\bopen\b|microwave|\bov(?:en)?\b|appliance|dishwasher|with top drawer|\bbays?\b|with drawers|false front|spacer|corner/;
+var normalName = (s) => (s || "").toLowerCase().replace(/[_\-/]+/g, " ").replace(/\s+/g, " ").trim();
+function blindWidthOf(cabinet) {
+  const b = cabinet.blindCornerWidth;
+  return typeof b === "number" && Number.isFinite(b) && b > 0 && b < cabinet.width ? b : 0;
+}
+function isRangehoodWithFacia(name, family) {
+  return family === "upper" && /^upper rangehood cabinet\b/.test(normalName(name));
+}
+function rangehoodFaciaOf(cabinet) {
+  const f = cabinet.rangehoodFaciaHeight;
+  return typeof f === "number" && Number.isFinite(f) && f >= 0 ? f : RANGEHOOD_FACIA_HEIGHT_MM;
+}
+function frontLayout(name, config, family) {
+  const numDrawers = config.numDrawers ?? 0;
+  if (numDrawers <= 0 || config.facesOnly || config.flatBoard) return { kind: "none" };
+  const s = normalName(name);
+  const top = TOP_DRAWER_NAME_RE.exec(s);
+  if (top && family === "base" && Number(top[1]) === numDrawers) return { kind: "topDrawer", faces: numDrawers };
+  if ((config.numDoors ?? 0) > 0) return /\binner\b/.test(s) ? { kind: "inner" } : { kind: "unmodelled" };
+  return NOT_A_DRAWER_BANK_RE.test(s) ? { kind: "unmodelled" } : { kind: "bank" };
+}
+function carcaseFamily(parts) {
+  for (const p of parts) {
+    if (/^(?:ls\s+)?(?:upper|wall)\b/i.test(p.partType)) return "upper";
+    if (/^(?:ls\s+)?tall\b/i.test(p.partType)) return "tall";
+    if (/^(?:ls\s+)?base\b/i.test(p.partType)) return "base";
+  }
+  return null;
+}
+var FLOOR_CABINET_NAME_RE = /\b(?:base|tall|pantry|broom|linen|vanity|sink|tower|appliance|oven|larder|utility|cupboard|robe|bookcase|dresser)\b/;
+var OFF_FLOOR_NAME_RE = /^(?:wall|upper)\b|\bupper\b|\b(?:suspended|floating)\b|\bwall\s?hung\b/;
+function itemKickMm(cabinet, config, family, globalDims, name) {
+  if (config.facesOnly || config.flatBoard || config.toeKick) return 0;
+  if (family !== "base" && family !== "tall") return 0;
+  if ((cabinet.y ?? 0) > 1) return 0;
+  const s = (name || "").toLowerCase().replace(/[_\-/]+/g, " ").trim();
+  if (OFF_FLOOR_NAME_RE.test(s)) return 0;
+  if (!FLOOR_CABINET_NAME_RE.test(s) && !(cabinet.layoutRole && KICKABLE_ROLE.has(cabinet.layoutRole))) return 0;
+  const own = cabinet.toeKickHeight;
+  const kick = typeof own === "number" && Number.isFinite(own) ? own : globalDims.toeKickHeight ?? 0;
+  if (!(kick > 0) || cabinet.height <= kick) return 0;
+  return kick;
+}
 function materialLookupTokens(value) {
   return String(value ?? "").normalize("NFKD").toLowerCase().replace(/carcass/g, "carcase").replace(/\b(?:available|unavailable|sheet|board)\b/g, " ").replace(/(\d+(?:\.\d+)?)\s*mm\b/g, "$1").replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter((token) => token.length > 1);
 }
@@ -2138,9 +2511,10 @@ function resolveMaterialId(selection, materials) {
   const minimumIntersection = selectedTokens.length <= 3 ? 2 : 3;
   return best && best.intersection >= minimumIntersection && best.coverage >= 0.4 ? best.material.id : void 0;
 }
-function calculatePartDimensions(partRequirements, cabinet, globalDims, config, partsPricing, carcaseMaterialId, exteriorMaterialId, flatCut = null) {
+function calculatePartDimensions(partRequirements, cabinet, globalDims, config, partsPricing, carcaseMaterialId, exteriorMaterialId, flatCut = null, kickMm = 0, family = null, layout = { kind: "none" }, doorBottomReveal = 0) {
+  const carcaseHeight = cabinet.height - kickMm;
   const vars = createFormulaVariables(
-    { width: cabinet.width, height: cabinet.height, depth: cabinet.depth },
+    { width: cabinet.width, height: carcaseHeight, depth: cabinet.depth },
     globalDims,
     {
       numDoors: config.numDoors,
@@ -2153,23 +2527,32 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
     }
   );
   const parts = [];
+  const frontTopReveal = family === "base" ? BASE_FRONT_TOP_REVEAL_MM : 0;
+  const numDoors = config.numDoors ?? 0;
   const numDrawers = config.numDrawers ?? 0;
-  const drawerOpening = Math.max(0, cabinet.height - (cabinet.height > 600 ? globalDims.toeKickHeight : 0));
-  const drawerFaces = numDrawers > 0 ? distributeDrawerHeights(numDrawers, drawerOpening, cabinet.drawerFrontHeights) : [];
-  const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength, fallbackWidth, exact) => {
-    const pricing = partsPricing.find((p) => p.part_type === req.partType || p.name === req.partType);
+  const faceStack = Math.max(0, carcaseHeight - frontTopReveal - (globalDims.drawerGap ?? 0) * Math.max(0, numDrawers - 1));
+  const drawerFaces = numDrawers <= 0 ? [] : layout.kind === "topDrawer" ? Array.from({ length: numDrawers }, () => TOP_DRAWER_FRONT_HEIGHT_MM) : distributeDrawerHeights(numDrawers, faceStack, cabinet.drawerFrontHeights);
+  const sizedFaces = layout.kind === "bank" || layout.kind === "topDrawer";
+  const blindWidth = config.isBlind ? blindWidthOf(cabinet) : 0;
+  const frontSpan = config.isBlind ? cabinet.width - (blindWidth || cabinet.depth) : cabinet.width;
+  const sideReveals = config.isBlind ? BLIND_CORNER_SIDE_REVEALS_MM : 2 * FRONT_EDGE_REVEAL_MM;
+  const frontsEstimated = config.isCorner && !config.isBlind || config.isBlind && !blindWidth;
+  const drawerFaceRow = partsPricing.find((p) => p.name === "Drawer");
+  const pushPart = (req, partVars, nameSuffix = "", quantity = req.quantity, fallbackLength, fallbackWidth, exact, opts = {}) => {
+    const pricing = opts.row ?? partsPricing.find((p) => p.part_type === req.partType || p.name === req.partType);
     const isExterior = Boolean(config.flatBoard) || EXTERIOR_PART.test(`${pricing?.name ?? req.partType} ${req.partType}`);
     const lengthFn = pricing?.length_function ?? null;
     const widthFn = pricing?.width_function ?? null;
-    const fromLengthFn = exact ? 0 : parseFormula(lengthFn, partVars);
-    const fromWidthFn = exact ? 0 : parseFormula(widthFn, partVars);
+    const varsFor = (fn) => kickMm > 0 && fn && /\bToeKickHeight\b/.test(fn) ? { ...partVars, CabHeight: cabinet.height, ToeKickHeight: kickMm } : partVars;
+    const fromLengthFn = exact ? 0 : parseFormula(lengthFn, varsFor(lengthFn));
+    const fromWidthFn = exact ? 0 : parseFormula(widthFn, varsFor(widthFn));
     const length = exact ? exact.length : fromLengthFn || (fallbackLength ?? cabinet.height);
     const width = exact ? exact.width : fromWidthFn || (fallbackWidth ?? cabinet.depth);
     const area = length * width / 1e6;
     const needsMissingArm = (fn) => Boolean(fn) && (/CabRightWidth/.test(fn) && cabinet.secondWidth == null || /CabRightDepth/.test(fn) && cabinet.rightCarcaseDepth == null);
-    const sizePlaceholder = !exact && (!fromLengthFn && fallbackLength === void 0 || !fromWidthFn && fallbackWidth === void 0 || needsMissingArm(lengthFn) || needsMissingArm(widthFn));
+    const sizePlaceholder = !exact && (!fromLengthFn && (fallbackLength === void 0 || Boolean(opts.estimate)) || !fromWidthFn && (fallbackWidth === void 0 || Boolean(opts.estimate)) || needsMissingArm(lengthFn) || needsMissingArm(widthFn));
     parts.push({
-      name: (pricing?.name ?? req.partType) + nameSuffix,
+      name: (opts.row ? req.partType : pricing?.name ?? req.partType) + nameSuffix,
       partType: req.partType,
       length,
       width,
@@ -2177,7 +2560,7 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
       thickness: 16,
       materialId: isExterior ? exteriorMaterialId : carcaseMaterialId,
       materialRole: isExterior ? "exterior" : "carcase",
-      edging: parseEdgingSpec(pricing?.edging ?? null),
+      edging: opts.edging ?? parseEdgingSpec(pricing?.edging ?? null),
       quantity,
       handlingCost: (pricing?.handling_cost ?? 0) + area * (pricing?.area_handling_cost ?? 0),
       machiningCost: (pricing?.machining_cost ?? 0) + area * (pricing?.area_machining_cost ?? 0),
@@ -2202,6 +2585,39 @@ function calculatePartDimensions(partRequirements, cabinet, globalDims, config, 
     if (config.flatBoard) {
       if (flatCut) pushPart(req, vars, "", req.quantity, flatCut.length, flatCut.width, flatCut);
       else pushPart(req, vars, "", req.quantity, cabinet.height, cabinet.width);
+      continue;
+    }
+    if (req.partType === "Door") {
+      const n = Math.max(1, numDoors);
+      const underTopDrawer = layout.kind === "topDrawer" ? TOP_DRAWER_FRONT_HEIGHT_MM + (globalDims.drawerGap ?? 0) : 0;
+      const doorHeight = carcaseHeight - frontTopReveal - underTopDrawer - doorBottomReveal;
+      const doorWidth = (frontSpan - sideReveals - (globalDims.doorGap ?? 0) * (n - 1)) / n;
+      const sized = doorHeight > 0 && doorWidth > 0;
+      pushPart(
+        req,
+        vars,
+        "",
+        req.quantity,
+        sized ? doorHeight : void 0,
+        sized ? doorWidth : void 0,
+        void 0,
+        { estimate: frontsEstimated || layout.kind === "unmodelled" }
+      );
+      continue;
+    }
+    if (sizedFaces && /^drawer front$/i.test(req.partType) && drawerFaces.length === numDrawers) {
+      const perDrawer = Math.max(1, Math.round(req.quantity / numDrawers));
+      const faceWidth = layout.kind === "topDrawer" ? (frontSpan - sideReveals - (globalDims.doorGap ?? 0) * (numDrawers - 1)) / numDrawers : cabinet.width - 2 * FRONT_EDGE_REVEAL_MM;
+      const estimate = layout.kind === "topDrawer" && frontsEstimated;
+      drawerFaces.forEach((faceH, i) => {
+        const suffix = numDrawers > 1 ? ` (D${i + 1})` : "";
+        if (drawerFaceRow) {
+          const perVars = { ...vars, DrawerFrontHeight: faceH, DrawerHeight: drawerBoxHeightFromFace(faceH) };
+          pushPart(req, perVars, suffix, perDrawer, faceWidth, faceH, void 0, { row: drawerFaceRow, estimate });
+        } else {
+          pushPart(req, vars, suffix, perDrawer, void 0, void 0, { length: faceWidth, width: faceH }, { edging: ALL_EDGES });
+        }
+      });
       continue;
     }
     const isDrawerPart = /^drawer/i.test(req.partType);
@@ -2265,6 +2681,7 @@ function carriesKickFace(item) {
   if (isRobeDoorProduct(item.definitionId ?? "") || isRobeDoorProduct(item.productName ?? "")) return false;
   if (item.itemType === "Cabinet" && boardThinAxis(item)) return false;
   if ((item.y ?? 0) > 1) return false;
+  if (item.toeKickHeight === 0) return false;
   if (item.layoutRole === "dishwasher") return true;
   if (item.itemType !== "Cabinet") return false;
   if (item.layoutRole && KICKABLE_ROLE.has(item.layoutRole)) return true;
@@ -2353,8 +2770,10 @@ function oversizePartWarnings(cabinets) {
         sheetLength: sh.sheetLength,
         sheetWidth: sh.sheetWidth,
         assumed: sh.oversizeParts[0].sheetSizeAssumed,
+        faces: false,
         products: /* @__PURE__ */ new Map()
       };
+      if (sh.oversizeParts.some((p) => p.unjoinableFace)) mat.faces = true;
       byMaterial.set(sh.materialId, mat);
       const productKey = `${cab.cabinetName}|${size}`;
       const product = mat.products.get(productKey) ?? { name: cab.cabinetName, size, numbers: [], units: 0, parts: /* @__PURE__ */ new Map() };
@@ -2379,7 +2798,7 @@ function oversizePartWarnings(cabinets) {
       return `${pr.units} x "${pr.name}" ${pr.size}${nums ? ` (${nums})` : ""} - ${parts.join(", ")}`;
     });
     const many = products.length > 1 || products.some((pr) => pr.parts.size > 1 || pr.units > 1);
-    return `Part too big for its board: ${m.materialName} is a ${sheetLong} x ${sheetShort} mm sheet${m.assumed ? " (no sheet size in the catalogue - the 2400 x 1200 default was assumed)" : ""} - ${sheetLong - SHEET_TRIM_MM} x ${sheetShort - SHEET_TRIM_MM} mm usable once ${SHEET_TRIM_MM} mm is trimmed off its length and width - and BowerOS's calculated size for ${many ? "these parts" : "this part"} will not fit on one sheet even turned 90 degrees (grain direction is not modelled, so rotation is allowed): ${entries.join("; ")}. The board is still priced by area as if ${many ? "they fit" : "it fits"}. Price a longer sheet (e.g. 3600 x 1800) or a join, or correct the product size if it is wrong.`;
+    return `Part too big for its board: ${m.materialName} is a ${sheetLong} x ${sheetShort} mm sheet${m.assumed ? " (no sheet size in the catalogue - the 2400 x 1200 default was assumed)" : ""} - ${sheetLong - SHEET_TRIM_MM} x ${sheetShort - SHEET_TRIM_MM} mm usable once ${SHEET_TRIM_MM} mm is trimmed off its length and width - and BowerOS's calculated size for ${many ? "these parts" : "this part"} will not fit on one sheet even turned 90 degrees (grain direction is not modelled, so rotation is allowed): ${entries.join("; ")}.` + (m.faces ? ` A DOOR or DRAWER FRONT is never split: a front cannot be butt-joined across its face and sold as a front (the same reason an over-long robe leaf is a hard stop). The board is still priced by area as if ${many ? "they fit" : "it fits"}, but the job NEEDS a longer sheet in the same decor (e.g. 3600 x 1800) - or the front has to be split into two stacked fronts, which is a design change, not a join.` : ` ${many ? "They" : "It"} could NOT be split into pieces that fit, so the board is still priced by area as if ${many ? "they fit" : "it fits"}. Price a longer sheet (e.g. 3600 x 1800), or correct the product size if it is wrong.`);
   });
 }
 function stockPiecesForKickCuts(allocations) {
@@ -2395,6 +2814,7 @@ function stockPiecesForKickCuts(allocations) {
 }
 function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, commercial = {}, pricingSelection = {}) {
   const cabinets = items.filter((i) => i.itemType === "Cabinet").map((cab) => generateCabinetBOM(cab, globalDims, hardwareOptions, pricingData, cab.productName));
+  const jobLevelWarnings = [];
   const supplyMode = commercial.supplyMode ?? "assembled_installed";
   if (supplyMode !== "none") {
     const shopFitsHardware = supplyMode === "assembled" || supplyMode === "assembled_installed";
@@ -2415,26 +2835,65 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
   const hasExplicitKicks = items.some(
     (i) => i.itemType === "Cabinet" && /kick/i.test(i.definitionId ?? "") && !/ladder/i.test(i.definitionId ?? "")
   );
+  const standsOnLadderBases = items.some(
+    (i) => i.itemType === "Cabinet" && TOE_KICK_BASE_RE.test(`${i.definitionId ?? ""} ${i.productName ?? ""}`)
+  );
+  const legCabinets = [];
   {
     const cabinetItems = items.filter((i) => i.itemType === "Cabinet");
-    const standsOnLadderBases = cabinetItems.some((i) => TOE_KICK_BASE_RE.test(`${i.definitionId ?? ""} ${i.productName ?? ""}`));
     cabinets.forEach((cab, idx) => {
       const item = cabinetItems[idx];
-      if (!item || !standsOnLadderBases && carriesKickFace(item)) return;
       const legs = cab.hardware.filter((h) => h.hardwareType === "leg");
+      if (item && !standsOnLadderBases && carriesKickFace(item)) {
+        if (legs.length) {
+          const quantity = legs.reduce((s, h) => s + (h.quantity ?? 0), 0);
+          legCabinets.push(cab);
+          cab.legs = {
+            perCabinet: quantity,
+            quantity,
+            unitCost: legs[0].unitCost,
+            cost: legs.reduce((s, h) => s + h.totalCost, 0),
+            itemCode: legs[0].itemCode,
+            name: legs[0].name
+          };
+        }
+        return;
+      }
       if (!legs.length) return;
       const cost2 = legs.reduce((s, h) => s + h.totalCost, 0);
       cab.hardware = cab.hardware.filter((h) => h.hardwareType !== "leg");
       cab.subtotals.hardware -= cost2;
       cab.totalCost -= cost2;
     });
+    if (legCabinets.length) {
+      const per = legCabinets[0].legs.perCabinet;
+      const total2 = legCabinets.reduce((s, c) => s + (c.legs?.quantity ?? 0), 0);
+      jobLevelWarnings.push(
+        `Adjustable legs: ${per} per cabinet on ${legCabinets.length} floor cabinet${legCabinets.length === 1 ? "" : "s"} = ${total2} x ${legCabinets[0].legs.name} at $${legCabinets[0].legs.unitCost.toFixed(2)} each (Ben, 21 Sep 2026: four legs a cabinet). Wall units and floating shelves carry none; a job on Toe Kick Base ladder bases carries none at all.`
+      );
+    }
   }
   const consolidatedSheets = consolidateSheetRequirements(cabinets.map((c) => c.sheets));
   const consolidatedEdgeTape = consolidateEdgeTape(cabinets.map((c) => c.edgeTape));
   const consolidatedHardware = consolidateHardware(cabinets.map((c) => c.hardware));
-  const jobLevelWarnings = [];
   jobLevelWarnings.push(...oversizePartWarnings(cabinets));
-  const kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks ? [] : calculateKickboardRuns(items, globalDims);
+  {
+    const ladders = cabinets.filter((c) => c.ladderKick);
+    if (ladders.length) {
+      const faceSqmOf = (c) => (c.ladderKick?.cutList ?? []).filter((x) => x.material === "facing").reduce((s, x) => s + x.length * x.width * x.quantity / 1e6, 0);
+      const plySqm = ladders.reduce((s, c) => s + (c.ladderKick?.plySqm ?? 0), 0);
+      const partCount = ladders.reduce((s, c) => s + (c.ladderKick?.cutList.length ?? 0), 0);
+      const faced = ladders.filter((c) => c.ladderKick?.facing);
+      const bare = ladders.filter((c) => !c.ladderKick?.facing);
+      const facedSqm = faced.reduce((s, c) => s + (c.ladderKick?.facing?.areaSqm ?? 0), 0);
+      const bareSqm = bare.reduce((s, c) => s + faceSqmOf(c), 0);
+      const faceCost = faced.reduce((s, c) => s + (c.ladderKick?.facing?.cost ?? 0), 0);
+      jobLevelWarnings.push(
+        `Ladder kicks: ${ladders.length} Toe Kick Base priced as a ply ladder cut list (${partCount} parts, ${plySqm.toFixed(3)} m2 of ${ladders[0].ladderKick.plyMaterialName} bought as WHOLE boards).` + (faced.length ? ` Face: ${facedSqm.toFixed(3)} m2 of ${faced[0].ladderKick.facing.materialName} charged by the AREA USED + ${Math.round(KICK_FACING_WASTE * 100)}% waste = $${faceCost.toFixed(2)} - never a whole sheet (Ben, 16 Sep 2026).` : "") + (bare.length ? ` ${bare.length} kick${bare.length === 1 ? " is" : "s are"} priced as BARE PLY with no facing laminate - ${bareSqm.toFixed(3)} m2 of face is NOT charged.` : "") + ` The cut list is the SQUARE ladder for each kick's W x H x D. A NOTCHED kick is not visible in a schedule row at all (Forest Glen's 1226 cuts a Notched Sleeper and a Notched Sub Back round a short arm), and an angled one is only visible in its name - check those against the work order.`
+      );
+    }
+  }
+  let kickboards = hardwareOptions.adjustableLegs === false || hasExplicitKicks ? [] : calculateKickboardRuns(items, globalDims);
   {
     const reconciledRates = /* @__PURE__ */ new Map();
     for (const cs of consolidatedSheets) {
@@ -2443,7 +2902,7 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       }
     }
     for (const cab of cabinets) {
-      let reconciledMaterials = 0;
+      let reconciledMaterials = cab.ladderKick?.facing?.cost ?? 0;
       for (const sh of cab.sheets) {
         const rate = reconciledRates.get(sh.materialId) ?? (sh.areaCostPerSqm ?? 0);
         const reconciledCost = sh.totalPartArea * rate;
@@ -2469,46 +2928,156 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       cab.subtotals.edging = reconciledEdging;
     }
   }
-  if (hardwareOptions.adjustableLegs !== false) {
-    const KICK_STOCK_MM = 2400;
+  {
+    const byMaterial = /* @__PURE__ */ new Map();
+    for (const cab of cabinets) {
+      const f = cab.ladderKick?.facing;
+      if (!f) continue;
+      const mat = pricingData.materials.find((m) => m.id === f.materialId);
+      const hit = byMaterial.get(f.materialId) ?? {
+        name: f.materialName,
+        itemCode: f.itemCode,
+        rate: f.areaCost,
+        areaSqm: 0,
+        chargedSqm: 0,
+        cost: 0,
+        sheetLength: Number(mat?.sheet_length ?? 0),
+        sheetWidth: Number(mat?.sheet_width ?? 0)
+      };
+      hit.areaSqm += f.areaSqm;
+      hit.chargedSqm += f.chargedSqm;
+      hit.cost += f.cost;
+      byMaterial.set(f.materialId, hit);
+    }
+    for (const [materialId, f] of byMaterial) {
+      consolidatedSheets.push({
+        materialId,
+        materialName: `${f.name} (Kick facing - by area used + ${Math.round(KICK_FACING_WASTE * 100)}% waste, NOT whole sheets)`,
+        materialRole: "exterior",
+        sheetWidth: f.sheetWidth,
+        sheetLength: f.sheetLength,
+        sheetArea: f.chargedSqm,
+        // no whole sheet is bought for a kick facing - this is the flag that says so
+        sheetsRequired: 0,
+        totalPartArea: r3(f.areaSqm),
+        wasteArea: r3(f.chargedSqm - f.areaSqm),
+        yieldFactor: 1 / (1 + KICK_FACING_WASTE),
+        chargeableArea: r3(f.chargedSqm),
+        areaCostPerSqm: f.rate,
+        totalMaterialCost: roundMoney(f.cost)
+      });
+    }
+  }
+  const kickFaceCabinets = [];
+  if (hardwareOptions.adjustableLegs !== false && !hasExplicitKicks && !standsOnLadderBases) {
     const kickHeightMm = globalDims.toeKickHeight || 135;
-    const totalKickMm = kickboards.reduce((sum, run) => sum + run.runLengthMm, 0);
-    if (totalKickMm > 0) {
-      const pieces = stockPiecesForKickCuts(kickboards);
-      const firstCab = items.find((i) => i.itemType === "Cabinet");
-      const resolvedKickMaterialId = resolveMaterialId(firstCab?.carcaseMaterialId, pricingData.materials);
-      const kickMat = pricingData.materials.find((m) => m.id === resolvedKickMaterialId) ?? pricingData.materials.find((m) => (m.area_cost ?? 0) > 0) ?? pricingData.materials[0];
-      if (firstCab?.carcaseMaterialId && !resolvedKickMaterialId) {
+    const cabinetItems = items.filter((i) => i.itemType === "Cabinet");
+    const onKick = cabinetItems.map((item, idx) => ({ item, cab: cabinets[idx] })).filter(({ item, cab }) => item && cab && carriesKickFace(item) && cab.parts.length > 0);
+    const spanOf = (i) => Math.max(0, i.width + (i.fillerLeft ?? 0) + (i.fillerRight ?? 0));
+    const endsOf = (i) => Math.min(2, Math.max(0, Math.round(i.kickExposedEnds ?? 0)));
+    const axisOf = (i) => {
+      const rot = (Math.round((i.rotation ?? 0) / 90) * 90 % 360 + 360) % 360;
+      return { rot, centre: rot === 0 || rot === 180 ? i.x : i.z };
+    };
+    const adjacentMm = /* @__PURE__ */ new Map();
+    if (onKick.length) {
+      for (const gap of items.filter((i) => i.itemType !== "Cabinet" && carriesKickFace(i))) {
+        const g = axisOf(gap);
+        const nearest = onKick.map((x) => ({ x, a: axisOf(x.item) })).sort((p, q) => Number(q.a.rot === g.rot) - Number(p.a.rot === g.rot) || Math.abs(p.a.centre - g.centre) - Math.abs(q.a.centre - g.centre))[0];
+        adjacentMm.set(nearest.x.cab, (adjacentMm.get(nearest.x.cab) ?? 0) + spanOf(gap));
+      }
+    }
+    const metresOf = (x) => (spanOf(x.item) + x.item.depth * endsOf(x.item) + (adjacentMm.get(x.cab) ?? 0)) / 1e3;
+    const totalMetres = onKick.reduce((s, x) => s + metresOf(x), 0);
+    if (totalMetres > 0) {
+      const firstAsked = onKick.find(({ item }) => item.kickFacingMaterialId)?.item.kickFacingMaterialId;
+      const unresolved = /* @__PURE__ */ new Set();
+      const faceMaterialFor = (item) => {
+        const asked = item.kickFacingMaterialId ?? firstAsked;
+        const askedMat = asked ? pricingData.materials.find((m) => m.id === asked || m.item_code === asked) ?? pricingData.materials.find((m) => m.id === resolveMaterialId(asked, pricingData.materials)) : void 0;
+        if (asked && !askedMat) unresolved.add(asked);
+        return askedMat ?? pricingData.materials.find((m) => m.id === resolveMaterialId(item.carcaseMaterialId, pricingData.materials)) ?? pricingData.materials.find((m) => (m.area_cost ?? 0) > 0) ?? pricingData.materials[0];
+      };
+      const groups = /* @__PURE__ */ new Map();
+      for (const x of onKick) {
+        const metresLm = metresOf(x);
+        if (metresLm <= 0) continue;
+        const mat = faceMaterialFor(x.item);
+        if (!mat) continue;
+        const group = groups.get(mat.id) ?? { mat, rows: [] };
+        group.rows.push({ item: x.item, cab: x.cab, metresLm });
+        groups.set(mat.id, group);
+      }
+      for (const id of unresolved) {
         jobLevelWarnings.push(
-          `Kick material "${firstCab.carcaseMaterialId}" has no catalogue match \u2014 using ${kickMat?.name ?? "an unpriced fallback"}`
+          `Kick face board "${id}" is not a material_pricing id or item_code - the cabinets that asked for it are priced on their own carcase board instead.`
         );
       }
-      if (kickMat) {
-        const areaPer = KICK_STOCK_MM / 1e3 * (kickHeightMm / 1e3);
-        const rate = kickMat.area_cost ?? 0;
-        const kickCost = pieces * areaPer * rate;
-        const kickCabinetIds = new Set(items.filter((i) => i.itemType === "Cabinet" && carriesKickFace(i)).map((i) => i.instanceId));
-        const onKick = cabinets.filter((c) => kickCabinetIds.has(c.cabinetId) && c.parts.length > 0);
-        const kickWidth = onKick.reduce((s, c) => s + Math.max(0, c.dimensions.width), 0);
-        for (const c of onKick) {
-          const share = kickWidth > 0 ? kickCost * (Math.max(0, c.dimensions.width) / kickWidth) : kickCost / onKick.length;
-          c.subtotals.materials += share;
-          c.totalCost += share;
-        }
-        consolidatedSheets.push({
-          materialId: kickMat.id,
-          materialName: `${kickMat.name} (Kick Panels)`,
-          materialRole: "carcase",
-          sheetWidth: kickHeightMm,
-          sheetLength: KICK_STOCK_MM,
-          sheetArea: areaPer,
-          sheetsRequired: pieces,
-          totalPartArea: pieces * areaPer,
-          wasteArea: 0,
-          yieldFactor: 1,
-          areaCostPerSqm: rate,
-          totalMaterialCost: pieces * areaPer * rate
+      if (!firstAsked) {
+        jobLevelWarnings.push(
+          `No kickFacingMaterialId sent for a job on adjustable legs - ${totalMetres.toFixed(3)} lm of kick face is priced on each cabinet's own carcase board. Send the kick board Bower buys (a pre-faced panel such as POLY10679 Brushed Stainless Kickboard 3600 x 1200, or the 3600 x 150 strip POLY12745), or the laminate if the kick is faced in the shop.`
+        );
+      }
+      let orderStockMm = 0;
+      for (const group of groups.values()) {
+        const rate = group.mat.area_cost ?? 0;
+        const sheetL = Number(group.mat.sheet_length ?? 0);
+        const sheetW = Number(group.mat.sheet_width ?? 0);
+        const longMm = Math.max(sheetL, sheetW) > 0 ? Math.max(sheetL, sheetW) : 2400;
+        const shortMm = Math.min(sheetL, sheetW) > 0 ? Math.min(sheetL, sheetW) : 1200;
+        const isStrip = shortMm < 2 * kickHeightMm;
+        const chargedWidthMm = isStrip ? shortMm : kickHeightMm;
+        const ratePerM = chargedWidthMm / 1e3 * rate;
+        const groupMetres = group.rows.reduce((s, r) => s + r.metresLm, 0);
+        const metresPerPiece = longMm / 1e3;
+        const piecesBought = Math.max(1, Math.ceil(groupMetres / metresPerPiece - 1e-9));
+        const pieceAreaSqm = metresPerPiece * (chargedWidthMm / 1e3);
+        const boughtSqm = piecesBought * pieceAreaSqm;
+        const usedSqm = groupMetres * (chargedWidthMm / 1e3);
+        const jobCost = roundMoney(boughtSqm * rate);
+        orderStockMm = Math.max(orderStockMm, longMm);
+        let spent = 0;
+        group.rows.forEach((r, i) => {
+          const cost2 = i === group.rows.length - 1 ? roundMoney(jobCost - spent) : roundMoney(jobCost * r.metresLm / groupMetres);
+          spent = roundMoney(spent + cost2);
+          const adjacent = Math.round(adjacentMm.get(r.cab) ?? 0);
+          r.cab.kickFace = {
+            metresLm: r3(r.metresLm),
+            exposedEnds: endsOf(r.item),
+            ...adjacent > 0 ? { adjacentSpanMm: adjacent } : {},
+            chargedWidthMm,
+            materialId: group.mat.id,
+            materialName: group.mat.name,
+            ratePerM: roundMoney(ratePerM),
+            cost: cost2
+          };
+          r.cab.subtotals.materials += cost2;
+          r.cab.totalCost += cost2;
+          kickFaceCabinets.push(r.cab);
         });
+        consolidatedSheets.push({
+          materialId: group.mat.id,
+          materialName: `${group.mat.name} (Kick face board - ${groupMetres.toFixed(3)} lm at ${chargedWidthMm} mm high, bought whole as ${piecesBought} x ${longMm} mm stock length${piecesBought === 1 ? "" : "s"})`,
+          materialRole: "exterior",
+          sheetWidth: chargedWidthMm,
+          sheetLength: longMm,
+          sheetArea: r3(pieceAreaSqm),
+          sheetsRequired: piecesBought,
+          totalPartArea: r3(usedSqm),
+          wasteArea: r3(Math.max(0, boughtSqm - usedSqm)),
+          yieldFactor: 1,
+          chargeableArea: r3(boughtSqm),
+          areaCostPerSqm: rate,
+          totalMaterialCost: jobCost
+        });
+      }
+      if (orderStockMm > 0) {
+        kickboards = calculateKickboardRuns(items, globalDims, orderStockMm);
+        if (kickboards.length) {
+          jobLevelWarnings.push(
+            `Kick face ordering: ${totalMetres.toFixed(3)} lm charged across ${kickFaceCabinets.length} cabinet${kickFaceCabinets.length === 1 ? "" : "s"} comes off ${stockPiecesForKickCuts(kickboards)} x ${orderStockMm} mm stock length(s) in ${kickboards.length} run(s). The metres are what each cabinet's line says; the whole stock is what the job is charged and what is ordered.`
+          );
+        }
       }
     }
   }
@@ -2541,7 +3110,9 @@ function generateQuoteBOM(items, globalDims, hardwareOptions, pricingData, comme
       extraInstallProducts: kickboards.length + benchtops.reduce((s, b) => s + (b.sheetsRequired ?? 1), 0),
       // kick runs are boards: carried, not loaded like a cabinet, and not box-assembled
       extraLooseItems: kickboards.length,
-      jobMinimums: commercial.jobMinimums ?? false
+      jobMinimums: commercial.jobMinimums ?? false,
+      // Only a thin facing LAMINATE is bonded in the shop; a pre-faced kickboard panel is bought finished.
+      kickFacingSqm: cabinets.reduce((s, c) => s + (c.ladderKick?.facing?.bonded ? c.ladderKick.facing.areaSqm : 0), 0)
     });
     laborTotal = workshop.shopCost;
     for (const cab of cabinets) {
@@ -2838,8 +3409,11 @@ function sliderScLeafMassKg(m) {
 // src/lib/pricing/robeSliderDoors.ts
 var ROBE_NEST_SPACING_MM = 10;
 var ROBE_DAMPERS_PER_LEAF = 2;
+var GLASSTECH_MIRROR_ITEM_CODE = "GT-MIR-4SVB";
+var glassMeasureSqm = (widthMm, heightMm) => Math.round(widthMm * heightMm / 1e6 * 1e4) / 1e4;
 var money2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-var r3 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
+var r32 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
+var r4 = (n) => Math.round((n + Number.EPSILON) * 1e4) / 1e4;
 var fin2 = (n) => typeof n === "number" && Number.isFinite(n);
 var toNum = (v) => {
   const n = typeof v === "string" ? Number(v) : v;
@@ -3007,6 +3581,7 @@ function priceRobeOpenings(rows, opts) {
     let leafMassKg = NaN;
     let edgeAlloc = null;
     let mirrorBuildUp = null;
+    let mirror = null;
     if (spec && geometry && geometry.blocks.length === 0) {
       const { w: panelW, h: panelH } = geometry.panelCut;
       const panels = spec.leaves * qty;
@@ -3091,6 +3666,24 @@ function priceRobeOpenings(rows, opts) {
         if (spec.infillMaterialId) {
           warnings2.push(`${input.name}: robe.infillMaterialId is for board infill and is ignored on a mirror opening`);
         }
+        const mirrorKey = String(opts.mirrorMaterialId ?? GLASSTECH_MIRROR_ITEM_CODE).trim();
+        const g = opts.materials.find((m) => m.id === mirrorKey) ?? opts.materials.find((m) => String(m.item_code ?? "") === mirrorKey);
+        if (g && pos(g.area_cost) > 0) {
+          const measurePerPanelSqm = glassMeasureSqm(panelW, panelH);
+          const measureSqm = r4(measurePerPanelSqm * panels);
+          mirror = {
+            materialId: g.id,
+            itemCode: String(g.item_code ?? mirrorKey),
+            name: g.name,
+            thicknessMm: pos(g.thickness),
+            panels,
+            panelCut: { w: panelW, h: panelH },
+            measurePerPanelSqm,
+            measureSqm,
+            rate: g.area_cost,
+            cost: money2(measureSqm * g.area_cost)
+          };
+        }
       }
     }
     if (reasons.length || !spec || !geometry || !kit) {
@@ -3109,6 +3702,7 @@ function priceRobeOpenings(rows, opts) {
       edgeAlloc,
       leafMassKg,
       mirrorBuildUp,
+      mirror,
       warnings: warnings2
     });
   }
@@ -3156,7 +3750,7 @@ function priceRobeOpenings(rows, opts) {
         panels: p.panels,
         fitOk: true,
         sheets: sheetCount,
-        sheetsShare: r3(sheetCount * share),
+        sheetsShare: r32(sheetCount * share),
         cost: rowCost
       });
     });
@@ -3170,9 +3764,9 @@ function priceRobeOpenings(rows, opts) {
       areaCost: m.area_cost,
       rows: group.map((p) => p.input.index),
       panels: group.reduce((s, p) => s + p.panels, 0),
-      panelAreaSqm: r3(totalArea),
+      panelAreaSqm: r32(totalArea),
       sheets: sheetCount,
-      chargedSqm: r3(sheetCount * sheetSqm),
+      chargedSqm: r32(sheetCount * sheetSqm),
       cost
     });
   }
@@ -3199,15 +3793,15 @@ function priceRobeOpenings(rows, opts) {
       const a = p.edgeAlloc;
       const rowCost = gi === group.length - 1 ? money2(cost - assigned) : money2(a.applicationCost + a.handlingCost + (metres > 0 ? material * (a.linearMeters / metres) : 0));
       assigned = money2(assigned + rowCost);
-      edgeByRow.set(p, { edgeType, name: a.edgeName, metres: r3(a.linearMeters), cost: rowCost, fallbackPrice: Boolean(a.isFallbackPrice) });
+      edgeByRow.set(p, { edgeType, name: a.edgeName, metres: r32(a.linearMeters), cost: rowCost, fallbackPrice: Boolean(a.isFallbackPrice) });
     });
     edges.push({
       edgeType,
       name: t.edgeName,
       thickness: t.thickness,
       costPerMeter: t.costPerMeter,
-      metres: r3(metres),
-      jobMetres: r3(jobMetres),
+      metres: r32(metres),
+      jobMetres: r32(jobMetres),
       boughtMetres,
       applicationCost: money2(applicationCost),
       handlingCost: money2(handlingCost),
@@ -3224,7 +3818,7 @@ function priceRobeOpenings(rows, opts) {
     const { w: panelW, h: panelH } = g.panelCut;
     const edgeT = isBoard && p.edgeAlloc && pos(p.edgeAlloc.thickness) > 0 ? pos(p.edgeAlloc.thickness) : 0;
     const panelFinished = { w: panelW, h: panelH };
-    const panelSaw = { w: r3(panelW - 2 * edgeT), h: r3(panelH - 2 * edgeT) };
+    const panelSaw = { w: r32(panelW - 2 * edgeT), h: r32(panelH - 2 * edgeT) };
     const edgeMetres = edge ? edge.metres : 0;
     const inKit = SLIDER_SC_KIT_DAMPERS * p.qty;
     const neededPerOpening = p.spec.softCloseAllLeaves ? ROBE_DAMPERS_PER_LEAF * p.spec.leaves : SLIDER_SC_KIT_DAMPERS;
@@ -3236,7 +3830,7 @@ function priceRobeOpenings(rows, opts) {
       openings: p.qty,
       leaves: p.panels,
       boardParts: isBoard ? p.panels : 0,
-      cutLm: isBoard ? r3(p.panels * (2 * (panelW + panelH)) / 1e3) : 0,
+      cutLm: isBoard ? r32(p.panels * (2 * (panelW + panelH)) / 1e3) : 0,
       boughtParts: isBoard ? 0 : p.panels,
       edgeLm: isBoard ? edgeMetres : 0,
       largeLooseParts: large ? p.panels : 0,
@@ -3251,6 +3845,7 @@ function priceRobeOpenings(rows, opts) {
     const kitCost = p.kit.cost;
     const boardCost = board?.cost ?? 0;
     const edgeCost = edge?.cost ?? 0;
+    const mirrorCost = p.mirror?.cost ?? 0;
     const unpricedItems = [];
     const loud = [];
     const info = [];
@@ -3262,9 +3857,18 @@ function priceRobeOpenings(rows, opts) {
     if (p.kit.unconfirmed) {
       loud.push(`KIT PRICE UNCONFIRMED: ${n} - ${p.kit.item_code} ${p.kit.name} at ${fmt(p.kit.price)} is ${p.kit.priceBasis}. The GST basis of that Net price is not confirmed; the article is on the Hafele trade-price capture list and the captured ex GST buy price replaces it automatically.`);
     }
-    if (!isBoard) {
+    if (!isBoard && !p.mirror) {
       unpricedItems.push(`${n}: mirror glass ${p.panels} x ${mm2(panelW)} x ${mm2(panelH)} mm - NOT PRICED`);
-      loud.push(`MIRROR NOT PRICED: ${n} needs ${p.panels} mirror panel(s) ${mm2(panelW)} x ${mm2(panelH)} mm. Mirror is charged as a whole sheet as bought, but no mirror sheet size, price or supplier is in the catalogue, so this line EXCLUDES the mirror (and any backer) - price it by hand before the quote goes out. Everything else on the opening is priced.`);
+      loud.push(`MIRROR NOT PRICED: ${n} needs ${p.panels} mirror panel(s) ${mm2(panelW)} x ${mm2(panelH)} mm. Mirror is cut to size and charged on the measured area (Glasstech proforma 180617, 1 Sep 2026: $90.21/m2 ex GST), but no mirror glass row is in the catalogue under item_code "${opts.mirrorMaterialId ?? GLASSTECH_MIRROR_ITEM_CODE}", so this line EXCLUDES the mirror (and any backer) - price it by hand before the quote goes out. Everything else on the opening is priced. Do NOT resolve mirror by name: the catalogue's only "mirror" row is a decorative laminate at three times the price.`);
+    }
+    if (!isBoard && p.mirror) {
+      const g2 = p.mirror;
+      info.push(
+        `${n}: mirror glass ${g2.panels} x ${mm2(g2.panelCut.w)} x ${mm2(g2.panelCut.h)} mm CUT TO SIZE - measure ${g2.measurePerPanelSqm.toFixed(4)} m2 each, ${g2.measureSqm.toFixed(4)} m2 at ${fmt(g2.rate)}/m2 ex GST = ${fmt(g2.cost)} (${g2.name}, ${g2.itemCode}). Charged on the measured cut area, NOT as a whole sheet - the two standing exceptions to the whole-board rule are this and the toe-kick facing. The BACKER behind the glass is still not priced.`
+      );
+      unpricedItems.push(`${n}: mirror backer board behind ${g2.panels} x ${mm2(g2.panelCut.w)} x ${mm2(g2.panelCut.h)} mm of glass - NOT PRICED`);
+    }
+    if (!isBoard) {
       const bu = p.mirrorBuildUp;
       const buText = bu ? `${bu.totalMm} mm build-up${bu.sent ? "" : " (none sent - 16 mm assumed)"}, taken as ${bu.glassMm} mm glass + ${bu.backerMm} mm backer (the split is an ASSUMPTION)` : "4 mm glass + 12 mm backer";
       info.push(`${n}: Hafele does not specify a mirror infill for the Slider SC (build pack USR-01: supplier approval required). Ben's app estimates ${p.leafMassKg.toFixed(1)} kg a leaf for ${buText} - ${p.leafMassKg >= SLIDER_SC_MAX_LEAF_KG ? "OVER" : "under"} the 50 kg per door limit; the build-up is unconfirmed, so weigh it before production.`);
@@ -3290,13 +3894,20 @@ function priceRobeOpenings(rows, opts) {
       edge,
       edgeMetres,
       dampers: { inKit, needed, extra, priced: false },
-      mirror: { required: !isBoard, priced: false, panels: isBoard ? 0 : p.panels, panelCut: isBoard ? null : { w: panelW, h: panelH } },
-      leafMassKg: r3(p.leafMassKg),
+      mirror: {
+        required: !isBoard,
+        priced: Boolean(p.mirror),
+        panels: isBoard ? 0 : p.panels,
+        panelCut: isBoard ? null : { w: panelW, h: panelH },
+        ...p.mirror ? { use: p.mirror } : {}
+      },
+      leafMassKg: r32(p.leafMassKg),
       fabrication,
       kitCost,
       boardCost,
       edgeCost,
-      materialCost: money2(kitCost + boardCost + edgeCost),
+      mirrorCost,
+      materialCost: money2(kitCost + boardCost + edgeCost + mirrorCost),
       minutes,
       unpricedItems,
       warnings: rowWarnings
@@ -3325,6 +3936,7 @@ function priceRobeOpenings(rows, opts) {
     sheets,
     edges,
     kits: [...kitLines.values()],
+    mirrors: out.map((r) => r.mirror.use).filter((m) => Boolean(m)),
     fabrication: sumRobeFabrication(out.map((r) => r.fabrication)),
     edgeApplicationPriced: edges.some((e) => e.applicationPriced),
     warnings
@@ -3364,10 +3976,10 @@ var ADHESIVE_STRIP_M_PER_CARTRIDGE = 2.5;
 var MAX_STACKED_LAYERS = 3;
 var DEFAULT_STRIP_WIDTH_MM = 50;
 var money3 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-var r32 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
+var r33 = (n) => Math.round((n + Number.EPSILON) * 1e3) / 1e3;
 var pos2 = (n) => typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 function blankPrice(blanks, sheet) {
-  const lm = r32(blanks * (sheet.sheet_length / 1e3));
+  const lm = r33(blanks * (sheet.sheet_length / 1e3));
   const areaSqm = sheet.sheet_length / 1e3 * (sheet.sheet_width / 1e3);
   return {
     unit: "lm",
@@ -3445,6 +4057,7 @@ function prepareRow(row, sheet, defaultThickness) {
   const c = row.benchtopCutouts ?? {};
   const cutouts = {
     sink: Math.max(0, Math.round(c.sink ?? 0)) * qty,
+    sinkUndermount: Math.max(0, Math.round(c.sinkUndermount ?? 0)) * qty,
     cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty
   };
@@ -3565,6 +4178,7 @@ function prepareBlankRow(row, sheet, trimMm) {
   const c = row.benchtopCutouts ?? {};
   const cutouts = {
     sink: Math.max(0, Math.round(c.sink ?? 0)) * qty,
+    sinkUndermount: Math.max(0, Math.round(c.sinkUndermount ?? 0)) * qty,
     cooktop: Math.max(0, Math.round(c.cooktop ?? 0)) * qty,
     tapHole: Math.max(0, Math.round(c.tapHole ?? 0)) * qty
   };
@@ -3668,7 +4282,7 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       const jobBlanks = Math.max(1, packBlankLengths(allSegments, sheet.sheet_length));
       const price = blankPrice(jobBlanks, sheet);
       const materialCost2 = price.cost;
-      const basis = `${sheet.name} (${sheet.item_code}): a pre-made blank is bought by the lineal metre of its ${sheet.sheet_width} mm stock width - ${jobBlanks} x ${r32(sheet.sheet_length / 1e3)} m at $${sheet.area_cost.toFixed(2)}/lm = ${fmtMoney(price.cost)}. material_pricing labels that rate "per m2"; read that way the same blanks would be ${fmtMoney(price.asArea)}. Check the blank rate against the supplier price list.`;
+      const basis = `${sheet.name} (${sheet.item_code}): a pre-made blank is bought by the lineal metre of its ${sheet.sheet_width} mm stock width - ${jobBlanks} x ${r33(sheet.sheet_length / 1e3)} m at $${sheet.area_cost.toFixed(2)}/lm = ${fmtMoney(price.cost)}. material_pricing labels that rate "per m2"; read that way the same blanks would be ${fmtMoney(price.asArea)}. Check the blank rate against the supplier price list.`;
       for (const p of group) p.warnings.push(basis);
       const totalLen = group.reduce((s, p) => s + p.segments.reduce((a, b) => a + b, 0), 0);
       let assignedBlank = 0;
@@ -3678,7 +4292,7 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
         assignedBlank = money3(assignedBlank + cost);
         rowMaterial.set(p, {
           materialCost: cost,
-          sheetsShare: r32(jobBlanks * share),
+          sheetsShare: r33(jobBlanks * share),
           jobSheets: jobBlanks,
           parts: p.segments.length,
           sharedBy: group.length
@@ -3691,8 +4305,8 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
         chargedUnits: price.units,
         unitCost: price.unitCost,
         rows: group.map((p) => p.input.index),
-        sheetAreaSqm: r32(sheetAreaSqm),
-        layeredAreaSqm: r32(group.reduce((s, p) => s + p.areaSqm, 0)),
+        sheetAreaSqm: r33(sheetAreaSqm),
+        layeredAreaSqm: r33(group.reduce((s, p) => s + p.areaSqm, 0)),
         wasteFactor: 0,
         packedSheets: jobBlanks,
         areaSheets: 0,
@@ -3733,17 +4347,17 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       const share = layeredAreaSqm > 0 ? (p.areaSqm + p.stripSqm) / layeredAreaSqm : 1 / group.length;
       const cost = gi === group.length - 1 ? money3(materialCost - assigned) : money3(materialCost * share);
       assigned = money3(assigned + cost);
-      rowMaterial.set(p, { materialCost: cost, sheetsShare: r32(jobSheets * share), jobSheets, parts: partsByRow[gi], sharedBy: group.length });
+      rowMaterial.set(p, { materialCost: cost, sheetsShare: r33(jobSheets * share), jobSheets, parts: partsByRow[gi], sharedBy: group.length });
     });
     sheets.push({
       sheet,
       kind: "laminated",
       priceUnit: "m2",
-      chargedUnits: r32(jobSheets * sheetAreaSqm),
+      chargedUnits: r33(jobSheets * sheetAreaSqm),
       unitCost: sheet.area_cost,
       rows: group.map((p) => p.input.index),
-      sheetAreaSqm: r32(sheetAreaSqm),
-      layeredAreaSqm: r32(layeredAreaSqm),
+      sheetAreaSqm: r33(sheetAreaSqm),
+      layeredAreaSqm: r33(layeredAreaSqm),
       wasteFactor,
       packedSheets,
       areaSheets,
@@ -3764,9 +4378,10 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       // a cut-out in a 38 mm laminate blank is bench work (jigsaw and router), not the
       // $250/h solid-surface CNC the fabricated tops pay for
       blankSink: p.cutouts.sink,
+      blankSinkUndermount: p.cutouts.sinkUndermount,
       blankCooktop: p.cutouts.cooktop,
       blankTapHole: p.cutouts.tapHole,
-      benchtopLm: r32(p.benchtopLm),
+      benchtopLm: r33(p.benchtopLm),
       products: p.qty,
       blankCuts: p.cuts,
       endEdges: p.exposedEnds,
@@ -3776,23 +4391,24 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
     } : {
       ...EMPTY_BENCHTOP_FABRICATION,
       parts: mat.parts,
-      cutLm: r32(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
-      laminateSqm: r32(laminateSqm),
-      buildUpLm: r32(buildUpLm),
-      mitreLm: p.buildUp === "mitred" ? r32(p.builtUpEdgeLm) : 0,
-      substrateSqm: r32(p.substrateSqm),
+      cutLm: r33(p.edgeLm + p.builtUpEdgeLm * Math.max(0, p.layers - 1)),
+      laminateSqm: r33(laminateSqm),
+      buildUpLm: r33(buildUpLm),
+      mitreLm: p.buildUp === "mitred" ? r33(p.builtUpEdgeLm) : 0,
+      substrateSqm: r33(p.substrateSqm),
       joins,
-      polishSqm: r32(p.areaSqm),
-      edgePolishLm: r32(p.edgeLm),
+      polishSqm: r33(p.areaSqm),
+      edgePolishLm: r33(p.edgeLm),
       sink: p.cutouts.sink,
+      sinkUndermount: p.cutouts.sinkUndermount,
       cooktop: p.cutouts.cooktop,
       tapHole: p.cutouts.tapHole,
-      benchtopLm: r32(p.benchtopLm),
+      benchtopLm: r33(p.benchtopLm),
       products: p.qty
     };
     const sharedBy = mat.sharedBy;
     const rowWarnings = [
-      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut, end and join minutes are Ben's own (5 / 15 / 30 min), cut-out minutes are not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r32(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
+      isBlank ? `${p.input.name}: priced as ${mat.jobSheets} x ${p.sheet.sheet_length} x ${p.sheet.sheet_width} ${p.sheet.thickness} mm ${p.sheet.name} pre-made laminate blank(s) - whole blanks as bought by the lineal metre, one layer, cut to length (${p.cuts} cut(s), ${p.exposedEnds} edged end(s)); no lamination, build-up or polishing. Blank shared by ${sharedBy} benchtop row(s); cut, end and join minutes are Ben's own (5 / 15 / 30 min), cut-out minutes are not yet calibrated` : `${p.input.name}: priced as ${p.layers} x ${p.sheet.thickness} mm ${p.sheet.name} laminated to ${p.nominalThickness} mm - ${r33(p.areaSqm)} m2 across ${mat.jobSheets} sheet(s) (${p.sheet.sheet_length} x ${p.sheet.sheet_width}) shared by ${sharedBy} benchtop row(s); fabrication minutes are DEFAULT rates, not yet calibrated`,
       ...p.warnings
     ];
     warnings.push(...rowWarnings);
@@ -3809,9 +4425,9 @@ function priceLaminatedBenchtops(rows, materials, opts = {}) {
       layers: p.layers,
       nominalThickness: p.nominalThickness,
       pieces: p.pieces,
-      areaSqm: r32(p.areaSqm),
-      edgeLm: r32(p.edgeLm),
-      benchtopLm: r32(p.benchtopLm),
+      areaSqm: r33(p.areaSqm),
+      edgeLm: r33(p.edgeLm),
+      benchtopLm: r33(p.benchtopLm),
       joins,
       stockJoins: p.stockJoins,
       cutouts: p.cutouts,
@@ -3884,6 +4500,61 @@ function roomOf(item, fallback) {
   const raw = String(item.room ?? "").trim();
   return !raw || /^\(?unnamed\)?$/i.test(raw) ? fallback : raw;
 }
+var TOE_KICK_BASE_ROW_RE = /toe\s*kick\s*base/i;
+function scheduleKickHeights(rows, opts) {
+  const key = (r) => roomOf(r, opts.defaultRoom).toLowerCase();
+  const ownKick = (r) => typeof r.kickMm === "number" && Number.isFinite(r.kickMm) && r.kickMm >= 0 ? r.kickMm : null;
+  const heights = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    if (!TOE_KICK_BASE_ROW_RE.test(r.name ?? "") || !(Number(r.h) > 0)) continue;
+    const byHeight = heights.get(key(r)) ?? /* @__PURE__ */ new Map();
+    byHeight.set(Number(r.h), (byHeight.get(Number(r.h)) ?? 0) + 1);
+    heights.set(key(r), byHeight);
+  }
+  const warnings = [];
+  const roomKick = /* @__PURE__ */ new Map();
+  for (const [room, byHeight] of heights) {
+    const ranked = [...byHeight.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+    roomKick.set(room, ranked[0][0]);
+    if (ranked.length > 1) {
+      warnings.push(`Toe Kick Base rows in "${room}" are ${ranked.map(([h, n]) => `${n} x ${h}`).join(", ")} high - base and tall carcases there are cut for a ${ranked[0][0]} mm kick. Send kickMm on the rows that stand on another height.`);
+    }
+  }
+  const fallback = Number.isFinite(opts.fallbackKickMm) ? Math.max(0, Number(opts.fallbackKickMm)) : 0;
+  const baseRows = rows.map((r, i) => ({ r, i })).filter(({ r }) => BASE_CARCASE_ROW_RE.test(normName(r.name)) && !NOT_A_BASE_CARCASE_RE.test(normName(r.name)) && Number(r.h) > 0 && Number(r.w) > 0);
+  const baseHeight = /* @__PURE__ */ new Map();
+  const unitsByHeight = /* @__PURE__ */ new Map();
+  for (const { r } of baseRows) {
+    const m = unitsByHeight.get(key(r)) ?? /* @__PURE__ */ new Map();
+    m.set(Number(r.h), (m.get(Number(r.h)) ?? 0) + Math.max(1, Math.round(r.qty ?? 1)));
+    unitsByHeight.set(key(r), m);
+  }
+  for (const [room, m] of unitsByHeight) baseHeight.set(room, [...m.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]);
+  const stackedOn = /* @__PURE__ */ new Map();
+  for (const { r, i } of baseRows) {
+    const full = baseHeight.get(key(r));
+    const h = Number(r.h);
+    if (ownKick(r) !== null || full === void 0 || h >= full) continue;
+    const under = baseRows.find(({ r: o, i: j }) => j !== i && key(o) === key(r) && Math.abs(Number(o.w) - Number(r.w)) <= 1 && Number(o.h) > h && Math.abs(Number(o.h) + h - full) <= 1);
+    if (under) stackedOn.set(i, under.r);
+  }
+  const kicks = rows.map((r, i) => {
+    const own = ownKick(r);
+    if (own !== null) return own;
+    const kick = roomKick.get(key(r)) ?? fallback;
+    const under = stackedOn.get(i);
+    if (under && kick > 0) {
+      warnings.push(`"${r.name}" ${r.w} x ${r.h} in "${roomOf(r, opts.defaultRoom)}" is priced standing on the "${under.name}" ${under.w} x ${under.h} below it (${r.h} + ${under.h} = the room's ${baseHeight.get(key(r))} base height), so no kick is taken off it. Send kickMm on the row if it stands on the floor.`);
+      return 0;
+    }
+    return kick;
+  });
+  return { kicks, warnings };
+}
+var finiteMm = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
+var normName = (s) => String(s ?? "").toLowerCase().replace(/[_\-/]+/g, " ").replace(/\s+/g, " ").trim();
+var BASE_CARCASE_ROW_RE = /^base\b/;
+var NOT_A_BASE_CARCASE_RE = /kick|panel|filler|applied|return|scribe|\bend\b|pelmet|faces? only/;
 function mergeStations(a, b) {
   if (b.length === 0) return a;
   const out = a.map((l) => ({ ...l }));
@@ -3910,6 +4581,10 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const robeIndexes = new Set([...robeSpecRows, ...robeRows].map(({ index }) => index));
   const cabinetRows = schedule.filter((r, index) => !robeIndexes.has(index) && !BENCHTOP_RE.test(r.name));
   const benchtopRows = schedule.map((r, index) => ({ r, index })).filter(({ r, index }) => !robeIndexes.has(index) && BENCHTOP_RE.test(r.name));
+  const kick = scheduleKickHeights(cabinetRows, {
+    defaultRoom,
+    fallbackKickMm: selections.adjustableLegs ?? false ? dims.toeKickHeight : 0
+  });
   const items = [];
   const originOf = [];
   cabinetRows.forEach((r, idx) => {
@@ -3929,9 +4604,15 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
         width: r.w,
         height: r.h,
         depth: r.d,
+        toeKickHeight: kick.kicks[idx],
+        ...finiteMm(r.blindCornerWidthMm) ? { blindCornerWidth: Number(r.blindCornerWidthMm) } : {},
+        ...finiteMm(r.rangehoodFaciaMm) || r.rangehoodFaciaMm === 0 ? { rangehoodFaciaHeight: Number(r.rangehoodFaciaMm) } : {},
         carcaseMaterialId: r.carcaseMaterialId ?? selections.carcaseMaterialId,
         exteriorMaterialId: r.exteriorMaterialId ?? selections.exteriorMaterialId,
-        edgeId: r.edgeId ?? selections.edgeId
+        edgeId: r.edgeId ?? selections.edgeId,
+        ...r.kickPlyMaterialId ?? selections.kickPlyMaterialId ? { kickPlyMaterialId: r.kickPlyMaterialId ?? selections.kickPlyMaterialId } : {},
+        ...r.kickFacingMaterialId ?? selections.kickFacingMaterialId ? { kickFacingMaterialId: r.kickFacingMaterialId ?? selections.kickFacingMaterialId } : {},
+        ...finiteMm(r.kickExposedEnds) || r.kickExposedEnds === 0 ? { kickExposedEnds: Number(r.kickExposedEnds) } : {}
       });
     }
   });
@@ -3948,9 +4629,9 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
     adjustableLegs: selections.adjustableLegs ?? false
   };
   const bom = generateQuoteBOM(items, dims, hardwareOptions, pricing, { supplyMode, jobMinimums: commercial.jobMinimums ?? true });
-  const scheduleWarnings = [];
+  const scheduleWarnings = [...kick.warnings];
   if (!hardwareOptions.adjustableLegs && !cabinetRows.some((r) => /kick/i.test(r.name)) && cabinetRows.some((r) => /^(base|tall|pantry|sink|corner|drawer)/i.test(r.name.trim()) && !/panel|filler|applied|scribe|end\b|pelmet|shelf|faces?\s*only/i.test(r.name))) {
-    scheduleWarnings.push("No toe kick in this schedule and no adjustable legs - no kick board or legs are priced. Add the Toe Kick Base rows, or send adjustableLegs: true for a job on legs.");
+    scheduleWarnings.push("No toe kick in this schedule and no adjustable legs - no kick board or legs are priced, and base and tall carcases are cut to their full height (no kick taken off). Add the Toe Kick Base rows, or send adjustableLegs: true for a job on legs.");
   }
   const lineCost = new Array(cabinetRows.length).fill(0);
   const lineSplit = cabinetRows.map(() => ({ material: 0, labor: 0 }));
@@ -4051,7 +4732,8 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       defaultInfillMaterialId: selections.exteriorMaterialId,
       defaultEdgeId: selections.edgeId,
       supplyMode,
-      jobEdgeMetres
+      jobEdgeMetres,
+      mirrorMaterialId: selections.mirrorMaterialId
     }
   );
   const priorLines = [...bom.workshop?.lines ?? [], ...btWorkshop?.lines ?? []];
@@ -4148,6 +4830,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       kitCost: row.kitCost,
       boardCost: row.boardCost,
       edgeCost: row.edgeCost,
+      mirrorCost: row.mirrorCost,
       materialCost: row.materialCost,
       laborCost,
       costPrice,
@@ -4162,6 +4845,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const robeBoardCost = robe.sheets.reduce((s, x) => s + x.cost, 0);
   const robeEdgeCost = robe.edges.reduce((s, x) => s + x.cost, 0);
   const robeKitCost = robe.kits.reduce((s, x) => s + x.cost, 0);
+  const robeMirrorCost = robe.mirrors.reduce((s, x) => s + x.cost, 0);
   const installCost = (bom.workshop?.installCost ?? 0) + (btWorkshop?.installCost ?? 0) + (robeWorkshop?.installCost ?? 0);
   const cabinetCost = lineCost.reduce((a, b) => a + b, 0) + benchtopCost + robeCost;
   const marginPercent = money4(commercial.markupPct * 100);
@@ -4334,6 +5018,18 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       cost: money4(sh.materialCost)
     });
   }
+  for (const g2 of robe.mirrors) {
+    sheetStock.push({
+      material: `${g2.name} (Mirror glass, ${g2.panels} x ${g2.panelCut.w} x ${g2.panelCut.h} mm cut to size - measured area, NOT a sheet)`,
+      thickness: g2.thicknessMm,
+      wastePercent: 0,
+      markupPercent: money4(mk * 100),
+      units: g2.measureSqm,
+      unitCost: money4(g2.rate),
+      markupCost: money4(g2.cost * mk),
+      cost: money4(g2.cost)
+    });
+  }
   for (const sh of robe.sheets) {
     sheetStock.push({
       material: `${sh.name} (Robe infill, ${sh.sheets} x ${sh.sheetLength}x${sh.sheetWidth})`,
@@ -4416,7 +5112,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const labor = st.map((l) => ({ category: l.station, hours: money4(l.hours), rate: l.rate, cost: money4(l.cost) }));
   if (bom.workshop || btWorkshop || robeWorkshop) labor.push({ category: "Installation (onsite)", hours: money4(installHours), rate: 0, cost: money4(installCost) });
   const shopLaborTotal = money4((bom.workshop?.shopCost ?? g0(bom.grandTotal.labor)) + btShopCost + robeShopCost);
-  const totalMaterials = money4(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware + benchtopMaterial + lam.adhesive.cost + robeBoardCost + robeEdgeCost + robeKitCost);
+  const totalMaterials = money4(bom.grandTotal.materials + bom.grandTotal.edging + bom.grandTotal.hardware + benchtopMaterial + lam.adhesive.cost + robeBoardCost + robeEdgeCost + robeKitCost + robeMirrorCost);
   const robeUnpriced = pricedRobes.flatMap((x) => x.unpricedItems);
   const rooms = new Set(lines.map((l) => l.roomName ?? defaultRoom));
   const workshopCosting = {
@@ -4480,7 +5176,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       supplyMode
     },
     cost: {
-      materials: money4(g.materials + benchtopMaterial + robeBoardCost),
+      materials: money4(g.materials + benchtopMaterial + robeBoardCost + robeMirrorCost),
       edging: money4(g.edging + robeEdgeCost),
       hardware: money4(g.hardware + lam.adhesive.cost + robeKitCost),
       labor: money4(g.labor + btShopCost + robeShopCost),
@@ -4507,5 +5203,6 @@ export {
   hasRobeSpec,
   quoteFromSchedule,
   robeBlockedWarning,
-  robeNotPricedWarning
+  robeNotPricedWarning,
+  scheduleKickHeights
 };

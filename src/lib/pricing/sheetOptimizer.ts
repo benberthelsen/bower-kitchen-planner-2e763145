@@ -1,6 +1,6 @@
 // Sheet optimization engine - calculates minimum sheets required with yield factor
 
-import { PartDimension, SheetAllocation, MaterialPricingRecord, OversizePart } from './types';
+import { PartDimension, SheetAllocation, MaterialPricingRecord, OversizePart, SplitPart, EdgeSpec } from './types';
 
 interface SheetSpec {
   width: number;
@@ -69,6 +69,156 @@ export function partFitsSheet(
 }
 
 /**
+ * The sheet a part is judged and nested against: the material's own size when it has one, else the 2400 x 1200
+ * default (flagged `sheetSizeAssumed` wherever it is reported). Shared by calculateSheetRequirements and
+ * splitOversizeParts so the two can never disagree about what a part has to fit.
+ */
+function resolveSheetSpec(
+  materialId: string,
+  materials: MaterialPricingRecord[],
+): { material: MaterialPricingRecord | undefined; spec: SheetSpec; assumed: boolean } {
+  const exactMatch = materials.find((m) => m.id === materialId || m.item_code === materialId);
+  const material = exactMatch ?? pickFallbackMaterial(materials);
+  const assumed = !(material && material.sheet_width && material.sheet_length);
+  const spec: SheetSpec = assumed
+    ? DEFAULT_SHEET_SPECS[0]
+    : {
+        width: material!.sheet_width!,
+        length: material!.sheet_length!,
+        area: (material!.sheet_width! * material!.sheet_length!) / 1_000_000,
+      };
+  return { material, spec, assumed };
+}
+
+/**
+ * A part that is a VISIBLE FRONT: a door, a drawer front, a false front. Such a part is NEVER split.
+ *
+ * Ben, 21 Sep 2026: "too long parts still price but split the items in half and make a not" - that is about BOARDS.
+ * A front cannot be butt-joined across its face and sold as a front, which is exactly why an over-long robe LEAF is
+ * a hard stop in robeSliderDoors ("a leaf is a door face and cannot be joined down the middle"). A hinged cabinet
+ * door is the same object, so it gets the same treatment: it falls through to the over-size warning, the board is
+ * still priced by area, and nobody is charged for a join that cannot be made.
+ *
+ * Deliberately NOT every exterior-role part. A Tall Filler, an Applied Panel, an Under Panel and a Pelmet are all
+ * materialRole 'exterior' and they ARE joined - Coral Lodge's 2770 x 70 filler and Regal's 2984 x 330 under panel
+ * are the very parts Ben asked to split. Only the fronts are excluded, matched on partType/name, never on role.
+ */
+export function isUnjoinableFace(part: { name?: string; partType?: string }): boolean {
+  const s = `${part.partType ?? ''} ${part.name ?? ''}`.toLowerCase();
+  // A drawer BOX side/back/bottom is internal, not a face - and never matches the terms below anyway.
+  if (/\bdrawer\s+box\b/.test(s)) return false;
+  return /\b(?:door|drawer\s+front|false\s+front|drawer\s+face)\b/.test(s);
+}
+
+/**
+ * Split every part that cannot be cut from its board into equal pieces that can.
+ *
+ * Ben, 21 Sep 2026: "too long parts still price but split the items in half and make a not". Before this, an
+ * over-long part raised a warning and nothing else - the sheet count is area / yield, which is blind to shape, so a
+ * 2582 mm under panel on a 2400 mm board priced exactly as if it fitted. Splitting it is what the shop actually does:
+ * two pieces and a join.
+ *
+ * Called from generateCabinetBOM BETWEEN calculatePartDimensions and calculateSheetRequirements, because `parts` is
+ * the one list that feeds the sheet count, the edge tape, the per-part costs AND the workshop stations - splitting
+ * inside calculateSheetRequirements would reach the sheet count and nothing else.
+ *
+ * Rules:
+ *  - Pieces are EQUAL (Ben's "in half"), and there are ceil(dimension / usable) of them, so anything up to twice the
+ *    board is two halves and a 3.3 m kick rail on a 2.44 m ply board is still two. Both axes are split when both
+ *    overrun (a grid), and the orientation that needs fewer pieces wins - rotation is allowed exactly as
+ *    partFitsSheet allows it, since grain is not modelled anywhere in the engine.
+ *  - The JOIN edges carry NO tape: each piece keeps the original part's edging on the edges it still owns and the
+ *    freshly cut ends stay bare, so the job's taped metres do not move. A visible raw edge at the seam is Ben's call.
+ *  - Board cost does NOT move: n equal pieces have exactly the area of the part they came from, and the sheet count
+ *    is area / yield. What moves is the extra part through the shop and the join minutes (workshopModel.partJoinMin).
+ *  - A stand-in / estimated size (sizePlaceholder) is never split, for the same reason it is never judged.
+ *  - A VISIBLE FRONT (isUnjoinableFace) is never split either - see that function.
+ */
+export function splitOversizeParts(
+  parts: PartDimension[],
+  materials: MaterialPricingRecord[],
+): { parts: PartDimension[]; splits: SplitPart[] } {
+  const out: PartDimension[] = [];
+  const splits: SplitPart[] = [];
+  const specCache = new Map<string, ReturnType<typeof resolveSheetSpec>>();
+
+  for (const part of parts) {
+    const materialId = part.materialId || 'default';
+    if (part.sizePlaceholder || isUnjoinableFace(part) || !(part.length > 0) || !(part.width > 0)
+      || !Number.isFinite(part.length) || !Number.isFinite(part.width)) {
+      out.push(part);
+      continue;
+    }
+    let resolved = specCache.get(materialId);
+    if (!resolved) {
+      resolved = resolveSheetSpec(materialId, materials);
+      specCache.set(materialId, resolved);
+    }
+    const { spec, assumed } = resolved;
+    if (partFitsSheet(part.length, part.width, spec.length, spec.width)) {
+      out.push(part);
+      continue;
+    }
+
+    const usableLong = Math.max(spec.length, spec.width) - SHEET_TRIM_MM;
+    const usableShort = Math.min(spec.length, spec.width) - SHEET_TRIM_MM;
+    if (!(usableLong > 0) || !(usableShort > 0)) { out.push(part); continue; }
+    const count = (dim: number, usable: number) => Math.max(1, Math.ceil(dim / usable - 1e-9));
+    // Orientation A: the part's length lies along the sheet's long side. B: turned 90 degrees.
+    const a = { nl: count(part.length, usableLong), nw: count(part.width, usableShort) };
+    const b = { nl: count(part.length, usableShort), nw: count(part.width, usableLong) };
+    const pick = a.nl * a.nw <= b.nl * b.nw ? a : b;
+    const pieces = pick.nl * pick.nw;
+    if (pieces <= 1) { out.push(part); continue; }
+
+    const pieceLength = part.length / pick.nl;
+    const pieceWidth = part.width / pick.nw;
+    const quantity = Math.max(1, part.quantity ?? 1);
+    const e = part.edging;
+    for (let i = 0; i < pick.nl; i++) {
+      for (let j = 0; j < pick.nw; j++) {
+        // The edges at right angles to the LENGTH are the width edges (wid1 / wid2), so splitting the length hands
+        // the outer ones to the first and last piece and leaves every new cut end bare. Mirrored for the width.
+        const edging: EdgeSpec = {
+          wid1: i === 0 ? e.wid1 : false,
+          wid2: i === pick.nl - 1 ? e.wid2 : false,
+          len1: j === 0 ? e.len1 : false,
+          len2: j === pick.nw - 1 ? e.len2 : false,
+        };
+        out.push({
+          ...part,
+          name: `${part.name} (${pieces === 2 ? 'half' : 'piece'} ${i * pick.nw + j + 1} of ${pieces})`,
+          length: pieceLength,
+          width: pieceWidth,
+          area: (pieceLength * pieceWidth) / 1_000_000,
+          edging,
+          splitPiece: { pieces, index: i * pick.nw + j + 1, originalLength: part.length, originalWidth: part.width },
+        });
+      }
+    }
+    splits.push({
+      name: part.name,
+      partType: part.partType,
+      originalLength: part.length,
+      originalWidth: part.width,
+      pieceLength,
+      pieceWidth,
+      lengthPieces: pick.nl,
+      widthPieces: pick.nw,
+      pieces,
+      quantity,
+      joins: (pieces - 1) * quantity,
+      materialName: resolved.material?.name ?? 'Unresolved Material',
+      sheetLength: spec.length,
+      sheetWidth: spec.width,
+      sheetSizeAssumed: assumed,
+    });
+  }
+
+  return { parts: out, splits };
+}
+
+/**
  * Group parts by material and calculate sheet requirements for each
  */
 export function calculateSheetRequirements(
@@ -119,12 +269,16 @@ export function calculateSheetRequirements(
     allocation.materialRole = materialParts[0]?.materialRole ?? 'carcase';
     if (unresolved) allocation.unresolved = true;
 
-    // Warning data only - the sheet count and cost above are untouched. A stand-in size (PartDimension.sizePlaceholder:
-    // a door sized height x depth because its catalogue row has no formula) is not a cut size, so it is not judged.
+    // Warning data only - the sheet count and cost above are untouched. A stand-in or estimated size
+    // (PartDimension.sizePlaceholder: a part with no formula and no code default, a corner's doors) is not a cut size,
+    // so it is not judged.
     const sheetSizeAssumed = !(material && material.sheet_width && material.sheet_length);
     const oversizeParts: OversizePart[] = materialParts
       .filter((p) => !p.sizePlaceholder && !partFitsSheet(p.length, p.width, sheetSpec.length, sheetSpec.width))
-      .map((p) => ({ name: p.name, length: p.length, width: p.width, quantity: p.quantity, sheetSizeAssumed }));
+      .map((p) => ({
+        name: p.name, length: p.length, width: p.width, quantity: p.quantity, sheetSizeAssumed,
+        ...(isUnjoinableFace(p) ? { unjoinableFace: true as const } : {}),
+      }));
     if (oversizeParts.length) allocation.oversizeParts = oversizeParts;
 
     allocations.push(allocation);

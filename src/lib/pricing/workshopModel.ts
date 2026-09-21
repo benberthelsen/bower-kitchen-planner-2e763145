@@ -105,9 +105,34 @@ export interface WorkshopRates {
   benchtopPolishMinPerSqm: number;
   /** edge profile sand / polish per metre */
   benchtopEdgePolishMinPerM: number;
+  /**
+   * DROP-IN sink cut-out: the bowl's own rim covers the cut, so it is cut, sealed and dropped in.
+   * Ben, 21 Sep 2026: "cut outs are for drop in 30 min".
+   */
   benchtopSinkCutoutMin: number;
+  /**
+   * UNDERMOUNT sink cut-out: the hole IS the finished edge - routed to a template, dressed, polished and the
+   * bowl clamped from below. Ben, 21 Sep 2026: "and under mounte 1.5 hrs" = 90 minutes.
+   */
+  benchtopUndermountSinkCutoutMin: number;
   benchtopCooktopCutoutMin: number;
   benchtopTapHoleMin: number;
+
+  // ---- cabinet parts that had to be split, and toe-kick facing -------------
+  /**
+   * Joining the two halves of a board part that could not be cut from its sheet (sheetOptimizer.splitOversizeParts):
+   * biscuit / domino the seam, glue, clamp, sand flush. Ben, 21 Sep 2026: "too long parts still price but split the
+   * items in half and make a not" - he set no figure for the join, so this starts at the 30 minutes he DID confirm
+   * for a bolted benchtop blank join (16 Sep 2026). HIS TO CONFIRM.
+   */
+  partJoinMin: number;
+  /**
+   * Bonding the kick facing laminate to the ply ladder, per m2: contact adhesive both faces, lay up, roller, trim.
+   * Ben hand-priced Kenfrost's two kicks at $65 of facing labour (16 Sep 2026) = 39 min over 0.598 m2 = ~65 min/m2,
+   * which is the figure used here. Microvellum's own report says 40 min/m2 at $100/h on the same job. HIS TO SETTLE.
+   * Only charged for a facing thin enough to be a laminate - a pre-faced kickboard panel is bought finished.
+   */
+  kickFacingBondMinPerSqm: number;
 
   // ---- pre-made laminate benchtop blanks (kind 'blank') --------------------
   // A blank arrives finished: postformed front edge, sealed face. The shop only
@@ -191,7 +216,10 @@ export interface BenchtopFabricationInputs {
   polishSqm: number;
   /** finished edge metres to profile and polish */
   edgePolishLm: number;
+  /** DROP-IN sink cut-outs (Ben, 21 Sep 2026: 30 min each) */
   sink: number;
+  /** UNDERMOUNT sink cut-outs (Ben, 21 Sep 2026: 90 min each) */
+  sinkUndermount: number;
   cooktop: number;
   tapHole: number;
   /** metres of finished top, for install scribing/fitting */
@@ -216,16 +244,17 @@ export interface BenchtopFabricationInputs {
    * cooktop / tapHole above, so the two can never be charged twice.)
    */
   blankSink: number;
+  blankSinkUndermount: number;
   blankCooktop: number;
   blankTapHole: number;
 }
 
 export const EMPTY_BENCHTOP_FABRICATION: BenchtopFabricationInputs = {
   parts: 0, cutLm: 0, laminateSqm: 0, buildUpLm: 0, mitreLm: 0, substrateSqm: 0, joins: 0,
-  polishSqm: 0, edgePolishLm: 0, sink: 0, cooktop: 0, tapHole: 0,
+  polishSqm: 0, edgePolishLm: 0, sink: 0, sinkUndermount: 0, cooktop: 0, tapHole: 0,
   benchtopLm: 0, products: 0,
   blankCuts: 0, endEdges: 0, blankJoins: 0, longParts: 0, blankProducts: 0,
-  blankSink: 0, blankCooktop: 0, blankTapHole: 0,
+  blankSink: 0, blankSinkUndermount: 0, blankCooktop: 0, blankTapHole: 0,
 };
 
 export function sumBenchtopFabrication(list: BenchtopFabricationInputs[]): BenchtopFabricationInputs {
@@ -285,9 +314,19 @@ export const DEFAULT_WORKSHOP_RATES: WorkshopRates = {
   benchtopJoinMin: 45,
   benchtopPolishMinPerSqm: 25,
   benchtopEdgePolishMinPerM: 8,
+  // Cut-out minutes are BEN'S OWN, not placeholders: drop-in 30 and undermount 90 (Ben, 21 Sep 2026 -
+  // "cut outs are for drop in 30 min and under mounte 1.5 hrs"). Cooktop 20 and tap 5 are unchanged from his
+  // earlier figures. A cut-out is never inferred - it costs nothing unless the row asks for it.
   benchtopSinkCutoutMin: 30,
+  benchtopUndermountSinkCutoutMin: 90,
   benchtopCooktopCutoutMin: 20,
   benchtopTapHoleMin: 5,
+
+  // Split cabinet parts and toe-kick facing - see the field comments above. partJoinMin starts at Ben's confirmed
+  // bolted-blank figure because he has not set one for a board seam; kickFacingBondMinPerSqm is his own hand-priced
+  // Kenfrost rate (~65 min/m2) rather than Microvellum's 40.
+  partJoinMin: 30,
+  kickFacingBondMinPerSqm: 65,
 
   // pre-made laminate blanks — CONFIRMED by Ben, 16 Sep 2026: "5 min a cut is right, joins 30 is
   // fine", and 15 min to laminate and finish each cut end. Do not change without asking him.
@@ -455,6 +494,11 @@ export function calculateWorkshopCost(
      * negative line under the same top-up station name, which merges into the earlier call's top-up line).
      */
     jobMinimumCredit?: { draftingMin: number; machiningMin: number; draftingTopUpMin?: number; machiningTopUpMin?: number };
+    /**
+     * m2 of toe-kick facing LAMINATE bonded to a ply ladder in the shop (CabinetBOM.ladderKick.facing, bonded only).
+     * A pre-faced kickboard panel is bought finished and must not be passed here.
+     */
+    kickFacingSqm?: number;
   } = {},
 ): WorkshopCost {
   const r: WorkshopRates = { ...DEFAULT_WORKSHOP_RATES, ...(opts.rates ?? {}) };
@@ -609,14 +653,17 @@ export function calculateWorkshopCost(
   add('Benchtop cut-end edge strip', bt.endEdges, 'end', r.benchtopBlankEndEdgeMin, r.edgebandingRate);
   add('Benchtop blank joins', bt.blankJoins, 'join', r.benchtopBlankJoinMin, r.assemblyRate);
   {
-    // weighted minutes per cut-out type, like Hardware assembly below
-    const cutout = (sink: number, cooktop: number, tapHole: number) => ({
+    // Weighted minutes per cut-out type, like Hardware assembly below. A DROP-IN sink is 30 min and an
+    // UNDERMOUNT 90 (Ben, 21 Sep 2026), so they are two counts rather than one count and a type flag: a top
+    // can carry one of each, and a payload that sends only `sink` still means drop-in.
+    const cutout = (sink: number, sinkUndermount: number, cooktop: number, tapHole: number) => ({
       minutes: Math.max(0, sink) * r.benchtopSinkCutoutMin
+        + Math.max(0, sinkUndermount) * r.benchtopUndermountSinkCutoutMin
         + Math.max(0, cooktop) * r.benchtopCooktopCutoutMin
         + Math.max(0, tapHole) * r.benchtopTapHoleMin,
-      count: Math.max(0, sink) + Math.max(0, cooktop) + Math.max(0, tapHole),
+      count: Math.max(0, sink) + Math.max(0, sinkUndermount) + Math.max(0, cooktop) + Math.max(0, tapHole),
     });
-    const solid = cutout(bt.sink, bt.cooktop, bt.tapHole);
+    const solid = cutout(bt.sink, bt.sinkUndermount, bt.cooktop, bt.tapHole);
     if (solid.minutes > 0) {
       add('Benchtop cut-outs', solid.minutes, 'min', 1, r.machiningRate);
       lines[lines.length - 1].units = round2(solid.count);
@@ -624,13 +671,22 @@ export function calculateWorkshopCost(
     }
     // Same minutes, bench rate: cutting a 38 mm laminate blank is a jigsaw and a router on the
     // bench, not the solid-surface CNC - the rest of the blank work is priced that way too.
-    const blank = cutout(bt.blankSink, bt.blankCooktop, bt.blankTapHole);
+    const blank = cutout(bt.blankSink, bt.blankSinkUndermount, bt.blankCooktop, bt.blankTapHole);
     if (blank.minutes > 0) {
       add('Benchtop blank cut-outs', blank.minutes, 'min', 1, r.assemblyRate);
       lines[lines.length - 1].units = round2(blank.count);
       lines[lines.length - 1].unitLabel = 'cut-out';
     }
   }
+
+  // ---- split parts and toe-kick facing -------------------------------------
+  // A part too big for its board is cut in equal pieces and joined back up (sheetOptimizer.splitOversizeParts). The
+  // board costs the same - the area is unchanged - so the join and the extra part through the stations above are the
+  // whole of the difference. Station names keep quoteFromSchedule's laborMinutes buckets: 'joins' and 'lamination'
+  // both land in finishing, and neither contains edge / cutting / assembly / handling.
+  const splitJoins = priced.reduce((s, c) => s + (c.splitParts ?? []).reduce((t, x) => t + Math.max(0, x.joins), 0), 0);
+  add('Part joins (split over-long parts)', splitJoins, 'join', r.partJoinMin, r.assemblyRate);
+  add('Kick facing lamination', Math.max(0, opts.kickFacingSqm ?? 0), 'm2', r.kickFacingBondMinPerSqm, r.assemblyRate);
 
   // ---- Hafele Slider SC robe openings, only when the shop assembles --------
   // Names keep the laborMinutes buckets: both contain 'assembly'. Neither contains edge / cutting / handling / joins.

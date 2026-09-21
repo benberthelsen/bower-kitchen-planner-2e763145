@@ -94,6 +94,23 @@ export interface PlacedItem {
   secondWidth?: number;        // corner SECOND wall run (Wall 2) in mm; width = Wall 1
   shelfCount?: number;         // adjustable shelf count from the editor (overrides recipe default)
   drawerFrontHeights?: number[]; // mm, top → bottom — custom drawer face heights (overrides standard distribution)
+  /** mm of toe kick this item stands on (Microvellum Toe_Kick_Height). Pricing only: overrides
+   *  GlobalDimensions.toeKickHeight for a floor-standing base / tall carcase, whose height includes it.
+   *  0 = not on a kick (a unit stacked on another, a wall-hung vanity). */
+  toeKickHeight?: number;
+  /** mm of a blind corner's width that is blind (Microvellum Blind_Corner_Width). Pricing only: its doors are
+   *  sized over W - this. Omitted: W - depth, as an estimate. */
+  blindCornerWidth?: number;
+  /** mm of an "Upper Rangehood Cabinet"'s facia under its doors (Microvellum Rangehood_Facia_Height = its
+   *  Bottom_Reveal). Pricing only. Omitted: 40, the library default. */
+  rangehoodFaciaHeight?: number;
+  /** Ply the ladder base of a "Toe Kick Base" is cut from (material_pricing id / item_code / name). Pricing only.
+   *  Omitted: the cheapest priced 12-19 mm plywood row in the catalogue, warned. */
+  kickPlyMaterialId?: string;
+  /** Laminate (or pre-faced board) the kick FACE is cut from. Pricing only. Omitted: no facing is charged, warned. */
+  kickFacingMaterialId?: string;
+  /** Ends of this item's kick that return and are faced (Microvellum's "Finished Side"), 0-2. Pricing only. */
+  kickExposedEnds?: number;
   tapId?: string;
   applianceId?: string;
   /** Layout role stamped by compileSpec (`sink`, `cooktop`, `oven-tower`,
