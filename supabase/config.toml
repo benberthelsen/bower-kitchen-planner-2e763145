@@ -45,3 +45,6 @@ verify_jwt = false
 # Gated by the x-bower-pricing-key shared secret, not a planner user JWT.
 [functions.price-quote]
 verify_jwt = false
+
+[functions.link-trade-handoff]
+verify_jwt = true

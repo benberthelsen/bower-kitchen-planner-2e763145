@@ -145,8 +145,42 @@ export default function AdminJobDetail() {
     }
   };
 
+  /**
+   * Lead then design, both idempotent (planner-lead:<job>, planner-design:<job>:v<n>).
+   * Never fails the caller: the planner record is already saved and a failed
+   * handoff is recorded on the job, where the Build Flow panel shows it.
+   */
+  const sendToBuildFlow = async (jobId: string) => {
+    try {
+      const { error: leadError } = await supabase.functions.invoke('sync-buildflow-lead', {
+        body: { jobId },
+      });
+      if (leadError) throw leadError;
+
+      const { data, error: designError } = await supabase.functions.invoke('sync-buildflow-design', {
+        body: { jobId },
+      });
+      if (designError) throw designError;
+
+      const payload = (data ?? {}) as { designVersion?: number; duplicate?: boolean };
+      toast.success(
+        payload.duplicate
+          ? 'Build Flow already had this design'
+          : `Sent to Build Flow for review — design v${payload.designVersion ?? 1}`,
+      );
+    } catch (handoffError) {
+      console.error('Build Flow handoff failed:', handoffError);
+      toast.warning('Approved, but the Build Flow handoff needs attention', {
+        description: 'The planner copy is safe. Retry from the Build Flow panel below.',
+      });
+    } finally {
+      await loadJob();
+    }
+  };
+
   const updateStatus = async (newStatus: TradeJobStatus) => {
     if (!job) return;
+    const wasApproved = job.status === 'approved';
     try {
       const { error } = await supabase
         .from('jobs')
@@ -157,6 +191,9 @@ export default function AdminJobDetail() {
       await addSystemNote(job.id, `Status changed to "${TRADE_JOB_STATUS_LABELS[newStatus]}"`);
       setJob({ ...job, status: newStatus });
       toast.success('Status updated');
+      // Approving from the dropdown is still approving: a promoted homeowner
+      // lead has no Approve button, so this was the path that skipped Build Flow.
+      if (newStatus === 'approved' && !wasApproved) void sendToBuildFlow(job.id);
     } catch (error) {
       console.error('Error updating status:', error);
       toast.error('Failed to update status');
@@ -186,33 +223,7 @@ export default function AdminJobDetail() {
       // planner-design:<job>:v<n>), so re-approving costs nothing. Neither can
       // fail the approval — the planner record is already saved, and a failed
       // handoff is recorded on the job for retry.
-      void (async () => {
-        try {
-          const { error: leadError } = await supabase.functions.invoke('sync-buildflow-lead', {
-            body: { jobId: job.id },
-          });
-          if (leadError) throw leadError;
-
-          const { data, error: designError } = await supabase.functions.invoke('sync-buildflow-design', {
-            body: { jobId: job.id },
-          });
-          if (designError) throw designError;
-
-          const payload = (data ?? {}) as { designVersion?: number; duplicate?: boolean };
-          toast.success(
-            payload.duplicate
-              ? 'Build Flow already had this design'
-              : `Sent to Build Flow for review — design v${payload.designVersion ?? 1}`,
-          );
-          await loadJob();
-        } catch (handoffError) {
-          console.error('Build Flow handoff on approval failed:', handoffError);
-          toast.warning('Approved, but the Build Flow handoff needs attention', {
-            description: 'The planner copy is safe. Retry from the Build Flow panel below.',
-          });
-          await loadJob();
-        }
-      })();
+      void sendToBuildFlow(job.id);
       // Notify trade user
       if (job.profiles?.email) {
         supabase.functions.invoke('send-email', {
@@ -381,6 +392,15 @@ export default function AdminJobDetail() {
 
   // ── Data extraction from new trade job structure ──────────────────────────
   const designData = useMemo(() => (job?.design_data ?? {}) as Record<string, unknown>, [job]);
+
+  // sync-buildflow-lead writes published/failed; sync-buildflow-design writes
+  // design_sent/design_failed on the same column. A design that has been sent
+  // implies the lead was too, and either failure needs the red border.
+  const buildFlowLeadSent = job?.buildflow_status === 'published'
+    || job?.buildflow_status === 'design_sent'
+    || job?.buildflow_status === 'design_failed'
+    || Boolean(job?.buildflow_lead_id);
+  const buildFlowFailed = job?.buildflow_status === 'failed' || job?.buildflow_status === 'design_failed';
 
   /** A design can only be sent to Build Flow once it carries a price. */
   const designIsPriced = useMemo(
@@ -957,13 +977,13 @@ export default function AdminJobDetail() {
             </CardContent>
           </Card>
 
-          <Card className={job.buildflow_status === 'failed' ? 'border-red-200 bg-red-50/40' : ''}>
+          <Card className={buildFlowFailed ? 'border-red-200 bg-red-50/40' : ''}>
             <CardHeader className="pb-2">
               <CardTitle>Lead Pipeline</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <p className="text-xs text-gray-600">
-                {job.buildflow_status === 'published'
+                {buildFlowLeadSent
                   ? 'This job is visible in Build Flow.'
                   : job.buildflow_status === 'failed'
                     ? `Last sync failed${job.buildflow_error ? `: ${job.buildflow_error}` : '.'}`
@@ -971,12 +991,12 @@ export default function AdminJobDetail() {
               </p>
               <Button
                 className="w-full min-h-11"
-                variant={job.buildflow_status === 'published' ? 'outline' : 'default'}
+                variant={buildFlowLeadSent ? 'outline' : 'default'}
                 onClick={syncBuildFlowLead}
                 disabled={syncingLead}
               >
                 {syncingLead && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                {job.buildflow_status === 'published' ? 'Verify / resend lead' : 'Send to Build Flow'}
+                {buildFlowLeadSent ? 'Verify / resend lead' : 'Send to Build Flow'}
               </Button>
 
               <Button
@@ -988,7 +1008,7 @@ export default function AdminJobDetail() {
                 {sendingDesign && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {sendingDesign ? 'Sending design…' : 'Send design to Build Flow'}
               </Button>
-              <p className="text-xs text-gray-600">
+              <p className={`text-xs ${job.buildflow_status === 'design_failed' ? 'text-red-700' : 'text-gray-600'}`}>
                 {!designIsPriced
                   ? 'This design has no price yet, so it cannot be sent.'
                   : designSendResult?.kind === 'error'
@@ -997,9 +1017,11 @@ export default function AdminJobDetail() {
                       ? 'Already up to date'
                       : designSendResult?.kind === 'sent'
                         ? `Sent — v${designSendResult.version}`
-                        : job.buildflow_design_sent_at
-                          ? `Sent — v${job.buildflow_design_version ?? 1} on ${new Date(job.buildflow_design_sent_at).toLocaleDateString('en-AU')}`
-                          : 'Design not sent to Build Flow yet.'}
+                        : job.buildflow_status === 'design_failed'
+                          ? `Design send failed${job.buildflow_error ? `: ${job.buildflow_error}` : '.'}`
+                          : job.buildflow_design_sent_at
+                            ? `Sent — v${job.buildflow_design_version ?? 1} on ${new Date(job.buildflow_design_sent_at).toLocaleDateString('en-AU')}`
+                            : 'Design not sent to Build Flow yet.'}
               </p>
 
             </CardContent>

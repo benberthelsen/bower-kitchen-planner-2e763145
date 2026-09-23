@@ -38,7 +38,16 @@ foreach ($FunctionName in $PublicFunctions) {
   Write-Host "Deployed $FunctionName.`n" -ForegroundColor Green
 }
 
-foreach ($FunctionName in @('promote-ai-design', 'send-email')) {
+# Authenticated functions. The Build Flow syncs and the trade handoff link were
+# missing here, so edits to them (and to _shared/buildFlow/*) never shipped
+# through the documented process.
+foreach ($FunctionName in @(
+  'promote-ai-design',
+  'send-email',
+  'sync-buildflow-lead',
+  'sync-buildflow-design',
+  'link-trade-handoff'
+)) {
   Write-Host "Deploying authenticated function $FunctionName..." -ForegroundColor Cyan
   supabase functions deploy $FunctionName --project-ref $ProjectRef --use-api
   if ($LASTEXITCODE -ne 0) {

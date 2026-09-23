@@ -12,7 +12,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { confirmedRoomScanV1Schema } from '../_shared/roomScan/contract.ts';
 import { fingerprintV1 } from '../_shared/roomScan/fingerprint.ts';
-import { publishBuildFlowLead } from '../_shared/buildFlow/leadIntake.ts';
+import { applianceItemsToLeadItems, publishBuildFlowLead } from '../_shared/buildFlow/leadIntake.ts';
 import {
   errorResponse,
   gate,
@@ -225,13 +225,24 @@ serve(async (req) => {
       notes,
       plannerJobId: result.jobId,
       estimateTotal: validJob.cost_incl_tax ?? null,
+      // The appliance lines the customer opted into and saw in their price.
+      // Without these Build Flow got a budget and some text, never the oven.
+      items: applianceItemsToLeadItems(dd),
     });
-    const { error: deliveryError } = await service.from('jobs').update({
-      buildflow_status: leadResult.ok ? 'published' : 'failed',
-      buildflow_lead_id: leadResult.leadId ?? null,
-      buildflow_published_at: leadResult.ok ? new Date().toISOString() : null,
-      buildflow_error: leadResult.ok ? null : (leadResult.error ?? 'Build Flow lead intake failed').slice(0, 500),
-    }).eq('id', result.jobId);
+    // A failed replay must not erase a delivery that already succeeded.
+    const { error: deliveryError } = await service.from('jobs').update(
+      leadResult.ok
+        ? {
+          buildflow_status: 'published',
+          buildflow_lead_id: leadResult.leadId ?? null,
+          buildflow_published_at: new Date().toISOString(),
+          buildflow_error: null,
+        }
+        : {
+          buildflow_status: 'failed',
+          buildflow_error: (leadResult.error ?? 'Build Flow lead intake failed').slice(0, 500),
+        },
+    ).eq('id', result.jobId);
     if (deliveryError) {
       console.error('[submit-planner-enquiry] Build Flow delivery state failed', deliveryError.message);
     }
