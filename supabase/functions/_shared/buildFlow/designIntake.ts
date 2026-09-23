@@ -102,14 +102,18 @@ export async function publishBuildFlowDesign(
       }),
     });
 
-    const body = await response.json().catch(() => ({})) as {
+    const text = await response.text().catch(() => '');
+    let body: {
       ok?: boolean;
       design_id?: string;
       job_id?: string;
       duplicate?: boolean;
-    };
+      error?: string;
+      message?: string;
+    } = {};
+    try { body = JSON.parse(text); } catch { /* non-JSON error text is kept below */ }
 
-    if (response.ok && body.ok === true) {
+    if ((response.ok && body.ok === true) || body.duplicate === true) {
       return {
         ok: true,
         designId: body.design_id,
@@ -118,7 +122,8 @@ export async function publishBuildFlowDesign(
       };
     }
 
-    return { ok: false, error: `${response.status} Build Flow design intake failed` };
+    const detail = (body.error ?? body.message ?? text).toString().trim().slice(0, 300);
+    return { ok: false, error: `${response.status} Build Flow design intake failed${detail ? `: ${detail}` : ''}` };
   } catch (error) {
     return {
       ok: false,

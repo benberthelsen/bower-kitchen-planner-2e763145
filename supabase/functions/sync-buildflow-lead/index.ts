@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { publishBuildFlowLead } from '../_shared/buildFlow/leadIntake.ts';
+import { applianceItemsToLeadItems, publishBuildFlowLead } from '../_shared/buildFlow/leadIntake.ts';
 import {
   errorResponse,
   gate,
@@ -8,6 +8,17 @@ import {
   jsonResponse,
   readJsonBody,
 } from '../_shared/roomScan/security.ts';
+
+/** Email of the trade user who owns the job, or null for homeowner jobs. */
+async function jobOwnerEmail(
+  service: ReturnType<typeof createClient>,
+  customerId: unknown,
+): Promise<string | null> {
+  if (typeof customerId !== 'string' || !customerId) return null;
+  const { data } = await service.from('profiles').select('email').eq('id', customerId).maybeSingle();
+  const email = (data as { email?: string | null } | null)?.email;
+  return typeof email === 'string' && email.includes('@') ? email : null;
+}
 
 serve(async (req) => {
   const gated = gate(req);
@@ -35,7 +46,7 @@ serve(async (req) => {
 
   const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: job, error: jobError } = await service.from('jobs').select(
-    'id,name,customer_id,status,notes,design_data,cost_incl_tax',
+    'id,name,customer_id,status,notes,design_data,cost_incl_tax,buildflow_status',
   ).eq('id', jobId).maybeSingle();
   if (jobError || !job) return errorResponse(req, 404, 'job_not_found');
 
@@ -50,6 +61,9 @@ serve(async (req) => {
   const notes = typeof job.notes === 'string' ? job.notes : '';
   const grab = (label: string) =>
     notes.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1]?.trim() ?? '';
+  // Trade jobs carry no Email: line. The client's email is the job owner's,
+  // never the caller's — an admin approving a job is not the client.
+  const ownerEmail = await jobOwnerEmail(service, job.customer_id);
   const designData = typeof job.design_data === 'object' && job.design_data !== null
     ? job.design_data as Record<string, unknown>
     : {};
@@ -65,7 +79,7 @@ serve(async (req) => {
   const result = await publishBuildFlowLead({
     idempotencyKey: `planner-lead:${job.id}`,
     name: grab('Contact') || job.name,
-    email: grab('Email') || authData.user.email || null,
+    email: grab('Email') || ownerEmail || null,
     phone: grab('Phone') || null,
     source: job.status === 'enquiry' ? '3D Kitchen Designer' : 'Trade Planner',
     jobType: 'Kitchen',
@@ -73,14 +87,24 @@ serve(async (req) => {
     notes,
     plannerJobId: job.id,
     estimateTotal: typeof job.cost_incl_tax === 'number' ? job.cost_incl_tax : null,
+    items: applianceItemsToLeadItems(designData),
   });
 
-  const { error: updateError } = await service.from('jobs').update({
-    buildflow_status: result.ok ? 'published' : 'failed',
-    buildflow_lead_id: result.leadId ?? null,
-    buildflow_published_at: result.ok ? new Date().toISOString() : null,
-    buildflow_error: result.ok ? null : (result.error ?? 'Build Flow lead intake failed').slice(0, 500),
-  }).eq('id', job.id);
+  // A failed resend must not erase a delivery that already succeeded, nor
+  // knock a job that already has its design in Build Flow back to "lead only".
+  const { error: updateError } = await service.from('jobs').update(
+    result.ok
+      ? {
+        buildflow_status: job.buildflow_status === 'design_sent' ? 'design_sent' : 'published',
+        buildflow_lead_id: result.leadId ?? null,
+        buildflow_published_at: new Date().toISOString(),
+        buildflow_error: null,
+      }
+      : {
+        buildflow_status: job.buildflow_status === 'design_sent' ? 'design_sent' : 'failed',
+        buildflow_error: (result.error ?? 'Build Flow lead intake failed').slice(0, 500),
+      },
+  ).eq('id', job.id);
   if (updateError) {
     console.error('[sync-buildflow-lead] delivery state update failed', updateError.message);
   }

@@ -67,6 +67,6 @@ Write-Host '       git add -A'
 Write-Host '       git commit -m "AI planner placement fixes; wizard style-first + wall picker + rich share links"'
 Write-Host '       git push'
 Write-Host ''
-Write-Host '  C. Redeploy the 3 edge functions  ->  .\deploy-planner-functions.ps1'
+Write-Host '  C. Redeploy the edge functions (public + authenticated, incl. Build Flow syncs)  ->  .\deploy-planner-functions.ps1'
 Write-Host ''
 Write-Host 'Reminder: set a hard monthly OpenAI spend cap in the OpenAI dashboard.' -ForegroundColor DarkYellow

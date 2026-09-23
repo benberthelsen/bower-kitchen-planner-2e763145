@@ -83,6 +83,14 @@ serve(async (req) => {
   const notes = typeof job.notes === 'string' ? job.notes : '';
   const grab = (label: string) =>
     notes.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1]?.trim() ?? '';
+  // The client's email is the job owner's, never the caller's: on approval
+  // the caller is the admin, and Build Flow was emailing them as the client.
+  let ownerEmail: string | null = null;
+  if (typeof job.customer_id === 'string' && job.customer_id) {
+    const { data: owner } = await service.from('profiles').select('email').eq('id', job.customer_id).maybeSingle();
+    const candidate = (owner as { email?: string | null } | null)?.email;
+    ownerEmail = typeof candidate === 'string' && candidate.includes('@') ? candidate : null;
+  }
 
   const hash = await designHash(quoteSnapshot, totalIncGst);
   const storedVersion = typeof job.buildflow_design_version === 'number'
@@ -97,7 +105,13 @@ serve(async (req) => {
       ? asRecord(designData.lineage).n as string
       : null;
 
-  const origin = req.headers.get('origin') ?? 'https://planner.bowercabinets.com';
+  // The link Build Flow stores must be the real admin URL, not whichever
+  // preview or localhost origin the staff member happened to click from.
+  let origin = 'https://planner.bowercabinets.com';
+  try {
+    const configured = Deno.env.get('PLANNER_ADMIN_URL');
+    if (configured) origin = new URL(configured).origin;
+  } catch { /* keep the production default */ }
 
   const result = await publishBuildFlowDesign({
     idempotencyKey: `planner-design:${job.id}:v${designVersion}`,
@@ -106,7 +120,7 @@ serve(async (req) => {
     engineVersion,
     client: {
       name: grab('Contact') || job.name,
-      email: grab('Email') || authData.user.email || null,
+      email: grab('Email') || ownerEmail || null,
       phone: grab('Phone') || null,
       address: grab('Address') || null,
       suburb: grab('Suburb') || null,
