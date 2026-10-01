@@ -88,13 +88,92 @@ function resolvePositiveUnitCost(
 }
 
 /**
+ * What the SCHEDULE ROW itself names, when the source says so.
+ *
+ * A Microvellum work order names the hinge, the hinge plate and the drawer runner on every product ("Hinge Salice
+ * Silentia+ Series 100 105 deg Full Overlay_Dowel 52", "Hafele Alto Slim Drawer Kit H199 500mm 35kg White"), so
+ * the row can carry the catalogue row those names resolved to instead of taking the job's one global pick. Values
+ * are a hardware_pricing id or item_code, exactly like HardwareOptions.hingeType.
+ *
+ * Every field is optional and every one falls back to the job selection: a row that names nothing is priced
+ * exactly as it was before this existed. A row that names something the catalogue does not hold falls back too -
+ * loudly (HardwareItem.overrideUnresolved), never silently and never free.
+ */
+export interface RowHardwareSelection {
+  /** hardware_pricing id / item_code of this row's hinge. */
+  hingeType?: string | null;
+  /** hardware_pricing id / item_code of this row's hinge PLATE. Without it the plate is guessed, as before. */
+  hingePlateType?: string | null;
+  /** hardware_pricing id / item_code of this row's drawer runner. */
+  drawerType?: string | null;
+  /**
+   * The drawer kits the work order COUNTS on this row, per cabinet: a drawer bank is usually a shallow kit over
+   * deep ones ("Alto Slim H135 500mm" x1 + "H199 500mm" x2), so one runner per row is wrong on most of them.
+   * `type` is a hardware_pricing id / item_code; a kit with none (the name did not resolve) is priced on
+   * `drawerType`, then on the job's runner - counted either way, never free. When any kit is listed the kits ARE
+   * the runners of this cabinet: the engine's own one-per-drawer count is not added on top, and a cabinet whose
+   * name gives no drawer count ("Tall 2 Door With Inner Drawers") still pays for the kits it has.
+   */
+  runnerKits?: Array<{ type?: string | null; qty: number }> | null;
+  /** hardware_pricing id / item_code of this row's handle. Not in the catalogue: the job's handle, else the allowance. */
+  handleId?: string | null;
+  /**
+   * How many handles the work order counts on this cabinet (0 = none: a push-to-open or finger-pull front). Omitted:
+   * one per door and drawer front, as before.
+   */
+  handleCount?: number | null;
+}
+
+/** What a handle costs when no catalogue handle is chosen for it: Bower's standard handle allowance. */
+export const HANDLE_ALLOWANCE = 15;
+export const HANDLE_ALLOWANCE_CODE = 'HANDLE-ALLOWANCE';
+
+/** A row selection that is actually set: a non-empty string. */
+const rowKeyOf = (value: string | null | undefined): string | null => {
+  const key = String(value ?? '').trim();
+  return key ? key : null;
+};
+
+/**
+ * The catalogue row a hardware KEY (id or item_code) names, of a given type.
+ *
+ * Exactly the lookup the global selection has always used: id or item_code anywhere in the catalogue first, then a
+ * type-matched row whose name contains the key (which is how selections like "Series 200" or "Alto" resolve).
+ */
+/** The kits a row lists, cleaned: whole positive counts only. */
+function rowRunnerKits(kits: RowHardwareSelection['runnerKits']): Array<{ type: string | null; qty: number }> {
+  if (!Array.isArray(kits)) return [];
+  const out: Array<{ type: string | null; qty: number }> = [];
+  for (const k of kits) {
+    const qty = Math.round(Number(k?.qty));
+    if (Number.isFinite(qty) && qty > 0) out.push({ type: rowKeyOf(k?.type), qty });
+  }
+  return out;
+}
+
+function findHardwareByKey(
+  hardwarePricing: HardwarePricingRecord[],
+  key: string,
+  type: string,
+): HardwarePricingRecord | undefined {
+  return hardwarePricing.find(h => h.id === key || h.item_code === key)
+    ?? hardwarePricing.find(h =>
+      isType(h, type) &&
+      (h.name.toLowerCase().includes(key.toLowerCase()) || h.item_code === key));
+}
+
+/**
  * Calculate hardware requirements for a cabinet
+ *
+ * `rowHardware` is what the schedule row itself names (see RowHardwareSelection). Omitted - or with every field
+ * empty - the cabinet is priced on `hardwareOptions` exactly as before.
  */
 export function calculateHardware(
   config: CabinetConfig,
   cabinetHeight: number,
   hardwareOptions: HardwareOptions,
-  hardwarePricing: HardwarePricingRecord[]
+  hardwarePricing: HardwarePricingRecord[],
+  rowHardware?: RowHardwareSelection,
 ): HardwareItem[] {
   const items: HardwareItem[] = [];
   const rules = DEFAULT_RULES;
@@ -108,15 +187,13 @@ export function calculateHardware(
     const hingesPerDoor = isTall ? rules.hingesPerTallDoor : rules.hingesPerDoor;
     const hingeCount = config.numDoors * hingesPerDoor;
     
-    const hingePricing = hardwarePricing.find(h =>
-      h.id === hardwareOptions.hingeType || h.item_code === hardwareOptions.hingeType
-    ) ?? hardwarePricing.find(h =>
-      isType(h, 'hinge') &&
-      (h.name.toLowerCase().includes(hardwareOptions.hingeType.toLowerCase()) ||
-       h.item_code === hardwareOptions.hingeType)
-    );
+    // The row's own hinge beats the job's, and an unresolvable row hinge falls back to the job's rather than
+    // pricing nothing. Same shape for the plate and the runner below.
+    const hingeKey = rowKeyOf(rowHardware?.hingeType);
+    const rowHinge = hingeKey ? findHardwareByKey(hardwarePricing, hingeKey, 'hinge') : undefined;
+    const hingePricing = rowHinge ?? findHardwareByKey(hardwarePricing, hardwareOptions.hingeType, 'hinge');
     const hingeCost = resolvePositiveUnitCost(hingePricing, 8);
-    
+
     items.push({
       itemCode: hingePricing?.item_code ?? hardwareOptions.hingeType,
       name: hingePricing?.name ?? hardwareOptions.hingeType,
@@ -129,10 +206,22 @@ export function calculateHardware(
                  (hingePricing?.machining_cost ?? 0) * hingeCount +
                  (hingePricing?.assembly_cost ?? 0) * hingeCount,
       isFallbackPrice: hingeCost.isFallbackPrice,
+      selectedBy: rowHinge ? 'row' : 'job',
+      ...(hingeKey ? { requestedCode: hingeKey } : {}),
+      ...(hingeKey && !rowHinge ? { overrideUnresolved: true } : {}),
     });
 
     // === HINGE PLATES (separate item — plate type varies by hinge type) ===
-    const platePricing = hardwarePricing.find(h =>
+    // With no plate named on the row this is still a GUESS: the first /plate/i row, preferring the hinge's own
+    // series. A Microvellum work order names the plate on every product that names a hinge (and always at the
+    // hinge's own quantity), so a row that carries one is priced on the plate the job actually buys.
+    const plateKey = rowKeyOf(rowHardware?.hingePlateType);
+    const rowPlate = plateKey
+      ? (hardwarePricing.find(h => h.id === plateKey || h.item_code === plateKey)
+        ?? hardwarePricing.find(h => /plate/i.test(`${h.hardware_type} ${h.name}`)
+          && h.name.toLowerCase().includes(plateKey.toLowerCase())))
+      : undefined;
+    const platePricing = rowPlate ?? hardwarePricing.find(h =>
       /plate/i.test(`${h.hardware_type} ${h.name}`) &&
       (!hingePricing?.series || h.series === hingePricing.series)
     ) ?? hardwarePricing.find(h => /plate/i.test(`${h.hardware_type} ${h.name}`));
@@ -150,22 +239,21 @@ export function calculateHardware(
         (platePricing?.machining_cost ?? 0) * hingeCount +
         (platePricing?.assembly_cost ?? 0) * hingeCount,
       isFallbackPrice: plateCost.isFallbackPrice,
+      selectedBy: rowPlate ? 'row' : 'job',
+      ...(plateKey ? { requestedCode: plateKey } : {}),
+      ...(plateKey && !rowPlate ? { overrideUnresolved: true } : {}),
     });
   }
   
   // === DRAWER RUNNERS ===
-  if (config.numDrawers > 0) {
-    const runnerCount = config.numDrawers * rules.runnersPerDrawer;
-    
-    const runnerPricing = hardwarePricing.find(h =>
-      h.id === hardwareOptions.drawerType || h.item_code === hardwareOptions.drawerType
-    ) ?? hardwarePricing.find(h =>
-      isType(h, 'runner') &&
-      (h.name.toLowerCase().includes(hardwareOptions.drawerType.toLowerCase()) ||
-       h.item_code === hardwareOptions.drawerType)
-    );
+  // One line per kit the row lists (the work order's own names and counts); otherwise one runner per drawer on the
+  // row's runner, else the job's.
+  const kits = rowRunnerKits(rowHardware?.runnerKits);
+  const pushRunner = (runnerKey: string | null, runnerCount: number) => {
+    const rowRunner = runnerKey ? findHardwareByKey(hardwarePricing, runnerKey, 'runner') : undefined;
+    const runnerPricing = rowRunner ?? findHardwareByKey(hardwarePricing, hardwareOptions.drawerType, 'runner');
     const runnerCost = resolvePositiveUnitCost(runnerPricing, 45);
-    
+
     items.push({
       itemCode: runnerPricing?.item_code ?? hardwareOptions.drawerType,
       name: runnerPricing?.name ?? hardwareOptions.drawerType,
@@ -178,24 +266,38 @@ export function calculateHardware(
                  (runnerPricing?.machining_cost ?? 0) * runnerCount +
                  (runnerPricing?.assembly_cost ?? 0) * runnerCount,
       isFallbackPrice: runnerCost.isFallbackPrice,
+      selectedBy: rowRunner ? 'row' : 'job',
+      ...(runnerKey ? { requestedCode: runnerKey } : {}),
+      ...(runnerKey && !rowRunner ? { overrideUnresolved: true } : {}),
     });
+  };
+  if (kits.length > 0) {
+    for (const kit of kits) pushRunner(kit.type ?? rowKeyOf(rowHardware?.drawerType), kit.qty);
+  } else if (config.numDrawers > 0) {
+    pushRunner(rowKeyOf(rowHardware?.drawerType), config.numDrawers * rules.runnersPerDrawer);
   }
-  
+
   // === HANDLES ===
-  if (hardwareOptions.handleId !== 'handle-none') {
-    const handleCount = (config.numDoors * rules.handlesPerDoor) + 
-                       (config.numDrawers * rules.handlesPerDrawer);
-    
+  // The row's own handle beats the job's; with neither in the catalogue each handle is the $15 allowance, so a
+  // quote never goes out with the handles free. The row's own COUNT (what the work order drew) beats one per front.
+  const handleKey = rowKeyOf(rowHardware?.handleId);
+  if (hardwareOptions.handleId !== 'handle-none' || handleKey) {
+    const rowCount = rowHardware?.handleCount == null ? NaN : Math.round(Number(rowHardware.handleCount));
+    const handleCount = Number.isFinite(rowCount) && rowCount >= 0
+      ? rowCount
+      : (config.numDoors * rules.handlesPerDoor) + (config.numDrawers * rules.handlesPerDrawer);
+
     if (handleCount > 0) {
-      const handlePricing = hardwarePricing.find(h => 
-        isType(h, 'handle') && 
-        (h.id === hardwareOptions.handleId || h.item_code === hardwareOptions.handleId)
-      );
-      const handleCost = resolvePositiveUnitCost(handlePricing, 15);
-      
+      const findHandle = (key: string | null | undefined) => (key
+        ? hardwarePricing.find(h => isType(h, 'handle') && (h.id === key || h.item_code === key))
+        : undefined);
+      const rowHandle = findHandle(handleKey);
+      const handlePricing = rowHandle ?? findHandle(hardwareOptions.handleId);
+      const handleCost = resolvePositiveUnitCost(handlePricing, HANDLE_ALLOWANCE);
+
       items.push({
-        itemCode: hardwareOptions.handleId,
-        name: handlePricing?.name ?? 'Handle',
+        itemCode: handlePricing?.item_code ?? HANDLE_ALLOWANCE_CODE,
+        name: handlePricing?.name ?? 'Handle allowance (no handle selected)',
         hardwareType: 'handle',
         quantity: handleCount,
         unitCost: handleCost.unitCost,
@@ -204,10 +306,13 @@ export function calculateHardware(
         totalCost: handleCost.unitCost * handleCount +
                    (handlePricing?.assembly_cost ?? 0) * handleCount,
         isFallbackPrice: handleCost.isFallbackPrice,
+        selectedBy: rowHandle ? 'row' : 'job',
+        ...(handleKey ? { requestedCode: handleKey } : {}),
+        ...(handleKey && !rowHandle ? { overrideUnresolved: true } : {}),
       });
     }
   }
-  
+
   // === ADJUSTABLE LEGS ===
   // Replacement fronts hang on cabinets already standing - they bring no legs. Nor does a flat board: a panel,
   // filler or pelmet is fixed to a cabinet, and 10 Sands St's oven panel was billed four legs.
@@ -308,6 +413,10 @@ export function consolidateHardware(
       assemblyCost: totalAssemblyCost,
       totalCost: (template.unitCost * totalQuantity) + totalMachiningCost + totalAssemblyCost,
       isFallbackPrice: items.some(i => i.isFallbackPrice),
+      // Two cabinets on the same catalogue code roll into one purchase line; it counts as row-chosen when any of
+      // them named it, and as an unresolved override when any of them asked for something the catalogue lacks.
+      ...(items.some(i => i.selectedBy) ? { selectedBy: items.some(i => i.selectedBy === 'row') ? 'row' as const : 'job' as const } : {}),
+      ...(items.some(i => i.overrideUnresolved) ? { overrideUnresolved: true } : {}),
     });
   }
   

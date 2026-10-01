@@ -126,6 +126,19 @@ export interface HardwareItem {
   totalCost: number;
   /** True when no positive catalogue price matched and a calibrated fallback was used. */
   isFallbackPrice?: boolean;
+  /**
+   * Where this hardware came from. 'row' = the schedule row named it (a Microvellum work order names the hinge,
+   * the hinge plate and the drawer runner per product); 'job' = the one global selection, as before per-row
+   * hardware existed. Absent on items that are never chosen at all (legs, shelf pins, screws).
+   */
+  selectedBy?: 'row' | 'job';
+  /** The catalogue key the ROW asked for (hardware_pricing id / item_code). Present whenever a row named one. */
+  requestedCode?: string;
+  /**
+   * True when the row named a hinge / plate / runner that matches NO catalogue row: the job's own selection was
+   * priced instead and the quote says so. Never silently free - the item is still counted and still costed.
+   */
+  overrideUnresolved?: boolean;
 }
 
 export interface BuildHours {

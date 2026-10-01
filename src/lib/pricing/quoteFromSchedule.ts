@@ -12,7 +12,8 @@
  * straight through its existing import path.
  */
 import { generateQuoteBOM } from './bomGenerator';
-import type { PricingData } from './types';
+import { consolidateHardware } from './hardwareCalculator';
+import type { HardwareItem, PricingData } from './types';
 import { isRobeDoorProduct } from './cabinetPartMapping';
 import type { PlacedItem, GlobalDimensions, HardwareOptions } from '@/types';
 import { calculateWorkshopCost, type SupplyMode, type WorkshopCost, type WorkshopLine } from './workshopModel';
@@ -45,6 +46,36 @@ export interface ScheduleItem {
   carcaseMaterialId?: string;
   exteriorMaterialId?: string;
   edgeId?: string;
+  /**
+   * Optional per-line HARDWARE overrides - hardware_pricing id or item_code, the same kind of value the global
+   * selections carry. They travel the road the boards and the edges already travel: the Microvellum work order
+   * names the hinge, the hinge plate and the drawer runner on every product, Build Flow resolves each name to a
+   * catalogue row, Ben confirms or corrects it, and the row arrives here already resolved.
+   *
+   * `row.x ?? selections.x`, per row. A row that names nothing is priced exactly as it was before these existed.
+   * A row that names something the catalogue does not hold is priced on the job's pick with a loud
+   * "HARDWARE NOT IN THE CATALOGUE" warning - never dropped, never free.
+   *
+   * HINGE counts are still the engine's own (doors x 2, or x 4 over 1200). Runner and handle counts come from the
+   * work order when the row carries them - see runnerKits and handleCount below.
+   */
+  hingeType?: string;
+  hingePlateType?: string;
+  drawerType?: string;
+  /**
+   * The drawer kits the work order counts on this row, PER CABINET: [{ type, qty }], `type` a hardware_pricing id or
+   * item_code. A drawer bank is usually a shallow kit over deep ones, so the kits are priced one line each at the
+   * work order's own counts instead of one runner per drawer. A kit with no `type` (its name did not resolve) is
+   * priced on `drawerType`, then on the job's runner.
+   */
+  runnerKits?: Array<{ type?: string; qty: number }>;
+  /**
+   * This row's handle (hardware_pricing id or item_code) and how many the work order counts on each cabinet.
+   * No handle in the catalogue for the row or the job: every handle is the $15 allowance (HANDLE-ALLOWANCE).
+   * `handleCount` 0 means the cabinet has none; omitted, one per door and drawer front as before.
+   */
+  handleId?: string;
+  handleCount?: number;
 
   // ---- laminated benchtop rows (name matches /countertop|benchtop/i) --------
   // A benchtop row is ENGINE-PRICED only when it resolves to a priced sheet
@@ -153,6 +184,37 @@ export interface QuoteCommercial {
   jobMinimums?: boolean;
 }
 
+/**
+ * One hardware line inside a quote line - what BowerOS actually priced on it.
+ *
+ * Only on a line whose ROW named hardware of its own (ScheduleItem.hingeType / hingePlateType / drawerType), so a
+ * quote where no row does is byte-identical to one priced before per-row hardware existed. Quantities are for the
+ * WHOLE line (every cabinet on it), consolidated by catalogue code the way the job's hardware list is.
+ */
+export interface PricedLineHardware {
+  /** 'hinge', 'hinge-plate', 'runner' or 'handle'. */
+  type: string;
+  /** hardware_pricing.item_code actually priced. */
+  itemCode: string;
+  name: string;
+  /** units across the whole line. */
+  quantity: number;
+  unitCost: number;
+  /** quantity x unitCost plus whatever machining / assembly the supply mode left on the item. */
+  cost: number;
+  /**
+   * 'row' = this line's own pick (the work order named it and it resolved); 'job' = the global picker - or, for a
+   * hinge plate with none named, the engine's own guess at a plate, which is not a pick at all.
+   */
+  selectedBy: 'row' | 'job';
+  /** The id / item_code the row asked for, whenever it asked for one. */
+  requestedCode?: string;
+  /** The row asked for something hardware_pricing does not hold: the job's pick was priced instead, and warned. */
+  unresolved?: true;
+  /** No positive catalogue price at all - a calibrated fallback rate, warned. */
+  fallbackPrice?: true;
+}
+
 export interface PricedLine {
   description: string;
   quantity: number;
@@ -167,6 +229,11 @@ export interface PricedLine {
   roomName: string | null;
   /** 'bower' = priced by the engine; 'passthrough' = carried from the source quote (stone, buyouts). */
   source: 'bower' | 'passthrough';
+  /**
+   * What this line's hardware is - the hinge, the hinge plate, the runner and the handle it was priced on, with
+   * the counts. Present ONLY when the ROW named hardware of its own; see PricedLineHardware.
+   */
+  hardware?: PricedLineHardware[];
   /**
    * Present (true) only on a line BowerOS did not price at all - today a robe opening / sliding robe door, carried
    * at the row's mv_total. When that total is 0 (a Build Flow work-order line has no price) the line is on the
@@ -391,6 +458,56 @@ export function robeBlockedWarning(
 /** A schedule row that carries the robe contract block (any object - the robe module validates it). */
 export const hasRobeSpec = (r: Pick<ScheduleItem, 'robe'>): boolean => r.robe != null && typeof r.robe === 'object';
 
+type RowHardwareFields = Pick<ScheduleItem, 'hingeType' | 'hingePlateType' | 'drawerType' | 'runnerKits' | 'handleId' | 'handleCount'>;
+
+/**
+ * The hardware a schedule row names for itself, trimmed.
+ *
+ * An empty string is NOT a choice: Build Flow sends one for a work-order name it could not resolve to a catalogue
+ * row, and that has to fall back to the job's pick rather than price a hinge called "".
+ */
+function rowHardwareOf(r: RowHardwareFields): {
+  hingeType?: string; hingePlateType?: string; drawerType?: string;
+  runnerKits?: Array<{ type?: string; qty: number }>; handleId?: string; handleCount?: number;
+} {
+  const key = (v: unknown) => { const t = String(v ?? '').trim(); return t || undefined; };
+  const kits = (Array.isArray(r.runnerKits) ? r.runnerKits : [])
+    .map((k) => ({ type: key(k?.type), qty: Math.round(Number(k?.qty)) }))
+    .filter((k) => Number.isFinite(k.qty) && k.qty > 0);
+  // a count is a count only when it is a number: null / '' / undefined mean "not given", never zero
+  const count = typeof r.handleCount === 'number' && Number.isFinite(r.handleCount) && r.handleCount >= 0
+    ? Math.round(r.handleCount) : undefined;
+  return {
+    hingeType: key(r.hingeType), hingePlateType: key(r.hingePlateType), drawerType: key(r.drawerType),
+    runnerKits: kits.length ? kits : undefined, handleId: key(r.handleId), handleCount: count,
+  };
+}
+
+/** True when the row names any hardware of its own - the one thing that turns on PricedLine.hardware. */
+function namesOwnHardware(r: RowHardwareFields): boolean {
+  const hw = rowHardwareOf(r);
+  return Boolean(hw.hingeType || hw.hingePlateType || hw.drawerType || hw.runnerKits || hw.handleId || hw.handleCount !== undefined);
+}
+
+/** The hardware types a quote line reports: the ones somebody chooses. Legs, shelf pins and screws are not. */
+const REPORTED_HARDWARE = new Set(['hinge', 'hinge-plate', 'runner', 'handle']);
+
+/** The line's hardware, consolidated by catalogue code exactly as the job's hardware list is. */
+function reportLineHardware(items: HardwareItem[]): PricedLineHardware[] {
+  return consolidateHardware([items]).map((h) => ({
+    type: h.hardwareType,
+    itemCode: h.itemCode,
+    name: h.name,
+    quantity: h.quantity,
+    unitCost: money(h.unitCost),
+    cost: money(h.totalCost),
+    selectedBy: h.selectedBy ?? 'job',
+    ...(h.requestedCode ? { requestedCode: h.requestedCode } : {}),
+    ...(h.overrideUnresolved ? { unresolved: true as const } : {}),
+    ...(h.isFallbackPrice ? { fallbackPrice: true as const } : {}),
+  }));
+}
+
 /** Microvellum leaves the first product's room blank; it belongs with the main run. */
 function roomOf(item: ScheduleItem, fallback: string): string {
   const raw = String(item.room ?? '').trim();
@@ -453,6 +570,7 @@ export function quoteFromSchedule(
   const originOf: number[] = [];
   cabinetRows.forEach((r, idx) => {
     const qty = Math.max(1, Math.round(r.qty ?? 1));
+    const rowHw = rowHardwareOf(r);
     for (let n = 0; n < qty; n++) {
       originOf.push(idx);
       items.push({
@@ -466,6 +584,14 @@ export function quoteFromSchedule(
         carcaseMaterialId: r.carcaseMaterialId ?? selections.carcaseMaterialId,
         exteriorMaterialId: r.exteriorMaterialId ?? selections.exteriorMaterialId,
         edgeId: r.edgeId ?? selections.edgeId,
+        // The row's own hardware, when the work order named it. Spread only when set, so an item that names
+        // nothing is byte-identical to what it was before per-row hardware existed.
+        ...(rowHw.hingeType ? { hingeTypeId: rowHw.hingeType } : {}),
+        ...(rowHw.hingePlateType ? { hingePlateTypeId: rowHw.hingePlateType } : {}),
+        ...(rowHw.drawerType ? { drawerTypeId: rowHw.drawerType } : {}),
+        ...(rowHw.runnerKits ? { runnerKits: rowHw.runnerKits } : {}),
+        ...(rowHw.handleId ? { handleTypeId: rowHw.handleId } : {}),
+        ...(rowHw.handleCount !== undefined ? { handleCount: rowHw.handleCount } : {}),
       } as PlacedItem);
     }
   });
@@ -495,11 +621,14 @@ export function quoteFromSchedule(
   // Fold per-unit costs back onto their schedule line.
   const lineCost = new Array(cabinetRows.length).fill(0) as number[];
   const lineSplit = cabinetRows.map(() => ({ material: 0, labor: 0 }));
+  // Every unit's chosen hardware, kept per line so a line that names its own can say what it was priced on.
+  const lineHardware: HardwareItem[][] = cabinetRows.map(() => []);
   bom.cabinets.forEach((c, i) => {
     const idx = originOf[i];
     lineCost[idx] += c.totalCost ?? 0;
     lineSplit[idx].material += c.subtotals.materials + c.subtotals.edging + c.subtotals.hardware;
     lineSplit[idx].labor += c.subtotals.labor + c.subtotals.handling + c.subtotals.machining + c.subtotals.assembly;
+    for (const h of c.hardware) if (REPORTED_HARDWARE.has(h.hardwareType)) lineHardware[idx].push(h);
   });
 
   // ---- laminated benchtops --------------------------------------------------
@@ -709,6 +838,7 @@ export function quoteFromSchedule(
       category: 'cabinetry',
       roomName: roomOf(r, defaultRoom),
       source: 'bower',
+      ...(namesOwnHardware(r) ? { hardware: reportLineHardware(lineHardware[idx]) } : {}),
     };
   });
 

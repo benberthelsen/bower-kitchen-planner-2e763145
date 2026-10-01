@@ -2583,6 +2583,73 @@ for (const [id, w, h, d] of families) {
     JSON.stringify(dbl.warnings.slice(0, 4)));
 }
 
+// ── hardware the work order names per cabinet: runner kits, the handle and its count (1 Oct 2026) ─────────────
+{
+  const hwPricing = {
+    ...pricingData,
+    hardware: [
+      ...pricingData.hardware,
+      { id: 'h135', item_code: 'RUN-A135', name: 'Alto Slim H135 500', hardware_type: 'Drawer Runner', runner_depth: 500, runner_height: 135, unit_cost: 38, machining_cost: 0, assembly_cost: 0 },
+      { id: 'h199', item_code: 'RUN-A199', name: 'Alto Slim H199 500', hardware_type: 'Drawer Runner', runner_depth: 500, runner_height: 199, unit_cost: 45, machining_cost: 0, assembly_cost: 0 },
+      { id: 'htab', item_code: 'HND-TAB', name: 'Tab pull 192', hardware_type: 'handle', unit_cost: 9, machining_cost: 0, assembly_cost: 0 },
+    ],
+  };
+  const selNoHandle = { carcaseMaterialId: 'm1', exteriorMaterialId: 'm1', edgeId: 'e1', hingeType: 'Series 200', drawerType: 'Alto' };
+  const comm = { markupPct: 0.4, overheadPct: 0.1, markupSource: 'test', supplyMode: 'assembled_installed' };
+  const price = (rows, sel = selNoHandle) => quoteFromSchedule(rows, hwPricing, sel, comm, { defaultRoom: 'kitchen' });
+  const bank = { name: 'Base 3 Drawer', qty: 1, w: 600, h: 880, d: 555, room: 'kitchen' };
+  const hwOf = (q, type) => (q.workshopCosting.hardware ?? []).filter((h) => h.category === type);
+  const lineHw = (q, i, type) => (q.lines[i].hardware ?? []).filter((h) => h.type === type);
+  const show = (q) => JSON.stringify((q.workshopCosting.hardware ?? []).map((h) => [h.category, h.code ?? h.itemCode ?? h.name, h.quantity]));
+
+  const plain = price([bank]);
+  check('handles: no handle chosen anywhere is the $15 allowance per handle, one per front, and the quote says so',
+    hwOf(plain, 'handle').reduce((s, h) => s + h.quantity, 0) === 3
+    && plain.warnings.some((w) => /Handle allowance/.test(w) && /15\.00/.test(w)), show(plain) + ' ' + plain.warnings.filter((w) => /andle/.test(w)).join(' | '));
+  check('row hardware: a row that names nothing reports no hardware block (priced exactly as before)', plain.lines[0].hardware === undefined);
+
+  const kits = price([{ ...bank, runnerKits: [{ type: 'RUN-A135', qty: 1 }, { type: 'RUN-A199', qty: 2 }] }]);
+  const kitRunners = lineHw(kits, 0, 'runner');
+  check('runner kits: a drawer bank is priced on the kits the work order counts - 1 x H135 and 2 x H199, not 3 of the job runner',
+    kitRunners.length === 2
+    && kitRunners.find((h) => h.itemCode === 'RUN-A135')?.quantity === 1 && kitRunners.find((h) => h.itemCode === 'RUN-A135')?.unitCost === 38
+    && kitRunners.find((h) => h.itemCode === 'RUN-A199')?.quantity === 2 && kitRunners.find((h) => h.itemCode === 'RUN-A199')?.unitCost === 45
+    && kitRunners.every((h) => h.selectedBy === 'row'), JSON.stringify(kitRunners));
+
+  const lost = price([{ ...bank, runnerKits: [{ qty: 2 }, { type: 'NOT-A-RUNNER-ROW', qty: 1 }] }]);
+  check('runner kits: a kit whose name did not resolve is still counted and priced on the job runner, with a warning for the one that named a missing row',
+    lineHw(lost, 0, 'runner').reduce((s, h) => s + h.quantity, 0) === 3
+    && lineHw(lost, 0, 'runner').every((h) => h.itemCode === 'RUN-ALTO500')
+    && lost.warnings.some((w) => /HARDWARE NOT IN THE CATALOGUE/.test(w) && /NOT-A-RUNNER-ROW/.test(w)), JSON.stringify(lineHw(lost, 0, 'runner')));
+
+  const tall = price([{ name: 'Tall 2 Door With Inner Drawers', qty: 1, w: 1000, h: 2300, d: 580, room: 'kitchen', runnerKits: [{ type: 'RUN-A199', qty: 3 }] }]);
+  check('runner kits: inner drawers the name does not count still pay for their kits', lineHw(tall, 0, 'runner').reduce((s, h) => s + h.quantity, 0) === 3, JSON.stringify(lineHw(tall, 0, 'runner')));
+
+  const two = price([{ ...bank, qty: 2, runnerKits: [{ type: 'RUN-A199', qty: 3 }] }]);
+  check('runner kits: counts are per cabinet, so a line of two carries twice the kits', lineHw(two, 0, 'runner').reduce((s, h) => s + h.quantity, 0) === 6);
+
+  const tab = price([{ ...bank, handleId: 'HND-TAB', handleCount: 2 }]);
+  check('row handle: the row\'s own handle and the work order\'s own count - 2 tab pulls at $9, not 3 allowances',
+    lineHw(tab, 0, 'handle').length === 1 && lineHw(tab, 0, 'handle')[0].itemCode === 'HND-TAB'
+    && lineHw(tab, 0, 'handle')[0].quantity === 2 && lineHw(tab, 0, 'handle')[0].unitCost === 9, JSON.stringify(lineHw(tab, 0, 'handle')));
+
+  const none = price([{ ...bank, handleCount: 0 }]);
+  check('row handle: a count of 0 is a cabinet with no handles', lineHw(none, 0, 'handle').length === 0 && hwOf(none, 'handle').length === 0, show(none));
+
+  const unknown = price([{ ...bank, handleId: 'TAB PULL NOT IN CATALOGUE', handleCount: 3 }]);
+  const uh = lineHw(unknown, 0, 'handle');
+  check('row handle: a handle that is not in the catalogue is the $15 allowance at the work order\'s count, flagged',
+    uh.length === 1 && uh[0].itemCode === 'HANDLE-ALLOWANCE' && uh[0].quantity === 3 && uh[0].unitCost === 15 && uh[0].unresolved === true, JSON.stringify(uh));
+
+  const jobHandle = price([{ ...bank, handleCount: 3 }], { ...selNoHandle, handleId: 'HND-TAB' });
+  check('row handle: a row with only a count takes the job\'s handle', lineHw(jobHandle, 0, 'handle')[0]?.itemCode === 'HND-TAB' && lineHw(jobHandle, 0, 'handle')[0]?.quantity === 3);
+
+  check('row hardware: more handles cost more, fewer cost less (the count reaches the price)',
+    price([{ ...bank, handleCount: 5 }]).totals.sellExGst > plain.totals.sellExGst && none.totals.sellExGst < plain.totals.sellExGst);
+  check('row hardware: junk values are "not given", never zero or free',
+    JSON.stringify(price([{ ...bank, handleCount: null, handleId: '  ', runnerKits: [{ type: 'RUN-A199', qty: 0 }, { qty: 'x' }] }]).totals) === JSON.stringify(plain.totals));
+}
+
 
 console.log(failures === 0 ? '\nAll pricing smoke tests passed.' : '\n' + failures + ' FAULT(S) FOUND.');
 process.exit(failures === 0 ? 0 : 1);

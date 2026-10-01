@@ -133,8 +133,16 @@ export function generateCabinetBOM(
   // Calculate edge tape against the cabinet's selected edge banding (review #7).
   const edgeTape = calculateEdgeTape(parts, pricingData.edges, cabinet.edgeId);
   
-  // Calculate hardware
-  const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware);
+  // Calculate hardware. The item's OWN hinge / plate / runner (what the work order named on this line) beats the
+  // job's global pick; an item that names none is priced on the job's exactly as before.
+  const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware, {
+    hingeType: cabinet.hingeTypeId,
+    hingePlateType: cabinet.hingePlateTypeId,
+    drawerType: cabinet.drawerTypeId,
+    runnerKits: cabinet.runnerKits,
+    handleId: cabinet.handleTypeId,
+    handleCount: cabinet.handleCount,
+  });
 
   edgeTape
     .filter(edge => edge.isFallbackPrice)
@@ -145,6 +153,17 @@ export function generateCabinetBOM(
     .filter(item => item.isFallbackPrice)
     .forEach(item => warnings.push(
       `Hardware "${item.name}" has no positive catalogue price — using fallback $${item.unitCost.toFixed(2)} each`,
+    ));
+  // A line that names its own hardware but names something the catalogue does not hold. The item is still counted
+  // and still costed - on the job's pick - so nothing goes out free; the warning is loud so the gap gets closed.
+  hardware
+    .filter(item => item.overrideUnresolved)
+    .forEach(item => warnings.push(
+      `HARDWARE NOT IN THE CATALOGUE: ${cabLabel} names ${item.hardwareType === 'hinge-plate' ? 'hinge plate' : item.hardwareType}`
+      + ` "${item.requestedCode}", which matches no hardware_pricing row. The line is priced on the job's own`
+      + ` ${item.hardwareType === 'hinge-plate' ? 'plate' : item.hardwareType} instead - ${item.quantity} x "${item.name}"`
+      + ` at $${item.unitCost.toFixed(2)} each${item.isFallbackPrice ? ' (itself a fallback price)' : ''}.`
+      + ` Add the row to hardware_pricing, or pick the ${item.hardwareType === 'hinge-plate' ? 'plate' : item.hardwareType} for this line by hand.`,
     ));
   sheets
     .filter(sheet => sheet.usedDefaultYield)

@@ -982,18 +982,34 @@ function resolvePositiveUnitCost(pricing, fallback) {
     isFallbackPrice: !hasCatalogPrice
   };
 }
-function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePricing) {
+var HANDLE_ALLOWANCE = 15;
+var HANDLE_ALLOWANCE_CODE = "HANDLE-ALLOWANCE";
+var rowKeyOf = (value) => {
+  const key = String(value ?? "").trim();
+  return key ? key : null;
+};
+function rowRunnerKits(kits) {
+  if (!Array.isArray(kits)) return [];
+  const out = [];
+  for (const k of kits) {
+    const qty = Math.round(Number(k?.qty));
+    if (Number.isFinite(qty) && qty > 0) out.push({ type: rowKeyOf(k?.type), qty });
+  }
+  return out;
+}
+function findHardwareByKey(hardwarePricing, key, type) {
+  return hardwarePricing.find((h) => h.id === key || h.item_code === key) ?? hardwarePricing.find((h) => isType(h, type) && (h.name.toLowerCase().includes(key.toLowerCase()) || h.item_code === key));
+}
+function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePricing, rowHardware) {
   const items = [];
   const rules = DEFAULT_RULES;
   const isTall = cabinetHeight > 1200;
   if (config.numDoors > 0 && !config.slidingDoors) {
     const hingesPerDoor = isTall ? rules.hingesPerTallDoor : rules.hingesPerDoor;
     const hingeCount = config.numDoors * hingesPerDoor;
-    const hingePricing = hardwarePricing.find(
-      (h) => h.id === hardwareOptions.hingeType || h.item_code === hardwareOptions.hingeType
-    ) ?? hardwarePricing.find(
-      (h) => isType(h, "hinge") && (h.name.toLowerCase().includes(hardwareOptions.hingeType.toLowerCase()) || h.item_code === hardwareOptions.hingeType)
-    );
+    const hingeKey = rowKeyOf(rowHardware?.hingeType);
+    const rowHinge = hingeKey ? findHardwareByKey(hardwarePricing, hingeKey, "hinge") : void 0;
+    const hingePricing = rowHinge ?? findHardwareByKey(hardwarePricing, hardwareOptions.hingeType, "hinge");
     const hingeCost = resolvePositiveUnitCost(hingePricing, 8);
     items.push({
       itemCode: hingePricing?.item_code ?? hardwareOptions.hingeType,
@@ -1004,9 +1020,14 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       machiningCost: (hingePricing?.machining_cost ?? 0) * hingeCount,
       assemblyCost: (hingePricing?.assembly_cost ?? 0) * hingeCount,
       totalCost: hingeCost.unitCost * hingeCount + (hingePricing?.machining_cost ?? 0) * hingeCount + (hingePricing?.assembly_cost ?? 0) * hingeCount,
-      isFallbackPrice: hingeCost.isFallbackPrice
+      isFallbackPrice: hingeCost.isFallbackPrice,
+      selectedBy: rowHinge ? "row" : "job",
+      ...hingeKey ? { requestedCode: hingeKey } : {},
+      ...hingeKey && !rowHinge ? { overrideUnresolved: true } : {}
     });
-    const platePricing = hardwarePricing.find(
+    const plateKey = rowKeyOf(rowHardware?.hingePlateType);
+    const rowPlate = plateKey ? hardwarePricing.find((h) => h.id === plateKey || h.item_code === plateKey) ?? hardwarePricing.find((h) => /plate/i.test(`${h.hardware_type} ${h.name}`) && h.name.toLowerCase().includes(plateKey.toLowerCase())) : void 0;
+    const platePricing = rowPlate ?? hardwarePricing.find(
       (h) => /plate/i.test(`${h.hardware_type} ${h.name}`) && (!hingePricing?.series || h.series === hingePricing.series)
     ) ?? hardwarePricing.find((h) => /plate/i.test(`${h.hardware_type} ${h.name}`));
     const plateCost = resolvePositiveUnitCost(platePricing, 2.5);
@@ -1019,16 +1040,16 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       machiningCost: (platePricing?.machining_cost ?? 0) * hingeCount,
       assemblyCost: (platePricing?.assembly_cost ?? 0) * hingeCount,
       totalCost: plateCost.unitCost * hingeCount + (platePricing?.machining_cost ?? 0) * hingeCount + (platePricing?.assembly_cost ?? 0) * hingeCount,
-      isFallbackPrice: plateCost.isFallbackPrice
+      isFallbackPrice: plateCost.isFallbackPrice,
+      selectedBy: rowPlate ? "row" : "job",
+      ...plateKey ? { requestedCode: plateKey } : {},
+      ...plateKey && !rowPlate ? { overrideUnresolved: true } : {}
     });
   }
-  if (config.numDrawers > 0) {
-    const runnerCount = config.numDrawers * rules.runnersPerDrawer;
-    const runnerPricing = hardwarePricing.find(
-      (h) => h.id === hardwareOptions.drawerType || h.item_code === hardwareOptions.drawerType
-    ) ?? hardwarePricing.find(
-      (h) => isType(h, "runner") && (h.name.toLowerCase().includes(hardwareOptions.drawerType.toLowerCase()) || h.item_code === hardwareOptions.drawerType)
-    );
+  const kits = rowRunnerKits(rowHardware?.runnerKits);
+  const pushRunner = (runnerKey, runnerCount) => {
+    const rowRunner = runnerKey ? findHardwareByKey(hardwarePricing, runnerKey, "runner") : void 0;
+    const runnerPricing = rowRunner ?? findHardwareByKey(hardwarePricing, hardwareOptions.drawerType, "runner");
     const runnerCost = resolvePositiveUnitCost(runnerPricing, 45);
     items.push({
       itemCode: runnerPricing?.item_code ?? hardwareOptions.drawerType,
@@ -1039,26 +1060,39 @@ function calculateHardware(config, cabinetHeight, hardwareOptions, hardwarePrici
       machiningCost: (runnerPricing?.machining_cost ?? 0) * runnerCount,
       assemblyCost: (runnerPricing?.assembly_cost ?? 0) * runnerCount,
       totalCost: runnerCost.unitCost * runnerCount + (runnerPricing?.machining_cost ?? 0) * runnerCount + (runnerPricing?.assembly_cost ?? 0) * runnerCount,
-      isFallbackPrice: runnerCost.isFallbackPrice
+      isFallbackPrice: runnerCost.isFallbackPrice,
+      selectedBy: rowRunner ? "row" : "job",
+      ...runnerKey ? { requestedCode: runnerKey } : {},
+      ...runnerKey && !rowRunner ? { overrideUnresolved: true } : {}
     });
+  };
+  if (kits.length > 0) {
+    for (const kit of kits) pushRunner(kit.type ?? rowKeyOf(rowHardware?.drawerType), kit.qty);
+  } else if (config.numDrawers > 0) {
+    pushRunner(rowKeyOf(rowHardware?.drawerType), config.numDrawers * rules.runnersPerDrawer);
   }
-  if (hardwareOptions.handleId !== "handle-none") {
-    const handleCount = config.numDoors * rules.handlesPerDoor + config.numDrawers * rules.handlesPerDrawer;
+  const handleKey = rowKeyOf(rowHardware?.handleId);
+  if (hardwareOptions.handleId !== "handle-none" || handleKey) {
+    const rowCount = rowHardware?.handleCount == null ? NaN : Math.round(Number(rowHardware.handleCount));
+    const handleCount = Number.isFinite(rowCount) && rowCount >= 0 ? rowCount : config.numDoors * rules.handlesPerDoor + config.numDrawers * rules.handlesPerDrawer;
     if (handleCount > 0) {
-      const handlePricing = hardwarePricing.find(
-        (h) => isType(h, "handle") && (h.id === hardwareOptions.handleId || h.item_code === hardwareOptions.handleId)
-      );
-      const handleCost = resolvePositiveUnitCost(handlePricing, 15);
+      const findHandle = (key) => key ? hardwarePricing.find((h) => isType(h, "handle") && (h.id === key || h.item_code === key)) : void 0;
+      const rowHandle = findHandle(handleKey);
+      const handlePricing = rowHandle ?? findHandle(hardwareOptions.handleId);
+      const handleCost = resolvePositiveUnitCost(handlePricing, HANDLE_ALLOWANCE);
       items.push({
-        itemCode: hardwareOptions.handleId,
-        name: handlePricing?.name ?? "Handle",
+        itemCode: handlePricing?.item_code ?? HANDLE_ALLOWANCE_CODE,
+        name: handlePricing?.name ?? "Handle allowance (no handle selected)",
         hardwareType: "handle",
         quantity: handleCount,
         unitCost: handleCost.unitCost,
         machiningCost: 0,
         assemblyCost: (handlePricing?.assembly_cost ?? 0) * handleCount,
         totalCost: handleCost.unitCost * handleCount + (handlePricing?.assembly_cost ?? 0) * handleCount,
-        isFallbackPrice: handleCost.isFallbackPrice
+        isFallbackPrice: handleCost.isFallbackPrice,
+        selectedBy: rowHandle ? "row" : "job",
+        ...handleKey ? { requestedCode: handleKey } : {},
+        ...handleKey && !rowHandle ? { overrideUnresolved: true } : {}
       });
     }
   }
@@ -1138,7 +1172,11 @@ function consolidateHardware(cabinetHardware) {
       machiningCost: totalMachiningCost,
       assemblyCost: totalAssemblyCost,
       totalCost: template.unitCost * totalQuantity + totalMachiningCost + totalAssemblyCost,
-      isFallbackPrice: items.some((i) => i.isFallbackPrice)
+      isFallbackPrice: items.some((i) => i.isFallbackPrice),
+      // Two cabinets on the same catalogue code roll into one purchase line; it counts as row-chosen when any of
+      // them named it, and as an unresolved override when any of them asked for something the catalogue lacks.
+      ...items.some((i) => i.selectedBy) ? { selectedBy: items.some((i) => i.selectedBy === "row") ? "row" : "job" } : {},
+      ...items.some((i) => i.overrideUnresolved) ? { overrideUnresolved: true } : {}
     });
   }
   return consolidated;
@@ -2055,12 +2093,22 @@ function generateCabinetBOM(cabinet, globalDims, hardwareOptions, pricingData, c
     }
   }
   const edgeTape = calculateEdgeTape(parts, pricingData.edges, cabinet.edgeId);
-  const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware);
+  const hardware = calculateHardware(config, cabinet.height, hardwareOptions, pricingData.hardware, {
+    hingeType: cabinet.hingeTypeId,
+    hingePlateType: cabinet.hingePlateTypeId,
+    drawerType: cabinet.drawerTypeId,
+    runnerKits: cabinet.runnerKits,
+    handleId: cabinet.handleTypeId,
+    handleCount: cabinet.handleCount
+  });
   edgeTape.filter((edge) => edge.isFallbackPrice).forEach((edge) => warnings.push(
     `Edge tape "${edge.edgeName}" has no positive catalogue price \u2014 using fallback $${edge.costPerMeter.toFixed(2)}/m`
   ));
   hardware.filter((item) => item.isFallbackPrice).forEach((item) => warnings.push(
     `Hardware "${item.name}" has no positive catalogue price \u2014 using fallback $${item.unitCost.toFixed(2)} each`
+  ));
+  hardware.filter((item) => item.overrideUnresolved).forEach((item) => warnings.push(
+    `HARDWARE NOT IN THE CATALOGUE: ${cabLabel} names ${item.hardwareType === "hinge-plate" ? "hinge plate" : item.hardwareType} "${item.requestedCode}", which matches no hardware_pricing row. The line is priced on the job's own ${item.hardwareType === "hinge-plate" ? "plate" : item.hardwareType} instead - ${item.quantity} x "${item.name}" at $${item.unitCost.toFixed(2)} each${item.isFallbackPrice ? " (itself a fallback price)" : ""}. Add the row to hardware_pricing, or pick the ${item.hardwareType === "hinge-plate" ? "plate" : item.hardwareType} for this line by hand.`
   ));
   sheets.filter((sheet) => sheet.usedDefaultYield).forEach((sheet) => warnings.push(
     `Material "${sheet.materialName}" has an invalid yield \u2014 using the safe 85% yield`
@@ -3880,6 +3928,41 @@ function robeBlockedWarning(r, room, qty, total, reasons) {
   return total > 0 ? `${what} It is carried at the source quote's own figure, $${total.toFixed(2)}, with nothing added for it - fix the opening or check that figure.` : `${what} This row carries NO source price (mv_total missing or $0), so it is on the quote at $0.00 - fix the opening or price it by hand before the quote goes out.`;
 }
 var hasRobeSpec = (r) => r.robe != null && typeof r.robe === "object";
+function rowHardwareOf(r) {
+  const key = (v) => {
+    const t = String(v ?? "").trim();
+    return t || void 0;
+  };
+  const kits = (Array.isArray(r.runnerKits) ? r.runnerKits : []).map((k) => ({ type: key(k?.type), qty: Math.round(Number(k?.qty)) })).filter((k) => Number.isFinite(k.qty) && k.qty > 0);
+  const count = typeof r.handleCount === "number" && Number.isFinite(r.handleCount) && r.handleCount >= 0 ? Math.round(r.handleCount) : void 0;
+  return {
+    hingeType: key(r.hingeType),
+    hingePlateType: key(r.hingePlateType),
+    drawerType: key(r.drawerType),
+    runnerKits: kits.length ? kits : void 0,
+    handleId: key(r.handleId),
+    handleCount: count
+  };
+}
+function namesOwnHardware(r) {
+  const hw = rowHardwareOf(r);
+  return Boolean(hw.hingeType || hw.hingePlateType || hw.drawerType || hw.runnerKits || hw.handleId || hw.handleCount !== void 0);
+}
+var REPORTED_HARDWARE = /* @__PURE__ */ new Set(["hinge", "hinge-plate", "runner", "handle"]);
+function reportLineHardware(items) {
+  return consolidateHardware([items]).map((h) => ({
+    type: h.hardwareType,
+    itemCode: h.itemCode,
+    name: h.name,
+    quantity: h.quantity,
+    unitCost: money4(h.unitCost),
+    cost: money4(h.totalCost),
+    selectedBy: h.selectedBy ?? "job",
+    ...h.requestedCode ? { requestedCode: h.requestedCode } : {},
+    ...h.overrideUnresolved ? { unresolved: true } : {},
+    ...h.isFallbackPrice ? { fallbackPrice: true } : {}
+  }));
+}
 function roomOf(item, fallback) {
   const raw = String(item.room ?? "").trim();
   return !raw || /^\(?unnamed\)?$/i.test(raw) ? fallback : raw;
@@ -3914,6 +3997,7 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   const originOf = [];
   cabinetRows.forEach((r, idx) => {
     const qty = Math.max(1, Math.round(r.qty ?? 1));
+    const rowHw = rowHardwareOf(r);
     for (let n = 0; n < qty; n++) {
       originOf.push(idx);
       items.push({
@@ -3931,7 +4015,15 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
         depth: r.d,
         carcaseMaterialId: r.carcaseMaterialId ?? selections.carcaseMaterialId,
         exteriorMaterialId: r.exteriorMaterialId ?? selections.exteriorMaterialId,
-        edgeId: r.edgeId ?? selections.edgeId
+        edgeId: r.edgeId ?? selections.edgeId,
+        // The row's own hardware, when the work order named it. Spread only when set, so an item that names
+        // nothing is byte-identical to what it was before per-row hardware existed.
+        ...rowHw.hingeType ? { hingeTypeId: rowHw.hingeType } : {},
+        ...rowHw.hingePlateType ? { hingePlateTypeId: rowHw.hingePlateType } : {},
+        ...rowHw.drawerType ? { drawerTypeId: rowHw.drawerType } : {},
+        ...rowHw.runnerKits ? { runnerKits: rowHw.runnerKits } : {},
+        ...rowHw.handleId ? { handleTypeId: rowHw.handleId } : {},
+        ...rowHw.handleCount !== void 0 ? { handleCount: rowHw.handleCount } : {}
       });
     }
   });
@@ -3954,11 +4046,13 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
   }
   const lineCost = new Array(cabinetRows.length).fill(0);
   const lineSplit = cabinetRows.map(() => ({ material: 0, labor: 0 }));
+  const lineHardware = cabinetRows.map(() => []);
   bom.cabinets.forEach((c, i) => {
     const idx = originOf[i];
     lineCost[idx] += c.totalCost ?? 0;
     lineSplit[idx].material += c.subtotals.materials + c.subtotals.edging + c.subtotals.hardware;
     lineSplit[idx].labor += c.subtotals.labor + c.subtotals.handling + c.subtotals.machining + c.subtotals.assembly;
+    for (const h of c.hardware) if (REPORTED_HARDWARE.has(h.hardwareType)) lineHardware[idx].push(h);
   });
   const lam = priceLaminatedBenchtops(
     benchtopRows.map(({ r, index }) => ({
@@ -4180,7 +4274,8 @@ function quoteFromSchedule(schedule, pricing, selections, commercial, opts = {})
       marginPercent,
       category: "cabinetry",
       roomName: roomOf(r, defaultRoom),
-      source: "bower"
+      source: "bower",
+      ...namesOwnHardware(r) ? { hardware: reportLineHardware(lineHardware[idx]) } : {}
     };
   });
   for (const { r, index } of benchtopRows) {
