@@ -111,6 +111,22 @@ export interface PlacedItem {
   kickFacingMaterialId?: string;
   /** Ends of this item's kick that return and are faced (Microvellum's "Finished Side"), 0-2. Pricing only. */
   kickExposedEnds?: number;
+  /**
+   * THIS item's own hinge / hinge plate / drawer runner (hardware_pricing id or item_code). Pricing only.
+   *
+   * A Microvellum work order names all three on every product, so an imported line can be priced on the hardware
+   * the job actually buys instead of the one global pick. Omitted: the job's HardwareOptions, exactly as before.
+   * Named but not in the catalogue: the job's pick is used and the quote says so (never silently free).
+   * `hingeTypeId`, not `hingeType` - `hinge` above is the door's HANDING, a different thing entirely.
+   */
+  hingeTypeId?: string;
+  hingePlateTypeId?: string;
+  drawerTypeId?: string;
+  /** The drawer kits the work order counts on THIS item ({ type: hardware_pricing id / item_code, qty }). Pricing only. */
+  runnerKits?: Array<{ type?: string | null; qty: number }>;
+  /** THIS item's own handle (hardware_pricing id or item_code) and how many the work order counts on it. Pricing only. */
+  handleTypeId?: string;
+  handleCount?: number;
   tapId?: string;
   applianceId?: string;
   /** Layout role stamped by compileSpec (`sink`, `cooktop`, `oven-tower`,
