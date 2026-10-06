@@ -1127,7 +1127,7 @@ export default function RoomPlanner() {
   return (
     <TradeLayout>
       <div className="flex flex-col h-[calc(100vh-64px)]">
-        <div className="flex flex-col gap-2 px-3 py-2 border-b bg-background md:flex-row md:items-center md:justify-between md:px-4">
+        <div className="flex flex-col gap-2 px-3 py-2 border-b bg-white md:flex-row md:items-center md:justify-between md:px-4">
           <div className="flex min-w-0 items-center gap-2 md:gap-4">
             <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(`/trade/job/${jobId}`)}>
               <ArrowLeft className="w-5 h-5" />
@@ -1343,7 +1343,7 @@ export default function RoomPlanner() {
 
         <div className="flex-1 flex overflow-hidden relative">
           {showRoomEditor && editableDocument && (
-            <aside className="absolute inset-0 z-30 min-w-0 overflow-y-auto overflow-x-hidden border-r bg-background md:relative md:inset-auto md:w-[420px] md:flex-shrink-0"
+            <aside className="absolute inset-0 z-30 min-w-0 overflow-y-auto overflow-x-hidden border-r bg-white md:relative md:inset-auto md:w-[420px] md:flex-shrink-0"
               aria-label="Room wall and opening editor">
               <RoomDocumentEditor document={planningDocument ?? editableDocument} onChange={handleRoomDocumentChange} />
               {planningDocument?.capture?.captureId && jobId && currentRoom && (
@@ -1386,7 +1386,7 @@ export default function RoomPlanner() {
             </aside>
           )}
           {(showCatalog || mobilePanel === 'catalog') && (
-            <div className={`${mobilePanel === 'catalog' ? 'block' : 'hidden'} absolute inset-0 z-20 w-full overflow-y-auto border-r bg-background ${showCatalog ? 'md:relative md:inset-auto md:block md:w-64 md:flex-shrink-0' : 'md:hidden'}`}>
+            <div className={`${mobilePanel === 'catalog' ? 'block' : 'hidden'} absolute inset-0 z-20 w-full overflow-y-auto border-r bg-white ${showCatalog ? 'md:relative md:inset-auto md:block md:w-64 md:flex-shrink-0' : 'md:hidden'}`}>
               <div className="flex items-center justify-between border-b px-4 py-2 md:hidden">
                 <span className="font-semibold">Catalog</span>
                 <Button variant="ghost" size="icon" onClick={() => setMobilePanel(null)} aria-label="Close catalog">
