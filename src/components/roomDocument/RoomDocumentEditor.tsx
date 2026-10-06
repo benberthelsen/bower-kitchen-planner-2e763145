@@ -70,6 +70,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   const [issues, setIssues] = useState<RoomIssue[]>([]);
   const [newLength, setNewLength] = useState(1200);
   const [newAngle, setNewAngle] = useState(0);
+  const [splitOffsets, setSplitOffsets] = useState<Record<string, number>>({});
   const [addEnd, setAddEnd] = useState<'start' | 'end'>('end');
   const [showOpenings, setShowOpenings] = useState(true);
   const [showObjects, setShowObjects] = useState(true);
@@ -81,6 +82,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
     if (document.id !== lastId.current) {
       lastId.current = document.id;
       setPast([]); setFuture([]); setIssues([]);
+      setSplitOffsets({});
       setSelectedWallId(document.walls[0]?.id ?? null);
       setSelectedOpeningId(null);
       setSelectedServiceId(null);
@@ -98,6 +100,9 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   const previousWall = chainIndex > 0 ? document.walls.find(candidate => candidate.id === chain!.wallIds[chainIndex - 1]) : undefined;
   const previousGeometry = previousWall ? wallGeometry(document, previousWall.id) : null;
   const cornerTurn = geometry && previousGeometry ? normaliseAngle(geometry.angleDeg - previousGeometry.angleDeg) : undefined;
+  const splitOffset = wall && geometry
+    ? Math.min(Math.max(1, round(splitOffsets[wall.id] ?? geometry.lengthMm / 2)), Math.max(1, round(geometry.lengthMm - 1)))
+    : 1;
   const selectedJoinId = previousWall && wall
     ? [wall.startCornerId, wall.endCornerId].find(id => id === previousWall.startCornerId || id === previousWall.endCornerId)
     : undefined;
@@ -341,8 +346,12 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
             <Button type="button" size="sm" variant="outline" onClick={() => apply({ type: 'set-wall-length', wallId: wall.id, lengthMm: geometry.lengthMm, measurement: { valueMm: geometry.lengthMm, source: 'measured' } })}>Mark length site measured</Button>
             {wall.lengthEvidence?.source === 'measured' && <Button type="button" size="sm" variant="outline" onClick={() => apply({ type: 'set-wall-length', wallId: wall.id, lengthMm: geometry.lengthMm })}>Clear measured status</Button>}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => apply({ type: 'split-wall', wallId: wall.id, offsetMm: round(geometry.lengthMm / 2) })}>Split in half</Button>
+          <div className="flex flex-wrap items-end gap-2">
+            <NumberField id="wall-split-offset" label="Split from wall start (mm)" value={splitOffset}
+              min={1} max={Math.max(1, geometry.lengthMm - 1)}
+              onCommit={offsetMm => setSplitOffsets(previous => ({ ...previous, [wall.id]: round(offsetMm) }))} />
+            <Button type="button" size="sm" variant="outline" disabled={geometry.lengthMm < 2}
+              onClick={() => apply({ type: 'split-wall', wallId: wall.id, offsetMm: splitOffset })}>Split wall</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => apply({ type: 'delete-wall', wallId: wall.id })}>Delete wall</Button>
           </div>
           <div className="flex flex-wrap gap-2">
