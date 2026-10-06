@@ -9,6 +9,11 @@ verify_jwt = false
 [functions.ai-designer]
 verify_jwt = false
 
+# Read-only provisional wall-run ideas. Validates bounded RoomDocument input,
+# returns no prices and keeps open/irregular geometry intact.
+[functions.room-document-candidates]
+verify_jwt = false
+
 # Public, capability/rate-limited homeowner entry points. Each function owns
 # strict body validation; requiring a user JWT would reject organic visitors.
 [functions.submit-planner-enquiry]

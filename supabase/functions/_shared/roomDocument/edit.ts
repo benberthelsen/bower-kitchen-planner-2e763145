@@ -109,6 +109,20 @@ function splitWall(doc: RoomDocumentV1, edit: Extract<RoomEdit, { type: 'split-w
   const wall = wallFor(doc, edit.wallId), geometry = wallGeometry(doc, edit.wallId), located = chainForWall(doc, edit.wallId);
   if (!wall || !geometry || !located) return 'Choose a valid wall to split.';
   if (!Number.isFinite(edit.offsetMm) || edit.offsetMm <= 0 || edit.offsetMm >= geometry.lengthMm) return 'Split point must be inside the wall.';
+  if (wall.lengthEvidence?.source === 'measured') {
+    return 'This wall has a site-measured full length. Record the new segment lengths or clear that measurement before splitting it.';
+  }
+  const crossesSplit = (offsetMm: number, widthMm: number) =>
+    offsetMm < edit.offsetMm - 0.5 && offsetMm + widthMm > edit.offsetMm + 0.5;
+  if (doc.openings.some(opening => opening.wallId === wall.id
+    && crossesSplit(opening.offsetMm, opening.widthMm))) {
+    return 'An opening crosses the split point. Move or resize it before splitting this wall.';
+  }
+  if (doc.objects.some(object => object.placement.type === 'wall'
+    && object.placement.wallId === wall.id
+    && crossesSplit(object.placement.offsetMm, object.widthMm))) {
+    return 'An attached item crosses the split point. Move or resize it before splitting this wall.';
+  }
   const newWallId = edit.newWallId ?? freshId('wall'), newCornerId = edit.newCornerId ?? freshId('corner');
   if (doc.walls.some(w => w.id === newWallId) || doc.corners.some(c => c.id === newCornerId)) return 'Choose IDs that are not already used.';
   const formerEndId = wall.endCornerId;
