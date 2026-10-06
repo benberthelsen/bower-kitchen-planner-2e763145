@@ -10,16 +10,6 @@ const capturePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 const tokenPattern = /^[A-Za-z0-9_-]{32,256}$/;
 const keyFor = (captureId: string) => `bower.scannerSession.${captureId}`;
 
-export function scannerApiOrigin(): string | null {
-  const configured = import.meta.env?.VITE_ROOM_SCANNER_ORIGIN
-    || 'https://bower-room-scanner-test-20260912.bowerbuilding.chatgpt.site';
-  try {
-    const url = new URL(configured);
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))) return null;
-    return url.origin;
-  } catch { return null; }
-}
-
 export function readScannerSession(captureId: string): ScannerSession | null {
   if (!capturePattern.test(captureId) || typeof sessionStorage === 'undefined') return null;
   try {
@@ -60,19 +50,77 @@ export function captureScannerSession(): ScannerSession | null {
   return session;
 }
 
-export async function linkScannerRoom(session: ScannerSession, jobId: string, roomId: string,
-  sourceRevision?: string): Promise<void> {
-  if (!session.linkToken) throw new Error('The scanner link has expired. Reopen the scan to link this room.');
-  const origin = scannerApiOrigin();
-  if (!origin) throw new Error('Scanner service is not configured.');
-  const response = await fetch(`${origin}/api/room-capture/jobs/${session.captureId}/planner-link`, {
+type BridgeAction = 'link' | 'manifest' | 'photo';
+interface BridgeInput {
+  action: BridgeAction;
+  jobId: string;
+  roomId: string;
+  captureId: string;
+  sourceRevision: string;
+  token: string;
+  photoId?: string;
+}
+
+async function scannerBridge(input: BridgeInput): Promise<Response> {
+  const { supabase } = await import('@/integrations/supabase/client');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Sign in to the planner to view this scan.');
+  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scanner-private-bridge`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId, roomId, sourceRevision, linkToken: session.linkToken }),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify(input),
+    redirect: 'error',
+    cache: 'no-store',
   });
-  if (!response.ok) throw new Error(`Scanner link failed (${response.status}).`);
+  if (!response.ok) {
+    if (response.status === 401) throw new Error('Scanner access was denied or expired. Reopen the saved scan.');
+    if (response.status === 403) throw new Error('This scan is not linked to this saved room.');
+    if (response.status === 409) throw new Error('The scan changed. Review the new scan before linking it.');
+    throw new Error(`Scanner connection failed (${response.status}).`);
+  }
+  return response;
+}
+
+export async function linkScannerRoom(session: ScannerSession, jobId: string, roomId: string,
+  sourceRevision?: string, send: (input: BridgeInput) => Promise<Response> = scannerBridge): Promise<void> {
+  if (!session.linkToken) throw new Error('The scanner link has expired. Reopen the scan to link this room.');
+  if (!sourceRevision) throw new Error('Save the reviewed scan before linking it.');
+  await send({ action: 'link', jobId, roomId, captureId: session.captureId,
+    sourceRevision, token: session.linkToken });
   try {
     sessionStorage.setItem(keyFor(session.captureId), JSON.stringify({ captureId: session.captureId,
       ...(session.evidenceToken ? { evidenceToken: session.evidenceToken } : {}) }));
   } catch { /* The server link is already durable. */ }
+}
+
+export interface ScannerEvidenceManifest {
+  captureId: string;
+  sourceRevision: string;
+  photos: { id: string; bytes: number }[];
+}
+
+export async function loadScannerManifest(session: ScannerSession, jobId: string, roomId: string,
+  sourceRevision?: string): Promise<ScannerEvidenceManifest> {
+  if (!session.evidenceToken || !sourceRevision) throw new Error('Reopen the saved scan to view its photos.');
+  const response = await scannerBridge({ action: 'manifest', jobId, roomId,
+    captureId: session.captureId, sourceRevision, token: session.evidenceToken });
+  const manifest = await response.json() as ScannerEvidenceManifest;
+  if (manifest.captureId !== session.captureId || manifest.sourceRevision !== sourceRevision
+    || !Array.isArray(manifest.photos)) throw new Error('Scanner evidence is invalid.');
+  return manifest;
+}
+
+export async function loadScannerPhoto(session: ScannerSession, jobId: string, roomId: string,
+  sourceRevision: string | undefined, photoId: string): Promise<Blob> {
+  if (!session.evidenceToken || !sourceRevision) throw new Error('Reopen the saved scan to view its photos.');
+  const response = await scannerBridge({ action: 'photo', jobId, roomId,
+    captureId: session.captureId, sourceRevision, token: session.evidenceToken, photoId });
+  const blob = await response.blob();
+  if (blob.type !== 'image/jpeg' || blob.size > 2 * 1024 * 1024)
+    throw new Error('Scanner returned an invalid photo.');
+  return blob;
 }

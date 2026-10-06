@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { linkScannerRoom, readScannerSession, scannerApiOrigin,
-  type ScannerSession } from '@/lib/roomScan/scannerSession';
-
-interface PhotoEntry { id: string; bytes: number }
-interface EvidenceManifest { captureId: string; sourceRevision?: string; photos: PhotoEntry[] }
+import { linkScannerRoom, loadScannerManifest, loadScannerPhoto, readScannerSession,
+  type ScannerEvidenceManifest, type ScannerSession } from '@/lib/roomScan/scannerSession';
 
 /** Photos are read through a short-lived, capture-scoped capability. Image
  * bytes are never saved in the job or eagerly loaded as a large gallery. */
@@ -12,8 +9,8 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
   initialSession }: { captureId: string; sourceRevision?: string; jobId: string; roomId: string;
   initialSession?: ScannerSession | null }) {
   const session = initialSession?.captureId === captureId ? initialSession : readScannerSession(captureId);
-  const origin = scannerApiOrigin();
-  const [manifest, setManifest] = useState<EvidenceManifest | null>(null);
+  const evidenceToken = session?.evidenceToken;
+  const [manifest, setManifest] = useState<ScannerEvidenceManifest | null>(null);
   const [manifestError, setManifestError] = useState('');
   const [linkError, setLinkError] = useState('');
   const [linkPending, setLinkPending] = useState(Boolean(session?.linkToken));
@@ -21,34 +18,22 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!origin || !session?.evidenceToken) return;
-    const controller = new AbortController();
-    fetch(`${origin}/api/room-capture/jobs/${captureId}/planner-evidence`, {
-      headers: { Authorization: `Bearer ${session.evidenceToken}` }, signal: controller.signal,
-    }).then(async response => {
-      if (!response.ok) throw new Error(`Photo access expired (${response.status}). Reopen the scan.`);
-      const data = await response.json() as EvidenceManifest;
-      if (data.captureId !== captureId || !Array.isArray(data.photos)) throw new Error('Scanner evidence is invalid.');
-      setManifest(data);
-    }).catch(error => {
-      if (!controller.signal.aborted) setManifestError(error instanceof Error ? error.message : 'Could not load photos.');
-    });
-    return () => controller.abort();
-  }, [captureId, origin, session?.evidenceToken]);
+    if (!evidenceToken) return;
+    let active = true;
+    void loadScannerManifest({ captureId, evidenceToken }, jobId, roomId, sourceRevision)
+      .then(data => { if (active) { setManifest(data); setManifestError(''); } })
+      .catch(error => { if (active) setManifestError(error instanceof Error ? error.message : 'Could not load photos.'); });
+    return () => { active = false; };
+  }, [captureId, jobId, roomId, sourceRevision, evidenceToken]);
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
   const openPhoto = async (photoId: string) => {
-    if (!origin || !session?.evidenceToken) return;
+    if (!session?.evidenceToken) return;
     setSelectedPhoto(photoId);
     setManifestError('');
     try {
-      const response = await fetch(`${origin}/api/room-capture/jobs/${captureId}/planner-evidence/photos/${encodeURIComponent(photoId)}`, {
-        headers: { Authorization: `Bearer ${session.evidenceToken}` },
-      });
-      if (!response.ok) throw new Error(`Photo access expired (${response.status}). Reopen the scan.`);
-      const blob = await response.blob();
-      if (!blob.type.startsWith('image/')) throw new Error('Scanner returned an invalid photo.');
+      const blob = await loadScannerPhoto(session, jobId, roomId, sourceRevision, photoId);
       setPhotoUrl(URL.createObjectURL(blob));
     } catch (error) {
       setManifestError(error instanceof Error ? error.message : 'Could not load photo.');

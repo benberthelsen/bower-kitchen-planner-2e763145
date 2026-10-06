@@ -21,16 +21,11 @@ assert.equal(session?.linkToken, linkToken);
 assert.equal(readScannerSession(captureId)?.evidenceToken, evidenceToken);
 assert.equal(readScannerSession('bad-id'), null);
 
-let sent = '';
-globalThis.fetch = (async (url, init) => {
-  sent = String(url);
-  assert.equal(init?.method, 'POST');
-  const body = JSON.parse(String(init?.body));
-  assert.deepEqual(body, { jobId: 'job-1', roomId: 'room-1', sourceRevision: 'etag-2', linkToken });
-  return { ok: true } as Response;
-}) as typeof fetch;
-await linkScannerRoom(session!, 'job-1', 'room-1', 'etag-2');
-assert.match(sent, new RegExp(`/api/room-capture/jobs/${captureId}/planner-link$`));
+await linkScannerRoom(session!, 'job-1', 'room-1', 'etag-2', async input => {
+  assert.deepEqual(input, { action: 'link', jobId: 'job-1', roomId: 'room-1',
+    captureId, sourceRevision: 'etag-2', token: linkToken });
+  return new Response('{"linked":true}', { status: 200 });
+});
 assert.equal(readScannerSession(captureId)?.linkToken, undefined);
 assert.equal(readScannerSession(captureId)?.evidenceToken, evidenceToken);
 console.log('scanner session: scoped fragment capture and durable link passed');

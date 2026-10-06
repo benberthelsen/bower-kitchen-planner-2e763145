@@ -53,3 +53,9 @@ verify_jwt = false
 
 [functions.link-trade-handoff]
 verify_jwt = true
+
+# Signed-in trade owner only. The function checks the saved job/room/capture
+# before sending a short-lived scanner capability through the private Sites
+# gateway. SCANNER_SITES_ACCESS_TOKEN is an Edge secret, never a VITE_ value.
+[functions.scanner-private-bridge]
+verify_jwt = true
