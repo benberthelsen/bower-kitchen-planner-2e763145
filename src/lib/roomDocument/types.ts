@@ -84,7 +84,8 @@ export interface RoomObject {
   placementProvenance?: {
     source: 'user-correction';
     note: string;
-    correctedAt: string;
+    /** Older reviewed scanner drafts recorded the correction without a time. */
+    correctedAt?: string;
     previousWallId?: string;
   };
   existingAction?: 'keep' | 'remove' | 'relocate';

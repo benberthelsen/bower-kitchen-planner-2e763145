@@ -1303,6 +1303,11 @@ export default function RoomPlanner() {
               }
             }}
           >
+            {planningDocument?.objects.some(object => object.layer === 'existing' && object.existingAction !== 'remove') && (
+              <p className="border-b bg-amber-50 px-3 py-1 text-xs text-amber-900">
+                Amber outlines mark existing scan fittings. Their appearance is provisional; check style, finish and dimensions on site.
+              </p>
+            )}
             <Scene3DErrorBoundary>
               <UnifiedScene
                 items={selectedWallRun && showRoomEditor

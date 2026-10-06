@@ -1,12 +1,79 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
+import { Edges } from '@react-three/drei';
+import type { GlobalDimensions, PlacedItem } from '@/types';
 import type { RoomDocumentV1 } from '@/lib/roomDocument';
-import { objectPose, placementPose } from '@/lib/roomDocument/geometry';
+import { placementPose } from '@/lib/roomDocument/geometry';
+import { existingObjectVisual, type ExistingObjectVisual } from './roomDocumentVisuals';
+import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
+import Kickboard from './cabinet-parts/Kickboard';
+import Gable from './cabinet-parts/Gable';
+import TopPanel from './cabinet-parts/TopPanel';
+import BottomPanel from './cabinet-parts/BottomPanel';
+import BackPanel from './cabinet-parts/BackPanel';
+import CabinetMesh from './CabinetMesh';
+import { resolveFinishKey } from './materials/applianceMaterials';
+import { useCatalogItem } from '@/hooks/useCatalog';
 import Wall from './Wall';
 
 const WALL_THICKNESS_M = 0.1;
 
 interface SolidWallPiece { offsetMm: number; widthMm: number; bottomMm: number; heightMm: number }
+
+function SurveyOutline({ widthM, heightM, depthM }: { widthM: number; heightM: number; depthM: number }) {
+  return <mesh>
+    <boxGeometry args={[widthM, heightM, depthM]} />
+    <meshBasicMaterial visible={false} />
+    <Edges color="#b45309" threshold={15} />
+  </mesh>;
+}
+
+/** Existing overheads without a known product retain their scanned envelope.
+ * Planner panel parts make the survey volume legible without claiming a door
+ * count, material or catalogue design that the photos did not establish. */
+function SurveyedOverheadShell({ widthM, heightM, depthM }: { widthM: number; heightM: number; depthM: number }) {
+  const board = Math.min(0.016, widthM / 8, heightM / 8, depthM / 8);
+  const color = '#bdb39f';
+  return <group>
+    <Gable width={board} height={heightM} depth={depthM} position={[-(widthM - board) / 2, 0, 0]} color={color} showEdges={false} />
+    <Gable width={board} height={heightM} depth={depthM} position={[(widthM - board) / 2, 0, 0]} color={color} showEdges={false} />
+    <TopPanel width={widthM - 2 * board} depth={depthM} thickness={board}
+      position={[0, (heightM - board) / 2, 0]} color={color} />
+    <BottomPanel width={widthM - 2 * board} depth={depthM} thickness={board}
+      position={[0, -(heightM - board) / 2, 0]} color={color} />
+    <BackPanel width={widthM - 2 * board} height={heightM - 2 * board} thickness={board}
+      position={[0, 0, -(depthM - board) / 2]} color={color} insetFromEdge={0} setback={0} showEdges={false} />
+    <mesh position={[0, 0, (depthM - board) / 2]}>
+      <boxGeometry args={[widthM - 2 * board, heightM - 2 * board, board]} />
+      <meshStandardMaterial color={color} transparent opacity={0.45} />
+    </mesh>
+  </group>;
+}
+
+function CataloguedOverhead({ objectId, visual, globalDimensions }: {
+  objectId: string; visual: ExistingObjectVisual; globalDimensions?: GlobalDimensions;
+}) {
+  const product = useCatalogItem(visual.catalogueId ?? null);
+  const { pose } = visual;
+  const isWallCabinet = product?.renderConfig.category === 'Wall';
+  const item: PlacedItem = { instanceId: objectId, definitionId: visual.catalogueId!,
+    itemType: 'Cabinet', layoutRole: 'wall-cabinet', x: pose.xMm, z: pose.zMm,
+    y: visual.elevationMm, rotation: pose.rotationDeg,
+    width: visual.widthMm, depth: visual.depthMm, height: visual.heightMm! };
+  return <group userData={{ roomObjectId: objectId, layer: 'existing' }}>
+    {isWallCabinet ? <CabinetMesh item={item} globalDimensions={globalDimensions} />
+      : <group position={[pose.xMm / 1000, (visual.elevationMm + visual.heightMm! / 2) / 1000, pose.zMm / 1000]}
+        rotation={[0, -pose.rotationDeg * Math.PI / 180, 0]}>
+        <SurveyedOverheadShell widthM={visual.widthMm / 1000} heightM={visual.heightMm! / 1000}
+          depthM={visual.depthMm / 1000} />
+      </group>}
+    <group position={[pose.xMm / 1000, (visual.elevationMm + visual.heightMm! / 2) / 1000, pose.zMm / 1000]}
+      rotation={[0, -pose.rotationDeg * Math.PI / 180, 0]}>
+      <SurveyOutline widthM={visual.widthMm / 1000} heightM={visual.heightMm! / 1000}
+        depthM={visual.depthMm / 1000} />
+    </group>
+  </group>;
+}
 
 /** Subtract actual door and window apertures from a straight wall segment.
  * Splitting at each opening edge also handles overlapping openings without
@@ -43,10 +110,11 @@ function solidWallPieces(lengthMm: number, heightMm: number,
 }
 
 /** The same measured wall chain used by the plan editor, in planner world coordinates. */
-export default function RoomDocumentShell({ document, defaultHeightMm, renderedCabinetIds }: {
+export default function RoomDocumentShell({ document, defaultHeightMm, renderedCabinetIds, globalDimensions }: {
   document: RoomDocumentV1;
   defaultHeightMm: number;
   renderedCabinetIds?: ReadonlySet<string>;
+  globalDimensions?: GlobalDimensions;
 }) {
   const corners = useMemo(() => new Map(document.corners.map(corner => [corner.id, corner])), [document.corners]);
   const floor = useMemo(() => {
@@ -119,17 +187,45 @@ export default function RoomDocumentShell({ document, defaultHeightMm, renderedC
       })}
       {document.objects.filter(object => object.existingAction !== 'remove'
         && !renderedCabinetIds?.has(object.id)).map(object => {
-        const pose = objectPose(document, object);
-        if (!pose) return null;
-        const heightM = (object.heightMm ?? (object.kind.includes('overhead') ? 720 : 900)) / 1000;
-        const elevationM = (object.elevationMm ?? 0) / 1000;
+        const visual = existingObjectVisual(document, object);
+        if (!visual) return null;
+        const { pose } = visual;
+        const widthM = visual.widthMm / 1000, depthM = visual.depthMm / 1000;
+        const heightM = (visual.heightMm ?? 0) / 1000;
+        const elevationM = visual.elevationMm / 1000;
+        if (visual.kind === 'catalogued-overhead' && visual.catalogueId) {
+          return <CataloguedOverhead key={object.id} objectId={object.id} visual={visual}
+            globalDimensions={globalDimensions} />;
+        }
+        const fridgeItem: PlacedItem | null = visual.kind === 'fridge' ? {
+          instanceId: object.id, definitionId: object.catalogueId ?? object.kind,
+          itemType: 'Appliance', x: pose.xMm, z: pose.zMm, y: visual.elevationMm,
+          rotation: pose.rotationDeg, width: visual.widthMm, applianceBodyWidth: visual.widthMm,
+          depth: visual.depthMm, height: visual.heightMm!,
+        } : null;
+        const fridgeStyle = fridgeItem
+          ? /integrat|built[- ]?in|panel[- ]?ready/i.test(object.kind) ? 'integrated' as const
+            : fridgeStyleFor(fridgeItem, null)
+          : null;
         return (
-          <mesh key={object.id} position={[pose.xMm / 1000, elevationM + heightM / 2, pose.zMm / 1000]}
-            rotation={[0, -pose.rotationDeg * Math.PI / 180, 0]} castShadow>
-            <boxGeometry args={[object.widthMm / 1000, heightM, object.depthMm / 1000]} />
-            <meshStandardMaterial color={object.kind.includes('fridge') ? '#b7c6ce' : '#bdb39f'}
-              transparent opacity={object.layer === 'existing' ? 0.55 : 0.85} />
-          </mesh>
+          <group key={object.id} position={[pose.xMm / 1000, elevationM + heightM / 2, pose.zMm / 1000]}
+            rotation={[0, -pose.rotationDeg * Math.PI / 180, 0]} userData={{ roomObjectId: object.id, layer: object.layer }}>
+            {visual.kind === 'fridge' && fridgeStyle && <FridgeModel widthM={widthM} heightM={heightM}
+              depthM={depthM} style={fridgeStyle} finishKey={resolveFinishKey(object.kind) ?? 'stainless'} />}
+            {visual.kind === 'overhead-shell' && <SurveyedOverheadShell widthM={widthM} heightM={heightM} depthM={depthM} />}
+            {visual.kind === 'toe-kick' && <Kickboard width={widthM} height={heightM} thickness={depthM}
+              position={[0, 0, 0]} color="#64716e" showEdges={false} seamOverlap={false} />}
+            {visual.kind === 'surveyed-volume' && <mesh castShadow>
+              <boxGeometry args={[widthM, heightM, depthM]} />
+              <meshStandardMaterial color="#bdb39f" transparent opacity={object.layer === 'existing' ? 0.55 : 0.85} />
+            </mesh>}
+            {visual.kind === 'footprint-only' && <mesh position={[0, -heightM / 2 + 0.005, 0]}>
+              <boxGeometry args={[widthM, 0.01, depthM]} />
+              <meshBasicMaterial color="#0f766e" transparent opacity={0.45} />
+            </mesh>}
+            {object.layer === 'existing' && visual.kind !== 'footprint-only'
+              && <SurveyOutline widthM={widthM} heightM={heightM} depthM={depthM} />}
+          </group>
         );
       })}
       {document.services.map(service => {

@@ -135,6 +135,12 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
         widthMm: feature.widthMm, depthMm: feature.depthMm,
         ...(feature.heightMm ? { heightMm: feature.heightMm } : {}), sizeLock: 'none', dimensionEvidence };
       if (feature.elevationMm !== undefined) object.elevationMm = feature.elevationMm;
+      if (placedOnWall && feature.placementProvenance)
+        object.placementProvenance = {
+          source: 'user-correction', note: feature.placementProvenance.note!,
+          ...(feature.placementProvenance.correctedAt ? { correctedAt: feature.placementProvenance.correctedAt } : {}),
+          ...(feature.placementProvenance.previousWallId ? { previousWallId: feature.placementProvenance.previousWallId } : {}),
+        };
       document.objects.push(object);
     }
   }

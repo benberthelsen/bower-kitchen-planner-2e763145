@@ -85,4 +85,48 @@ if (retained.kind !== 'draft') throw new Error('conflicting draft was ignored');
 assert.equal(retained.document, undefined);
 assert.equal(retained.draft, conflicting);
 
+// A reduced, synthetic version of the reviewed three-wall angled kitchen.
+// The fourth 200 mm return is real, but does not close or define a floor.
+const angledKitchen = roomCaptureDraftV1Schema.parse({
+  schemaVersion: 1, state: 'draft', source: 'photo-review', capturedAt: '2026-10-06T00:00:00.000Z',
+  photos: [], coordinateFrame: frame,
+  adapterState: { captureId: 'synthetic-angled', sourceRevision: 'review-1' },
+  partialGeometry: {
+    wallChains: [{ id: 'reviewed-open-run', closed: false, provenance: 'inferred',
+      cornersMm: [
+        { id: 'c1', x: 0, z: 1131 }, { id: 'c2', x: 1131, z: 0 },
+        { id: 'c3', x: 2776, z: 0 }, { id: 'c4', x: 2776, z: 1585 },
+        { id: 'c5', x: 2917, z: 1726 },
+      ], wallIds: ['angled', 'cooktop', 'sink', 'short-return'] }],
+    wallMeasurements: [
+      { wallId: 'angled', millimetres: 1600 }, { wallId: 'cooktop', millimetres: 1645 },
+      { wallId: 'sink', millimetres: 1585 }, { wallId: 'short-return', millimetres: 200 },
+    ],
+    featureCandidates: [
+      { id: 'fridge', kind: 'fridge', placement: 'wall', wallId: 'angled', offsetMm: 80,
+        widthMm: 850, depthMm: 690, heightMm: 1850, elevationMm: 0,
+        placementProvenance: { source: 'user-correction', note: 'User moved fridge to angled wall.',
+          previousWallId: 'cooktop' } },
+      { id: 'window', kind: 'window', placement: 'wall', wallId: 'sink', offsetMm: 250,
+        widthMm: 1000, depthMm: 120, heightMm: 900, elevationMm: 900 },
+      { id: 'overheads', kind: 'overhead-cabinet', placement: 'wall', wallId: 'sink', offsetMm: 150,
+        widthMm: 1100, depthMm: 340, heightMm: 700, elevationMm: 1450 },
+      { id: 'kicks', kind: 'toe-kick', placement: 'wall', wallId: 'sink', offsetMm: 100,
+        widthMm: 1200, depthMm: 65, heightMm: 135, elevationMm: 0 },
+    ],
+  },
+});
+const angledDocument = roomDocumentFromCaptureDraft(angledKitchen, 'angled-doc');
+assert.deepEqual(angledDocument.walls.map(wall => [wall.id, wall.lengthEvidence?.valueMm,
+  wall.lengthEvidence?.source]), [
+  ['angled', 1600, 'measured'], ['cooktop', 1645, 'measured'],
+  ['sink', 1585, 'measured'], ['short-return', 200, 'measured'],
+]);
+assert.equal(angledDocument.chains[0].closed, false);
+assert.equal(angledDocument.floorBoundary, undefined);
+assert.equal(angledDocument.objects.find(object => object.id === 'fridge')?.placementProvenance?.previousWallId, 'cooktop');
+assert.equal(angledDocument.objects.find(object => object.id === 'fridge')?.placement.type, 'wall');
+assert.equal(angledDocument.openings.find(opening => opening.id === 'window')?.wallId, 'sink');
+assert.deepEqual(angledDocument.objects.map(object => object.kind), ['fridge', 'overhead-cabinet', 'toe-kick']);
+
 console.log('room document handoff smoke passed');

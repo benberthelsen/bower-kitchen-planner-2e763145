@@ -432,6 +432,12 @@ export const roomCaptureDraftV1Schema = z
           heightMm: positiveMm().optional(),
           elevationMm: mmInt(0).optional(),
           rotationDeg: z.number().finite().min(-360).max(360).optional(),
+          placementProvenance: z.object({
+            source: z.literal('user-correction'),
+            note: z.string().min(1).max(900),
+            correctedAt: isoDatetime.optional(),
+            previousWallId: z.string().min(1).max(64).optional(),
+          }).strict().optional(),
         }).strict()).max(128).optional(),
         openings: z.array(openingV1Schema.partial()).max(32).optional(),
         services: z.array(servicePointV1Schema.partial()).max(32).optional(),

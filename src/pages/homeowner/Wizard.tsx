@@ -1181,9 +1181,10 @@ function Step1Section({ n, title, subtitle, children }: {
 
 function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; onChange: (p: Partial<WizardState>) => void; onValidityChange: (hasInvalid: boolean) => void }) {
   const [invalidMap, setInvalidMap] = useState<{ w: boolean; d: boolean; h: boolean }>({ w: false, d: false, h: false });
+  const usingCapturedWalls = Boolean(state.roomDocument && !state.useManualRoomInstead);
   useEffect(() => {
-    onValidityChange(invalidMap.w || invalidMap.d || invalidMap.h);
-  }, [invalidMap, onValidityChange]);
+    onValidityChange(!usingCapturedWalls && (invalidMap.w || invalidMap.d || invalidMap.h));
+  }, [invalidMap, onValidityChange, usingCapturedWalls]);
   useEffect(() => () => { onValidityChange(false); }, [onValidityChange]);
 
   const shapes: { id: LayoutPreference; label: string; desc: string }[] = [
@@ -1193,7 +1194,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
     { id: 'galley',      label: 'Galley',      desc: 'Two facing runs' },
   ];
   const manualLayout = inferLayoutShapeFromWalls(state.cabinetWalls);
-  const pending = state.pendingRoomPatch;
+  const pending = usingCapturedWalls ? undefined : state.pendingRoomPatch;
   const pendingSummary = pending ? [
     pending.width !== undefined ? `Width: ${pending.width} mm` : null,
     pending.depth !== undefined ? `Depth: ${pending.depth} mm` : null,
@@ -1263,8 +1264,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
           <p className="text-sm font-semibold text-amber-900">Room capture draft received</p>
           <p className="text-xs text-amber-800">
             {captureReadiness?.walls ?? 0} wall segments in {captureReadiness?.wallChains ?? 0} chain(s); {captureReadiness?.openChains ?? 0} still open.
-            The private source photos and measurements are retained. Confirm a complete floor boundary before using this capture for a whole-room cabinet design.
+            The private source photos and measurements are retained. You can plan provisional cabinets along reviewed walls. This wizard can quote only after you choose manual room sizes.
           </p>
+          <p className="text-xs text-amber-800">Edits in this wizard are kept only in this browser tab. They are not yet saved to the trade planner.</p>
           <Button size="sm" variant="outline" onClick={() => onChange({ useManualRoomInstead: true })}>
             Use manual room sizes for this design
           </Button>
@@ -1309,8 +1311,8 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
         </div>
       )}
 
-      <Step1Section n={1} title="Your room" subtitle="Rough sizes are fine to start — scan with your phone or type them in.">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <Step1Section n={1} title={usingCapturedWalls ? 'Your measured walls' : 'Your room'} subtitle={usingCapturedWalls ? 'Review wall measurements and provisional cabinets in Design.' : 'Rough sizes are fine to start — scan with your phone or type them in.'}>
+        {usingCapturedWalls ? <p className="text-sm text-slate-600">This wall draft does not establish a rectangular room width or depth. Continue to Design to check the wall faces and place cabinets.</p> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <RoomMmField
             id="room-width"
             label="Room width (mm)"
@@ -1341,13 +1343,13 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
             onCommit={v => onChange({ roomHeight: v })}
             onInvalidChange={bad => setInvalidMap(m => m.h === bad ? m : { ...m, h: bad })}
           />
-        </div>
+        </div>}
         <div className="mt-4">
           <ScanRoomEntry />
         </div>
       </Step1Section>
 
-      <Step1Section n={2} title="Which walls should hold cabinets?" subtitle="Leave it on auto, or rule walls in and out — windows, open sides, walkways.">
+      {!usingCapturedWalls && <Step1Section n={2} title="Which walls should hold cabinets?" subtitle="Leave it on auto, or rule walls in and out — windows, open sides, walkways.">
         <WallPicker
           value={state.cabinetWalls}
           ranges={state.cabinetWallRanges}
@@ -1362,9 +1364,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
             });
           }}
         />
-      </Step1Section>
+      </Step1Section>}
 
-      <Step1Section
+      {!usingCapturedWalls && <Step1Section
         n={3}
         title={manualLayout ? 'Layout created from your wall choices' : 'Which cabinet layout do you prefer?'}
         subtitle={manualLayout
@@ -1416,9 +1418,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
           })}
         </div>
         )}
-      </Step1Section>
+      </Step1Section>}
 
-      <Step1Section n={4} title="Doors, windows & existing connections" subtitle="Choose a feature, then mark it on a wall or through the floor — useful for island plumbing and gas.">
+      {!usingCapturedWalls && <Step1Section n={4} title="Doors, windows & existing connections" subtitle="Choose a feature, then mark it on a wall or through the floor — useful for island plumbing and gas.">
         <RoomFeaturesEditor
           widthMm={state.roomWidth}
           depthMm={state.roomDepth}
@@ -1430,7 +1432,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
           showHeading={false}
           onChange={p => onChange(p)}
         />
-      </Step1Section>
+      </Step1Section>}
     </div>
   );
 }
@@ -1970,7 +1972,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         appliancesTotal: appliancesTotalPayload,
         roomScan: scanParse.data,
         ...(state.incomingCaptureDraft ? { roomCaptureDraft: state.incomingCaptureDraft } : {}),
-        ...(state.roomDocument ? { roomDocument: state.roomDocument } : {}),
+        ...(state.roomDocument && !state.useManualRoomInstead ? { roomDocument: state.roomDocument } : {}),
         buildNotes,
       };
       // Atomic server-side submission (master plan §6.4): one restricted RPC
@@ -2445,7 +2447,7 @@ export default function HomeownerWizard() {
       ...(styleWords ? { styleWords } : {}),
     });
     if (scan) toast.success('Room scan loaded — please check the room details.');
-    else if (draft) toast.info('Room capture draft loaded — complete and confirm its boundary before designing.');
+    else if (draft) toast.info('Room capture draft loaded — review the measured walls before planning cabinets.');
   }, [handoffPayload, handoffId, handoffToken, onChange, state.incomingCaptureDraft, state.roomDocument]);
 
   // WebXR capture handoff (/wizard/scan → sessionStorage → here). One-shot:
@@ -2464,7 +2466,7 @@ export default function HomeownerWizard() {
         let document: RoomDocumentV1 | undefined;
         try { document = roomDocumentFromCaptureDraft(draft, crypto.randomUUID()); } catch { /* Keep the draft for review. */ }
         onChange({ step: 1, design: null, incomingCaptureDraft: draft, roomDocument: document, useManualRoomInstead: false });
-        toast.info('Room capture draft loaded — complete and confirm its boundary before designing.');
+        toast.info('Room capture draft loaded — review the measured walls before planning cabinets.');
         return;
       }
       const parsed = parseRoomScan(input);
@@ -2502,7 +2504,9 @@ export default function HomeownerWizard() {
     // intentionally omitting step / doorsOpen / contact fields
   ]);
 
+  const activeRoomDocument = state.useManualRoomInstead ? undefined : state.roomDocument;
   const selectedDesignHasBlockingErrors = (() => {
+    if (activeRoomDocument) return false;
     if (!state.design) return false;
     const brief = buildBrief(state);
     const spec = {
@@ -2521,14 +2525,14 @@ export default function HomeownerWizard() {
 
   const canAdvance =
     state.step === 1
-      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid && (!state.incomingCaptureDraft || state.useManualRoomInstead === true) :
+      ? !!activeRoomDocument || (state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid && (!state.incomingCaptureDraft || state.useManualRoomInstead === true)) :
     state.step === 2 ? true :
     state.step === 3 ? true :
-    state.step === 4 ? (designStudioEnabled ? state.design !== null && !selectedDesignHasBlockingErrors : true) :
-    state.step === 5 ? (!designStudioEnabled && state.design !== null && !selectedDesignHasBlockingErrors) : false;
+    state.step === 4 ? (designStudioEnabled ? !activeRoomDocument && state.design !== null && !selectedDesignHasBlockingErrors : true) :
+    state.step === 5 ? (!designStudioEnabled && !activeRoomDocument && state.design !== null && !selectedDesignHasBlockingErrors) : false;
 
   const advance = () => {
-    if (state.step < reviewStep) {
+    if (canAdvance && state.step < reviewStep) {
       trackEvent('step_complete', {
         step: state.step,
         shape: state.layoutPreference,
@@ -2584,7 +2588,9 @@ export default function HomeownerWizard() {
         <div className="bg-slate-900 text-white px-4 sm:px-6 py-8 sm:py-12 text-center">
           <h1 className="text-2xl sm:text-3xl font-bold mb-2">Design your dream kitchen</h1>
           <p className="text-slate-400 text-sm sm:text-base max-w-md mx-auto">
-            Answer a few quick questions and we'll give you a 3D preview + price estimate in under 2 minutes.
+            {activeRoomDocument
+              ? 'Review your measured walls and place provisional cabinets in an editable plan.'
+              : "Answer a few quick questions and we'll give you a 3D preview + price estimate in under 2 minutes."}
           </p>
         </div>
       )}
@@ -2623,8 +2629,10 @@ export default function HomeownerWizard() {
                   shape={state.layoutPreference}
                   style={styleSpecFromState(state)}
                   design={state.design}
+                  roomDocument={activeRoomDocument}
                   chosenAppliances={state.chosenAppliances}
                   onDesignChange={d => onChange({ design: d })}
+                  onRoomDocumentChange={roomDocument => onChange({ roomDocument, design: null })}
                   onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
                   onReturnToRoom={() => onChange({ step: 1 })}
                 />
@@ -2639,13 +2647,21 @@ export default function HomeownerWizard() {
             shape={state.layoutPreference}
             style={styleSpecFromState(state)}
             design={state.design}
+            roomDocument={activeRoomDocument}
             chosenAppliances={state.chosenAppliances}
             onDesignChange={d => onChange({ design: d })}
+            onRoomDocumentChange={roomDocument => onChange({ roomDocument, design: null })}
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
             onReturnToRoom={() => onChange({ step: 1 })}
           />
         )}
-        {state.step === reviewStep && <Step4Review state={state} onChange={onChange} />}
+        {state.step === reviewStep && (activeRoomDocument
+          ? <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-3" role="alert">
+              <p className="font-semibold text-amber-900">This wall proposal cannot enter quote review here</p>
+              <p className="text-sm text-amber-800">The cabinet positions remain in this browser-tab draft and have not been saved to the trade planner. To request a whole-room quote through this wizard, choose manual room sizes.</p>
+              <Button type="button" variant="outline" onClick={() => onChange({ step: designStep })}>Return to wall design</Button>
+            </div>
+          : <Step4Review state={state} onChange={onChange} />)}
 
         {/* Nav footer */}
         {state.step < reviewStep ? (
@@ -2671,7 +2687,7 @@ export default function HomeownerWizard() {
                   disabled={!canAdvance}
                   className="gap-1 bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-6"
                 >
-                  {state.step === designStep ? 'Review & price' : 'Continue'}
+                  {state.step === designStep ? (activeRoomDocument ? 'Quote unavailable for wall draft' : 'Review & price') : 'Continue'}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { TradeRoom } from '../src/types/trade';
+import { existingObjectVisual } from '../src/components/3d/roomDocumentVisuals';
 import {
   applyRoomEdit, createRoomDocument, footprintCorners, footprintInsideConfirmedFloor,
   footprintInsidePolygon, footprintsIntersect, migrateTradeRoom, objectPose,
@@ -37,6 +38,41 @@ assert.equal(lengthResult.document.objects[0].widthMm, 600);
 assert.deepEqual(objectPose(lengthResult.document, lengthResult.document.objects[0]), fridgeBefore);
 assert.equal(wallGeometry(lengthResult.document, 'cooktop')?.lengthMm, 1645);
 assert.equal(undoRoomEdit(lengthResult).revision, lengthResult.document.revision + 1);
+
+// The Eight Hibiscus fixture preview uses the recorded angled-wall pose and
+// dimensions. Unknown cabinet identity/height never becomes a made-up product.
+const visualRoom = structuredClone(open);
+visualRoom.objects = [
+  { id: 'angled-fridge', layer: 'existing', kind: 'fridge',
+    placement: { type: 'wall', wallId: 'cooktop', offsetMm: 120 },
+    widthMm: 850, depthMm: 690, heightMm: 1850 },
+  { id: 'overhead', layer: 'existing', kind: 'overhead-cabinet',
+    placement: { type: 'wall', wallId: 'sink', offsetMm: 50 },
+    widthMm: 1250, depthMm: 315, heightMm: 670, elevationMm: 1400 },
+  { id: 'catalogued-overhead', layer: 'existing', kind: 'overhead-cabinet', catalogueId: 'wall_2_door',
+    placement: { type: 'wall', wallId: 'sink', offsetMm: 75 },
+    widthMm: 500, depthMm: 330, heightMm: 680, elevationMm: 1350 },
+  { id: 'zero-mount-overhead', layer: 'existing', kind: 'overhead-cabinet', catalogueId: 'wall_2_door',
+    placement: { type: 'wall', wallId: 'sink', offsetMm: 75 },
+    widthMm: 500, depthMm: 330, heightMm: 680, elevationMm: 0 },
+  { id: 'kick', layer: 'existing', kind: 'toe-kick',
+    placement: { type: 'wall', wallId: 'sink', offsetMm: 50 },
+    widthMm: 1250, depthMm: 65, heightMm: 135, elevationMm: 0 },
+  { id: 'unknown-height', layer: 'existing', kind: 'fridge',
+    placement: { type: 'wall', wallId: 'cooktop', offsetMm: 120 },
+    widthMm: 850, depthMm: 690 },
+];
+const visualSource = structuredClone(visualRoom);
+const visual = visualRoom.objects.map(object => existingObjectVisual(visualRoom, object));
+assert.deepEqual(visual.map(entry => entry?.kind),
+  ['fridge', 'overhead-shell', 'catalogued-overhead', 'overhead-shell', 'toe-kick', 'footprint-only']);
+assert.equal(visual[0]?.pose.rotationDeg, wallGeometry(visualRoom, 'cooktop')?.rotationDeg);
+assert.deepEqual(visual.map(entry => entry && [entry.widthMm, entry.depthMm, entry.heightMm, entry.elevationMm]), [
+  [850, 690, 1850, 0], [1250, 315, 670, 1400], [500, 330, 680, 1350], [500, 330, 680, 0],
+  [1250, 65, 135, 0], [850, 690, undefined, 0],
+]);
+assert.equal(visual[2]?.catalogueId, 'wall_2_door');
+assert.deepEqual(visualRoom, visualSource, '3D decisions cannot change the surveyed existing layer');
 
 // Physical offsets move to the second wall when a segment is split.
 let split = createRoomDocument('split');

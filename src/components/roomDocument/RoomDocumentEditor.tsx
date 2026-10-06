@@ -369,6 +369,11 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
         {selectedObject && <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
           <h5 className="font-semibold text-trade-navy">{selectedObject.layer} {selectedObject.kind}</h5>
           <p className="text-xs text-trade-muted">{selectedObject.catalogueId ? `Catalogue: ${selectedObject.catalogueId}` : 'No catalogue product linked'}</p>
+          {selectedObject.placementProvenance && <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-950">
+            Wall assignment corrected by the user{selectedObject.placementProvenance.previousWallId
+              ? ` from ${selectedObject.placementProvenance.previousWallId}` : ''}.
+            {' '}{selectedObject.placementProvenance.note}
+          </p>}
           <div className="grid grid-cols-2 gap-2">
             <NumberField id="object-width" label="Width (mm)" value={selectedObject.widthMm} min={1} disabled={selectedObject.sizeLock === 'confirmed' || selectedObject.sizeLock === 'catalogue'} onCommit={widthMm => changeObject({ widthMm })} />
             <NumberField id="object-depth" label="Depth (mm)" value={selectedObject.depthMm} min={1} disabled={selectedObject.sizeLock === 'confirmed' || selectedObject.sizeLock === 'catalogue'} onCommit={depthMm => changeObject({ depthMm })} />

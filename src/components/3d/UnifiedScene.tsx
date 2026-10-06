@@ -1096,7 +1096,7 @@ export function UnifiedScene({
 
       <group>
         {room.roomDocument ? (
-          <RoomDocumentShell document={room.roomDocument} defaultHeightMm={room.height}
+          <RoomDocumentShell document={room.roomDocument} defaultHeightMm={room.height} globalDimensions={globalDimensions}
             renderedCabinetIds={new Set(items.map(item => item.instanceId))} />
         ) : (
           <>
