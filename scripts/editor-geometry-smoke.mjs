@@ -1,7 +1,9 @@
 import {
   cabinetWidthGuidance,
   fillCabinetRunGap,
+  fillRoomDocumentRunGap,
   getCabinetRunSpacing,
+  getRoomDocumentRunSpacing,
   handleItemClick,
   lShapeCornerGeometry,
 } from '../.tmp-snap-test/editor-geometry.mjs';
@@ -42,6 +44,36 @@ const leftNext = cabinet('l2', 297.5, 600, 270, 1500);
 const leftSpacing = getCabinetRunSpacing(leftWall, [leftWall, leftNext], room);
 check(leftSpacing?.wall === 'left' && leftSpacing.axis === 'z', 'side-wall run uses the Z axis');
 check(leftSpacing?.after.gapMm === 0, 'side-wall joined cabinet measures zero gap');
+
+const angledDocument = {
+  version: 1, id: 'angled-run', revision: 0,
+  corners: [{ id: 'a', xMm: 0, zMm: 0 }, { id: 'b', xMm: 3000, zMm: 3000 }],
+  walls: [{ id: 'wall-45', startCornerId: 'a', endCornerId: 'b', interiorSide: 'left' }],
+  chains: [{ id: 'run', wallIds: ['wall-45'], closed: false }],
+  openings: [{ id: 'door', wallId: 'wall-45', kind: 'door', offsetMm: 1800, widthMm: 800 }],
+  services: [], objects: [],
+};
+const attached = (id, offset, width) => ({ ...cabinet(id, 0, width, 45, 0),
+  wallAttachment: { wallId: 'wall-45', offsetMm: offset, depthOffsetMm: 10 } });
+const angleBefore = attached('ab', 100, 300);
+const angleSelected = attached('as', 500, 600);
+const angleSpacing = getRoomDocumentRunSpacing(angleSelected,
+  [angleBefore, angleSelected], room, angledDocument);
+check(angleSpacing?.before.gapMm === 100, 'angled wall gap uses physical offsets');
+check(angleSpacing?.after.gapMm === 700 && angleSpacing.after.neighbourLabel === 'door',
+  'angled wall gap stops at a door instead of an imagined room edge');
+const angleFilled = fillRoomDocumentRunGap(angleSelected, angleSpacing, 'after', angledDocument);
+check(angleFilled?.dimensions.width === 1300 && angleFilled.wallAttachment.offsetMm === 500,
+  'angled fill preserves the fixed wall-local edge and attachment');
+check(Math.abs(angleFilled?.position.rotation - 45) < 0.001,
+  'angled fill preserves exact wall rotation');
+const furnishedAngle = { ...angledDocument, objects: [{ id: 'existing-fridge', layer: 'existing',
+  kind: 'fridge', existingAction: 'keep', widthMm: 300, depthMm: 700, heightMm: 1900,
+  placement: { type: 'wall', wallId: 'wall-45', offsetMm: 1400 } }] };
+const furnishedSpacing = getRoomDocumentRunSpacing(angleSelected,
+  [angleSelected], room, furnishedAngle);
+check(furnishedSpacing?.after.gapMm === 300 && furnishedSpacing.after.neighbourLabel === 'fridge',
+  'existing fridge stops a proposed run before the doorway');
 
 const standardGuidance = cabinetWidthGuidance({ productName: 'Drawer base cabinet', definitionId: 'BASE_DRAWER', dimensions: { width: 1000, depth: 575 } });
 check(standardGuidance.aboveRecommended, 'standard 1000mm cabinet gets oversize warning');

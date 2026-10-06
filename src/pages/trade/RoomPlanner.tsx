@@ -34,8 +34,10 @@ import { captureScannerSession } from '@/lib/roomScan/scannerSession';
 import { cabinetFootprintDepthMm, derivedLegacyBounds, footprintCorners, footprintInsideConfirmedFloor, footprintsIntersect,
   migrateTradeRoom, placementPose, reconcileTradeRoomCabinets } from '@/lib/roomDocument';
 import type { RoomDocumentV1 } from '@/lib/roomDocument';
-import { findRoomWallPlacement, snapRoomDocumentPlacement } from '@/lib/trade/roomDocumentPlacement';
+import { findRoomWallPlacement, placeWithinRoomDocument, snapRoomDocumentPlacement,
+  validateRoomWallPlacement } from '@/lib/trade/roomDocumentPlacement';
 import { findRoomDocumentCornerPlacement } from '@/lib/trade/roomDocumentCornerPlacement';
+import { applyEditedCabinetProjection, syncCabinetProjectionMembership } from '@/lib/trade/roomDocumentCabinetEdit';
 import { generateRoomDocumentCandidates } from '@/lib/layout/roomDocumentCandidates';
 import {
   ArrowLeft,
@@ -110,6 +112,7 @@ export default function RoomPlanner() {
   const [dirty, setDirtyState] = useState(false);
   const editGenerationRef = useRef(0);
   const serverRoomRevisionRef = useRef(new Map<string, number | null>());
+  const deletedPlanCabinetsRef = useRef(new Map<string, Map<string, ConfiguredCabinet>>());
   const setDirty = useCallback((value: boolean) => {
     if (value) editGenerationRef.current += 1;
     setDirtyState(value);
@@ -275,9 +278,16 @@ export default function RoomPlanner() {
   const handleRoomDocumentChange = useCallback((document: RoomDocumentV1) => {
     if (!currentRoom || isPriceLocked) return;
     const previous = planningDocument ?? migrateTradeRoom(currentRoom);
-    const updatedCabinets = currentRoom.cabinets.map(cabinet => {
+    let undoArchive = deletedPlanCabinetsRef.current.get(currentRoom.id);
+    if (!undoArchive) {
+      undoArchive = new Map<string, ConfiguredCabinet>();
+      deletedPlanCabinetsRef.current.set(currentRoom.id, undoArchive);
+    }
+    const membership = syncCabinetProjectionMembership(previous, document, currentRoom.cabinets, undoArchive);
+    const updatedCabinets = membership.cabinets.map(originalCabinet => {
+      const { cabinet, directlyEdited } = applyEditedCabinetProjection(previous, document, originalCabinet);
       if (!cabinet.wallAttachment) return cabinet;
-      const oldWall = previous.walls.find(wall => wall.id === cabinet.wallAttachment!.wallId);
+      const oldWall = previous.walls.find(wall => wall.id === originalCabinet.wallAttachment?.wallId);
       const oldStart = previous.corners.find(corner => corner.id === oldWall?.startCornerId);
       const oldEnd = previous.corners.find(corner => corner.id === oldWall?.endCornerId);
       const newWall = document.walls.find(wall => wall.id === cabinet.wallAttachment!.wallId);
@@ -286,16 +296,16 @@ export default function RoomPlanner() {
       if (!newWall || !newStart || !newEnd) return { ...cabinet, geometryConflict: 'The supporting wall was removed.' };
       const oldLength = oldStart && oldEnd ? Math.hypot(oldEnd.xMm - oldStart.xMm, oldEnd.zMm - oldStart.zMm) : 0;
       const newLength = Math.hypot(newEnd.xMm - newStart.xMm, newEnd.zMm - newStart.zMm);
-      const ratio = cabinet.dimensionStatus === 'inferred' && oldLength > 0 ? newLength / oldLength : 1;
-      const width = cabinet.dimensionStatus === 'inferred'
+      const ratio = !directlyEdited && cabinet.dimensionStatus === 'inferred' && oldLength > 0 ? newLength / oldLength : 1;
+      const width = !directlyEdited && cabinet.dimensionStatus === 'inferred'
         ? Math.max(1, Math.round(cabinet.dimensions.width * ratio)) : cabinet.dimensions.width;
-      const offsetMm = cabinet.dimensionStatus === 'inferred'
+      const offsetMm = !directlyEdited && cabinet.dimensionStatus === 'inferred'
         ? Math.max(0, Math.round(cabinet.wallAttachment.offsetMm * ratio))
         : cabinet.wallAttachment.offsetMm;
       const pose = placementPose(document, {
         type: 'wall', wallId: newWall.id, offsetMm,
-        depthOffsetMm: cabinet.wallAttachment.depthOffsetMm ?? 10,
-      }, width, cabinet.dimensions.depth);
+        depthOffsetMm: cabinet.wallAttachment.depthOffsetMm ?? (directlyEdited ? 0 : 10),
+      }, width, cabinetFootprintDepthMm(cabinet));
       if (!pose) return { ...cabinet, geometryConflict: 'The wall geometry is invalid.' };
       const conflict = offsetMm + width > newLength - 1
         ? 'This cabinet extends beyond its edited wall.'
@@ -349,8 +359,13 @@ export default function RoomPlanner() {
       config: bounds ? { ...currentRoom.config, width: Math.max(1, Math.round(bounds.widthMm)),
         depth: Math.max(1, Math.round(bounds.depthMm)) } : currentRoom.config,
     });
+    if (selectedCabinetId && membership.removedIds.includes(selectedCabinetId)) {
+      selectCabinet(null);
+      setEditDialogOpen(false);
+      setEditDialogCabinet(null);
+    }
     setDirty(true);
-  }, [currentRoom, isPriceLocked, planningDocument, setDirty, updateRoom]);
+  }, [currentRoom, isPriceLocked, planningDocument, selectedCabinetId, selectCabinet, setDirty, updateRoom]);
 
   const applySelectedWallRun = useCallback(() => {
     if (!currentRoom || !planningDocument || !selectedWallRun || isPriceLocked) return;
@@ -908,10 +923,10 @@ export default function RoomPlanner() {
     });
   }, [currentRoom, removeCabinet, addCabinet, selectCabinet, setDirty]);
 
-  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
-    if (!currentRoom) return;
+  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>): Promise<boolean> => {
+    if (!currentRoom) return false;
     const currentCab = getCabinetById(currentRoom.id, instanceId);
-    if (!currentCab) return;
+    if (!currentCab) return false;
     const merged: ConfiguredCabinet = {
       ...currentCab,
       ...updates,
@@ -921,9 +936,49 @@ export default function RoomPlanner() {
       updatedAt: new Date(),
     };
 
+    const geometryChanged = Boolean(updates.dimensions || updates.position || updates.wallAttachment);
+    const document = planningDocument ?? currentRoom.roomDocument;
+    if (document && geometryChanged && merged.isPlaced && merged.position) {
+      const obstacles = currentRoom.cabinets.filter(item => item.isPlaced && item.position).map(item => ({
+        id: item.instanceId, xMm: item.position!.x, zMm: item.position!.z,
+        rotationDeg: item.position!.rotation, widthMm: item.dimensions.width,
+        depthMm: cabinetFootprintDepthMm(item), category: item.category,
+        elevationMm: cabinetElevationMm(item, currentRoom.dimensions?.wallMountHeight),
+        heightMm: item.dimensions.height,
+      }));
+      const request = {
+        document, widthMm: merged.dimensions.width, depthMm: cabinetFootprintDepthMm(merged),
+        category: merged.category, elevationMm: cabinetElevationMm(merged, currentRoom.dimensions?.wallMountHeight),
+        heightMm: merged.dimensions.height, obstacles, excludeId: instanceId,
+      };
+      const placement = merged.wallAttachment
+        ? validateRoomWallPlacement({ ...request, ...merged.wallAttachment })
+        : placeWithinRoomDocument({ ...request,
+            point: { xMm: merged.position.x, zMm: merged.position.z },
+            rotationDeg: merged.position.rotation });
+      if (placement.status === 'unplaced') {
+        toast.error('Cabinet edit does not fit this room', { description: placement.reason });
+        return false;
+      }
+      merged.position = { x: placement.xMm, y: merged.position.y,
+        z: placement.zMm, rotation: placement.rotationDeg };
+      if (merged.cornerJoinWallId) {
+        const corner = findRoomDocumentCornerPlacement({
+          ...request, footprintMm: merged.dimensions.width,
+          preferredPoint: { xMm: placement.xMm, zMm: placement.zMm },
+        });
+        if (corner.status !== 'placed' || corner.wallAttachment.wallId !== merged.wallAttachment?.wallId
+          || corner.joinedWallId !== merged.cornerJoinWallId) {
+          toast.error('This corner cabinet needs a compatible 90° wall join.');
+          return false;
+        }
+      }
+    }
+
     replaceCabinet(currentRoom.id, merged);
     setDirty(true);
-  }, [currentRoom, getCabinetById, replaceCabinet, setDirty]);
+    return true;
+  }, [currentRoom, getCabinetById, planningDocument, replaceCabinet, setDirty]);
 
   const handleEditCabinet = (cabinet: ConfiguredCabinet) => {
     selectCabinet(cabinet.instanceId);

@@ -51,6 +51,7 @@ function asRoomObject(document: RoomDocumentV1, cabinet: ConfiguredCabinet, prev
       heightMm: dimension(heightMm, previous?.dimensionEvidence?.heightMm, inferred),
     },
     evidenceIds: previous?.evidenceIds,
+    placementProvenance: previous?.placementProvenance,
   };
 }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { TradeRoom } from '../src/types/trade';
 import { existingObjectVisual } from '../src/components/3d/roomDocumentVisuals';
+import { applyEditedCabinetProjection, syncCabinetProjectionMembership } from '../src/lib/trade/roomDocumentCabinetEdit';
 import {
   applyRoomEdit, createRoomDocument, footprintCorners, footprintInsideConfirmedFloor,
   footprintInsidePolygon, footprintsIntersect, migrateTradeRoom, objectPose,
@@ -156,6 +157,75 @@ assert.equal(fitted.revision, sameCabinets.revision + 1);
 assert.equal(reconcileTradeRoomCabinets(fitted, []).objects.some(object => object.id === 'old-cabinet'), false);
 const withSurveyed = { ...fitted, objects: [...fitted.objects, { ...open.objects[0], id: 'surveyed-fridge' }] };
 assert.equal(reconcileTradeRoomCabinets(withSurveyed, []).objects.some(object => object.id === 'surveyed-fridge'), true);
+
+// Editing a proposed cabinet in the room plan must update its catalogue
+// record before projection reconciliation, including arbitrary wall turns.
+const inferredCabinet = { ...legacy.cabinets[0], dimensionStatus: 'inferred' as const,
+  wallAttachment: { wallId: open.walls[0].id, offsetMm: 100 },
+  position: { x: 400, y: 0, z: 300, rotation: 0 } };
+const planBefore = reconcileTradeRoomCabinets(open, [inferredCabinet]);
+const projectionBefore = planBefore.objects.find(object => object.sourceCabinetId === inferredCabinet.instanceId)!;
+const planEdited = edit(planBefore, { type: 'upsert-object', object: {
+  ...projectionBefore, widthMm: 720,
+  placement: { type: 'wall', wallId: open.walls[1].id, offsetMm: 250 },
+  placementProvenance: { source: 'user-correction', previousWallId: open.walls[0].id,
+    note: 'Moved to the photographed angled wall.' },
+} });
+const synced = applyEditedCabinetProjection(planBefore, planEdited, inferredCabinet);
+assert.equal(synced.directlyEdited, true);
+assert.equal(synced.cabinet.dimensions.width, 720);
+assert.deepEqual(synced.cabinet.wallAttachment,
+  { wallId: open.walls[1].id, offsetMm: 250, depthOffsetMm: undefined });
+const planAfterSync = reconcileTradeRoomCabinets(planEdited, [synced.cabinet]);
+const projectionAfterSync = planAfterSync.objects.find(object => object.sourceCabinetId === inferredCabinet.instanceId)!;
+assert.equal(projectionAfterSync.widthMm, 720);
+assert.equal(projectionAfterSync.placement.type === 'wall' && projectionAfterSync.placement.wallId, open.walls[1].id);
+assert.equal(projectionAfterSync.placement.type === 'wall' && projectionAfterSync.placement.offsetMm, 250);
+assert.deepEqual(projectionAfterSync.placementProvenance, planEdited.objects.find(object => object.id === projectionBefore.id)?.placementProvenance);
+assert.equal(synced.cabinet.position?.rotation, wallGeometry(planEdited, open.walls[1].id)?.rotationDeg);
+const freeEdited = edit(planAfterSync, { type: 'upsert-object', object: {
+  ...projectionAfterSync, placement: { type: 'free', xMm: 900, zMm: 700, rotationDeg: 45 },
+} });
+const freed = applyEditedCabinetProjection(planAfterSync, freeEdited, synced.cabinet);
+assert.equal(freed.cabinet.wallAttachment, undefined);
+assert.deepEqual(freed.cabinet.position, { x: 900, y: 0, z: 700, rotation: 45 });
+const confirmedPlan = reconcileTradeRoomCabinets(migrated, [legacy.cabinets[0]]);
+const confirmedObject = confirmedPlan.objects.find(object => object.sourceCabinetId === legacy.cabinets[0].instanceId)!;
+const tamperedSize = edit(confirmedPlan, { type: 'upsert-object', object: { ...confirmedObject, widthMm: 999 } });
+assert.equal(applyEditedCabinetProjection(confirmedPlan, tamperedSize, legacy.cabinets[0]).cabinet.dimensions.width, 600,
+  'confirmed cabinet dimensions remain locked even if a caller bypasses the UI');
+
+// Removing a projected trade cabinet removes its complete catalogue record in
+// the same plan transaction. Undo restores the archived record, not a sketch
+// reconstructed from the lean plan object; redo removes it again.
+const richCabinet = { ...synced.cabinet,
+  materials: { exteriorFinish: 'oak', carcaseFinish: 'birch', doorStyle: 'shaker', edgeBanding: 'abs' },
+  hardware: { handleType: 'bar', handleColor: 'brass', hingeType: 'concealed', drawerType: 'soft', softClose: true },
+  accessories: { shelfCount: 3, adjustableShelves: true, dividers: true, softCloseUpgrade: false, specialFittings: ['bin'] },
+  construction: { leftFillerWidth: 20 },
+};
+const richPlan = reconcileTradeRoomCabinets(planAfterSync, [richCabinet]);
+const removal = applyRoomEdit(richPlan, { type: 'delete-object', objectId: projectionAfterSync.id });
+assert.equal(removal.applied, true);
+const archive = new Map();
+const removed = syncCabinetProjectionMembership(richPlan, removal.document, [richCabinet], archive);
+assert.deepEqual(removed.removedIds, [richCabinet.instanceId]);
+assert.equal(removed.cabinets.length, 0);
+const withoutCabinet = reconcileTradeRoomCabinets(removal.document, removed.cabinets);
+assert.equal(withoutCabinet.objects.some(object => object.sourceCabinetId === richCabinet.instanceId), false);
+const undoDocument = undoRoomEdit(removal);
+const restored = syncCabinetProjectionMembership(withoutCabinet, undoDocument, removed.cabinets, archive);
+assert.deepEqual(restored.restoredIds, [richCabinet.instanceId]);
+assert.deepEqual(restored.cabinets[0].materials, richCabinet.materials);
+assert.deepEqual(restored.cabinets[0].hardware, richCabinet.hardware);
+assert.deepEqual(restored.cabinets[0].accessories, richCabinet.accessories);
+assert.deepEqual(restored.cabinets[0].construction, richCabinet.construction);
+const restoredPose = applyEditedCabinetProjection(withoutCabinet, undoDocument, restored.cabinets[0]);
+const restoredPlan = reconcileTradeRoomCabinets(undoDocument, [restoredPose.cabinet]);
+assert.equal(restoredPlan.objects.some(object => object.sourceCabinetId === richCabinet.instanceId), true);
+const redone = syncCabinetProjectionMembership(restoredPlan, withoutCabinet, [restoredPose.cabinet], archive);
+assert.deepEqual(redone.removedIds, [richCabinet.instanceId]);
+assert.equal(redone.cabinets.length, 0);
 
 // A room save merges against fresh server rooms and rejects stale revisions
 // while preserving both the local draft and another room edited elsewhere.

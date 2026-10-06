@@ -129,6 +129,43 @@ export function placeWithinRoomDocument(req: RoomPlacementRequest & { point: Roo
     : { status: 'unplaced', reason: 'This item overlaps an existing item.' };
 }
 
+/** Validate an explicitly edited wall attachment at its exact offset. Unlike
+ * snapping, this must never move a cabinet to another wall to make it fit. */
+export function validateRoomWallPlacement(req: RoomPlacementRequest & {
+  wallId: string;
+  offsetMm: number;
+  depthOffsetMm?: number;
+}): RoomPlacementChoice {
+  if (![req.widthMm, req.depthMm, req.offsetMm, req.depthOffsetMm ?? 0].every(Number.isFinite)
+    || req.widthMm <= 0 || req.depthMm <= 0) {
+    return { status: 'unplaced', reason: 'Enter valid cabinet dimensions and a wall offset.' };
+  }
+  const wall = req.document.walls.find(item => item.id === req.wallId);
+  const geometry = wallGeometry(req.document, req.wallId);
+  if (!wall || !geometry || !wall.interiorSide || wall.interiorSide === 'unknown') {
+    return { status: 'unplaced', reason: 'Confirm which side of this wall faces the room.' };
+  }
+  if (req.offsetMm < -0.5 || req.offsetMm + req.widthMm > geometry.lengthMm + 0.5) {
+    return { status: 'unplaced', reason: 'This cabinet extends beyond its wall segment.' };
+  }
+  if (blockedByOpening(req, req.wallId, req.offsetMm)) {
+    return { status: 'unplaced', reason: 'This cabinet overlaps a door, walkway or window on its wall.' };
+  }
+  const pose = placementPose(req.document, {
+    type: 'wall', wallId: req.wallId, offsetMm: req.offsetMm,
+    depthOffsetMm: req.depthOffsetMm ?? 0,
+  }, req.widthMm, req.depthMm);
+  if (!pose) return { status: 'unplaced', reason: 'This wall has invalid geometry.' };
+  if (footprintInsideConfirmedFloor(req.document,
+    footprintCorners(pose, req.widthMm, req.depthMm)).status === 'outside') {
+    return { status: 'unplaced', reason: 'This cabinet crosses the confirmed floor boundary.' };
+  }
+  if (!validCandidate(req, pose)) {
+    return { status: 'unplaced', reason: 'This cabinet overlaps another item.' };
+  }
+  return { status: 'placed', ...pose, wallId: req.wallId, offsetMm: req.offsetMm };
+}
+
 export function snapRoomDocumentPlacement(req: RoomPlacementRequest & { point: RoomPoint; rotationDeg: number }): RoomPlacementChoice {
   const nearest = req.document.walls
     .map(wall => ({ wall, projection: projectToWall(req.document, wall.id, req.point) }))

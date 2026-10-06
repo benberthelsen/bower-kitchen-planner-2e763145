@@ -152,6 +152,16 @@ export interface TradeRoom {
     upperTopMarginMm?: number;
     upperBottomMarginMm?: number;
     baseTopMarginMm?: number;
+    /** Room setup choices that the older rectangular RoomConfig cannot express. */
+    layoutPreset?: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula' | 'island' | 'custom';
+    islandWidthMm?: number;
+    islandDepthMm?: number;
+    peninsulaLengthMm?: number;
+    peninsulaWidthMm?: number;
+    leftWingDepthMm?: number;
+    rightWingDepthMm?: number;
+    corridorWidthMm?: number;
+    supplyMethod?: 'assembled' | 'flat-pack';
   };
   createdAt: Date;
   updatedAt: Date;

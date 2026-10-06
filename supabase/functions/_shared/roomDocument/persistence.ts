@@ -27,6 +27,22 @@ export function mergeRoomWrite(latestRooms: TradeRoom[], requestedRoom: TradeRoo
     : [...latestRooms, requestedRoom];
 }
 
+/** The setup wizard may stay open while the same room is edited elsewhere.
+ * Save against the revision present when the wizard opened, then update the
+ * local room only after the server accepts the write. A rejected write leaves
+ * the wizard's draft intact for review. */
+export async function saveRoomSetupEdit(
+  jobId: string,
+  originalRoom: TradeRoom,
+  editedRoom: TradeRoom,
+  persist: (input: { jobId: string; room: TradeRoom; expectedRoomRevision: number | null }) => Promise<unknown>,
+  updateLocal: (roomId: string, room: TradeRoom) => void,
+): Promise<void> {
+  if (originalRoom.id !== editedRoom.id) throw new Error('The room setup edit changed room identity.');
+  await persist({ jobId, room: editedRoom, expectedRoomRevision: originalRoom.roomDocument?.revision ?? null });
+  updateLocal(editedRoom.id, editedRoom);
+}
+
 export type CabinetWrite =
   | { type: 'upsert'; roomId: string; cabinet: ConfiguredCabinet; roomFallback?: TradeRoom }
   | { type: 'remove'; roomId: string; instanceId: string };

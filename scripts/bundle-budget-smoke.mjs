@@ -9,10 +9,10 @@ assert.ok(entryMatch, 'production entry chunk was not found in dist/index.html')
 
 const entryPath = resolve(dist, entryMatch[1]);
 const entryBytes = statSync(entryPath).size;
-// The shared geometry editor and authenticated Wizard-to-trade save add a
-// small allowance to the original single-file budget. Keep the guard tight:
+// The shared geometry editor, Wizard-to-trade save, and exact cabinet-edit
+// validation add a small allowance to the original single-file budget. Keep the guard tight:
 // splitting the bundle would break browsers that block dynamic app modules.
-const budgetBytes = 4_555_000;
+const budgetBytes = 4_563_000;
 assert.ok(
   entryBytes <= budgetBytes,
   `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is ${(budgetBytes / 1024).toFixed(1)} KiB`,

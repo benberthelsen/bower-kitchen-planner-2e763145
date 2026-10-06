@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { RoomDocumentV1 } from '../src/lib/roomDocument/types';
-import { findRoomWallPlacement, placeWithinRoomDocument, snapRoomDocumentPlacement } from '../src/lib/trade/roomDocumentPlacement';
+import { findRoomWallPlacement, placeWithinRoomDocument, snapRoomDocumentPlacement,
+  validateRoomWallPlacement } from '../src/lib/trade/roomDocumentPlacement';
 
 const angled: RoomDocumentV1 = {
   version: 1, id: 'angled', revision: 0,
@@ -18,6 +19,12 @@ if (first.status === 'placed') {
   assert.ok(first.offsetMm! + 600 <= Math.hypot(3000, 3000));
 }
 assert.equal(placeWithinRoomDocument({ ...request, point: { xMm: 500, zMm: 500 }, rotationDeg: 22 }).status, 'unplaced');
+const exact = validateRoomWallPlacement({ ...request, wallId: 'angled-wall', offsetMm: 500,
+  depthOffsetMm: 10 });
+assert.equal(exact.status, 'placed');
+if (exact.status === 'placed') assert.ok(Math.abs(exact.rotationDeg - 45) < 0.001);
+assert.equal(validateRoomWallPlacement({ ...request, wallId: 'angled-wall', offsetMm: 4000 }).status,
+  'unplaced', 'exact edit cannot extend beyond an angled wall');
 
 const doorway: RoomDocumentV1 = {
   ...angled,
@@ -26,6 +33,14 @@ const doorway: RoomDocumentV1 = {
 const pastDoor = findRoomWallPlacement({ ...request, document: doorway });
 assert.equal(pastDoor.status, 'placed');
 if (pastDoor.status === 'placed') assert.ok(pastDoor.offsetMm! >= 1700);
+assert.equal(validateRoomWallPlacement({ ...request, document: doorway,
+  wallId: 'angled-wall', offsetMm: 1200 }).status, 'unplaced',
+  'exact edit cannot fill across a door');
+assert.equal(validateRoomWallPlacement({ ...request, wallId: 'angled-wall', offsetMm: 500,
+  obstacles: [{ id: 'other', xMm: exact.status === 'placed' ? exact.xMm : 0,
+    zMm: exact.status === 'placed' ? exact.zMm : 0, rotationDeg: 45,
+    widthMm: 600, depthMm: 580, category: 'Base' }] }).status, 'unplaced',
+  'exact edit cannot overlap a placed cabinet');
 
 const fullyBlocked: RoomDocumentV1 = {
   ...angled,
