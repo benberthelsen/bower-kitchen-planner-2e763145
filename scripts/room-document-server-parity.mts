@@ -44,7 +44,27 @@ const closed: RoomDocumentV1 = {
   openings: [], services: [], objects: [],
 };
 
-for (const document of [open, closed]) {
+const furnished: RoomDocumentV1 = {
+  ...open, id: 'parity-freestanding',
+  objects: [...open.objects, { id: 'table', layer: 'existing', kind: 'table', existingAction: 'keep',
+    placement: { type: 'free', xMm: 1400, zMm: 350, rotationDeg: 30 },
+    widthMm: 700, depthMm: 600, heightMm: 750 }],
+};
+const acute: RoomDocumentV1 = {
+  ...open, id: 'parity-acute',
+  corners: [{ id: 'a', xMm: 0, zMm: 0 }, { id: 'b', xMm: 4000, zMm: 0 },
+    { id: 'c', xMm: 4000 - Math.SQRT1_2 * 4000, zMm: Math.SQRT1_2 * 4000 }],
+  walls: [{ id: 'one', startCornerId: 'a', endCornerId: 'b', interiorSide: 'left' },
+    { id: 'two', startCornerId: 'b', endCornerId: 'c', interiorSide: 'right' }],
+  chains: [{ id: 'open-acute', wallIds: ['one', 'two'], closed: false }],
+  openings: [], services: [], objects: [],
+};
+const blocked: RoomDocumentV1 = {
+  ...open, id: 'parity-blocked',
+  openings: [{ id: 'door', wallId: 'sink', kind: 'door', offsetMm: 0, widthMm: 2200 }],
+};
+
+for (const document of [open, closed, furnished, acute, blocked]) {
   assert.deepEqual(browserCandidates({ document, maxCandidates: 5 }),
     serverCandidates({ document, maxCandidates: 5 }),
     `${document.id}: browser and backend must accept, reject and rank the same candidates`);

@@ -1108,14 +1108,14 @@ export default function RoomPlanner() {
   return (
     <TradeLayout>
       <div className="flex flex-col h-[calc(100vh-64px)]">
-        <div className="flex items-center justify-between px-4 py-2 border-b bg-background">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate(`/trade/job/${jobId}`)}>
+        <div className="flex flex-col gap-2 px-3 py-2 border-b bg-background md:flex-row md:items-center md:justify-between md:px-4">
+          <div className="flex min-w-0 items-center gap-2 md:gap-4">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(`/trade/job/${jobId}`)}>
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <div>
-              <h1 className="text-lg font-semibold text-trade-navy">{currentRoom.name}</h1>
-              <p className="text-xs text-muted-foreground">
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-semibold text-trade-navy">{currentRoom.name}</h1>
+              <p className="truncate text-xs text-muted-foreground">
                 {currentRoom.roomDocument ? 'Plan extents ' : ''}{currentRoom.config.width} × {currentRoom.config.depth}mm • {cabinets.length} cabinet{cabinets.length !== 1 ? 's' : ''}
                 <span className="ml-2">
                   {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved'
@@ -1126,7 +1126,7 @@ export default function RoomPlanner() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 overflow-x-auto whitespace-nowrap pb-1 md:w-auto md:overflow-visible md:pb-0">
             {/* Opening conflicts (master plan §8.2): warn-only, never blocks.
                 Recomputes via useMemo on every placement/edit/undo change. */}
             {openingWarnings.length > 0 && (
@@ -1317,7 +1317,11 @@ export default function RoomPlanner() {
                   </Button>
                 ))}
                 {wallRunPool?.capability.supported && !wallRunPool.candidates.length && (
-                  <p className="text-sm text-amber-800">No wall run fits the current walls, openings and existing items.</p>
+                  <div className="space-y-1" role="status">
+                    <p className="text-sm text-amber-800">No complete wall run fits the current walls, openings and existing items.</p>
+                    {[...new Set(wallRunPool.rejected.flatMap(candidate => candidate.reasons))].slice(0, 4)
+                      .map(reason => <p key={reason} className="text-xs text-amber-800">{reason}</p>)}
+                  </div>
                 )}
                 {selectedWallRun && (
                   <div className="rounded-md border p-3 space-y-2">
@@ -1335,7 +1339,7 @@ export default function RoomPlanner() {
             </aside>
           )}
           {showCatalog && (
-            <div className="w-64 border-r flex-shrink-0">
+            <div className="absolute inset-0 z-20 w-full overflow-y-auto border-r bg-background md:relative md:inset-auto md:w-64 md:flex-shrink-0">
               <UnifiedCatalog
                 userType={catalogMode}
                 onSelectProduct={handleQuickAddProduct}

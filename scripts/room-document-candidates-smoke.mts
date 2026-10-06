@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { RoomDocumentV1 } from '../src/lib/roomDocument/types';
+import { footprintCorners, footprintsIntersect } from '../src/lib/roomDocument/geometry';
 import { generateRoomDocumentCandidates } from '../src/lib/layout/roomDocumentCandidates';
 import { applyRoomDocumentProposal } from '../src/lib/homeowner/roomDocumentProposal';
 import { applyRoomEdit } from '../src/lib/roomDocument/edit';
@@ -34,6 +35,14 @@ assert(first.candidates.every(candidate => candidate.roomRevision === 4));
 assert(first.candidates.every(candidate => candidate.unresolved.some(note => note.includes('floor boundary'))));
 assert(!first.islandOption && first.islandReason, 'an open chain cannot yield an island');
 assert(first.candidates.flatMap(candidate => candidate.items).some(({ wallId, item }) => wallId === 'angled' && Math.abs(item.rotation % 90) > 1), 'angled wall keeps exact rotation');
+const twoWall = first.candidates.find(candidate => candidate.wallIds.join('+') === 'sink+angled');
+assert(twoWall, 'a 135-degree join can support two straight catalogue runs');
+const footprint = (item: { x: number; z: number; rotation: number; width: number; depth: number }) =>
+  footprintCorners({ xMm: item.x, zMm: item.z, rotationDeg: item.rotation }, item.width, item.depth);
+for (const left of twoWall.items) for (const right of twoWall.items) {
+  if (left === right) continue;
+  assert(!footprintsIntersect(footprint(left.item), footprint(right.item)), 'two-wall cabinets do not overlap at the angled corner');
+}
 const chosen = first.candidates[0];
 const chosenStyle = { finishId: 'do-designer-white', benchtopId: 'bt-white', handleId: 'handle-bar-ss' };
 const applied = applyRoomDocumentProposal(open, chosen, chosenStyle);
@@ -102,6 +111,42 @@ full.objects.push({ id: 'full-run', layer: 'existing', kind: 'base-cabinet',
 assert.equal(generateRoomDocumentCandidates({ document: full, allowedWallIds: ['sink'] }).candidates.length, 0,
   'kept base cabinets block that wall run');
 
+const furniture = structuredClone(open);
+furniture.objects.push({ id: 'freestanding', layer: 'existing', kind: 'table', existingAction: 'keep',
+  placement: { type: 'free', xMm: 1450, zMm: 350, rotationDeg: 0 },
+  widthMm: 700, depthMm: 600, heightMm: 750 });
+const aroundFurniture = generateRoomDocumentCandidates({ document: furniture, allowedWallIds: ['sink'] });
+assert(aroundFurniture.candidates.length > 0, 'a freestanding item blocks its local span, not the entire wall');
+const existingFootprint = footprintCorners({ xMm: 1450, zMm: 350, rotationDeg: 0 }, 700, 600);
+assert(aroundFurniture.candidates[0].items.every(({ item }) => !footprintsIntersect(footprint(item), existingFootprint)),
+  'generated cabinets use the free intervals on either side of an existing item');
+
+const impossible = structuredClone(open);
+impossible.openings = [{ id: 'door', wallId: 'sink', kind: 'door', offsetMm: 0, widthMm: 3000 }];
+const noFit = generateRoomDocumentCandidates({ document: impossible, allowedWallIds: ['sink'] });
+assert.equal(noFit.candidates.length, 0, 'a fully blocked selected wall never falls back to a rectangular layout');
+assert.deepEqual(noFit.unplaced.map(item => item.role), ['sink', 'cooktop'],
+  'required work zones stay explicitly unplaced with a reason');
+assert(noFit.unplaced.every(item => item.reason.includes('largest clear span is 0 mm')));
+
+const acute: RoomDocumentV1 = {
+  ...structuredClone(open), id: 'acute-two-wall', revision: 0,
+  corners: [{ id: 'a', xMm: 0, zMm: 0 }, { id: 'b', xMm: 4000, zMm: 0 },
+    { id: 'c', xMm: 4000 - Math.SQRT1_2 * 4000, zMm: Math.SQRT1_2 * 4000 }],
+  walls: [{ id: 'one', startCornerId: 'a', endCornerId: 'b', interiorSide: 'left' },
+    { id: 'two', startCornerId: 'b', endCornerId: 'c', interiorSide: 'right' }],
+  chains: [{ id: 'open-acute', wallIds: ['one', 'two'], closed: false }],
+  openings: [], services: [{ id: 'tap', kind: 'water-supply', placement: { type: 'wall', wallId: 'one', offsetMm: 1000 } }],
+  objects: [],
+};
+const acutePool = generateRoomDocumentCandidates({ document: acute, maxCandidates: 10 });
+const acutePair = acutePool.candidates.find(candidate => candidate.wallIds.join('+') === 'one+two');
+assert(acutePair, `long 45-degree walls can form separate safe straight runs: ${JSON.stringify(acutePool.rejected)}`);
+for (const left of acutePair.items.filter(item => item.wallId === 'one'))
+  for (const right of acutePair.items.filter(item => item.wallId === 'two'))
+    assert(!footprintsIntersect(footprint(left.item), footprint(right.item)),
+      'corner clearance is derived from the actual angle and cabinet depth');
+
 const bigRoom: RoomDocumentV1 = {
   version: 1, id: 'large-room', revision: 0,
   corners: [
@@ -121,6 +166,9 @@ const bigRoom: RoomDocumentV1 = {
 const largePool = generateRoomDocumentCandidates({ document: bigRoom, allowedWallIds: ['north'] });
 assert(largePool.islandOption, 'confirmed large floor supports a checked island');
 assert.equal(largePool.islandOption?.items.length, 2);
+const wraparound = generateRoomDocumentCandidates({ document: bigRoom, allowedWallIds: ['north', 'west'], maxCandidates: 20 });
+assert(wraparound.candidates.some(candidate => candidate.wallIds.join('+') === 'west+north'),
+  'a closed outline includes the join from its last named wall back to its first');
 const catalogSource = readFileSync('src/hooks/useCatalog.ts', 'utf8');
 for (const definitionId of new Set([...first.candidates.flatMap(candidate => candidate.items.map(({ item }) => item.definitionId)),
   ...(largePool.islandOption?.items.map(item => item.definitionId) ?? [])])) {

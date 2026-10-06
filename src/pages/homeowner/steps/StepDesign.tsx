@@ -505,6 +505,11 @@ export default function StepDesign({
         </div>)}
       </div>}
       {wallRunPool.capability.reasons.map(reason => <p key={reason} className="text-sm text-amber-800">{reason}</p>)}
+      {wallRunPool.capability.supported && wallRunPool.candidates.length === 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-1" role="status">
+        <p className="text-sm font-medium text-amber-900">No complete wall-run idea fits the current plan.</p>
+        {[...new Set(wallRunPool.rejected.flatMap(candidate => candidate.reasons))].slice(0, 4)
+          .map(reason => <p key={reason} className="text-xs text-amber-800">{reason}</p>)}
+      </div>}
       <Suspense fallback={<p className="text-sm text-slate-600">Loading the wall editor…</p>}>
         <RoomDocumentEditor document={roomDocument!} onChange={onRoomDocumentChange} />
       </Suspense>
