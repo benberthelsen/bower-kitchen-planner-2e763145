@@ -70,8 +70,10 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   const [issues, setIssues] = useState<RoomIssue[]>([]);
   const [newLength, setNewLength] = useState(1200);
   const [newAngle, setNewAngle] = useState(0);
+  const [newStartX, setNewStartX] = useState<number | null>(null);
+  const [newStartZ, setNewStartZ] = useState<number | null>(null);
   const [splitOffsets, setSplitOffsets] = useState<Record<string, number>>({});
-  const [addEnd, setAddEnd] = useState<'start' | 'end'>('end');
+  const [addEnd, setAddEnd] = useState<'start' | 'end' | 'separate'>('end');
   const [showOpenings, setShowOpenings] = useState(true);
   const [showObjects, setShowObjects] = useState(true);
   const [showServices, setShowServices] = useState(true);
@@ -83,6 +85,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
       lastId.current = document.id;
       setPast([]); setFuture([]); setIssues([]);
       setSplitOffsets({});
+      setNewStartX(null); setNewStartZ(null);
       setSelectedWallId(document.walls[0]?.id ?? null);
       setSelectedOpeningId(null);
       setSelectedServiceId(null);
@@ -132,6 +135,10 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   };
 
   const points = document.corners;
+  const separateStart = {
+    xMm: newStartX ?? (points.length ? Math.max(...points.map(point => point.xMm)) + 300 : 0),
+    zMm: newStartZ ?? (points.length ? Math.min(...points.map(point => point.zMm)) : 0),
+  };
   const bounds = useMemo(() => {
     const xs = points.map(point => point.xMm), zs = points.map(point => point.zMm);
     const minX = Math.min(0, ...xs), maxX = Math.max(1000, ...xs);
@@ -215,10 +222,11 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
     if (applied) setSelectedWallId(wallId);
   };
   const addWall = () => {
-    const edit: RoomEdit = document.walls.length
-      ? { type: 'add-wall', chainId: chain?.id, end: addEnd, lengthMm: newLength, angleDeg: newAngle }
-      : { type: 'add-wall', start: { xMm: 0, zMm: 0 }, lengthMm: newLength, angleDeg: newAngle };
-    apply(edit);
+    const wallId = crypto.randomUUID();
+    const edit: RoomEdit = document.walls.length && addEnd !== 'separate'
+      ? { type: 'add-wall', wallId, chainId: chain?.id, end: addEnd, lengthMm: newLength, angleDeg: newAngle }
+      : { type: 'add-wall', wallId, start: separateStart, lengthMm: newLength, angleDeg: newAngle };
+    if (apply(edit)) setSelectedWallId(wallId);
   };
   const closeChain = () => { if (chain) apply({ type: 'close-chain', chainId: chain.id }); };
   const confirmBoundary = () => {
@@ -423,7 +431,11 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
             <NumberField id="new-wall-length" label="Length (mm)" value={newLength} min={1} onCommit={setNewLength} />
             <NumberField id="new-wall-angle" label="Direction (degrees)" value={newAngle} min={-360} max={360} onCommit={setNewAngle} />
           </div>
-          {document.walls.length > 0 && <div className="space-y-1"><Label htmlFor="add-end" className="text-xs">Join to wall chain</Label><select id="add-end" className="w-full border rounded px-2 py-2 text-sm" value={addEnd} onChange={event => setAddEnd(event.target.value as 'start' | 'end')}><option value="end">At the end</option><option value="start">At the start</option></select></div>}
+          {document.walls.length > 0 && <div className="space-y-1"><Label htmlFor="add-end" className="text-xs">Wall connection</Label><select id="add-end" className="w-full border rounded px-2 py-2 text-sm" value={addEnd} onChange={event => setAddEnd(event.target.value as 'start' | 'end' | 'separate')}><option value="end">Join at chain end</option><option value="start">Join at chain start</option><option value="separate">Separate unconnected wall</option></select></div>}
+          {(addEnd === 'separate' || !document.walls.length) && <div className="grid grid-cols-2 gap-2">
+            <NumberField id="new-wall-start-x" label="Start X (mm)" value={separateStart.xMm} onCommit={setNewStartX} />
+            <NumberField id="new-wall-start-z" label="Start Z (mm)" value={separateStart.zMm} onCommit={setNewStartZ} />
+          </div>}
           <Button type="button" size="sm" onClick={addWall}>Add wall segment</Button>
           {chain && !chain.closed && chain.wallIds.length >= 2 && <Button type="button" size="sm" variant="outline" className="ml-2" onClick={closeChain}>Close outline</Button>}
           {chain?.closed && !document.floorBoundary && <Button type="button" size="sm" variant="outline" className="ml-2" onClick={confirmBoundary}>Confirm floor boundary</Button>}
