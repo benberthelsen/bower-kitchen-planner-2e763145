@@ -7,13 +7,14 @@ import TradeLayout from './components/TradeLayout';
 import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
 import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
 import { TradeJobStatus, TRADE_JOB_STATUS_LABELS, isTradeJobStatus } from '@/types/trade';
-import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
 import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
-import { captureScannerSession, linkScannerRoom, type ScannerSession } from '@/lib/roomScan/scannerSession';
+import { captureScannerSession, linkScannerRoom, readScannerSession, type ScannerSession } from '@/lib/roomScan/scannerSession';
 import { derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
+import { readWizardRoomHandoff } from '@/lib/homeowner/wizardRoomHandoff';
+import { legacyRoomConfig, roomDimensions, roomSetupExtras, toRoomConfig } from '@/lib/trade/roomSetupMapping';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { JobNotes } from '@/components/shared/JobNotes';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,6 +36,27 @@ type RoomSnapshots = Record<string, {
     warnings?: string[];
   } | null;
 } | undefined>;
+
+type ExistingCaptureRoom = { jobId: string; roomId: string };
+
+/** Query only the signed-in owner's jobs. Re-importing the same scan must not
+ * silently create a second draft or overwrite the room edited in trade. */
+async function findExistingCaptureRoom(captureId: string): Promise<ExistingCaptureRoom | null> {
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError || !auth.user) throw new Error('Sign in before saving this room.');
+  const { data, error } = await supabase.from('jobs')
+    .select('id, design_data')
+    .eq('customer_id', auth.user.id)
+    .contains('design_data', { tradeRooms: [{ roomDocument: { capture: { captureId } } }] })
+    .limit(5);
+  if (error) throw error;
+  for (const job of data ?? []) {
+    const rooms = (job.design_data as { tradeRooms?: { id: string; roomDocument?: { capture?: { captureId?: string } } }[] } | null)?.tradeRooms;
+    const room = rooms?.find(candidate => candidate.roomDocument?.capture?.captureId === captureId);
+    if (room) return { jobId: job.id, roomId: room.id };
+  }
+  return null;
+}
 
 const computeJobTotalsRaw = (rooms: TradeRoom[], snapshots: RoomSnapshots = {}) => {
   let subtotal = 0;
@@ -76,70 +98,6 @@ const computeJobTotalsRaw = (rooms: TradeRoom[], snapshots: RoomSnapshots = {}) 
   };
 };
 
-const toRoomConfig = (room: TradeRoom): RoomConfig => ({
-  name: room.name,
-  description: room.description,
-  shape: room.roomDocument ? 'custom' : room.shape,
-  roomWidth: (room.roomDocument && derivedLegacyBounds(room.roomDocument)?.widthMm) || room.config.width,
-  roomDepth: (room.roomDocument && derivedLegacyBounds(room.roomDocument)?.depthMm) || room.config.depth,
-  roomHeight: room.config.height,
-  cutoutWidth: room.config.cutoutWidth,
-  cutoutDepth: room.config.cutoutDepth,
-  openings: room.config.openings ?? [],
-  services: room.config.services ?? [],
-  exteriorMaterial: room.materialDefaults.exteriorFinish,
-  exteriorEdge: room.materialDefaults.edgeBanding,
-  doorStyle: room.materialDefaults.doorStyle,
-  carcaseMaterial: room.materialDefaults.carcaseFinish,
-  carcaseEdge: room.materialDefaults.carcaseEdge ?? room.materialDefaults.edgeBanding,
-  hingeStyle: room.hardwareDefaults.hingeType,
-  drawerStyle: room.hardwareDefaults.drawerType,
-  supplyHardware: room.hardwareDefaults.supplyHardware,
-  adjustableLegs: room.hardwareDefaults.adjustableLegs,
-  toeKickHeight: room.dimensions.toeKickHeight,
-  shelfSetback: room.dimensions.shelfSetback,
-  baseHeight: room.dimensions.baseHeight,
-  baseDepth: room.dimensions.baseDepth,
-  wallHeight: room.dimensions.wallHeight,
-  wallDepth: room.dimensions.wallDepth,
-  tallHeight: room.dimensions.tallHeight,
-  tallDepth: room.dimensions.tallDepth,
-  wallMountHeight: room.dimensions.wallMountHeight ?? 1350,
-  doorGap: room.dimensions.doorGap,
-  drawerGap: room.dimensions.drawerGap,
-  leftGap: room.dimensions.leftGap,
-  rightGap: room.dimensions.rightGap,
-  upperTopMargin: room.setupExtras?.upperTopMarginMm ?? room.dimensions.topMargin,
-  upperBottomMargin: room.setupExtras?.upperBottomMarginMm ?? room.dimensions.bottomMargin,
-  baseTopMargin: room.setupExtras?.baseTopMarginMm ?? room.dimensions.topMargin,
-  roomDocument: room.roomDocument,
-});
-
-const roomSetupExtras = (config: RoomConfig): TradeRoom['setupExtras'] => ({
-  upperTopMarginMm: config.upperTopMargin,
-  upperBottomMarginMm: config.upperBottomMargin,
-  baseTopMarginMm: config.baseTopMargin,
-});
-
-const roomDimensions = (config: RoomConfig, base = DEFAULT_GLOBAL_DIMENSIONS) => ({
-  ...base,
-  toeKickHeight: config.toeKickHeight,
-  shelfSetback: config.shelfSetback,
-  baseHeight: config.baseHeight,
-  baseDepth: config.baseDepth,
-  wallHeight: config.wallHeight,
-  wallDepth: config.wallDepth,
-  tallHeight: config.tallHeight,
-  tallDepth: config.tallDepth,
-  wallMountHeight: config.wallMountHeight,
-  doorGap: config.doorGap,
-  drawerGap: config.drawerGap,
-  leftGap: config.leftGap,
-  rightGap: config.rightGap,
-  topMargin: config.upperTopMargin,
-  bottomMargin: config.upperBottomMargin,
-});
-
 export default function JobEditor() {
   const { jobId } = useParams();
   const navigate = useNavigate();
@@ -148,6 +106,10 @@ export default function JobEditor() {
   // WS5 Phase 3: website → planner starter-design handoff (?handoff=<id>).
   const [searchParams] = useSearchParams();
   const handoffId = searchParams.get('handoff');
+  const importingWizardRoom = isNewJob && searchParams.get('wizardRoom') === '1';
+  const wizardRoom = useMemo(() => importingWizardRoom
+    ? readWizardRoomHandoff(sessionStorage, handoffId) : null,
+  [importingWizardRoom, handoffId]);
   const [scannerSession] = useState<ScannerSession | null>(() => captureScannerSession());
   const [handoffToken] = useState<string | null>(() => captureHandoffToken(handoffId));
   const handoffQuery = usePlannerHandoff(handoffToken ? null : handoffId);
@@ -175,6 +137,17 @@ export default function JobEditor() {
   const [editingRoom, setEditingRoom] = useState<TradeRoom | null>(null);
   const [scanUpdateSaving, setScanUpdateSaving] = useState(false);
   const [scanUpdateDismissed, setScanUpdateDismissed] = useState(false);
+  const [existingWizardCaptureRoom, setExistingWizardCaptureRoom] = useState<ExistingCaptureRoom | null>(null);
+
+  useEffect(() => {
+    const captureId = importingWizardRoom ? wizardRoom?.document.capture?.captureId : undefined;
+    if (!captureId) return;
+    let cancelled = false;
+    void findExistingCaptureRoom(captureId).then(existing => {
+      if (!cancelled) setExistingWizardCaptureRoom(existing);
+    }).catch(() => { /* The save handler repeats this check and blocks on error. */ });
+    return () => { cancelled = true; };
+  }, [importingWizardRoom, wizardRoom]);
 
   // Derive current job status & locked state
   const _jobData = jobQuery.data as { name?: string; status?: string; design_data?: Record<string, unknown> } | undefined;
@@ -197,7 +170,17 @@ export default function JobEditor() {
   // names are matched against the priced catalog when possible; unmatched
   // names pass through as-is (the WS2 pricing guard flags them on the quote).
   const handoffInitialConfig = useMemo<Partial<RoomConfig> | undefined>(() => {
-    if (!handoffPayload || !isNewJob) return undefined;
+    if (!isNewJob) return undefined;
+    const wizardConfig: Partial<RoomConfig> | undefined = wizardRoom ? {
+      name: wizardRoom.name,
+      description: 'Reviewed wall plan from the homeowner wizard',
+      shape: 'custom',
+      roomDocument: wizardRoom.document,
+      roomWidth: wizardRoom.widthMm,
+      roomDepth: wizardRoom.depthMm,
+      roomHeight: wizardRoom.heightMm,
+    } : undefined;
+    if (!handoffPayload) return wizardConfig;
     const p = handoffPayload;
     const matchMaterial = (sel?: string) => {
       if (!sel) return undefined;
@@ -249,8 +232,11 @@ export default function JobEditor() {
     }
     const exterior = matchMaterial(p.materials?.mainCabinet);
     if (exterior) cfg.exteriorMaterial = exterior;
-    return cfg;
-  }, [handoffPayload, handoffId, isNewJob, catalogMaterials]);
+    // The homeowner may have corrected walls and added proposed cabinets
+    // after the scanner handoff was created. Keep that reviewed document while
+    // retaining the handoff's other room settings and capture reference.
+    return { ...cfg, ...wizardConfig };
+  }, [handoffPayload, handoffId, isNewJob, catalogMaterials, wizardRoom]);
 
   // Loading a handoff never consumes it (master plan §6.3 step 7 / defect
   // D-3): consumption/linking happens only in handleRoomComplete after the
@@ -368,13 +354,22 @@ export default function JobEditor() {
 
   const handleRoomComplete = async (config: RoomConfig) => {
     if (!jobId) return;
-    const legacyBounds = config.roomDocument ? derivedLegacyBounds(config.roomDocument) : null;
-    const legacyWidth = legacyBounds?.widthMm || config.roomWidth;
-    const legacyDepth = legacyBounds?.depthMm || config.roomDepth;
-
     // For brand-new jobs (jobId === 'new'), create the job row in Supabase first
     // so we have a real UUID before navigating to the planner.
     if (isNewJob && !editingRoom) {
+      if (importingWizardRoom && config.roomDocument?.capture?.captureId) {
+        try {
+          const existing = await findExistingCaptureRoom(config.roomDocument.capture.captureId);
+          if (existing) {
+            setExistingWizardCaptureRoom(existing);
+            toast.warning('This scan is already saved in a trade room. Open that room to review it; your current wizard edits have not replaced it.');
+            return;
+          }
+        } catch {
+          toast.error('Could not check whether this scan was saved already. Your room setup is still here; retry when the connection is available.');
+          return;
+        }
+      }
       const newId = crypto.randomUUID();
       const firstRoom = addRoom({
         name: config.name,
@@ -382,17 +377,7 @@ export default function JobEditor() {
         shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
         roomDocument: config.roomDocument,
         setupExtras: roomSetupExtras(config),
-        config: {
-          width: legacyWidth,
-          depth: legacyDepth,
-          height: config.roomHeight,
-          shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
-          cutoutWidth: config.cutoutWidth || 0,
-          cutoutDepth: config.cutoutDepth || 0,
-          // Room features survive every create/edit mapping (master plan §8.2)
-          openings: config.openings ?? [],
-          services: config.services ?? [],
-        },
+        config: legacyRoomConfig(config),
         dimensions: roomDimensions(config),
         materialDefaults: {
           exteriorFinish: config.exteriorMaterial,
@@ -427,9 +412,11 @@ export default function JobEditor() {
       // link_trade_handoff_v1 RPC — direct table updates are RLS-denied.
       if (handoffId) void linkTradeHandoff(handoffId, newId);
 
-      if (scannerSession && firstRoom.roomDocument?.capture?.captureId === scannerSession.captureId) {
+      const roomScannerSession = scannerSession ?? (firstRoom.roomDocument?.capture?.captureId
+        ? readScannerSession(firstRoom.roomDocument.capture.captureId) : null);
+      if (roomScannerSession && firstRoom.roomDocument?.capture?.captureId === roomScannerSession.captureId) {
         try {
-          await linkScannerRoom(scannerSession, newId, firstRoom.id,
+          await linkScannerRoom(roomScannerSession, newId, firstRoom.id,
             firstRoom.roomDocument.capture.sourceRevision);
         } catch {
           // The planner room is durable. Its room page retains the tab-scoped
@@ -452,18 +439,8 @@ export default function JobEditor() {
         // A deliberately chosen preset replaces the former custom wall plan.
         // The wizard asks for confirmation before clearing a non-empty plan.
         roomDocument: config.shape === 'custom' ? config.roomDocument : undefined,
-        setupExtras: roomSetupExtras(config),
-        config: {
-          width: legacyWidth,
-          depth: legacyDepth,
-          height: config.roomHeight,
-          shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
-          cutoutWidth: config.cutoutWidth || 0,
-          cutoutDepth: config.cutoutDepth || 0,
-          // Room features survive every create/edit mapping (master plan §8.2)
-          openings: config.openings ?? [],
-          services: config.services ?? [],
-        },
+        setupExtras: roomSetupExtras(config, editingRoom.setupExtras),
+        config: legacyRoomConfig(config),
         dimensions: roomDimensions(config, editingRoom.dimensions),
         materialDefaults: {
           ...editingRoom.materialDefaults,
@@ -500,17 +477,7 @@ export default function JobEditor() {
         shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
         roomDocument: config.roomDocument,
         setupExtras: roomSetupExtras(config),
-        config: {
-          width: legacyWidth,
-          depth: legacyDepth,
-          height: config.roomHeight,
-          shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
-          cutoutWidth: config.cutoutWidth || 0,
-          cutoutDepth: config.cutoutDepth || 0,
-          // Room features survive every create/edit mapping (master plan §8.2)
-          openings: config.openings ?? [],
-          services: config.services ?? [],
-        },
+        config: legacyRoomConfig(config),
         dimensions: roomDimensions(config),
         materialDefaults: {
           exteriorFinish: config.exteriorMaterial,
@@ -560,6 +527,12 @@ export default function JobEditor() {
   return (
     <TradeLayout>
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+        {existingWizardCaptureRoom && (
+          <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
+            This scan already has a trade room. The current wizard edits have not overwritten that saved room.
+            <div className="mt-3"><Button variant="outline" onClick={() => navigate(`/trade/job/${existingWizardCaptureRoom.jobId}/room/${existingWizardCaptureRoom.roomId}/planner`)}>Open saved room</Button></div>
+          </div>
+        )}
         {!isNewJob && handoffId && !scanUpdateDismissed && scanUpdate?.status === 'review' && (
           <div role="alert" className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
             <h2 className="font-semibold text-base">Review newer scan of {scanUpdate.room.name}</h2>
@@ -797,16 +770,32 @@ export default function JobEditor() {
           </div>
         )}
 
+        {showRoomWizard && importingWizardRoom && wizardRoom && (
+          <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950" role="status">
+            Your edited wall plan and provisional cabinets are ready. Complete room setup to save them in this trade job.
+          </p>
+        )}
+        {showRoomWizard && wizardRoom && handoffId && !handoffPayload
+          && !(handoffToken ? tokenizedHandoff.isPending : handoffQuery.isPending) && (
+          <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
+            The scanner handoff details could not be reopened. Your edited wall plan is still here; save it after review. Reopen the private scan if its photos are needed.
+          </p>
+        )}
         {showRoomWizard ? (
           // key remounts the wizard when the async handoff row arrives so the
           // pre-fill lands even though the wizard state initialises once.
-          handoffId && isNewJob && !handoffPayload ? (
+          importingWizardRoom && !wizardRoom ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950" role="alert">
+              The wall plan is no longer available in this browser tab. Return to the homeowner wizard and choose Continue to trade planner again.
+              <div className="mt-3"><Button variant="outline" onClick={() => navigate('/wizard')}>Return to wall plan</Button></div>
+            </div>
+          ) : handoffId && isNewJob && !handoffPayload && !wizardRoom ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950" role="status">
               {(handoffToken ? tokenizedHandoff.isPending : handoffQuery.isPending)
                 ? 'Loading the scanned room before setup…'
                 : 'This scanner handoff could not be opened. Reopen it from the scan rather than creating an empty room.'}
             </div>
-          ) : <RoomSetupWizard key={editingRoom?.id ?? handoffId ?? 'new'} onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} />
+          ) : <RoomSetupWizard key={editingRoom?.id ?? handoffId ?? 'new'} onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} legacyRoom={editingRoom} />
         ) : displayRooms.length > 0 ? (
           <div className="space-y-6">
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -814,7 +803,7 @@ export default function JobEditor() {
                 <div key={room.id} className="bg-trade-surface-elevated rounded-xl border border-trade-border p-5 hover:shadow-md transition-shadow">
                   <div className="flex items-start justify-between mb-3">
                     <div className="p-2 bg-trade-amber/10 rounded-lg"><LayoutGrid className="h-5 w-5 text-trade-amber" /></div>
-                    <span className="text-xs text-trade-muted bg-trade-surface px-2 py-1 rounded">{room.shape === 'l-shaped' ? 'L-Shape' : 'Rectangle'}</span>
+                    <span className="text-xs text-trade-muted bg-trade-surface px-2 py-1 rounded">{room.roomDocument ? 'Custom walls' : room.shape === 'l-shaped' ? 'L-Shape' : 'Rectangle'}</span>
                   </div>
                   <h3 className="font-display font-semibold text-trade-navy text-lg">{room.name}</h3>
                   {room.description && <p className="text-sm text-trade-muted mt-1 line-clamp-2">{room.description}</p>}

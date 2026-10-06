@@ -64,6 +64,7 @@ interface Props {
   onRoomDocumentChange: (document: RoomDocumentV1) => void;
   onRoomPatchProposed: (patch: ProposedRoomPatch) => void;
   onReturnToRoom: () => void;
+  onSaveRoomDocument: () => void;
 }
 
 interface ChatEntry { role: 'user' | 'assistant'; content: string }
@@ -132,6 +133,7 @@ export default function StepDesign({
   onRoomDocumentChange,
   onRoomPatchProposed,
   onReturnToRoom,
+  onSaveRoomDocument,
 }: Props) {
   const navigate = useNavigate();
   const { generate, refine, loading, error, lastError, hasActiveSession } = useAiDesigner();
@@ -508,7 +510,10 @@ export default function StepDesign({
       </Suspense>
       {!wallRunPool.capability.floorConfirmed && <p className="text-sm text-amber-800">Room-wide circulation and clearance remain unresolved until the floor boundary is confirmed.</p>}
       <p className="text-sm text-amber-800">Quote review for this wall plan is not available in this wizard. Choose manual room sizes if you need a whole-room quote here.</p>
-      <p className="text-xs text-slate-600">This wizard keeps your changes only in this browser tab. The proposal has not been saved to the trade planner.</p>
+      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 space-y-2">
+        <p className="text-sm text-sky-900">Continue to the trade planner to review room settings and save this wall plan as a draft room.</p>
+        <Button type="button" onClick={onSaveRoomDocument}>Continue to trade planner</Button>
+      </div>
       <Button type="button" variant="outline" onClick={onReturnToRoom}>Back to room review</Button>
     </div>;
   }

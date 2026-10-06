@@ -10,7 +10,7 @@
  */
 
 import React, { useState, Suspense, useCallback, useEffect, useRef } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff } from '@/hooks/usePlannerHandoff';
 import { handoffToStyleWords } from '@/lib/handoffBrief';
@@ -24,6 +24,7 @@ import {
   type RoomScanV1,
 } from '@/lib/roomScan/contract';
 import { captureDraftReadiness, captureDraftRelation, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
+import { captureScannerSession } from '@/lib/roomScan/scannerSession';
 import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
@@ -298,10 +299,11 @@ function loadSavedWizardState(): Partial<WizardState> {
   }
 }
 
-export function saveWizardState(state: WizardState): void {
+export function saveWizardState(state: WizardState): boolean {
   try {
     sessionStorage.setItem(WIZARD_STATE_KEY, JSON.stringify({ v: 5, savedAt: Date.now(), state }));
-  } catch { /* storage full or unavailable — persistence is best-effort */ }
+    return true;
+  } catch { return false; }
 }
 
 export function clearSavedWizardState(): void {
@@ -2266,6 +2268,7 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
 // ─── Main shell ──────────────────────────────────────────────────────────────────
 
 export default function HomeownerWizard() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Initialise from defaults ← saved session (mobile reload survival) ← URL
@@ -2312,6 +2315,19 @@ export default function HomeownerWizard() {
 
   // Persist every change for the life of the tab (cleared on submit).
   useEffect(() => { saveWizardState(state); }, [state]);
+
+  const saveWallPlanInTrade = () => {
+    if (!state.roomDocument || state.useManualRoomInstead) return;
+    // Commit the latest edit before the sign-in detour. The trade setup saves
+    // through its authenticated job API after the room settings are reviewed.
+    if (!saveWizardState(state)) {
+      toast.error('This browser could not hold the wall plan for sign-in. Keep this tab open and free some browser storage before trying again.');
+      return;
+    }
+    const params = new URLSearchParams({ wizardRoom: '1' });
+    if (state.handoffContext?.handoffId) params.set('handoff', state.handoffContext.handoffId);
+    navigate(`/trade/job/new?${params}`);
+  };
 
   // On step change: reset scroll and move focus to the step's h2 so screen
   // readers land at the new content instead of stranded on the old page.
@@ -2385,7 +2401,12 @@ export default function HomeownerWizard() {
   // query string and would otherwise erase ?handoff= before the tokenized
   // fetch resolves (test-pass finding F-2), flipping the query key to null.
   const [handoffId] = useState<string | null>(() => searchParams.get('handoff'));
-  const [handoffToken] = useState<string | null>(() => captureHandoffToken(handoffId));
+  const [handoffToken] = useState<string | null>(() => {
+    // The handoff reader scrubs the fragment. Preserve scanner capabilities
+    // first so the authenticated job can link the room and read its photos.
+    captureScannerSession();
+    return captureHandoffToken(handoffId);
+  });
   const tokenized = useTokenizedPlannerHandoff(handoffId, handoffToken);
   const { data: staffRow } = usePlannerHandoff(handoffToken ? null : handoffId);
   const handoffPayload = tokenized.data?.payload ?? staffRow?.payload ?? null;
@@ -2635,6 +2656,7 @@ export default function HomeownerWizard() {
                   onRoomDocumentChange={roomDocument => onChange({ roomDocument, design: null })}
                   onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
                   onReturnToRoom={() => onChange({ step: 1 })}
+                  onSaveRoomDocument={saveWallPlanInTrade}
                 />
               </div>
             )}
@@ -2653,6 +2675,7 @@ export default function HomeownerWizard() {
             onRoomDocumentChange={roomDocument => onChange({ roomDocument, design: null })}
             onRoomPatchProposed={patch => onChange({ pendingRoomPatch: patch, step: 1 })}
             onReturnToRoom={() => onChange({ step: 1 })}
+            onSaveRoomDocument={saveWallPlanInTrade}
           />
         )}
         {state.step === reviewStep && (activeRoomDocument

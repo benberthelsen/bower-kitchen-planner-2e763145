@@ -98,6 +98,9 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   const previousWall = chainIndex > 0 ? document.walls.find(candidate => candidate.id === chain!.wallIds[chainIndex - 1]) : undefined;
   const previousGeometry = previousWall ? wallGeometry(document, previousWall.id) : null;
   const cornerTurn = geometry && previousGeometry ? normaliseAngle(geometry.angleDeg - previousGeometry.angleDeg) : undefined;
+  const selectedJoinId = previousWall && wall
+    ? [wall.startCornerId, wall.endCornerId].find(id => id === previousWall.startCornerId || id === previousWall.endCornerId)
+    : undefined;
 
   const apply = (edit: RoomEdit): boolean => {
     const result = applyRoomEdit(document, edit);
@@ -232,6 +235,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
     </div>
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)] gap-4">
       <div className="space-y-3">
+        <div className="relative">
         <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-h-[480px] rounded-lg border border-trade-border bg-slate-50 touch-none" aria-label="Room floor plan">
           <defs><marker id="room-wall-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#047857" strokeWidth="1.5" /></marker></defs>
           {document.floorBoundary && <polygon points={document.floorBoundary.cornerIds.map(id => byId(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)).map(p => `${px(p.xMm)},${py(p.zMm)}`).join(' ')} fill="#d1fae5" fillOpacity="0.55" stroke="none" />}
@@ -301,6 +305,14 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
             </g>;
           })}
         </svg>
+        {selectedJoinId && cornerTurn !== undefined && byId(selectedJoinId) && <div
+          className="absolute z-10 w-24 rounded-md border border-emerald-700 bg-white/95 p-2 shadow-sm"
+          style={{ left: `${Math.max(2, Math.min(65, px(byId(selectedJoinId)!.xMm) / SIZE * 100))}%`,
+            top: `${Math.max(2, Math.min(72, py(byId(selectedJoinId)!.zMm) / SIZE * 100))}%` }}>
+          <NumberField id="plan-corner-turn" label="Turn (°)" value={cornerTurn} min={-180} max={180}
+            onCommit={turn => apply({ type: 'set-wall-angle', wallId: wall!.id, angleDeg: normaliseAngle(previousGeometry!.angleDeg + turn) })} />
+        </div>}
+        </div>
         <div className="flex flex-wrap gap-3 text-xs text-slate-600">
           <label><input type="checkbox" checked={showOpenings} onChange={event => setShowOpenings(event.target.checked)} /> Openings</label>
           <label><input type="checkbox" checked={showObjects} onChange={event => setShowObjects(event.target.checked)} /> Existing / proposed</label>

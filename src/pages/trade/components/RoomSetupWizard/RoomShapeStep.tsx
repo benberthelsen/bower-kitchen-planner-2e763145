@@ -6,7 +6,8 @@ import { Label } from '@/components/ui/label';
 import { RoomConfig } from './index';
 import RoomDimensionEditor from './RoomDimensionEditor';
 import RoomDocumentEditor from '@/components/roomDocument/RoomDocumentEditor';
-import { createRoomDocument } from '@/lib/roomDocument';
+import type { TradeRoom } from '@/types/trade';
+import { documentForCustomSetup } from '@/lib/trade/roomSetupMapping';
 import roomRectangular from '@/assets/room-rectangular.png';
 import roomLShaped from '@/assets/room-l-shaped.png';
 import roomUShaped from '@/assets/room-u-shaped.png';
@@ -17,9 +18,10 @@ import roomIsland from '@/assets/room-island.png';
 interface RoomShapeStepProps {
   config: RoomConfig;
   updateConfig: (updates: Partial<RoomConfig>) => void;
+  legacyRoom?: TradeRoom;
 }
 
-export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepProps) {
+export default function RoomShapeStep({ config, updateConfig, legacyRoom }: RoomShapeStepProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [selectedShape, setSelectedShape] = useState<RoomConfig['shape'] | null>(null);
   const [pendingReplacement, setPendingReplacement] = useState<{ shape: RoomConfig['shape']; dimensions: Partial<RoomConfig> } | null>(null);
@@ -68,7 +70,7 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
     if (shapeId === 'custom') {
       updateConfig({
         shape: 'custom',
-        roomDocument: config.roomDocument ?? createRoomDocument(crypto.randomUUID(), config.name || 'Room'),
+        roomDocument: documentForCustomSetup(config, legacyRoom),
       });
       return;
     }
