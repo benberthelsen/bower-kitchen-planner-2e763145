@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { buildSync } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -14,10 +15,11 @@ writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, {
 const files = [
   'types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'blindCorner', 'catalogRoles',
   'catalogCapabilities', 'styleDNA', 'solveRun', 'compileSpec', 'rules', 'validate', 'defaultSpec',
-  'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'index',
+  'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'roomDocumentCandidates', 'index',
 ];
 function rewrite(source) {
   return source
+    .replace(/(['"])@\/lib\/roomDocument(?:\/geometry)?\1/g, "'./roomDocument_index'")
     .replace(/(['"])@\/constants\1/g, "'./constants'")
     .replace(/(['"])@\/types\1/g, "'./types_stub'")
     .replace(/(['"])(\.\.?\/[^'"]+?)\.ts\1/g, '$1$2$1');
@@ -30,6 +32,8 @@ function transpile(name, sourcePath) {
   writeFileSync(path.join(OUT, `${name}.js`), outputText);
 }
 transpile('constants', path.join(ROOT, 'src/constants.ts'));
+buildSync({ entryPoints: [path.join(ROOT, 'src/lib/roomDocument/index.ts')], bundle: true,
+  platform: 'node', format: 'cjs', outfile: path.join(OUT, 'roomDocument_index.js'), alias: { '@': './src' } });
 for (const file of files) transpile(file, path.join(ROOT, 'src/lib/layout', `${file}.ts`));
 
 const engine = require(path.join(OUT, 'index.js'));

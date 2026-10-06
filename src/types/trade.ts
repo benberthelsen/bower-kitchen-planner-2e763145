@@ -1,5 +1,6 @@
 import type { RoomConfig, GlobalDimensions } from '@/types';
 import type { CatalogItemDefinition } from '@/types';
+import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 
 export const CANONICAL_TRADE_JOB_STATUSES = [
   'draft',
@@ -83,6 +84,14 @@ export interface ConfiguredCabinet {
   construction?: CabinetConstruction;
   position?: CabinetInstancePosition;
   isPlaced: boolean;
+  /** Physical attachment along an arbitrary wall segment, if one is known. */
+  wallAttachment?: { wallId: string; offsetMm: number; depthOffsetMm?: number };
+  /** Adjacent wall that made this a valid catalogue corner placement. */
+  cornerJoinWallId?: string;
+  /** Existing records without this field are treated as fixed dimensions. */
+  dimensionStatus?: 'confirmed' | 'inferred';
+  /** Retained item that needs review after room geometry changes. */
+  geometryConflict?: string;
   createdAt: Date;
   updatedAt: Date;
 
@@ -109,6 +118,7 @@ export interface RoomMaterialDefaults {
   carcaseFinish: string;
   doorStyle: string;
   edgeBanding: string;
+  carcaseEdge?: string;
   /** Authoritative benchtop_pricing row used by the shared quote engine. */
   benchtopPricingId?: string;
   /** Optional visual finish id retained from homeowner/AI style selections. */
@@ -135,6 +145,13 @@ export interface TradeRoom {
   materialDefaults: RoomMaterialDefaults;
   hardwareDefaults: RoomHardwareDefaults;
   cabinets: ConfiguredCabinet[];
+  roomDocument?: RoomDocumentV1;
+  /** Distinct wizard controls that legacy GlobalDimensions collapsed together. */
+  setupExtras?: {
+    upperTopMarginMm?: number;
+    upperBottomMarginMm?: number;
+    baseTopMarginMm?: number;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

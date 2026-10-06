@@ -9,9 +9,13 @@ assert.ok(entryMatch, 'production entry chunk was not found in dist/index.html')
 
 const entryPath = resolve(dist, entryMatch[1]);
 const entryBytes = statSync(entryPath).size;
+// The shared millimetre geometry model and editor add one modest allowance to
+// the original single-file budget. Keep the guard tight: splitting the bundle
+// would break browsers that block dynamically imported application modules.
+const budgetBytes = 4_550_000;
 assert.ok(
-  entryBytes <= 4_500_000,
-  `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is 4394.5 KiB`,
+  entryBytes <= budgetBytes,
+  `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is ${(budgetBytes / 1024).toFixed(1)} KiB`,
 );
 
 const assets = readdirSync(resolve(dist, 'assets'));

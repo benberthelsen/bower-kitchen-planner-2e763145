@@ -13,6 +13,17 @@ import { z } from 'zod';
 const emailSchema = z.string().email('Invalid email address');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
 
+function takeTradeReturnPath(): string | null {
+  try {
+    const value = sessionStorage.getItem('bower.authReturnTo');
+    sessionStorage.removeItem('bower.authReturnTo');
+    // Never allow session storage to become an open redirect.
+    if (value && /^\/trade\/job\/(?:new|[0-9a-f-]{36})(?:[/?#]|$)/i.test(value)
+      && !value.includes('\\') && !value.includes('\n')) return value;
+  } catch { /* Continue to the normal post-login page. */ }
+  return null;
+}
+
 export default function Auth() {
   const { user, loading, isAdmin, signIn, signUp } = useAuth();
   const navigate = useNavigate();
@@ -30,7 +41,7 @@ export default function Auth() {
 
   useEffect(() => {
     if (user && !loading) {
-      navigate(isAdmin ? '/admin' : '/trade/dashboard', { replace: true });
+      navigate(takeTradeReturnPath() ?? (isAdmin ? '/admin' : '/trade/dashboard'), { replace: true });
     }
   }, [user, loading, isAdmin, navigate]);
 

@@ -5,6 +5,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RoomConfig } from './index';
 import RoomDimensionEditor from './RoomDimensionEditor';
+import RoomDocumentEditor from '@/components/roomDocument/RoomDocumentEditor';
+import { createRoomDocument } from '@/lib/roomDocument';
 import roomRectangular from '@/assets/room-rectangular.png';
 import roomLShaped from '@/assets/room-l-shaped.png';
 import roomUShaped from '@/assets/room-u-shaped.png';
@@ -20,6 +22,7 @@ interface RoomShapeStepProps {
 export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [selectedShape, setSelectedShape] = useState<RoomConfig['shape'] | null>(null);
+  const [pendingReplacement, setPendingReplacement] = useState<{ shape: RoomConfig['shape']; dimensions: Partial<RoomConfig> } | null>(null);
 
   const shapes = [
     {
@@ -61,16 +64,25 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
   ];
 
   const handleShapeClick = (shapeId: RoomConfig['shape']) => {
+    setPendingReplacement(null);
+    if (shapeId === 'custom') {
+      updateConfig({
+        shape: 'custom',
+        roomDocument: config.roomDocument ?? createRoomDocument(crypto.randomUUID(), config.name || 'Room'),
+      });
+      return;
+    }
     setSelectedShape(shapeId);
     setEditorOpen(true);
   };
 
   const handleDimensionsApply = (dimensions: Partial<RoomConfig>) => {
     if (selectedShape) {
-      updateConfig({ 
-        shape: selectedShape,
-        ...dimensions 
-      });
+      if (config.roomDocument?.walls.length) {
+        setPendingReplacement({ shape: selectedShape, dimensions });
+      } else {
+        updateConfig({ shape: selectedShape, roomDocument: undefined, ...dimensions });
+      }
     }
   };
 
@@ -154,8 +166,26 @@ export default function RoomShapeStep({ config, updateConfig }: RoomShapeStepPro
             </button>
           ))}
         </div>
+        <button type="button" onClick={() => handleShapeClick('custom')}
+          className={cn('mt-4 w-full rounded-xl border-2 p-4 text-left', config.shape === 'custom' ? 'border-trade-amber bg-trade-amber/5' : 'border-trade-border bg-white hover:border-trade-amber/50')}>
+          <span className="font-semibold text-trade-navy">Custom or scanned walls</span>
+          <span className="block text-xs text-trade-muted mt-1">Draw an open or angled wall run, or edit walls received from a room scan.</span>
+        </button>
+        {config.roomDocument && config.shape === 'custom' && <div className="mt-5">
+          <RoomDocumentEditor document={config.roomDocument} onChange={roomDocument => updateConfig({ roomDocument })} />
+        </div>}
+        {pendingReplacement && <div role="alert" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p>Applying the {pendingReplacement.shape} preset will replace this room’s drawn or scanned walls and their attached features.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="rounded border border-amber-700 px-3 py-2" onClick={() => setPendingReplacement(null)}>Keep current walls</button>
+            <button type="button" className="rounded bg-amber-800 px-3 py-2 text-white" onClick={() => {
+              updateConfig({ shape: pendingReplacement.shape, roomDocument: undefined, ...pendingReplacement.dimensions });
+              setPendingReplacement(null);
+            }}>Replace with preset</button>
+          </div>
+        </div>}
         <p className="text-xs text-trade-muted mt-3 text-center">
-          Click a shape to configure room dimensions
+          Choose a layout or edit the room walls directly.
         </p>
       </div>
 

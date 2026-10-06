@@ -318,7 +318,7 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 
 // ─── Room scan (discriminated states) ──────────────────────────────────────
 
-export const roomScanSourceV1Schema = z.enum(['manual', 'webxr', 'arcore', 'cubicasa', 'roomplan', 'magicplan']);
+export const roomScanSourceV1Schema = z.enum(['manual', 'webxr', 'arcore', 'cubicasa', 'roomplan', 'magicplan', 'photo-review']);
 export type RoomScanSourceV1 = z.infer<typeof roomScanSourceV1Schema>;
 
 const roomScanCommon = {
@@ -396,6 +396,40 @@ export const roomCaptureDraftV1Schema = z
           .array(z.object({ x: z.number().int(), z: z.number().int() }).strict())
           .max(LIMITS.maxCorners)
           .optional(),
+        /** Explicit observed chains. An open chain has no inferred final edge.
+         * Corner/wall IDs are stable across handoff and later human edits. */
+        wallChains: z.array(z.object({
+          id: z.string().min(1).max(64),
+          cornersMm: z.array(z.object({ id: z.string().min(1).max(64), x: z.number().int(), z: z.number().int() }).strict()).min(2).max(64),
+          wallIds: z.array(z.string().min(1).max(64)).min(1).max(64),
+          closed: z.boolean(),
+          provenance: z.enum(['measured', 'observed', 'inferred', 'unknown']).optional(),
+        }).strict().superRefine((chain, ctx) => {
+          const expected = chain.closed ? chain.cornersMm.length : chain.cornersMm.length - 1;
+          if (chain.wallIds.length !== expected) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'wallIds must name exactly the observed chain edges' });
+          if (new Set(chain.cornersMm.map(c => c.id)).size !== chain.cornersMm.length || new Set(chain.wallIds).size !== chain.wallIds.length)
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'wall chain IDs must be unique' });
+        })).max(16).optional(),
+        wallMeasurements: z.array(z.object({
+          wallId: z.string().min(1).max(64),
+          millimetres: positiveMm(),
+        }).strict()).max(64).optional(),
+        /** Photo-derived openings, services and existing items stay attached
+         * to their actual wall ID or floor point, even for non-four-wall rooms. */
+        featureCandidates: z.array(z.object({
+          id: z.string().min(1).max(64),
+          kind: z.string().min(1).max(64),
+          placement: z.enum(['wall', 'floor', 'ceiling']),
+          wallId: z.string().min(1).max(64).optional(),
+          offsetMm: mmInt(0).optional(),
+          xMm: z.number().int().optional(),
+          zMm: z.number().int().optional(),
+          widthMm: positiveMm(),
+          depthMm: positiveMm(),
+          heightMm: positiveMm().optional(),
+          elevationMm: mmInt(0).optional(),
+          rotationDeg: z.number().finite().min(-360).max(360).optional(),
+        }).strict()).max(128).optional(),
         openings: z.array(openingV1Schema.partial()).max(32).optional(),
         services: z.array(servicePointV1Schema.partial()).max(32).optional(),
         closureComplete: z.boolean().optional(),
@@ -409,10 +443,10 @@ export const roomCaptureDraftV1Schema = z
   })
   .strict()
   .superRefine((draft, ctx) => {
-    if (draft.partialGeometry?.cornersMm?.length && !draft.coordinateFrame) {
+    if ((draft.partialGeometry?.cornersMm?.length || draft.partialGeometry?.wallChains?.length) && !draft.coordinateFrame) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'canonical cornersMm require a coordinateFrame; keep source points in adapterState/raw artifact instead',
+        message: 'canonical wall coordinates require a coordinateFrame; keep source points in adapterState/raw artifact instead',
       });
     }
     const useful =

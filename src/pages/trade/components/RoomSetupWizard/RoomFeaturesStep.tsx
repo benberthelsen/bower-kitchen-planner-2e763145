@@ -7,6 +7,7 @@
  */
 import React from 'react';
 import { RoomFeaturesEditor } from '@/components/shared/RoomFeaturesEditor';
+import RoomDocumentEditor from '@/components/roomDocument/RoomDocumentEditor';
 import type { RoomConfig } from './index';
 
 interface Props {
@@ -15,6 +16,12 @@ interface Props {
 }
 
 export default function RoomFeaturesStep({ config, updateConfig }: Props) {
+  if (config.shape === 'custom' && config.roomDocument) {
+    return <div className="space-y-4">
+      <p className="text-sm text-trade-muted">Choose each wall on the plan to add or edit doors and windows. Open wall runs stay open until you close them.</p>
+      <RoomDocumentEditor document={config.roomDocument} onChange={roomDocument => updateConfig({ roomDocument })} />
+    </div>;
+  }
   return (
     <div className="space-y-4">
       <p className="text-sm text-trade-muted">

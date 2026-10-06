@@ -1,0 +1,170 @@
+import assert from 'node:assert/strict';
+import type { TradeRoom } from '../src/types/trade';
+import {
+  applyRoomEdit, createRoomDocument, footprintCorners, footprintInsideConfirmedFloor,
+  footprintInsidePolygon, footprintsIntersect, migrateTradeRoom, objectPose,
+  reconcileTradeRoomCabinets, cabinetFootprintDepthMm, mergeCabinetWrite,
+  RoomRevisionConflictError, mergeRoomWrite, selectRoomsForWrite,
+  undoRoomEdit, validateRoomDocument, wallGeometry,
+} from '../src/lib/roomDocument';
+
+function edit<T extends Parameters<typeof applyRoomEdit>[1]>(document: ReturnType<typeof createRoomDocument>, change: T) {
+  const result = applyRoomEdit(document, change);
+  assert.equal(result.applied, true, JSON.stringify(result.issues));
+  return result.document;
+}
+
+// A partial scan is usable as wall segments without inventing a floor.
+let open = createRoomDocument('hibiscus', 'Three kitchen walls');
+open = edit(open, { type: 'add-wall', lengthMm: 1600, angleDeg: 0, wallId: 'angled', cornerId: 'c2' });
+const chainId = open.chains[0].id;
+open = edit(open, { type: 'add-wall', chainId, lengthMm: 1645, angleDeg: 45, wallId: 'cooktop', cornerId: 'c3' });
+open = edit(open, { type: 'add-wall', chainId, lengthMm: 1585, angleDeg: 135, wallId: 'sink', cornerId: 'c4' });
+assert.equal(open.floorBoundary, undefined);
+assert.equal(wallGeometry(open, 'cooktop')?.angleDeg, 45);
+assert.equal(footprintInsideConfirmedFloor(open, footprintCorners({ xMm: 300, zMm: 300, rotationDeg: 0 }, 200, 200)).status, 'unconfirmed');
+open = edit(open, { type: 'upsert-object', object: {
+  id: 'fridge', kind: 'appliance', layer: 'existing', existingAction: 'keep',
+  placement: { type: 'wall', wallId: 'angled', offsetMm: 200 },
+  widthMm: 600, depthMm: 650, heightMm: 1800, sizeLock: 'catalogue', catalogueId: 'real-fridge',
+} });
+const fridgeBefore = objectPose(open, open.objects[0]);
+open = edit(open, { type: 'set-wall-interior-side', wallId: 'angled', side: 'left' });
+assert.equal(open.walls.find(wall => wall.id === 'angled')?.interiorSide, 'left');
+const lengthResult = applyRoomEdit(open, { type: 'set-wall-length', wallId: 'angled', lengthMm: 1900 });
+assert.equal(lengthResult.applied, true);
+assert.equal(lengthResult.document.objects[0].widthMm, 600);
+assert.deepEqual(objectPose(lengthResult.document, lengthResult.document.objects[0]), fridgeBefore);
+assert.equal(wallGeometry(lengthResult.document, 'cooktop')?.lengthMm, 1645);
+assert.equal(undoRoomEdit(lengthResult).revision, lengthResult.document.revision + 1);
+
+// Physical offsets move to the second wall when a segment is split.
+let split = createRoomDocument('split');
+split = edit(split, { type: 'add-wall', lengthMm: 1000, angleDeg: 0, wallId: 'w1', cornerId: 'end' });
+split = edit(split, { type: 'upsert-opening', opening: { id: 'window', wallId: 'w1', kind: 'window', offsetMm: 600, widthMm: 100 } });
+split = edit(split, { type: 'split-wall', wallId: 'w1', offsetMm: 500, newWallId: 'w2', newCornerId: 'middle' });
+assert.equal(split.openings[0].wallId, 'w2');
+assert.equal(split.openings[0].offsetMm, 100);
+assert.equal(split.chains[0].closed, false);
+
+// Deliberate closure and floor confirmation are distinct transactions.
+let rectangle = createRoomDocument('rectangle');
+rectangle = edit(rectangle, { type: 'add-wall', lengthMm: 1000, angleDeg: 0, wallId: 'N' });
+const rectangularChain = rectangle.chains[0].id;
+rectangle = edit(rectangle, { type: 'add-wall', chainId: rectangularChain, lengthMm: 1000, angleDeg: 90, wallId: 'E' });
+rectangle = edit(rectangle, { type: 'add-wall', chainId: rectangularChain, lengthMm: 1000, angleDeg: 180, wallId: 'S' });
+rectangle = edit(rectangle, { type: 'close-chain', chainId: rectangularChain, wallId: 'W' });
+assert.equal(rectangle.chains[0].closed, true);
+assert.equal(rectangle.floorBoundary, undefined);
+rectangle = edit(rectangle, { type: 'set-floor-boundary', cornerIds: rectangle.chains[0].wallIds.map(id => rectangle.walls.find(w => w.id === id)!.startCornerId) });
+assert.equal(footprintInsideConfirmedFloor(rectangle, footprintCorners({ xMm: 500, zMm: 500, rotationDeg: 30 }, 200, 200)).status, 'inside');
+
+// All four corners can be in a concave L room while the centre of one edge
+// passes through the missing corner. A bounding-box/corner-only test misses it.
+const lPolygon = [
+  { xMm: 0, zMm: 0 }, { xMm: 4000, zMm: 0 }, { xMm: 4000, zMm: 2000 },
+  { xMm: 2000, zMm: 2000 }, { xMm: 2000, zMm: 4000 }, { xMm: 0, zMm: 4000 },
+];
+const bridge = [
+  { xMm: 1000, zMm: 3500 }, { xMm: 3500, zMm: 1000 },
+  { xMm: 3600, zMm: 1100 }, { xMm: 1100, zMm: 3600 },
+];
+assert.equal(footprintInsidePolygon(bridge, lPolygon), false);
+assert.equal(footprintsIntersect(
+  footprintCorners({ xMm: 100, zMm: 100, rotationDeg: 45 }, 300, 500),
+  footprintCorners({ xMm: 400, zMm: 100, rotationDeg: -30 }, 300, 500),
+), true);
+assert.equal(footprintsIntersect(
+  footprintCorners({ xMm: 100, zMm: 100, rotationDeg: 45 }, 300, 500),
+  footprintCorners({ xMm: 2000, zMm: 2000, rotationDeg: -30 }, 300, 500),
+), false);
+
+// Legacy conversion preserves IDs, catalogue identity, cabinet size, settings
+// and original data without claiming a measured length.
+const legacy = {
+  id: 'legacy', name: 'Saved kitchen', description: '', shape: 'l-shaped',
+  config: { width: 4000, depth: 4000, height: 2600, shape: 'LShape', cutoutWidth: 2000, cutoutDepth: 2000,
+    openings: [{ id: 'old-window', wall: 'N', type: 'window', offsetMm: 500, widthMm: 900 }], services: [] },
+  cabinets: [{ instanceId: 'old-cabinet', definitionId: 'base-600', category: 'Base', isPlaced: true,
+    dimensions: { width: 600, depth: 600, height: 900 }, position: { x: 500, y: 0, z: 300, rotation: 0 } }],
+  dimensions: { toeKickHeight: 150 }, materialDefaults: { exteriorFinish: 'oak' }, hardwareDefaults: { adjustableLegs: true },
+  createdAt: new Date('2026-01-01'), updatedAt: new Date('2026-01-02'),
+} as unknown as TradeRoom;
+const migrated = migrateTradeRoom(legacy);
+assert.equal(migrated.floorBoundary?.confirmed, true);
+assert.equal(migrated.walls.length, 6);
+assert.equal(migrated.walls[0].lengthEvidence?.source, 'unknown');
+assert.equal(migrated.openings[0].id, 'old-window');
+assert.equal(migrated.objects[0].catalogueId, 'base-600');
+assert.equal(migrated.objects[0].sizeLock, 'confirmed');
+assert.equal((migrated.legacySnapshot as TradeRoom).materialDefaults.exteriorFinish, 'oak');
+assert.equal(validateRoomDocument(migrated).filter(issue => issue.severity === 'error').length, 0);
+const sameCabinets = reconcileTradeRoomCabinets(migrated, legacy.cabinets, legacy.dimensions);
+assert.equal(sameCabinets.objects.filter(object => object.sourceCabinetId === 'old-cabinet').length, 1);
+assert.equal(reconcileTradeRoomCabinets(sameCabinets, legacy.cabinets, legacy.dimensions), sameCabinets);
+const fitted = reconcileTradeRoomCabinets(sameCabinets, [{ ...legacy.cabinets[0],
+  dimensions: { ...legacy.cabinets[0].dimensions, width: 700 },
+  dimensionStatus: 'inferred',
+}]);
+assert.equal(fitted.objects.find(object => object.id === 'old-cabinet')?.widthMm, 700);
+assert.equal(fitted.objects.find(object => object.id === 'old-cabinet')?.dimensionEvidence?.widthMm.source, 'inferred');
+assert.equal(fitted.revision, sameCabinets.revision + 1);
+assert.equal(reconcileTradeRoomCabinets(fitted, []).objects.some(object => object.id === 'old-cabinet'), false);
+const withSurveyed = { ...fitted, objects: [...fitted.objects, { ...open.objects[0], id: 'surveyed-fridge' }] };
+assert.equal(reconcileTradeRoomCabinets(withSurveyed, []).objects.some(object => object.id === 'surveyed-fridge'), true);
+
+// A room save merges against fresh server rooms and rejects stale revisions
+// while preserving both the local draft and another room edited elsewhere.
+const anotherRoom = { ...legacy, id: 'other-room', name: 'Bathroom' };
+const draftRoom = { ...legacy, roomDocument: { ...migrated, revision: 2 }, name: 'New local name' };
+const mergedRooms = mergeRoomWrite([legacy, anotherRoom], draftRoom, null);
+assert.equal(mergedRooms.find(room => room.id === 'other-room')?.name, 'Bathroom');
+assert.equal(mergedRooms.find(room => room.id === 'legacy')?.name, 'New local name');
+const remoteRoom = { ...legacy, roomDocument: { ...migrated, revision: 3 }, name: 'Remote name' };
+assert.throws(() => mergeRoomWrite([remoteRoom, anotherRoom], draftRoom, 2), RoomRevisionConflictError);
+assert.equal(draftRoom.name, 'New local name', 'conflict cannot mutate the local draft');
+assert.throws(() => mergeRoomWrite([], draftRoom, null), RoomRevisionConflictError);
+
+// Quote/totals saves keep freshly loaded rooms even when a stale component
+// supplies its old room array. Cabinet changes merge into that same fresh room
+// and reconcile only the proposed cabinet projection.
+assert.equal(selectRoomsForWrite([remoteRoom, anotherRoom], [draftRoom], {
+  retainLatestRooms: true, hasServerJob: true,
+})[0].name, 'Remote name');
+assert.equal(selectRoomsForWrite([], [draftRoom], {
+  retainLatestRooms: true, hasServerJob: false,
+})[0], draftRoom);
+const addedCabinet = { ...legacy.cabinets[0], instanceId: 'new-cabinet', definitionId: 'base-900' };
+const savedCabinetRooms = mergeCabinetWrite([remoteRoom, anotherRoom], {
+  type: 'upsert', roomId: 'legacy', cabinet: addedCabinet,
+  roomFallback: { ...legacy, cabinets: [], name: 'Stale fallback' },
+});
+assert.equal(savedCabinetRooms[0].name, 'Remote name');
+assert.equal(savedCabinetRooms[0].cabinets.length, 2);
+assert.equal(savedCabinetRooms[0].roomDocument?.objects.some(object => object.sourceCabinetId === 'new-cabinet'), true);
+assert.equal(savedCabinetRooms[1], anotherRoom, 'other rooms remain untouched');
+const removedCabinetRooms = mergeCabinetWrite(savedCabinetRooms, {
+  type: 'remove', roomId: 'legacy', instanceId: 'new-cabinet',
+});
+assert.equal(removedCabinetRooms[0].cabinets.length, 1);
+assert.equal(removedCabinetRooms[0].roomDocument?.objects.some(object => object.sourceCabinetId === 'new-cabinet'), false);
+assert.equal(removedCabinetRooms[0].roomDocument?.revision, savedCabinetRooms[0].roomDocument!.revision + 1);
+assert.equal(selectRoomsForWrite([remoteRoom], [draftRoom], {
+  roomWrite: { roomId: 'legacy', expectedRoomRevision: 3 }, hasServerJob: true,
+})[0].name, 'New local name');
+
+const pieCut = { ...legacy.cabinets[0], definitionId: 'base_corner_pie_cut_2_door', productName: 'Pie cut corner',
+  dimensions: { ...legacy.cabinets[0].dimensions, width: 900, depth: 600 } };
+assert.equal(cabinetFootprintDepthMm(pieCut), 900);
+assert.equal(cabinetFootprintDepthMm({ ...pieCut, definitionId: 'base_corner_blind_left', productName: 'Blind corner' }), 600);
+assert.equal(reconcileTradeRoomCabinets(migrated, [pieCut]).objects.find(object => object.id === pieCut.instanceId)?.depthMm, 900);
+
+let measured = createRoomDocument('measured');
+measured = edit(measured, { type: 'add-wall', lengthMm: 1000, angleDeg: 0, wallId: 'one' });
+measured = edit(measured, { type: 'add-wall', chainId: measured.chains[0].id, lengthMm: 1000, angleDeg: 90, wallId: 'two' });
+measured = edit(measured, { type: 'set-wall-length', wallId: 'one', lengthMm: 1000,
+  measurement: { valueMm: 1000, source: 'measured', evidenceIds: ['tape-1'] } });
+const firstCornerId = measured.walls[0].startCornerId;
+assert.equal(applyRoomEdit(measured, { type: 'move-corner', cornerId: firstCornerId, xMm: 100, zMm: 0 }).applied, false);
+
+console.log('room document geometry and migration checks passed');

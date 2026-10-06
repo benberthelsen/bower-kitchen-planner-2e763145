@@ -20,6 +20,15 @@ export function ProtectedRoute({ children, requireAdmin = false, requireUserType
   useEffect(() => {
     if (!loading) {
       if (!user) {
+        // A scanner handoff must survive the sign-in detour. Keep only a
+        // same-origin trade job path; the fragment capability stays in this
+        // tab's session storage and is removed by the destination page.
+        if (window.location.pathname.startsWith('/trade/job/')) {
+          try {
+            sessionStorage.setItem('bower.authReturnTo',
+              window.location.pathname + window.location.search + window.location.hash);
+          } catch { /* Sign-in still works when storage is unavailable. */ }
+        }
         navigate('/auth');
       } else if (requireUserType && userType !== requireUserType) {
         // Temporary fail-open for canonical /trade/* flow to prevent auth redirect loops

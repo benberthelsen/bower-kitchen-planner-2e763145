@@ -9,8 +9,11 @@ import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
 import { TradeJobStatus, TRADE_JOB_STATUS_LABELS, isTradeJobStatus } from '@/types/trade';
 import { DEFAULT_GLOBAL_DIMENSIONS } from '@/constants';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
-import { usePlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
+import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
 import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
+import { previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
+import { captureScannerSession, linkScannerRoom, type ScannerSession } from '@/lib/roomScan/scannerSession';
+import { derivedLegacyBounds } from '@/lib/roomDocument';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { JobNotes } from '@/components/shared/JobNotes';
 import { supabase } from '@/integrations/supabase/client';
@@ -76,9 +79,9 @@ const computeJobTotalsRaw = (rooms: TradeRoom[], snapshots: RoomSnapshots = {}) 
 const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   name: room.name,
   description: room.description,
-  shape: room.shape,
-  roomWidth: room.config.width,
-  roomDepth: room.config.depth,
+  shape: room.roomDocument ? 'custom' : room.shape,
+  roomWidth: (room.roomDocument && derivedLegacyBounds(room.roomDocument)?.widthMm) || room.config.width,
+  roomDepth: (room.roomDocument && derivedLegacyBounds(room.roomDocument)?.depthMm) || room.config.depth,
   roomHeight: room.config.height,
   cutoutWidth: room.config.cutoutWidth,
   cutoutDepth: room.config.cutoutDepth,
@@ -88,7 +91,7 @@ const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   exteriorEdge: room.materialDefaults.edgeBanding,
   doorStyle: room.materialDefaults.doorStyle,
   carcaseMaterial: room.materialDefaults.carcaseFinish,
-  carcaseEdge: room.materialDefaults.edgeBanding,
+  carcaseEdge: room.materialDefaults.carcaseEdge ?? room.materialDefaults.edgeBanding,
   hingeStyle: room.hardwareDefaults.hingeType,
   drawerStyle: room.hardwareDefaults.drawerType,
   supplyHardware: room.hardwareDefaults.supplyHardware,
@@ -106,9 +109,35 @@ const toRoomConfig = (room: TradeRoom): RoomConfig => ({
   drawerGap: room.dimensions.drawerGap,
   leftGap: room.dimensions.leftGap,
   rightGap: room.dimensions.rightGap,
-  upperTopMargin: room.dimensions.topMargin,
-  upperBottomMargin: room.dimensions.bottomMargin,
-  baseTopMargin: room.dimensions.topMargin,
+  upperTopMargin: room.setupExtras?.upperTopMarginMm ?? room.dimensions.topMargin,
+  upperBottomMargin: room.setupExtras?.upperBottomMarginMm ?? room.dimensions.bottomMargin,
+  baseTopMargin: room.setupExtras?.baseTopMarginMm ?? room.dimensions.topMargin,
+  roomDocument: room.roomDocument,
+});
+
+const roomSetupExtras = (config: RoomConfig): TradeRoom['setupExtras'] => ({
+  upperTopMarginMm: config.upperTopMargin,
+  upperBottomMarginMm: config.upperBottomMargin,
+  baseTopMarginMm: config.baseTopMargin,
+});
+
+const roomDimensions = (config: RoomConfig, base = DEFAULT_GLOBAL_DIMENSIONS) => ({
+  ...base,
+  toeKickHeight: config.toeKickHeight,
+  shelfSetback: config.shelfSetback,
+  baseHeight: config.baseHeight,
+  baseDepth: config.baseDepth,
+  wallHeight: config.wallHeight,
+  wallDepth: config.wallDepth,
+  tallHeight: config.tallHeight,
+  tallDepth: config.tallDepth,
+  wallMountHeight: config.wallMountHeight,
+  doorGap: config.doorGap,
+  drawerGap: config.drawerGap,
+  leftGap: config.leftGap,
+  rightGap: config.rightGap,
+  topMargin: config.upperTopMargin,
+  bottomMargin: config.upperBottomMargin,
 });
 
 export default function JobEditor() {
@@ -118,8 +147,12 @@ export default function JobEditor() {
 
   // WS5 Phase 3: website → planner starter-design handoff (?handoff=<id>).
   const [searchParams] = useSearchParams();
-  const handoffId = isNewJob ? searchParams.get('handoff') : null;
-  const handoffQuery = usePlannerHandoff(handoffId);
+  const handoffId = searchParams.get('handoff');
+  const [scannerSession] = useState<ScannerSession | null>(() => captureScannerSession());
+  const [handoffToken] = useState<string | null>(() => captureHandoffToken(handoffId));
+  const handoffQuery = usePlannerHandoff(handoffToken ? null : handoffId);
+  const tokenizedHandoff = useTokenizedPlannerHandoff(handoffId, handoffToken);
+  const handoffPayload = tokenizedHandoff.data?.payload ?? handoffQuery.data?.payload;
   const { materials: catalogMaterials } = useMaterialsCatalog();
 
   const { rooms, addRoom, updateRoom, hydrateRooms } = useTradeRoom();
@@ -140,6 +173,8 @@ export default function JobEditor() {
 
   const [showRoomWizard, setShowRoomWizard] = useState(isNewJob);
   const [editingRoom, setEditingRoom] = useState<TradeRoom | null>(null);
+  const [scanUpdateSaving, setScanUpdateSaving] = useState(false);
+  const [scanUpdateDismissed, setScanUpdateDismissed] = useState(false);
 
   // Derive current job status & locked state
   const _jobData = jobQuery.data as { name?: string; status?: string; design_data?: Record<string, unknown> } | undefined;
@@ -162,9 +197,8 @@ export default function JobEditor() {
   // names are matched against the priced catalog when possible; unmatched
   // names pass through as-is (the WS2 pricing guard flags them on the quote).
   const handoffInitialConfig = useMemo<Partial<RoomConfig> | undefined>(() => {
-    const row = handoffQuery.data;
-    if (!row?.payload) return undefined;
-    const p = row.payload;
+    if (!handoffPayload || !isNewJob) return undefined;
+    const p = handoffPayload;
     const matchMaterial = (sel?: string) => {
       if (!sel) return undefined;
       const s = sel.toLowerCase();
@@ -185,6 +219,7 @@ export default function JobEditor() {
     // dimensions AND features; rough dimensions are the legacy fallback.
     const parsed = parseLegacyWebsitePlannerHandoff(p);
     const scan = parsed.ok ? parsed.handoff.roomScan : undefined;
+    const captureDraft = parsed.ok ? parsed.handoff.roomCaptureDraft : undefined;
     if (scan) {
       cfg.roomWidth = scan.room.width;
       cfg.roomDepth = scan.room.depth;
@@ -194,6 +229,19 @@ export default function JobEditor() {
       // compile-checked in roomScan/compat-test.ts under strict mode.
       cfg.openings = scan.room.openings as RoomConfig['openings'];
       cfg.services = scan.room.services as RoomConfig['services'];
+    } else if (captureDraft) {
+      // The draft can contain an open wall run. It must not be replaced by the
+      // rough bounding rectangle or treated as a confirmed room boundary.
+      try {
+        cfg.roomDocument = roomDocumentFromCaptureDraft(captureDraft, `handoff-${handoffId}`);
+        cfg.shape = 'custom';
+        if (captureDraft.dimensions?.widthMm) cfg.roomWidth = captureDraft.dimensions.widthMm;
+        if (captureDraft.dimensions?.depthMm) cfg.roomDepth = captureDraft.dimensions.depthMm;
+        if (captureDraft.dimensions?.heightMm) cfg.roomHeight = captureDraft.dimensions.heightMm;
+      } catch {
+        // Preserve the handoff and its notes even when geometry needs review.
+        cfg.description = `${cfg.description} | Wall draft needs review before import`;
+      }
     } else {
       if (p.dimensions?.widthMm) cfg.roomWidth = p.dimensions.widthMm;
       if (p.dimensions?.depthMm) cfg.roomDepth = p.dimensions.depthMm;
@@ -202,17 +250,58 @@ export default function JobEditor() {
     const exterior = matchMaterial(p.materials?.mainCabinet);
     if (exterior) cfg.exteriorMaterial = exterior;
     return cfg;
-  }, [handoffQuery.data, catalogMaterials]);
+  }, [handoffPayload, handoffId, isNewJob, catalogMaterials]);
 
   // Loading a handoff never consumes it (master plan §6.3 step 7 / defect
   // D-3): consumption/linking happens only in handleRoomComplete after the
   // job actually exists, via the link-trade-handoff function.
   useEffect(() => {
-    const row = handoffQuery.data;
-    if (row && !row.consumed_at) {
+    if (handoffPayload) {
       toast.success('Website design scope loaded — the wizard is pre-filled.');
     }
-  }, [handoffQuery.data]);
+  }, [handoffPayload]);
+
+  const scanUpdate = useMemo(() => {
+    if (isNewJob || !handoffPayload || !jobQuery.data) return null;
+    const parsed = parseLegacyWebsitePlannerHandoff(handoffPayload);
+    if (!parsed.ok) return { status: 'invalid' as const };
+    const resolved = resolveRoomCapture(parsed.handoff, `handoff-${handoffId}`);
+    if (resolved.kind !== 'draft' || !resolved.document)
+      return { status: 'invalid' as const };
+    const room = roomsFromServer.find(candidate => candidate.roomDocument?.capture?.captureId
+      === resolved.document!.capture?.captureId);
+    if (!room?.roomDocument) return { status: 'unlinked' as const };
+    if (room.roomDocument.capture?.sourceRevision === resolved.document.capture?.sourceRevision)
+      return { status: 'current' as const, room };
+    try {
+      return { status: 'review' as const, room,
+        preview: previewCaptureUpdate(room.roomDocument, resolved.document) };
+    } catch { return { status: 'invalid' as const }; }
+  }, [handoffPayload, handoffId, isNewJob, jobQuery.data, roomsFromServer]);
+
+  const acceptScanUpdate = async () => {
+    if (!jobId || !scanUpdate || scanUpdate.status !== 'review' || isLocked) return;
+    const { room, preview } = scanUpdate;
+    const bounds = derivedLegacyBounds(preview.document);
+    const updatedRoom: TradeRoom = { ...room, roomDocument: preview.document,
+      config: bounds ? { ...room.config, width: Math.max(1, Math.round(bounds.widthMm)),
+        depth: Math.max(1, Math.round(bounds.depthMm)) } : room.config,
+      updatedAt: new Date() };
+    setScanUpdateSaving(true);
+    try {
+      await upsertRoom({ jobId, room: updatedRoom,
+        expectedRoomRevision: room.roomDocument?.revision ?? null });
+      updateRoom(room.id, updatedRoom);
+      if (handoffId) void linkTradeHandoff(handoffId, jobId);
+      if (scannerSession?.captureId === preview.document.capture?.captureId) {
+        try { await linkScannerRoom(scannerSession, jobId, room.id, preview.document.capture.sourceRevision); }
+        catch { toast.warning('Scan update saved; the scanner link needs a retry in the planner.'); }
+      }
+      navigate(`/trade/job/${jobId}/room/${room.id}/planner`);
+    } catch {
+      toast.error('The scan update could not be saved. Your current room is unchanged; reload and review again.');
+    } finally { setScanUpdateSaving(false); }
+  };
 
   const quoteState = useMemo(() => {
     const live = computeJobTotalsRaw(displayRooms, persistedQuoteSnapshotsByRoom as RoomSnapshots);
@@ -279,6 +368,9 @@ export default function JobEditor() {
 
   const handleRoomComplete = async (config: RoomConfig) => {
     if (!jobId) return;
+    const legacyBounds = config.roomDocument ? derivedLegacyBounds(config.roomDocument) : null;
+    const legacyWidth = legacyBounds?.widthMm || config.roomWidth;
+    const legacyDepth = legacyBounds?.depthMm || config.roomDepth;
 
     // For brand-new jobs (jobId === 'new'), create the job row in Supabase first
     // so we have a real UUID before navigating to the planner.
@@ -288,9 +380,11 @@ export default function JobEditor() {
         name: config.name,
         description: config.description || '',
         shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
+        roomDocument: config.roomDocument,
+        setupExtras: roomSetupExtras(config),
         config: {
-          width: config.roomWidth,
-          depth: config.roomDepth,
+          width: legacyWidth,
+          depth: legacyDepth,
           height: config.roomHeight,
           shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
           cutoutWidth: config.cutoutWidth || 0,
@@ -299,24 +393,13 @@ export default function JobEditor() {
           openings: config.openings ?? [],
           services: config.services ?? [],
         },
-        dimensions: {
-          ...DEFAULT_GLOBAL_DIMENSIONS,
-          toeKickHeight: config.toeKickHeight,
-          baseHeight: config.baseHeight,
-          baseDepth: config.baseDepth,
-          wallHeight: config.wallHeight,
-          wallDepth: config.wallDepth,
-          tallHeight: config.tallHeight,
-          tallDepth: config.tallDepth,
-          wallMountHeight: config.wallMountHeight ?? 1350,
-          doorGap: config.doorGap,
-          drawerGap: config.drawerGap,
-        },
+        dimensions: roomDimensions(config),
         materialDefaults: {
           exteriorFinish: config.exteriorMaterial,
           carcaseFinish: config.carcaseMaterial,
           doorStyle: config.doorStyle,
           edgeBanding: config.exteriorEdge,
+          carcaseEdge: config.carcaseEdge,
         },
         hardwareDefaults: {
           handleType: 'bar-handle',
@@ -344,6 +427,17 @@ export default function JobEditor() {
       // link_trade_handoff_v1 RPC — direct table updates are RLS-denied.
       if (handoffId) void linkTradeHandoff(handoffId, newId);
 
+      if (scannerSession && firstRoom.roomDocument?.capture?.captureId === scannerSession.captureId) {
+        try {
+          await linkScannerRoom(scannerSession, newId, firstRoom.id,
+            firstRoom.roomDocument.capture.sourceRevision);
+        } catch {
+          // The planner room is durable. Its room page retains the tab-scoped
+          // token and presents a retry instead of losing the scan association.
+          toast.warning('Room saved, but the scanner link needs a retry in the planner.');
+        }
+      }
+
       toast.success(`Room "${config.name}" created`);
       navigate(`/trade/job/${newId}/room/${firstRoom.id}/planner`);
       return;
@@ -355,9 +449,13 @@ export default function JobEditor() {
         name: config.name,
         description: config.description || '',
         shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
+        // A deliberately chosen preset replaces the former custom wall plan.
+        // The wizard asks for confirmation before clearing a non-empty plan.
+        roomDocument: config.shape === 'custom' ? config.roomDocument : undefined,
+        setupExtras: roomSetupExtras(config),
         config: {
-          width: config.roomWidth,
-          depth: config.roomDepth,
+          width: legacyWidth,
+          depth: legacyDepth,
           height: config.roomHeight,
           shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
           cutoutWidth: config.cutoutWidth || 0,
@@ -366,24 +464,14 @@ export default function JobEditor() {
           openings: config.openings ?? [],
           services: config.services ?? [],
         },
-        dimensions: {
-          ...editingRoom.dimensions,
-          toeKickHeight: config.toeKickHeight,
-          baseHeight: config.baseHeight,
-          baseDepth: config.baseDepth,
-          wallHeight: config.wallHeight,
-          wallDepth: config.wallDepth,
-          tallHeight: config.tallHeight,
-          tallDepth: config.tallDepth,
-          doorGap: config.doorGap,
-          drawerGap: config.drawerGap,
-        },
+        dimensions: roomDimensions(config, editingRoom.dimensions),
         materialDefaults: {
           ...editingRoom.materialDefaults,
           exteriorFinish: config.exteriorMaterial,
           carcaseFinish: config.carcaseMaterial,
           doorStyle: config.doorStyle,
           edgeBanding: config.exteriorEdge,
+          carcaseEdge: config.carcaseEdge,
         },
         hardwareDefaults: {
           ...editingRoom.hardwareDefaults,
@@ -405,9 +493,11 @@ export default function JobEditor() {
         name: config.name,
         description: config.description || '',
         shape: config.shape === 'l-shaped' ? 'l-shaped' : 'rectangular',
+        roomDocument: config.roomDocument,
+        setupExtras: roomSetupExtras(config),
         config: {
-          width: config.roomWidth,
-          depth: config.roomDepth,
+          width: legacyWidth,
+          depth: legacyDepth,
           height: config.roomHeight,
           shape: config.shape === 'l-shaped' ? 'LShape' : 'Rectangle',
           cutoutWidth: config.cutoutWidth || 0,
@@ -416,24 +506,13 @@ export default function JobEditor() {
           openings: config.openings ?? [],
           services: config.services ?? [],
         },
-        dimensions: {
-          ...DEFAULT_GLOBAL_DIMENSIONS,
-          toeKickHeight: config.toeKickHeight,
-          baseHeight: config.baseHeight,
-          baseDepth: config.baseDepth,
-          wallHeight: config.wallHeight,
-          wallDepth: config.wallDepth,
-          tallHeight: config.tallHeight,
-          tallDepth: config.tallDepth,
-          wallMountHeight: config.wallMountHeight ?? 1350,
-          doorGap: config.doorGap,
-          drawerGap: config.drawerGap,
-        },
+        dimensions: roomDimensions(config),
         materialDefaults: {
           exteriorFinish: config.exteriorMaterial,
           carcaseFinish: config.carcaseMaterial,
           doorStyle: config.doorStyle,
           edgeBanding: config.exteriorEdge,
+          carcaseEdge: config.carcaseEdge,
         },
         hardwareDefaults: {
           handleType: 'bar-handle',
@@ -476,6 +555,32 @@ export default function JobEditor() {
   return (
     <TradeLayout>
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+        {!isNewJob && handoffId && !scanUpdateDismissed && scanUpdate?.status === 'review' && (
+          <div role="alert" className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+            <h2 className="font-semibold text-base">Review newer scan of {scanUpdate.room.name}</h2>
+            <p className="mt-1">The scan adds {scanUpdate.preview.added.walls} wall segments,
+              {' '}{scanUpdate.preview.added.openings} openings, {scanUpdate.preview.added.services} services and
+              {' '}{scanUpdate.preview.added.objects} fittings. Your measured walls, cabinet layout and confirmed
+              floor boundary stay as they are.</p>
+            {(scanUpdate.preview.changedExisting > 0 || scanUpdate.preview.cornerConflicts > 0) && (
+              <p className="mt-2">{scanUpdate.preview.changedExisting} changed existing features and
+                {' '}{scanUpdate.preview.cornerConflicts} corner differences need manual review; they will not overwrite your edits.</p>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
+                Add new scan findings
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setScanUpdateDismissed(true)}>
+                Keep current room
+              </Button>
+            </div>
+          </div>
+        )}
+        {!isNewJob && handoffId && scanUpdate?.status === 'unlinked' && (
+          <p role="alert" className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+            This scan is not linked to a room in this job. Reopen the scan from its owner account before importing it.
+          </p>
+        )}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate('/trade/dashboard')} className="text-trade-muted hover:text-trade-navy">
@@ -690,7 +795,13 @@ export default function JobEditor() {
         {showRoomWizard ? (
           // key remounts the wizard when the async handoff row arrives so the
           // pre-fill lands even though the wizard state initialises once.
-          <RoomSetupWizard key={editingRoom?.id ?? handoffQuery.data?.id ?? 'new'} onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} />
+          handoffId && isNewJob && !handoffPayload ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950" role="status">
+              {(handoffToken ? tokenizedHandoff.isPending : handoffQuery.isPending)
+                ? 'Loading the scanned room before setup…'
+                : 'This scanner handoff could not be opened. Reopen it from the scan rather than creating an empty room.'}
+            </div>
+          ) : <RoomSetupWizard key={editingRoom?.id ?? handoffId ?? 'new'} onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} />
         ) : displayRooms.length > 0 ? (
           <div className="space-y-6">
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">

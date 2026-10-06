@@ -3,6 +3,7 @@ import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { Opening, ServicePoint } from '@/types';
+import type { RoomDocumentV1 } from '@/lib/roomDocument';
 import RoomShapeStep from './RoomShapeStep';
 import RoomFeaturesStep from './RoomFeaturesStep';
 import MaterialDefaultsStep from './MaterialDefaultsStep';
@@ -14,7 +15,9 @@ export interface RoomConfig {
   // Step 1: Shape
   name: string;
   description: string;
-  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula' | 'island';
+  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula' | 'island' | 'custom';
+  /** Authoritative wall geometry for scanned and manually drawn rooms. */
+  roomDocument?: RoomDocumentV1;
   
   // Room Dimensions (floor plan)
   roomWidth: number;

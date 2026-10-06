@@ -17,10 +17,14 @@ import { handoffToStyleWords } from '@/lib/handoffBrief';
 import {
   confirmedRoomScanV1Schema,
   parseLegacyWebsitePlannerHandoff,
+  parseRoomCaptureDraft,
   parseRoomScan,
   type CoordinateFrameV1,
+  type RoomCaptureDraftV1,
   type RoomScanV1,
 } from '@/lib/roomScan/contract';
+import { captureDraftReadiness, captureDraftRelation, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
+import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
   GripVertical,
@@ -140,6 +144,11 @@ interface WizardState {
   // editor, and an edit counter that bumps roomRevision on any geometry change.
   handoffContext?: { handoffId: string; token?: string };
   incomingScan?: RoomScanV1;
+  /** Scanner evidence remains a draft until a separate reviewed boundary is confirmed. */
+  incomingCaptureDraft?: RoomCaptureDraftV1;
+  roomDocument?: RoomDocumentV1;
+  pendingCaptureUpdate?: { draft: RoomCaptureDraftV1; document?: RoomDocumentV1; handoffId: string; token?: string };
+  useManualRoomInstead?: boolean;
   geometryEdits: number;
   pendingRoomPatch?: ProposedRoomPatch;
 }
@@ -1225,9 +1234,45 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
   const scanWarnings = state.incomingScan?.normalizationWarnings ?? [];
   const scanConfidence = state.incomingScan?.confidence?.overall;
   const lowConfidence = typeof scanConfidence === 'number' && scanConfidence <= 0.4;
+  const captureDraft = state.incomingCaptureDraft;
+  const captureReadiness = captureDraft ? captureDraftReadiness(captureDraft) : null;
+  const pendingCapture = state.pendingCaptureUpdate;
+  const pendingReadiness = pendingCapture ? captureDraftReadiness(pendingCapture.draft) : null;
 
   return (
     <div className="space-y-4 sm:space-y-5">
+      {pendingCapture && (
+        <div className="border border-sky-300 bg-sky-50 rounded-lg p-4 space-y-2" role="status">
+          <p className="text-sm font-semibold text-sky-900">A newer review of this scan is available</p>
+          <p className="text-xs text-sky-800">
+            Current draft: {captureReadiness?.walls ?? 0} walls. New review: {pendingReadiness?.walls ?? 0} walls in {pendingReadiness?.wallChains ?? 0} chain(s).
+            Your current room edits have been kept. Applying the new review will replace this room draft and clear any design based on it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => onChange({
+              incomingCaptureDraft: pendingCapture.draft, roomDocument: pendingCapture.document,
+              handoffContext: { handoffId: pendingCapture.handoffId, ...(pendingCapture.token ? { token: pendingCapture.token } : {}) },
+              pendingCaptureUpdate: undefined, useManualRoomInstead: false, design: null,
+            })}>Apply updated scan draft</Button>
+            <Button size="sm" variant="outline" onClick={() => onChange({ pendingCaptureUpdate: undefined })}>Keep current room</Button>
+          </div>
+        </div>
+      )}
+      {captureDraft && !state.useManualRoomInstead && (
+        <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-2" role="alert">
+          <p className="text-sm font-semibold text-amber-900">Room capture draft received</p>
+          <p className="text-xs text-amber-800">
+            {captureReadiness?.walls ?? 0} wall segments in {captureReadiness?.wallChains ?? 0} chain(s); {captureReadiness?.openChains ?? 0} still open.
+            The private source photos and measurements are retained. Confirm a complete floor boundary before using this capture for a whole-room cabinet design.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => onChange({ useManualRoomInstead: true })}>
+            Use manual room sizes for this design
+          </Button>
+        </div>
+      )}
+      {captureDraft && state.useManualRoomInstead && (
+        <p className="text-xs text-amber-800" role="status">The scanner draft is retained for review. The room sizes below are manual design inputs.</p>
+      )}
       {scanWarnings.length > 0 && (
         <div
           className={lowConfidence
@@ -1924,6 +1969,8 @@ function Step4Review({ state, onChange }: { state: WizardState; onChange: (p: Pa
         applianceItems: applianceItemsPayload,
         appliancesTotal: appliancesTotalPayload,
         roomScan: scanParse.data,
+        ...(state.incomingCaptureDraft ? { roomCaptureDraft: state.incomingCaptureDraft } : {}),
+        ...(state.roomDocument ? { roomDocument: state.roomDocument } : {}),
         buildNotes,
       };
       // Atomic server-side submission (master plan §6.4): one restricted RPC
@@ -2281,7 +2328,7 @@ export default function HomeownerWizard() {
       // Any user change to dimensions/openings/services bumps the revision
       // counter so a previously confirmed capture cannot stay "confirmed"
       // (master plan §5.3). Handoff application (incomingScan) is exempt.
-      const fromHandoff = 'incomingScan' in patch;
+      const fromHandoff = 'incomingScan' in patch || 'incomingCaptureDraft' in patch;
       const touchesGeometry =
         !fromHandoff &&
         (['roomWidth', 'roomDepth', 'roomHeight', 'roomGeometryShape', 'roomCutoutWidth', 'roomCutoutDepth', 'openings', 'services'] as const)
@@ -2350,14 +2397,31 @@ export default function HomeownerWizard() {
     if (!parsed.ok) return;
     const h = parsed.handoff;
     const styleWords = handoffToStyleWords(h);
-    const scan = h.roomScan;
+    const incomingCapture = resolveRoomCapture(h, handoffId);
+    const scan = incomingCapture.kind === 'scan' ? incomingCapture.scan : undefined;
+    const draft = incomingCapture.kind === 'draft' ? incomingCapture.draft : undefined;
+    const draftDocument = incomingCapture.kind === 'draft' ? incomingCapture.document : undefined;
+    const existingDraft = state.incomingCaptureDraft;
+    const relation = draft ? captureDraftRelation(existingDraft, draft, state.roomDocument?.capture?.captureId) : 'new-capture';
+    const nextContext = { handoffId, ...(handoffToken ? { token: handoffToken } : {}) };
+    if (draft && relation !== 'new-capture') {
+      if (relation === 'same-revision') onChange({ handoffContext: nextContext });
+      else {
+        onChange({ step: 1, pendingCaptureUpdate: { draft, document: draftDocument, handoffId, ...(handoffToken ? { token: handoffToken } : {}) } });
+        toast.info('A newer scan review is ready. Compare it with your current room before applying it.');
+      }
+      return;
+    }
     onChange({
-      handoffContext: { handoffId, ...(handoffToken ? { token: handoffToken } : {}) },
+      handoffContext: nextContext,
       ...(scan
         ? {
             step: 1,
             design: null,
             incomingScan: scan,
+            incomingCaptureDraft: undefined,
+            roomDocument: undefined,
+            pendingCaptureUpdate: undefined,
             roomWidth: scan.room.width,
             roomDepth: scan.room.depth,
             roomHeight: scan.room.height,
@@ -2367,14 +2431,22 @@ export default function HomeownerWizard() {
             openings: scan.room.openings as Opening[],
             services: scan.room.services as ServicePoint[],
           }
-        : {
+        : draft ? {
+            step: 1,
+            design: null,
+            incomingCaptureDraft: draft,
+            roomDocument: draftDocument,
+            pendingCaptureUpdate: undefined,
+            useManualRoomInstead: false,
+          } : {
             ...(h.dimensions?.widthMm ? { roomWidth: h.dimensions.widthMm } : {}),
             ...(h.dimensions?.depthMm ? { roomDepth: h.dimensions.depthMm } : {}),
           }),
       ...(styleWords ? { styleWords } : {}),
     });
     if (scan) toast.success('Room scan loaded — please check the room details.');
-  }, [handoffPayload, handoffId, handoffToken, onChange]);
+    else if (draft) toast.info('Room capture draft loaded — complete and confirm its boundary before designing.');
+  }, [handoffPayload, handoffId, handoffToken, onChange, state.incomingCaptureDraft, state.roomDocument]);
 
   // WebXR capture handoff (/wizard/scan → sessionStorage → here). One-shot:
   // the pending scan is consumed on pickup; parse failures fall back to the
@@ -2385,7 +2457,17 @@ export default function HomeownerWizard() {
       const raw = sessionStorage.getItem('bower.pendingScan');
       if (!raw) return;
       sessionStorage.removeItem('bower.pendingScan');
-      const parsed = parseRoomScan(JSON.parse(raw));
+      const input = JSON.parse(raw);
+      const pendingDraft = parseRoomCaptureDraft(input);
+      if (pendingDraft.ok) {
+        const draft = pendingDraft.draft;
+        let document: RoomDocumentV1 | undefined;
+        try { document = roomDocumentFromCaptureDraft(draft, crypto.randomUUID()); } catch { /* Keep the draft for review. */ }
+        onChange({ step: 1, design: null, incomingCaptureDraft: draft, roomDocument: document, useManualRoomInstead: false });
+        toast.info('Room capture draft loaded — complete and confirm its boundary before designing.');
+        return;
+      }
+      const parsed = parseRoomScan(input);
       if (!parsed.ok || parsed.scan.state !== 'unconfirmed') return;
       const scan = parsed.scan;
       onChange({
@@ -2439,7 +2521,7 @@ export default function HomeownerWizard() {
 
   const canAdvance =
     state.step === 1
-      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid :
+      ? state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid && (!state.incomingCaptureDraft || state.useManualRoomInstead === true) :
     state.step === 2 ? true :
     state.step === 3 ? true :
     state.step === 4 ? (designStudioEnabled ? state.design !== null && !selectedDesignHasBlockingErrors : true) :

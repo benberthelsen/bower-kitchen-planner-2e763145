@@ -89,6 +89,7 @@ export default function RoomDimensionEditor({
     galley: 'Galley Kitchen',
     peninsula: 'Peninsula Layout',
     island: 'Island Kitchen',
+    custom: 'Custom Room',
   };
 
   const renderFloorPlan = () => {

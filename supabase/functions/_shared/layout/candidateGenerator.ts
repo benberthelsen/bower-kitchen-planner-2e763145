@@ -285,6 +285,12 @@ interface Attempt {
 
 export function generateCandidatePool(input: GenerateCandidatesInput): CandidatePool {
   const { brief, style } = input;
+  if (brief.room.roomDocument) {
+    return { candidates: [], attemptedStrategies: [], rejected: [{
+      candidateId: 'room-document/requires-wall-runs', strategy: 'single-wall', emphasis: 'workflow',
+      reasons: ['This room has measured wall IDs. Use the RoomDocument wall-run suggestions; the cardinal layout compiler cannot represent its geometry.'],
+    }] };
+  }
   const allowed = (input.allowedStrategies ?? ALL_STRATEGIES)
     .filter(s => ALL_STRATEGIES.includes(s));
   const maxCandidates = input.maxCandidates ?? 3;

@@ -53,12 +53,11 @@ function sub(a: Vec2, b: Vec2): Vec2 { return { x: a.x - b.x, z: a.z - b.z }; }
 function len(v: Vec2): number { return Math.hypot(v.x, v.z); }
 function norm(v: Vec2): Vec2 { const l = len(v) || 1; return { x: v.x / l, z: v.z / l }; }
 
-/** Inward normal → cabinet rotation, snapped to the nearest quarter turn (so
- *  near-orthogonal scanned walls still resolve cleanly). Verified against the
- *  legacy convention: normal (0,1)→0, (-1,0)→90, (0,-1)→180, (1,0)→270. */
+/** Inward normal → exact cabinet rotation. Axis-aligned legacy walls retain
+ * their existing 0/90/180/270 values; surveyed angles are not rounded. */
 export function rotationFromNormal(n: Vec2): number {
-  const q = ((Math.round(Math.atan2(-n.x, n.z) / (Math.PI / 2)) % 4) + 4) % 4;
-  return q * 90;
+  const degrees = Math.atan2(-n.x, n.z) * 180 / Math.PI;
+  return ((degrees % 360) + 360) % 360;
 }
 
 function makeSegment(a: Vec2, b: Vec2, id: string, legacyWall?: Wall): WallSegment {

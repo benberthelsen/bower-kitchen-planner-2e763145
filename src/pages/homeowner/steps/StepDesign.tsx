@@ -20,7 +20,7 @@ import { UnifiedScene } from '@/components/3d/UnifiedScene';
 import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS } from '@/constants';
 import {
-  compileSpec, defaultSpecFor, generateCandidatePool,
+  compileSpec, defaultSpecFor, generateCandidatePool, generateRoomDocumentCandidates,
 } from '@/lib/layout';
 import type { DesignBrief, KitchenSpec, ProposedRoomPatch, StyleSpec } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
@@ -142,6 +142,7 @@ export default function StepDesign({
   // The first design goes through the same deterministic candidate engine and
   // professional gate as the alternatives. AI is never needed to rescue it.
   useEffect(() => {
+    if (brief.room.roomDocument) return;
     const needsCurrentComposition = shouldRefreshAutomaticStarter(design)
       || shouldRegenerateAutomaticStarterForStyle(design, style);
     if (!design || needsCurrentComposition) {
@@ -187,7 +188,7 @@ export default function StepDesign({
     return { ...design.spec, style: { ...design.spec.style, ...style } };
   }, [design, style]);
 
-  const compiled = useMemo(() => (activeSpec ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
+  const compiled = useMemo(() => (activeSpec && !brief.room.roomDocument ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
 
   // Homeowner appliance catalog — enrich compiled items with chosen catalog
   // products so the 3D preview here, the AR export below, the Review page
@@ -471,6 +472,25 @@ export default function StepDesign({
     trackEvent('homeowner_cabinet_editor_saved', { changeCount });
     toast.success('Kitchen edits saved');
   };
+
+  const wallRunPool = useMemo(() => brief.room.roomDocument
+    ? generateRoomDocumentCandidates({ document: brief.room.roomDocument, style, maxCandidates: 3 })
+    : null, [brief.room.roomDocument, style]);
+  if (wallRunPool) {
+    return <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-slate-900">Review the captured walls</h2>
+      <p className="text-sm text-slate-600">This room has its own wall outline. The rectangular designer cannot represent those wall angles, so the walls remain available for review and manual planning.</p>
+      {wallRunPool.candidates.length > 0 && <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-800">Possible wall runs</p>
+        {wallRunPool.candidates.map(candidate => <div key={candidate.candidateId} className="rounded-lg border border-slate-200 p-3">
+          <p className="font-medium text-slate-900">{candidate.wallIds.length} wall{candidate.wallIds.length === 1 ? '' : 's'} · {candidate.items.length} provisional cabinet positions</p>
+          <p className="text-xs text-slate-600 mt-1">{candidate.unresolved.join(' ')}</p>
+        </div>)}
+      </div>}
+      {wallRunPool.capability.reasons.map(reason => <p key={reason} className="text-sm text-amber-800">{reason}</p>)}
+      <Button type="button" variant="outline" onClick={onReturnToRoom}>Back to room review</Button>
+    </div>;
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6">
