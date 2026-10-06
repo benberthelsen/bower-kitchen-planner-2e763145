@@ -1260,7 +1260,7 @@ export default function RoomPlanner() {
               Catalog
             </Button>
 
-            <Button variant={showRoomEditor ? 'default' : 'outline'} size="sm" disabled={isPriceLocked}
+            <Button variant={showRoomEditor ? 'default' : 'outline'} size="sm" className="order-first shrink-0 md:order-none" disabled={isPriceLocked}
               onClick={() => {
                 setMobilePanel(null);
                 if (!showRoomEditor && currentRoom && !currentRoom.roomDocument && planningDocument) {
@@ -1290,7 +1290,7 @@ export default function RoomPlanner() {
 
             <Button
               size="sm"
-              className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
+              className="order-first shrink-0 bg-trade-amber hover:bg-trade-amber/90 text-trade-navy md:order-none"
               disabled={saveState === 'saving'}
               onClick={async () => {
                 if (!jobId || jobId === 'new') return;
@@ -1343,7 +1343,7 @@ export default function RoomPlanner() {
 
         <div className="flex-1 flex overflow-hidden relative">
           {showRoomEditor && editableDocument && (
-            <aside className="absolute inset-0 z-30 overflow-y-auto border-r bg-background md:relative md:inset-auto md:w-[420px] md:flex-shrink-0"
+            <aside className="absolute inset-0 z-30 min-w-0 overflow-y-auto overflow-x-hidden border-r bg-background md:relative md:inset-auto md:w-[420px] md:flex-shrink-0"
               aria-label="Room wall and opening editor">
               <RoomDocumentEditor document={planningDocument ?? editableDocument} onChange={handleRoomDocumentChange} />
               {planningDocument?.capture?.captureId && jobId && currentRoom && (

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+import './RoomDocumentEditor.css';
 import {
   applyRoomEdit,
   footprintCorners,
@@ -236,7 +238,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   };
 
   const selectedWallLabel = wall ? `Wall ${document.walls.indexOf(wall) + 1}` : 'No wall selected';
-  return <section className={className} aria-label="Editable room plan" onKeyDown={event => {
+  return <section className={cn('room-document-editor min-w-0 w-full', className)} aria-label="Editable room plan" onKeyDown={event => {
     if ((event.ctrlKey || event.metaKey) && !['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement).tagName)) {
       if (event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
       if (event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
@@ -246,10 +248,10 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
       <div><h4 className="font-semibold text-trade-navy">Room walls</h4><p className="text-xs text-trade-muted">Select a wall or opening to edit it. Dimensions are millimetres.</p></div>
       <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={undo} disabled={!past.length}>Undo</Button><Button type="button" variant="outline" size="sm" onClick={redo} disabled={!future.length}>Redo</Button></div>
     </div>
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)] gap-4">
-      <div className="space-y-3">
-        <div className="relative">
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-h-[480px] rounded-lg border border-trade-border bg-slate-50 touch-none" aria-label="Room floor plan">
+    <div className="room-document-editor__body">
+      <div className="min-w-0 space-y-3">
+        <div className="relative max-w-[480px]">
+        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="block aspect-square h-auto w-full rounded-lg border border-trade-border bg-slate-50 touch-none" aria-label="Room floor plan">
           <defs><marker id="room-wall-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#047857" strokeWidth="1.5" /></marker></defs>
           {document.floorBoundary && <polygon points={document.floorBoundary.cornerIds.map(id => byId(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)).map(p => `${px(p.xMm)},${py(p.zMm)}`).join(' ')} fill="#d1fae5" fillOpacity="0.55" stroke="none" />}
           {document.walls.map((item, index) => {
@@ -333,7 +335,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
         </div>
         {!document.floorBoundary && <p className="text-xs text-amber-800">Walls may be a partial scan. A floor area is shown only after its boundary is confirmed.</p>}
       </div>
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {wall && geometry && <div className="rounded-lg border border-trade-border p-3 space-y-3">
           <h5 className="font-semibold text-trade-navy">{selectedWallLabel}</h5>
           <div className="grid grid-cols-2 gap-2">
