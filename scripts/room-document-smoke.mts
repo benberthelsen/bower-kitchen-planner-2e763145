@@ -86,6 +86,20 @@ assert.equal(proposedVisual?.pose.rotationDeg, wallGeometry(open, 'cooktop')?.ro
 // Physical offsets move to the second wall when a segment is split.
 let split = createRoomDocument('split');
 split = edit(split, { type: 'add-wall', lengthMm: 1000, angleDeg: 0, wallId: 'w1', cornerId: 'end' });
+const crossingOpening = edit(split, { type: 'upsert-opening', opening: {
+  id: 'crossing-window', wallId: 'w1', kind: 'window', offsetMm: 450, widthMm: 100,
+} });
+const rejectedOpeningSplit = applyRoomEdit(crossingOpening, { type: 'split-wall', wallId: 'w1', offsetMm: 500 });
+assert.equal(rejectedOpeningSplit.applied, false);
+assert.match(rejectedOpeningSplit.issues[0].message, /opening crosses the split/i);
+assert.deepEqual(rejectedOpeningSplit.document, crossingOpening);
+const crossingItem = edit(split, { type: 'upsert-object', object: {
+  id: 'crossing-cabinet', layer: 'existing', kind: 'cabinet',
+  placement: { type: 'wall', wallId: 'w1', offsetMm: 400 },
+  widthMm: 200, depthMm: 600,
+} });
+assert.match(applyRoomEdit(crossingItem, { type: 'split-wall', wallId: 'w1', offsetMm: 500 })
+  .issues[0].message, /attached item crosses the split/i);
 split = edit(split, { type: 'upsert-opening', opening: { id: 'window', wallId: 'w1', kind: 'window', offsetMm: 600, widthMm: 100 } });
 split = edit(split, { type: 'split-wall', wallId: 'w1', offsetMm: 500, newWallId: 'w2', newCornerId: 'middle' });
 assert.equal(split.openings[0].wallId, 'w2');
@@ -305,5 +319,9 @@ measured = edit(measured, { type: 'set-wall-length', wallId: 'one', lengthMm: 10
   measurement: { valueMm: 1000, source: 'measured', evidenceIds: ['tape-1'] } });
 const firstCornerId = measured.walls[0].startCornerId;
 assert.equal(applyRoomEdit(measured, { type: 'move-corner', cornerId: firstCornerId, xMm: 100, zMm: 0 }).applied, false);
+const rejectedMeasuredSplit = applyRoomEdit(measured, { type: 'split-wall', wallId: 'one', offsetMm: 500 });
+assert.equal(rejectedMeasuredSplit.applied, false);
+assert.match(rejectedMeasuredSplit.issues[0].message, /site-measured full length/i);
+assert.equal(rejectedMeasuredSplit.document.walls[0].lengthEvidence?.evidenceIds?.[0], 'tape-1');
 
 console.log('room document geometry and migration checks passed');
