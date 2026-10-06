@@ -27,6 +27,9 @@ jobs:
         with:
           repository: benberthelsen/bower-cabinet-web-site
           path: website
+          # This preview PR is paired with website PR #13. Other PRs and main
+          # keep checking the released website contract on main.
+          ref: ${{ github.head_ref == 'codex/shared-room-geometry' && 'codex/shared-room-geometry-handoff' || 'main' }}
           ssh-key: ${{ secrets.WEBSITE_REPO_SSH_KEY }}
 
       - name: Use Node.js 20
