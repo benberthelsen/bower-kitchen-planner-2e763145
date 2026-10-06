@@ -75,6 +75,30 @@ function CataloguedOverhead({ objectId, visual, globalDimensions }: {
   </group>;
 }
 
+function ProposedCatalogueCabinet({ objectId, visual, globalDimensions }: {
+  objectId: string; visual: ExistingObjectVisual; globalDimensions?: GlobalDimensions;
+}) {
+  const product = useCatalogItem(visual.catalogueId ?? null);
+  const category = product?.renderConfig.category;
+  const knownCabinet = category === 'Base' || category === 'Wall' || category === 'Tall';
+  const { pose } = visual;
+  const item: PlacedItem = {
+    instanceId: objectId, definitionId: visual.catalogueId!, itemType: 'Cabinet',
+    x: pose.xMm, z: pose.zMm, y: visual.elevationMm, rotation: pose.rotationDeg,
+    width: visual.widthMm, depth: visual.depthMm, height: visual.heightMm!,
+  };
+  return <group key={objectId} userData={{ roomObjectId: objectId, layer: 'proposed' }}>
+    {knownCabinet ? <CabinetMesh item={item} globalDimensions={globalDimensions} />
+      : <group position={[pose.xMm / 1000, (visual.elevationMm + visual.heightMm! / 2) / 1000, pose.zMm / 1000]}
+        rotation={[0, -pose.rotationDeg * Math.PI / 180, 0]}>
+        <mesh castShadow>
+          <boxGeometry args={[visual.widthMm / 1000, visual.heightMm! / 1000, visual.depthMm / 1000]} />
+          <meshStandardMaterial color="#94a3b8" transparent opacity={0.65} />
+        </mesh>
+      </group>}
+  </group>;
+}
+
 /** Subtract actual door and window apertures from a straight wall segment.
  * Splitting at each opening edge also handles overlapping openings without
  * relying on a bounding-box wall or translucent panels hiding solid masonry. */
@@ -195,6 +219,10 @@ export default function RoomDocumentShell({ document, defaultHeightMm, renderedC
         const elevationM = visual.elevationMm / 1000;
         if (visual.kind === 'catalogued-overhead' && visual.catalogueId) {
           return <CataloguedOverhead key={object.id} objectId={object.id} visual={visual}
+            globalDimensions={globalDimensions} />;
+        }
+        if (visual.kind === 'proposed-catalogue' && visual.catalogueId) {
+          return <ProposedCatalogueCabinet key={object.id} objectId={object.id} visual={visual}
             globalDimensions={globalDimensions} />;
         }
         const fridgeItem: PlacedItem | null = visual.kind === 'fridge' ? {

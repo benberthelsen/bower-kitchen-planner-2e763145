@@ -2,7 +2,7 @@ import type { RoomDocumentV1, RoomObject } from '@/lib/roomDocument';
 import { objectPose, type ObjectPose } from '@/lib/roomDocument/geometry';
 
 export type ExistingObjectVisualKind =
-  | 'fridge' | 'catalogued-overhead' | 'overhead-shell' | 'toe-kick' | 'surveyed-volume' | 'footprint-only';
+  | 'fridge' | 'catalogued-overhead' | 'proposed-catalogue' | 'overhead-shell' | 'toe-kick' | 'surveyed-volume' | 'footprint-only';
 
 export interface ExistingObjectVisual {
   kind: ExistingObjectVisualKind;
@@ -23,6 +23,8 @@ export function existingObjectVisual(document: RoomDocumentV1, object: RoomObjec
   const base = { pose, widthMm: object.widthMm, depthMm: object.depthMm,
     heightMm: object.heightMm, elevationMm: object.elevationMm ?? 0,
     catalogueId: object.catalogueId };
+  if (object.layer === 'proposed' && object.catalogueId && object.heightMm !== undefined
+    && /cabinet/i.test(object.kind)) return { ...base, kind: 'proposed-catalogue' };
   if (object.layer !== 'existing' || object.heightMm === undefined) return { ...base, kind: object.heightMm === undefined ? 'footprint-only' : 'surveyed-volume' };
   const kind = object.kind.toLowerCase();
   // The shared fridge model has a minimum physical body size. For an implausibly

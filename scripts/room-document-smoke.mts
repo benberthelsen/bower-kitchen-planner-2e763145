@@ -73,6 +73,14 @@ assert.deepEqual(visual.map(entry => entry && [entry.widthMm, entry.depthMm, ent
 ]);
 assert.equal(visual[2]?.catalogueId, 'wall_2_door');
 assert.deepEqual(visualRoom, visualSource, '3D decisions cannot change the surveyed existing layer');
+const proposedVisual = existingObjectVisual(open, {
+  id: 'proposed-base', layer: 'proposed', kind: 'base-cabinet', catalogueId: 'base_2_door',
+  placement: { type: 'wall', wallId: 'cooktop', offsetMm: 100 },
+  widthMm: 600, depthMm: 580, heightMm: 870,
+});
+assert.equal(proposedVisual?.kind, 'proposed-catalogue');
+assert.equal(proposedVisual?.catalogueId, 'base_2_door');
+assert.equal(proposedVisual?.pose.rotationDeg, wallGeometry(open, 'cooktop')?.rotationDeg);
 
 // Physical offsets move to the second wall when a segment is split.
 let split = createRoomDocument('split');
