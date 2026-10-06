@@ -4,7 +4,7 @@ import {
   applyRoomEdit, createRoomDocument, footprintCorners, footprintInsideConfirmedFloor,
   footprintInsidePolygon, footprintsIntersect, migrateTradeRoom, objectPose,
   reconcileTradeRoomCabinets, cabinetFootprintDepthMm, mergeCabinetWrite,
-  RoomRevisionConflictError, mergeRoomWrite, selectRoomsForWrite,
+  RoomRevisionConflictError, mergeRoomWrite, saveRoomSetupEdit, selectRoomsForWrite,
   undoRoomEdit, validateRoomDocument, wallGeometry,
 } from '../src/lib/roomDocument';
 
@@ -124,6 +124,31 @@ const remoteRoom = { ...legacy, roomDocument: { ...migrated, revision: 3 }, name
 assert.throws(() => mergeRoomWrite([remoteRoom, anotherRoom], draftRoom, 2), RoomRevisionConflictError);
 assert.equal(draftRoom.name, 'New local name', 'conflict cannot mutate the local draft');
 assert.throws(() => mergeRoomWrite([], draftRoom, null), RoomRevisionConflictError);
+
+// A stale room-setup wizard cannot overwrite geometry saved while it was open.
+// Its edited settings and walls remain in the wizard until the user reviews
+// the newer room, and no rejected write is copied into local room state.
+const wizardDraft = { ...draftRoom, name: 'Unsaved kitchen setup',
+  roomDocument: { ...draftRoom.roomDocument!, revision: 4 } };
+const wizardSnapshot = structuredClone(wizardDraft);
+let wizardLocalRoom = remoteRoom;
+let setupWriteRevision: number | null | undefined;
+const persistWizard = async (input: { jobId: string; room: TradeRoom; expectedRoomRevision: number | null }) => {
+  setupWriteRevision = input.expectedRoomRevision;
+  mergeRoomWrite([remoteRoom], input.room, input.expectedRoomRevision);
+};
+await assert.rejects(
+  saveRoomSetupEdit('job-1', draftRoom, wizardDraft, persistWizard,
+    (_id, room) => { wizardLocalRoom = room; }),
+  RoomRevisionConflictError,
+);
+assert.equal(setupWriteRevision, 2);
+assert.equal(wizardLocalRoom, remoteRoom, 'a failed save cannot replace the newer local room');
+assert.deepEqual(wizardDraft, wizardSnapshot, 'conflict leaves unsaved wizard edits intact');
+await saveRoomSetupEdit('job-1', remoteRoom, wizardDraft, persistWizard,
+  (_id, room) => { wizardLocalRoom = room; });
+assert.equal(setupWriteRevision, 3);
+assert.equal(wizardLocalRoom, wizardDraft, 'the accepted room is copied locally only after persistence');
 
 // Quote/totals saves keep freshly loaded rooms even when a stale component
 // supplies its old room array. Cabinet changes merge into that same fresh room

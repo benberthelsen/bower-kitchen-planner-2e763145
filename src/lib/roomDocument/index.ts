@@ -13,5 +13,5 @@ export { validateRoomDocument, polygonSelfIntersects } from './validate';
 export { createRoomDocument, applyRoomEdit, undoRoomEdit } from './edit';
 export { migrateTradeRoom } from './migrate';
 export { reconcileTradeRoomCabinets, cabinetFootprintDepthMm } from './reconcile';
-export { RoomRevisionConflictError, mergeRoomWrite, mergeCabinetWrite, selectRoomsForWrite } from './persistence';
+export { RoomRevisionConflictError, mergeRoomWrite, mergeCabinetWrite, selectRoomsForWrite, saveRoomSetupEdit } from './persistence';
 export type { CabinetWrite } from './persistence';

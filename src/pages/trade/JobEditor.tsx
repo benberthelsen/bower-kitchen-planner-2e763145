@@ -13,7 +13,7 @@ import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff, lin
 import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
 import { captureScannerSession, linkScannerRoom, type ScannerSession } from '@/lib/roomScan/scannerSession';
-import { derivedLegacyBounds } from '@/lib/roomDocument';
+import { derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { JobNotes } from '@/components/shared/JobNotes';
 import { supabase } from '@/integrations/supabase/client';
@@ -483,9 +483,14 @@ export default function JobEditor() {
         updatedAt: new Date(),
       };
 
-      updateRoom(editingRoom.id, updatedRoom);
-      if (!isNewJob) {
-        await upsertRoom({ jobId, room: updatedRoom });
+      try {
+        if (isNewJob) updateRoom(editingRoom.id, updatedRoom);
+        else await saveRoomSetupEdit(jobId, editingRoom, updatedRoom, upsertRoom, updateRoom);
+      } catch (error) {
+        toast.error(error instanceof RoomRevisionConflictError
+          ? 'This room changed on another device. Your setup edits are still here; reload the latest room before saving.'
+          : 'Could not save this room. Your setup edits are still here; check your connection and try again.');
+        return;
       }
       toast.success(`Room "${config.name}" updated`);
     } else {
