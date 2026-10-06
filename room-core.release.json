@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "release": "1.0.0-preview.1",
+  "entry": "src/lib/roomDocument/core.ts",
+  "hashNormalization": "lf",
+  "files": {
+    "src/lib/roomDocument/core.ts": "cbd09261bb9a0f5d33d7c730bd9d9aeee96ab5ebfe148fda905dadb35e94d48c",
+    "src/lib/roomDocument/types.ts": "3fa7bcab8f6518fbe0955b2a456ad30f957f0e5fc83492bbb2e84f94bf607fac",
+    "src/lib/roomDocument/geometry.ts": "06174d8944b67dd339af464fd587ce8bcf4abe4a9eb428fb834b9cecb89f5f15",
+    "src/lib/roomDocument/validate.ts": "f09b617724bc2aded030cdd66f5b54af5cda85a40effd163f1ac3de5c7aee5ac",
+    "src/lib/roomDocument/edit.ts": "ebd82ec5e5b5b67c0fa468615deccce6aabf3f0c9f9ee1bfec4468f2537d6f1d"
+  }
+}
