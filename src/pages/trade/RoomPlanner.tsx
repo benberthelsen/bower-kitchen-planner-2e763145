@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import TradeLayout from './components/TradeLayout';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import {
   useTradeRoom,
@@ -38,6 +39,7 @@ import { findRoomWallPlacement, placeWithinRoomDocument, snapRoomDocumentPlaceme
   validateRoomWallPlacement } from '@/lib/trade/roomDocumentPlacement';
 import { findRoomDocumentCornerPlacement } from '@/lib/trade/roomDocumentCornerPlacement';
 import { applyEditedCabinetProjection, syncCabinetProjectionMembership } from '@/lib/trade/roomDocumentCabinetEdit';
+import { createRoomSaveQueue } from '@/lib/trade/roomSaveQueue';
 import { generateRoomDocumentCandidates } from '@/lib/layout/roomDocumentCandidates';
 import {
   ArrowLeft,
@@ -100,6 +102,7 @@ export default function RoomPlanner() {
 
   const [showCatalog, setShowCatalog] = useState(true);
   const [showRoomEditor, setShowRoomEditor] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<'catalog' | 'cabinets' | null>(null);
   const [scannerSession] = useState(() => captureScannerSession());
   const [selectedWallRunId, setSelectedWallRunId] = useState<string | null>(null);
   const [includeSuggestedIsland, setIncludeSuggestedIsland] = useState(false);
@@ -113,6 +116,7 @@ export default function RoomPlanner() {
   const editGenerationRef = useRef(0);
   const serverRoomRevisionRef = useRef(new Map<string, number | null>());
   const deletedPlanCabinetsRef = useRef(new Map<string, Map<string, ConfiguredCabinet>>());
+  const roomSaveQueueRef = useRef(createRoomSaveQueue());
   const setDirty = useCallback((value: boolean) => {
     if (value) editGenerationRef.current += 1;
     setDirtyState(value);
@@ -122,6 +126,15 @@ export default function RoomPlanner() {
   const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quotePersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedQuoteRef = useRef<string>('');
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const closeMobilePanel = () => {
+      if (desktop.matches) setMobilePanel(null);
+    };
+    desktop.addEventListener('change', closeMobilePanel);
+    return () => desktop.removeEventListener('change', closeMobilePanel);
+  }, []);
 
   useEffect(() => {
     // Don't let a server snapshot overwrite un-saved local edits — this was
@@ -463,34 +476,40 @@ export default function RoomPlanner() {
     };
   }, []);
 
-  const saveRoomToServer = useCallback(async () => {
-    if (!jobId || jobId === 'new' || !currentRoom || isPriceLocked) return false;
+  const saveRoomToServer = useCallback((): Promise<boolean> => {
+    if (!jobId || jobId === 'new' || !currentRoom || isPriceLocked) return Promise.resolve(false);
     const generation = editGenerationRef.current;
     const documentToSave = planningDocument ?? currentRoom.roomDocument;
-    try {
-      setSaveState('saving');
-      await replaceRoomInJob({ jobId, room: documentToSave
-        ? { ...currentRoom, roomDocument: documentToSave }
-        : currentRoom,
-        expectedRoomRevision: serverRoomRevisionRef.current.get(currentRoom.id),
-      });
-      serverRoomRevisionRef.current.set(currentRoom.id, documentToSave?.revision ?? null);
-      if (generation === editGenerationRef.current) {
-        setDirty(false);
-        setSaveState('saved');
-        return true;
+    const roomToSave = documentToSave
+      ? { ...currentRoom, roomDocument: documentToSave }
+      : currentRoom;
+    return roomSaveQueueRef.current(async () => {
+      try {
+        setSaveState('saving');
+        // Read the server revision when this write actually begins. A previous
+        // autosave may still be in flight when the next edit's debounce fires.
+        await replaceRoomInJob({
+          jobId, room: roomToSave,
+          expectedRoomRevision: serverRoomRevisionRef.current.get(roomToSave.id),
+        });
+        serverRoomRevisionRef.current.set(roomToSave.id, documentToSave?.revision ?? null);
+        if (generation === editGenerationRef.current) {
+          setDirty(false);
+          setSaveState('saved');
+          return true;
+        }
+        return false;
+      } catch (error) {
+        if (error instanceof RoomRevisionConflictError || error instanceof JobWriteConflictError) {
+          setSaveState('conflict');
+          toast.error('This room changed on another device. Download your unsaved draft before reloading.');
+        } else {
+          setSaveState('error');
+          toast.error('Could not save this room. Your changes remain on this device.');
+        }
+        return false;
       }
-      return false;
-    } catch (error) {
-      if (error instanceof RoomRevisionConflictError || error instanceof JobWriteConflictError) {
-        setSaveState('conflict');
-        toast.error('This room changed on another device. Download your unsaved draft before reloading.');
-      } else {
-        setSaveState('error');
-        toast.error('Could not save this room. Your changes remain on this device.');
-      }
-      return false;
-    }
+    });
   }, [currentRoom, isPriceLocked, jobId, planningDocument, replaceRoomInJob, setDirty]);
 
   const downloadRoomBackup = useCallback(() => {
@@ -1124,9 +1143,36 @@ export default function RoomPlanner() {
                 </span>
               </p>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto shrink-0 md:hidden"
+              onClick={() => {
+                setShowRoomEditor(false);
+                setMobilePanel(panel => panel === 'cabinets' ? null : 'cabinets');
+              }}
+              aria-label={`Cabinets (${cabinets.length})`}
+              aria-expanded={mobilePanel === 'cabinets'}
+            >
+              <Box className="mr-1 h-4 w-4" />
+              Cabinets
+            </Button>
           </div>
 
           <div className="flex w-full items-center gap-2 overflow-x-auto whitespace-nowrap pb-1 md:w-auto md:overflow-visible md:pb-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 md:hidden"
+              onClick={() => {
+                setShowRoomEditor(false);
+                setMobilePanel(panel => panel === 'catalog' ? null : 'catalog');
+              }}
+              aria-expanded={mobilePanel === 'catalog'}
+            >
+              <PanelLeft className="mr-1 h-4 w-4" />
+              Catalog
+            </Button>
             {/* Opening conflicts (master plan §8.2): warn-only, never blocks.
                 Recomputes via useMemo on every placement/edit/undo change. */}
             {openingWarnings.length > 0 && (
@@ -1209,13 +1255,14 @@ export default function RoomPlanner() {
               {is3D ? 'Right-drag orbit · scroll zoom' : 'Right-drag pan · scroll zoom'}
             </span>
 
-            <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>
+            <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => setShowCatalog(!showCatalog)}>
               {showCatalog ? <PanelLeftClose className="w-4 h-4 mr-1" /> : <PanelLeft className="w-4 h-4 mr-1" />}
               Catalog
             </Button>
 
             <Button variant={showRoomEditor ? 'default' : 'outline'} size="sm" disabled={isPriceLocked}
               onClick={() => {
+                setMobilePanel(null);
                 if (!showRoomEditor && currentRoom && !currentRoom.roomDocument && planningDocument) {
                   updateRoom(currentRoom.id, { roomDocument: planningDocument });
                   setDirty(true);
@@ -1338,11 +1385,20 @@ export default function RoomPlanner() {
               </section>
             </aside>
           )}
-          {showCatalog && (
-            <div className="absolute inset-0 z-20 w-full overflow-y-auto border-r bg-background md:relative md:inset-auto md:w-64 md:flex-shrink-0">
+          {(showCatalog || mobilePanel === 'catalog') && (
+            <div className={`${mobilePanel === 'catalog' ? 'block' : 'hidden'} absolute inset-0 z-20 w-full overflow-y-auto border-r bg-background ${showCatalog ? 'md:relative md:inset-auto md:block md:w-64 md:flex-shrink-0' : 'md:hidden'}`}>
+              <div className="flex items-center justify-between border-b px-4 py-2 md:hidden">
+                <span className="font-semibold">Catalog</span>
+                <Button variant="ghost" size="icon" onClick={() => setMobilePanel(null)} aria-label="Close catalog">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
               <UnifiedCatalog
                 userType={catalogMode}
-                onSelectProduct={handleQuickAddProduct}
+                onSelectProduct={(productId) => {
+                  setMobilePanel(null);
+                  void handleQuickAddProduct(productId);
+                }}
                 placementItemId={placementItemId}
                 onCancelPlacement={() => setPlacementItemId(null)}
               />
@@ -1389,18 +1445,42 @@ export default function RoomPlanner() {
             </Scene3DErrorBoundary>
           </div>
 
-          <CabinetListPanel
-            roomId={currentRoom.id}
-            cabinets={cabinets}
-            getCabinetPrice={getCabinetPrice}
-            onEditCabinet={handleEditCabinet}
-            onSelectCabinet={handleCabinetSelect}
-            onDuplicateCabinet={handleDuplicateCabinet}
-            onRemoveCabinet={handleRemoveCabinet}
-            onRotateCabinet={handleRotateSelected}
-            className="w-72 flex-shrink-0"
-          />
+          <div className="hidden w-72 flex-shrink-0 md:block">
+            <CabinetListPanel
+              roomId={currentRoom.id}
+              cabinets={cabinets}
+              getCabinetPrice={getCabinetPrice}
+              onEditCabinet={handleEditCabinet}
+              onSelectCabinet={handleCabinetSelect}
+              onDuplicateCabinet={handleDuplicateCabinet}
+              onRemoveCabinet={handleRemoveCabinet}
+              onRotateCabinet={handleRotateSelected}
+              className="w-full"
+            />
+          </div>
         </div>
+
+        <Sheet open={mobilePanel === 'cabinets'} onOpenChange={(open) => setMobilePanel(open ? 'cabinets' : null)}>
+          <SheetContent side="bottom" className="flex h-[80dvh] w-full flex-col p-0 md:hidden">
+            <SheetHeader className="shrink-0 border-b px-4 py-3 text-left">
+              <SheetTitle>Cabinets</SheetTitle>
+            </SheetHeader>
+            <CabinetListPanel
+              roomId={currentRoom.id}
+              cabinets={cabinets}
+              getCabinetPrice={getCabinetPrice}
+              onEditCabinet={(cabinet) => {
+                setMobilePanel(null);
+                handleEditCabinet(cabinet);
+              }}
+              onSelectCabinet={handleCabinetSelect}
+              onDuplicateCabinet={handleDuplicateCabinet}
+              onRemoveCabinet={handleRemoveCabinet}
+              onRotateCabinet={handleRotateSelected}
+              className="min-h-0 w-full flex-1 border-l-0"
+            />
+          </SheetContent>
+        </Sheet>
 
         <CabinetEditDialog
           roomId={currentRoom.id}
