@@ -144,17 +144,7 @@ export default function JobEditor() {
   const [editingRoom, setEditingRoom] = useState<TradeRoom | null>(null);
   const [scanUpdateSaving, setScanUpdateSaving] = useState(false);
   const [scanUpdateDismissed, setScanUpdateDismissed] = useState(false);
-  const [existingWizardCaptureRoom, setExistingWizardCaptureRoom] = useState<ExistingCaptureRoom | null>(null);
-
-  useEffect(() => {
-    const captureId = importingWizardRoom ? wizardRoom?.document.capture?.captureId : undefined;
-    if (!captureId) return;
-    let cancelled = false;
-    void findExistingCaptureRoom(captureId).then(existing => {
-      if (!cancelled) setExistingWizardCaptureRoom(existing);
-    }).catch(() => { /* The save handler repeats this check and blocks on error. */ });
-    return () => { cancelled = true; };
-  }, [importingWizardRoom, wizardRoom]);
+  const [existingCaptureRoom, setExistingCaptureRoom] = useState<ExistingCaptureRoom | null>(null);
 
   // Derive current job status & locked state
   const _jobData = jobQuery.data as { name?: string; status?: string; design_data?: Record<string, unknown> } | undefined;
@@ -244,6 +234,28 @@ export default function JobEditor() {
     // retaining the handoff's other room settings and capture reference.
     return { ...cfg, ...wizardConfig };
   }, [handoffPayload, handoffId, isNewJob, catalogMaterials, wizardRoom]);
+
+  // Both homeowner wall plans and tokenized scanner handoffs can import the
+  // same capture. Surface the saved room before setup, then repeat the check
+  // at save time so a second tab cannot silently create a duplicate job.
+  const importedCaptureId = isNewJob ? handoffInitialConfig?.roomDocument?.capture?.captureId : undefined;
+  useEffect(() => {
+    setExistingCaptureRoom(null);
+    if (!importedCaptureId) return;
+    let cancelled = false;
+    void findExistingCaptureRoom(importedCaptureId).then(existing => {
+      if (!cancelled) setExistingCaptureRoom(existing);
+    }).catch(() => { /* The save handler repeats this check and blocks on error. */ });
+    return () => { cancelled = true; };
+  }, [importedCaptureId]);
+
+  const openExistingCaptureRoom = (existing: ExistingCaptureRoom) => {
+    // Keep a later scanner handoff available for review against the edited
+    // room; a direct planner route would drop the incoming scan update.
+    navigate(handoffId && !importingWizardRoom
+      ? `/trade/job/${existing.jobId}?handoff=${encodeURIComponent(handoffId)}`
+      : `/trade/job/${existing.jobId}/room/${existing.roomId}/planner`);
+  };
 
   // Loading a handoff never consumes it (master plan §6.3 step 7 / defect
   // D-3): consumption/linking happens only in handleRoomComplete after the
@@ -364,11 +376,11 @@ export default function JobEditor() {
     // For brand-new jobs (jobId === 'new'), create the job row in Supabase first
     // so we have a real UUID before navigating to the planner.
     if (isNewJob && !editingRoom) {
-      if (importingWizardRoom && config.roomDocument?.capture?.captureId) {
+      if (config.roomDocument?.capture?.captureId) {
         try {
           const existing = await findExistingCaptureRoom(config.roomDocument.capture.captureId);
           if (existing) {
-            setExistingWizardCaptureRoom(existing);
+            setExistingCaptureRoom(existing);
             toast.warning('This scan is already saved in a trade room. Open that room to review it; your current wizard edits have not replaced it.');
             return;
           }
@@ -534,10 +546,10 @@ export default function JobEditor() {
   return (
     <TradeLayout>
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-        {existingWizardCaptureRoom && (
+        {existingCaptureRoom && (
           <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
             This scan already has a trade room. The current wizard edits have not overwritten that saved room.
-            <div className="mt-3"><Button variant="outline" onClick={() => navigate(`/trade/job/${existingWizardCaptureRoom.jobId}/room/${existingWizardCaptureRoom.roomId}/planner`)}>Open saved room</Button></div>
+            <div className="mt-3"><Button variant="outline" onClick={() => openExistingCaptureRoom(existingCaptureRoom)}>Review saved room</Button></div>
           </div>
         )}
         {!isNewJob && handoffId && !scanUpdateDismissed && scanUpdate?.status === 'review' && (
