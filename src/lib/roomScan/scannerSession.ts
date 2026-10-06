@@ -80,6 +80,7 @@ async function scannerBridge(input: BridgeInput): Promise<Response> {
     if (response.status === 401) throw new Error('Scanner access was denied or expired. Reopen the saved scan.');
     if (response.status === 403) throw new Error('This scan is not linked to this saved room.');
     if (response.status === 409) throw new Error('The scan changed. Review the new scan before linking it.');
+    if (response.status === 503) throw new Error('The private scanner is temporarily unavailable. Your room is saved; try again later.');
     throw new Error(`Scanner connection failed (${response.status}).`);
   }
   return response;
