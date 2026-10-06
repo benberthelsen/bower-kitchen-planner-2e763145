@@ -37,7 +37,7 @@
     "pricing:runthrough": "npm run pricing:build && node scripts/pricing-runthrough.mjs",
     "ai:sync-shared": "node scripts/sync-ai-shared.mjs && node scripts/sync-room-scan-contract.mjs",
     "ai:sweep": "node scripts/ai-planner-sweep.mjs",
-    "roomscan:test": "esbuild src/lib/roomScan/contract.ts --bundle --format=esm --outfile=.tmp-snap-test/roomscan.mjs --platform=node && esbuild src/lib/roomScan/webxrFit.ts --bundle --format=esm --outfile=.tmp-snap-test/webxrFit.mjs --platform=node && node scripts/roomscan-smoke.mjs && node scripts/fingerprint-smoke.mjs && node scripts/webxr-fit-smoke.mjs",
+    "roomscan:test": "esbuild src/lib/roomScan/contract.ts --bundle --format=esm --outfile=.tmp-snap-test/roomscan.mjs --platform=node && esbuild src/lib/roomScan/webxrFit.ts --bundle --format=esm --outfile=.tmp-snap-test/webxrFit.mjs --platform=node && node scripts/roomscan-smoke.mjs && node scripts/fingerprint-smoke.mjs && node scripts/webxr-fit-smoke.mjs && node --test tests/room-scan-cors.test.mjs",
     "test:manual-room-entry": "esbuild scripts/manual-room-entry-smoke.mts --bundle --format=esm --outfile=.tmp-snap-test/manual-room-entry.mjs --platform=node --log-level=error && node .tmp-snap-test/manual-room-entry.mjs",
     "roomscan:compat": "tsc --noEmit -p tsconfig.roomscan.json",
     "roomscan:sync": "node scripts/sync-room-scan-contract.mjs",
