@@ -115,6 +115,13 @@ export default function JobEditor() {
   const handoffQuery = usePlannerHandoff(handoffToken ? null : handoffId);
   const tokenizedHandoff = useTokenizedPlannerHandoff(handoffId, handoffToken);
   const handoffPayload = tokenizedHandoff.data?.payload ?? handoffQuery.data?.payload;
+  const handoffLoading = handoffToken
+    ? tokenizedHandoff.isPending || tokenizedHandoff.isFetching
+    : handoffQuery.isPending || handoffQuery.isFetching;
+  const handoffError = handoffToken ? tokenizedHandoff.isError : handoffQuery.isError;
+  const retryHandoff = () => {
+    void (handoffToken ? tokenizedHandoff.refetch() : handoffQuery.refetch());
+  };
   const { materials: catalogMaterials } = useMaterialsCatalog();
 
   const { rooms, addRoom, updateRoom, hydrateRooms } = useTradeRoom();
@@ -776,10 +783,13 @@ export default function JobEditor() {
           </p>
         )}
         {showRoomWizard && wizardRoom && handoffId && !handoffPayload
-          && !(handoffToken ? tokenizedHandoff.isPending : handoffQuery.isPending) && (
-          <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
-            The scanner handoff details could not be reopened. Your edited wall plan is still here; save it after review. Reopen the private scan if its photos are needed.
-          </p>
+          && !handoffLoading && (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
+            {handoffError
+              ? 'The planner could not load the scanner handoff. Your edited wall plan is still here; retry loading its details.'
+              : 'The scanner handoff details could not be reopened. Your edited wall plan is still here; save it after review. Reopen the private scan if its photos are needed.'}
+            {handoffError && <Button variant="outline" className="ml-3" onClick={retryHandoff}>Retry handoff</Button>}
+          </div>
         )}
         {showRoomWizard ? (
           // key remounts the wizard when the async handoff row arrives so the
@@ -790,10 +800,14 @@ export default function JobEditor() {
               <div className="mt-3"><Button variant="outline" onClick={() => navigate('/wizard')}>Return to wall plan</Button></div>
             </div>
           ) : handoffId && isNewJob && !handoffPayload && !wizardRoom ? (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950" role="status">
-              {(handoffToken ? tokenizedHandoff.isPending : handoffQuery.isPending)
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950" role={handoffLoading ? 'status' : 'alert'}>
+              {handoffLoading
                 ? 'Loading the scanned room before setup…'
-                : 'This scanner handoff could not be opened. Reopen it from the scan rather than creating an empty room.'}
+                : handoffError
+                  ? 'The planner could not load this scanner handoff. The scan is still saved; retry the connection before room setup.'
+                  : 'This scanner handoff could not be opened. Reopen it from the scan rather than creating an empty room.'}
+              {!handoffLoading && handoffError &&
+                <div className="mt-3"><Button variant="outline" onClick={retryHandoff}>Retry handoff</Button></div>}
             </div>
           ) : <RoomSetupWizard key={editingRoom?.id ?? handoffId ?? 'new'} onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} legacyRoom={editingRoom} />
         ) : displayRooms.length > 0 ? (

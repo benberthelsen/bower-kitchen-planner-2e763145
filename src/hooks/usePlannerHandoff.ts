@@ -74,7 +74,8 @@ export function usePlannerHandoff(handoffId: string | null) {
         .select('*')
         .eq('id', handoffId!)
         .maybeSingle();
-      if (error || !data) return null;
+      if (error) throw error;
+      if (!data) return null;
       return data as PlannerHandoffRow;
     },
   });
@@ -98,7 +99,8 @@ export function useTokenizedPlannerHandoff(handoffId: string | null, token: stri
       const { data, error } = await supabase.functions.invoke('get-planner-handoff', {
         body: { handoffId, token },
       });
-      if (error || !data) return null;
+      if (error) throw error;
+      if (!data) throw new Error('The scanner handoff returned no data.');
       return data as TokenizedHandoff;
     },
   });
