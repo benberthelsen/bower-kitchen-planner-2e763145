@@ -103,6 +103,61 @@ assert.equal(arDocument.floorBoundary, undefined);
 assert.deepEqual(arDocument.walls.map(wall => wall.lengthEvidence?.source), ['inferred', 'inferred', 'inferred']);
 assert.equal(arDocument.walls.every(wall => wall.lengthEvidence?.source !== 'measured'), true);
 
+// A photo-first whole-room proposal may close geometrically without asserting
+// a confirmed floor or promoting image/AR estimates to site measurements.
+const provisionalOutline = roomCaptureDraftV1Schema.parse({
+  schemaVersion: 1, state: 'draft', source: 'photo-review', capturedAt: '2026-10-07T00:00:00.000Z',
+  coordinateFrame: frame, photos: [],
+  partialGeometry: {
+    wallChains: [{ id: 'provisional-outline', closed: true, provenance: 'inferred',
+      cornersMm: [
+        { id: 'p1', x: 0, z: 0 }, { id: 'p2', x: 3000, z: 0 },
+        { id: 'p3', x: 3000, z: 2400 }, { id: 'p4', x: 0, z: 2400 },
+      ], wallIds: ['site-wall', 'photo-wall', 'inferred-wall', 'unchecked-wall'] }],
+    wallMeasurements: [{ wallId: 'site-wall', millimetres: 3000 }],
+    wallEvidence: [
+      { wallId: 'site-wall', source: 'measured', uncertaintyMm: 5, evidenceIds: ['tape-1'] },
+      { wallId: 'photo-wall', source: 'observed', uncertaintyMm: 120, evidenceIds: ['photo-2'] },
+      { wallId: 'inferred-wall', source: 'inferred', uncertaintyMm: 350, reason: 'Corner hidden by a cabinet.' },
+      { wallId: 'unchecked-wall', source: 'measured', evidenceIds: ['ar-3'] },
+    ],
+  },
+});
+const provisionalHandoff = parseServerHandoff({ handoffSchemaVersion: 1, source: 'scanner',
+  roomType: 'kitchen', styleTags: [], materials: {}, roomCaptureDraft: provisionalOutline });
+assert.equal(provisionalHandoff.ok, true, provisionalHandoff.ok ? '' : provisionalHandoff.reason);
+if (!provisionalHandoff.ok) throw new Error('Provisional outline was rejected');
+const provisionalDocument = roomDocumentFromCaptureDraft(provisionalHandoff.handoff.roomCaptureDraft!, 'provisional-doc');
+assert.equal(provisionalDocument.chains[0].closed, true);
+assert.equal(provisionalDocument.floorBoundary, undefined);
+assert.deepEqual(provisionalDocument.walls.map(wall => wall.lengthEvidence?.source),
+  ['measured', 'observed', 'inferred', 'unknown']);
+assert.equal(provisionalDocument.walls[0].lengthEvidence?.uncertaintyMm, 5);
+assert.deepEqual(provisionalDocument.walls[1].lengthEvidence?.evidenceIds, ['photo-2']);
+assert.equal(provisionalDocument.walls[2].lengthEvidence?.reason, 'Corner hidden by a cabinet.');
+assert.deepEqual(captureDraftReadiness(provisionalOutline),
+  { wallChains: 1, walls: 4, openChains: 0, canDesignWholeRoom: false });
+const duplicateEvidence = structuredClone(provisionalOutline);
+duplicateEvidence.partialGeometry!.wallEvidence!.push(duplicateEvidence.partialGeometry!.wallEvidence![0]);
+assert.equal(roomCaptureDraftV1Schema.safeParse(duplicateEvidence).success, false);
+const orphanEvidence = structuredClone(provisionalOutline);
+orphanEvidence.partialGeometry!.wallEvidence![1].wallId = 'missing-wall';
+const invalidEvidence = roomCaptureDraftV1Schema.safeParse(orphanEvidence);
+assert.equal(invalidEvidence.success, false);
+if (!invalidEvidence.success) assert.deepEqual(invalidEvidence.error.issues[0].path,
+  ['partialGeometry', 'wallEvidence', 1, 'wallId']);
+const orphanMeasurement = structuredClone(provisionalOutline);
+orphanMeasurement.partialGeometry!.wallMeasurements![0].wallId = 'missing-wall';
+const invalidMeasurement = roomCaptureDraftV1Schema.safeParse(orphanMeasurement);
+assert.equal(invalidMeasurement.success, false);
+if (!invalidMeasurement.success) assert.deepEqual(invalidMeasurement.error.issues[0].path,
+  ['partialGeometry', 'wallMeasurements', 0, 'wallId']);
+
+const legacyMeasuredClaim = structuredClone(arOnlyDraft);
+legacyMeasuredClaim.partialGeometry!.wallChains![0].provenance = 'measured';
+assert.deepEqual(roomDocumentFromCaptureDraft(legacyMeasuredClaim, 'legacy-measured').walls
+  .map(wall => wall.lengthEvidence?.source), ['unknown', 'unknown', 'unknown']);
+
 const conflicting = structuredClone(draft);
 conflicting.partialGeometry!.wallChains!.push({
   id: 'conflict', closed: false, cornersMm: [{ id: 'a', x: 5, z: 0 }, { id: 'd', x: 5, z: 1000 }], wallIds: ['extra'], provenance: 'unknown',

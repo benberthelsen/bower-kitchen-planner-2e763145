@@ -414,6 +414,16 @@ export const roomCaptureDraftV1Schema = z
           wallId: z.string().min(1).max(64),
           millimetres: positiveMm(),
         }).strict()).max(64).optional(),
+        /** Per-wall confidence for the proposed coordinates. A site length is
+         * measured only when it also appears in wallMeasurements. */
+        wallEvidence: z.array(z.object({
+          wallId: z.string().min(1).max(64),
+          source: z.enum(['measured', 'observed', 'inferred', 'unknown']),
+          uncertaintyMm: z.number().finite().min(0).max(50_000).optional(),
+          evidenceIds: z.array(z.string().min(1).max(128)).max(64).optional(),
+          reason: z.string().max(900).optional(),
+        }).strict()).max(64).refine(entries => new Set(entries.map(entry => entry.wallId)).size === entries.length,
+          'wallEvidence wall IDs must be unique').optional(),
         /** Photo-derived openings, services and existing items stay attached
          * to their actual wall ID or floor point, even for non-four-wall rooms. */
         featureCandidates: z.array(z.object({
@@ -441,6 +451,18 @@ export const roomCaptureDraftV1Schema = z
         closureComplete: z.boolean().optional(),
       })
       .strict()
+      .superRefine((geometry, ctx) => {
+        if (!geometry.wallChains?.length) return;
+        const wallIds = new Set(geometry.wallChains.flatMap(chain => chain.wallIds));
+        for (const [index, evidence] of (geometry.wallEvidence ?? []).entries()) {
+          if (!wallIds.has(evidence.wallId)) ctx.addIssue({ code: z.ZodIssueCode.custom,
+            path: ['wallEvidence', index, 'wallId'], message: 'wallEvidence must name a wall in wallChains' });
+        }
+        for (const [index, measurement] of (geometry.wallMeasurements ?? []).entries()) {
+          if (!wallIds.has(measurement.wallId)) ctx.addIssue({ code: z.ZodIssueCode.custom,
+            path: ['wallMeasurements', index, 'wallId'], message: 'wallMeasurements must name a wall in wallChains' });
+        }
+      })
       .optional(),
     /** Recovery-only. Never consumed by the layout engine. */
     adapterState: jsonValueSchema.optional(),

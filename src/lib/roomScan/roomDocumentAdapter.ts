@@ -61,8 +61,9 @@ function legacyChain(geometry: DraftGeometry): DraftChain[] {
 }
 
 function sourceOf(chain: DraftChain): DimensionSource {
-  // A scanner's metre coordinates are observations, not tape-confirmed sizes.
-  return chain.provenance ?? 'unknown';
+  // A chain-wide claim cannot establish which individual lengths were checked.
+  // Only wallMeasurements can promote a wall length to site-measured.
+  return chain.provenance === 'measured' ? 'unknown' : chain.provenance ?? 'unknown';
 }
 
 /** Converts both new explicit chains and legacy V1 corners. A closed *draft*
@@ -76,6 +77,7 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
   const geometry = draft.partialGeometry;
   const chains = geometry?.wallChains?.length ? geometry.wallChains : geometry ? legacyChain(geometry) : [];
   const measured = new Map(geometry?.wallMeasurements?.map(entry => [entry.wallId, entry.millimetres]));
+  const wallEvidence = new Map(geometry?.wallEvidence?.map(entry => [entry.wallId, entry]));
   const cornerById = new Map<string, RoomCorner>();
   const usedWallIds = new Set<string>();
   for (const chain of chains) {
@@ -92,14 +94,22 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
       if (usedWallIds.has(wallId)) throw new Error(`Capture wall ${wallId} appears twice.`);
       usedWallIds.add(wallId);
       const a = corners[index], b = corners[(index + 1) % corners.length];
+      const evidence = wallEvidence.get(wallId);
+      const statedSource = evidence?.source ?? sourceOf(chain);
+      const source: DimensionSource = measured.has(wallId) ? 'measured'
+        : statedSource === 'measured' ? 'unknown' : statedSource;
       return {
         id: wallId,
         startCornerId: a.id,
         endCornerId: b.id,
         interiorSide: 'unknown',
-        lengthEvidence: measured.has(wallId)
-          ? { valueMm: measured.get(wallId)!, source: 'measured' }
-          : { valueMm: Math.round(Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm)), source: sourceOf(chain) },
+        lengthEvidence: {
+          valueMm: measured.get(wallId) ?? Math.round(Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm)),
+          source,
+          ...(evidence?.uncertaintyMm !== undefined ? { uncertaintyMm: evidence.uncertaintyMm } : {}),
+          ...(evidence?.evidenceIds?.length ? { evidenceIds: evidence.evidenceIds } : {}),
+          ...(evidence?.reason ? { reason: evidence.reason } : {}),
+        },
         ...(draft.dimensions?.heightMm ? { height: { valueMm: draft.dimensions.heightMm, source: 'unknown' as const } } : {}),
       };
     });
