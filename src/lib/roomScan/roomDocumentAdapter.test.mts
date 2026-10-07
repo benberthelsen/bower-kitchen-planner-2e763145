@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { roomCaptureDraftV1Schema } from './contract';
 import { captureDraftReadiness, captureDraftRelation, previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from './roomDocumentAdapter';
+import { parseWebsitePlannerHandoff as parseServerHandoff } from '../../../supabase/functions/_shared/roomScan/contract';
 
 const frame = {
   assignment: 'source-orientation', sourcePlanAxes: 'x-z', sourceUnits: 'millimetres',
@@ -75,6 +76,33 @@ assert.equal(oldDocument.chains[0].closed, false);
 assert.equal(oldDocument.walls.length, 2);
 assert.equal(oldDocument.floorBoundary, undefined);
 
+// The server parser used by create-planner-handoff must retain a provisional
+// AR-only chain without promoting phone coordinates to site measurements.
+const arOnlyDraft = roomCaptureDraftV1Schema.parse({
+  schemaVersion: 1, state: 'draft', source: 'webxr', capturedAt: '2026-10-07T00:00:00.000Z',
+  coordinateFrame: frame, photos: [],
+  adapterState: { captureId: 'ar-capture', sourceRevision: 'ar-review-1' },
+  partialGeometry: {
+    wallChains: [{ id: 'ar-open-run', closed: false, provenance: 'inferred',
+      cornersMm: [
+        { id: 'ar-c1', x: 3500, z: 0 }, { id: 'ar-c2', x: 5200, z: 1400 },
+        { id: 'ar-c3', x: 4800, z: 2100 }, { id: 'ar-c4', x: 0, z: 3800 },
+      ], wallIds: ['ar-w1', 'ar-w2', 'ar-w3'] }],
+    wallMeasurements: [],
+  },
+});
+const arHandoff = parseServerHandoff({ handoffSchemaVersion: 1, source: 'scanner',
+  roomType: 'kitchen', styleTags: [], materials: {}, roomCaptureDraft: arOnlyDraft });
+assert.equal(arHandoff.ok, true, arHandoff.ok ? '' : arHandoff.reason);
+if (!arHandoff.ok) throw new Error('AR-only handoff was rejected');
+const arDocument = roomDocumentFromCaptureDraft(arHandoff.handoff.roomCaptureDraft!, 'ar-doc');
+assert.deepEqual(captureDraftReadiness(arHandoff.handoff.roomCaptureDraft!),
+  { wallChains: 1, walls: 3, openChains: 1, canDesignWholeRoom: false });
+assert.equal(arDocument.chains[0].closed, false);
+assert.equal(arDocument.floorBoundary, undefined);
+assert.deepEqual(arDocument.walls.map(wall => wall.lengthEvidence?.source), ['inferred', 'inferred', 'inferred']);
+assert.equal(arDocument.walls.every(wall => wall.lengthEvidence?.source !== 'measured'), true);
+
 const conflicting = structuredClone(draft);
 conflicting.partialGeometry!.wallChains!.push({
   id: 'conflict', closed: false, cornersMm: [{ id: 'a', x: 5, z: 0 }, { id: 'd', x: 5, z: 1000 }], wallIds: ['extra'], provenance: 'unknown',
@@ -128,5 +156,12 @@ assert.equal(angledDocument.objects.find(object => object.id === 'fridge')?.plac
 assert.equal(angledDocument.objects.find(object => object.id === 'fridge')?.placement.type, 'wall');
 assert.equal(angledDocument.openings.find(opening => opening.id === 'window')?.wallId, 'sink');
 assert.deepEqual(angledDocument.objects.map(object => object.kind), ['fridge', 'overhead-cabinet', 'toe-kick']);
+
+const correctedHandoff = parseServerHandoff({ handoffSchemaVersion: 1, source: 'scanner',
+  roomType: 'kitchen', styleTags: [], materials: {}, roomCaptureDraft: angledKitchen });
+assert.equal(correctedHandoff.ok, true, correctedHandoff.ok ? '' : correctedHandoff.reason);
+if (!correctedHandoff.ok) throw new Error('corrected feature handoff was rejected');
+assert.equal(correctedHandoff.handoff.roomCaptureDraft?.partialGeometry?.featureCandidates?.[0]
+  .placementProvenance?.previousWallId, 'cooktop');
 
 console.log('room document handoff smoke passed');
