@@ -163,27 +163,26 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
 export interface CaptureUpdatePreview {
   document: RoomDocumentV1;
   added: { walls: number; openings: number; services: number; objects: number };
+  deferred: { walls: number; openings: number; services: number; objects: number };
   updatedWallEvidence: number;
   changedExisting: number;
   cornerConflicts: number;
 }
 
-/** A later scan adds fragments and can fill missing outline evidence on walls
- * whose corners are unchanged. Previously edited positions, measurements,
- * fittings and confirmed floor boundaries remain authoritative. Every new
- * wall is an open segment; a scan cannot silently close the room. */
+/** A later interpretation can fill missing outline evidence on walls whose
+ * corners are unchanged. New geometry needs verified frame registration,
+ * which this handoff does not yet provide; keep it pending in the scanner.
+ * Previously edited positions, measurements, fittings and floor stay put. */
 export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocumentV1): CaptureUpdatePreview {
   if (!current.capture?.captureId || current.capture.captureId !== incoming.capture?.captureId)
     throw new Error('This scan belongs to a different room.');
   const cornersById = new Map(current.corners.map(corner => [corner.id, corner]));
   let cornerConflicts = 0;
-  const newCorners = incoming.corners.filter(corner => {
+  incoming.corners.forEach(corner => {
     const previous = cornersById.get(corner.id);
     if (previous && (previous.xMm !== corner.xMm || previous.zMm !== corner.zMm)) cornerConflicts += 1;
-    return !previous;
   });
   const wallIds = new Set(current.walls.map(wall => wall.id));
-  const newWalls = incoming.walls.filter(wall => !wallIds.has(wall.id));
   const incomingWallsById = new Map(incoming.walls.map(wall => [wall.id, wall]));
   const incomingCornersById = new Map(incoming.corners.map(corner => [corner.id, corner]));
   let updatedWallEvidence = 0;
@@ -201,19 +200,17 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     updatedWallEvidence += 1;
     return { ...wall, geometryEvidence: structuredClone(next.geometryEvidence) };
   });
-  const knownCorners = new Set([...current.corners, ...newCorners].map(corner => corner.id));
-  if (newWalls.some(wall => !knownCorners.has(wall.startCornerId) || !knownCorners.has(wall.endCornerId)))
-    throw new Error('A new scan wall is missing a corner.');
   const addById = <T extends { id: string }>(previous: T[], next: T[]): T[] => {
     const ids = new Set(previous.map(item => item.id));
     return next.filter(item => !ids.has(item.id));
   };
-  const allWallIds = new Set([...current.walls, ...newWalls].map(wall => wall.id));
-  const newOpenings = addById(current.openings, incoming.openings).filter(opening => allWallIds.has(opening.wallId));
-  const newServices = addById(current.services, incoming.services).filter(service =>
-    service.placement.type === 'free' || allWallIds.has(service.placement.wallId));
-  const newObjects = addById(current.objects, incoming.objects).filter(object =>
-    object.placement.type === 'free' || allWallIds.has(object.placement.wallId));
+  const deferred = {
+    walls: incoming.walls.filter(wall => !wallIds.has(wall.id)).length,
+    openings: addById(current.openings, incoming.openings).length,
+    services: addById(current.services, incoming.services).length,
+    objects: addById(current.objects, incoming.objects).length,
+  };
+  const hasDeferredGeometry = Object.values(deferred).some(count => count > 0);
   const changedById = <T extends { id: string }>(previous: T[], next: T[]) => {
     const ids = new Map(previous.map(item => [item.id, item]));
     return next.filter(item => ids.has(item.id) && JSON.stringify(ids.get(item.id)) !== JSON.stringify(item)).length;
@@ -222,27 +219,16 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     + changedById(current.openings, incoming.openings)
     + changedById(current.services, incoming.services)
     + changedById(current.objects, incoming.objects);
-  const chainIds = new Set(current.chains.map(chain => chain.id));
-  const newChains = newWalls.map(wall => {
-    let id = `scan-segment-${wall.id}`;
-    for (let suffix = 2; chainIds.has(id); suffix++) id = `scan-segment-${wall.id}-${suffix}`;
-    chainIds.add(id);
-    return { id, wallIds: [wall.id], closed: false };
-  });
   return {
     document: {
       ...current,
       revision: current.revision + 1,
-      corners: [...current.corners, ...newCorners],
-      walls: [...existingWalls, ...newWalls],
-      chains: [...current.chains, ...newChains],
-      openings: [...current.openings, ...newOpenings],
-      services: [...current.services, ...newServices],
-      objects: [...current.objects, ...newObjects],
-      capture: { ...current.capture, sourceRevision: incoming.capture.sourceRevision ?? current.capture.sourceRevision },
+      walls: existingWalls,
+      capture: { ...current.capture, sourceRevision: hasDeferredGeometry
+        ? current.capture.sourceRevision : incoming.capture.sourceRevision ?? current.capture.sourceRevision },
     },
-    added: { walls: newWalls.length, openings: newOpenings.length,
-      services: newServices.length, objects: newObjects.length },
+    added: { walls: 0, openings: 0, services: 0, objects: 0 },
+    deferred,
     updatedWallEvidence,
     changedExisting,
     cornerConflicts,

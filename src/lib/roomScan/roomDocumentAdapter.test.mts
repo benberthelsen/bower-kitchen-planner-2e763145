@@ -52,18 +52,34 @@ reviewed.floorBoundary = { cornerIds: ['a', 'b', 'c'], confirmed: true };
 const incoming = structuredClone(resolved.document!);
 incoming.capture!.sourceRevision = 'etag-2';
 incoming.corners.push({ id: 'd', xMm: 4200, zMm: 2000 });
-incoming.walls.push({ id: 'angled-wall', startCornerId: 'c', endCornerId: 'd', interiorSide: 'unknown' });
+incoming.walls.push({ id: 'angled-wall', startCornerId: 'b', endCornerId: 'd', interiorSide: 'unknown' });
 incoming.objects.push({ id: 'new-fridge', layer: 'existing', kind: 'fridge',
   placement: { type: 'wall', wallId: 'angled-wall', offsetMm: 300 }, widthMm: 900, depthMm: 650 });
 const update = previewCaptureUpdate(reviewed, incoming);
-assert.deepEqual(update.added, { walls: 1, openings: 0, services: 0, objects: 1 });
+assert.deepEqual(update.added, { walls: 0, openings: 0, services: 0, objects: 0 });
+assert.deepEqual(update.deferred, { walls: 1, openings: 0, services: 0, objects: 1 });
 assert.equal(update.cornerConflicts, 1);
 assert.equal(update.document.walls[0].lengthEvidence?.valueMm, 3264);
 assert.equal(update.document.corners[1].xMm, 3264);
 assert.equal(update.document.floorBoundary?.confirmed, true);
-assert.equal(update.document.chains.at(-1)?.closed, false);
-assert.equal(update.document.objects.find(object => object.id === 'new-fridge')?.placement.type, 'wall');
-assert.equal(update.document.capture?.sourceRevision, 'etag-2');
+assert.equal(update.document.chains.length, reviewed.chains.length);
+assert.equal(update.document.walls.some(wall => wall.id === 'angled-wall'), false);
+assert.equal(update.document.objects.some(object => object.id === 'new-fridge'), false);
+assert.equal(update.document.capture?.sourceRevision, 'etag-1', 'a deferred update remains available for review');
+const otherFrame = structuredClone(incoming);
+otherFrame.corners = [
+  { id: 'new-a', xMm: 10000, zMm: 4000 }, { id: 'new-b', xMm: 12000, zMm: 4000 },
+];
+otherFrame.walls = [{ id: 'unregistered-wall', startCornerId: 'new-a', endCornerId: 'new-b' }];
+otherFrame.objects.push({ id: 'unregistered-island', layer: 'existing', kind: 'island',
+  placement: { type: 'free', xMm: 11000, zMm: 4300, rotationDeg: 0 }, widthMm: 900, depthMm: 600 });
+const held = previewCaptureUpdate(reviewed, otherFrame);
+assert.equal(held.cornerConflicts, 0);
+assert.equal(held.deferred.walls, 1);
+assert.equal(held.deferred.objects, 2);
+assert.equal(held.document.corners.some(corner => corner.id === 'new-a'), false);
+assert.equal(held.document.walls.some(wall => wall.id === 'unregistered-wall'), false);
+assert.equal(held.document.objects.some(object => object.id === 'unregistered-island'), false);
 assert.throws(() => previewCaptureUpdate(reviewed,
   { ...incoming, capture: { captureId: 'another-room' } }), /different room/);
 
