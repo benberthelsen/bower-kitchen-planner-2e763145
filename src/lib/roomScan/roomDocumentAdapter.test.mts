@@ -37,6 +37,48 @@ assert.equal(resolved.document?.walls[1].lengthEvidence?.source, 'inferred');
 assert.equal(resolved.document?.openings[0].wallId, 'cooktop-wall');
 assert.equal(resolved.document?.objects[0].kind, 'cabinet-run');
 assert.equal(resolved.document?.objects[0].elevationMm, 450);
+const photoObservations = roomCaptureDraftV1Schema.parse({
+  ...draft,
+  adapterState: {
+    captureId: 'capture-123', sourceRevision: 'photo-plan-1', reviewKind: 'photo-wall-plan',
+    unresolvedPhotoFeatures: [
+      { id: 'door-photo-1', label: 'Entry door', kind: 'door', layer: 'existing',
+        placement: 'wall', wallId: 'cooktop-wall', photoIds: ['0032', '0033'], needsCheck: true,
+        widthMm: 9999, offsetMm: 100 },
+      { id: 'desk-photo-1', label: 'Computer desk', kind: 'desk', layer: 'existing',
+        placement: 'wall', wallId: 'unregistered-wall', photoIds: ['0052'], needsCheck: true },
+      { id: 'window', label: 'Already placed', kind: 'window', layer: 'existing',
+        placement: 'wall', wallId: 'cooktop-wall', photoIds: ['0032'], needsCheck: true },
+    ],
+  },
+});
+const photoObservationDocument = roomDocumentFromCaptureDraft(photoObservations, 'photo-observations');
+assert.deepEqual(photoObservationDocument.pendingPhotoFeatures, [
+  { id: 'door-photo-1', kind: 'door', label: 'Entry door', status: 'needs-placement-and-size',
+    wallId: 'cooktop-wall', sourceWallId: 'cooktop-wall', placementHint: 'wall',
+    evidenceIds: ['photo:0032', 'photo:0033'] },
+  { id: 'desk-photo-1', kind: 'desk', label: 'Computer desk', status: 'needs-placement-and-size',
+    sourceWallId: 'unregistered-wall', placementHint: 'wall', evidenceIds: ['photo:0052'] },
+]);
+assert.equal(photoObservationDocument.openings.length, 1, 'unresolved door is not a physical opening');
+assert.equal(photoObservationDocument.objects.length, 1, 'unresolved desk is not a physical object');
+assert.deepEqual(JSON.parse(JSON.stringify(photoObservationDocument)).pendingPhotoFeatures,
+  photoObservationDocument.pendingPhotoFeatures, 'photo observations survive room JSON persistence');
+const incomingObservations = structuredClone(photoObservationDocument);
+incomingObservations.capture!.sourceRevision = 'photo-plan-2';
+incomingObservations.pendingPhotoFeatures!.push({ id: 'island-photo-1', kind: 'island', label: 'Island bench',
+  status: 'needs-placement-and-size', placementHint: 'floor', evidenceIds: ['photo:0056'] });
+incomingObservations.pendingPhotoFeatures!.push({ id: 'new-wall-window', kind: 'window', label: 'Other window',
+  status: 'needs-placement-and-size', wallId: 'new-wall', sourceWallId: 'new-wall',
+  placementHint: 'wall', evidenceIds: ['photo:0060'] });
+const observationUpdate = previewCaptureUpdate(photoObservationDocument, incomingObservations);
+assert.equal(observationUpdate.addedPhotoObservations, 2);
+assert.equal(observationUpdate.document.pendingPhotoFeatures?.length, 4);
+assert.equal(observationUpdate.document.pendingPhotoFeatures?.at(-1)?.wallId, undefined,
+  'an unresolved feature does not attach to a wall absent from the saved room');
+assert.equal(observationUpdate.document.pendingPhotoFeatures?.at(-1)?.sourceWallId, 'new-wall');
+assert.equal(observationUpdate.document.capture?.sourceRevision, 'photo-plan-2');
+assert.equal(observationUpdate.document.objects.length, 1, 'new photo observation does not become cabinetry');
 assert.deepEqual(captureDraftReadiness(draft), { wallChains: 1, walls: 2, openChains: 1, canDesignWholeRoom: false });
 assert.equal(captureDraftRelation(draft,draft),'same-revision');
 const laterReview=structuredClone(draft);

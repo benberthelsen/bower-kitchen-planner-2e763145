@@ -1,7 +1,7 @@
 /** Keep scanner drafts in the planner's wall model without inventing a room
  * boundary. The original RoomCaptureDraft remains attached to the handoff for
  * authorized evidence retrieval and later reprocessing. */
-import type { RoomDocumentV1, RoomCorner, RoomWall, RoomWallChain, RoomOpening, RoomService, RoomObject, DimensionSource } from '../roomDocument/types';
+import type { RoomDocumentV1, RoomCorner, RoomWall, RoomWallChain, RoomOpening, RoomService, RoomObject, PendingPhotoFeature, DimensionSource } from '../roomDocument/types';
 import { createRoomDocument } from '../roomDocument';
 import type { RoomCaptureDraftV1, RoomScanV1 } from './contract';
 
@@ -64,6 +64,38 @@ function sourceOf(chain: DraftChain): DimensionSource {
   // A chain-wide claim cannot establish which individual lengths were checked.
   // Only wallMeasurements can promote a wall length to site-measured.
   return chain.provenance === 'measured' ? 'unknown' : chain.provenance ?? 'unknown';
+}
+
+/** Adapter state is untrusted JSON from the scanner. Keep an explicit,
+ * bounded evidence-only copy rather than inventing opening/object geometry. */
+function pendingPhotoFeaturesFromState(state: unknown, knownWallIds: Set<string>, placedIds: Set<string>): PendingPhotoFeature[] {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return [];
+  const records = (state as Record<string, unknown>).unresolvedPhotoFeatures;
+  if (!Array.isArray(records)) return [];
+  const result: PendingPhotoFeature[] = [], seen = new Set<string>();
+  const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0
+    && value.length <= max ? value.trim() : undefined;
+  for (const raw of records.slice(0, 128)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const item = raw as Record<string, unknown>;
+    const id = text(item.id, 64), kind = text(item.kind, 80);
+    if (!id || !kind || item.needsCheck !== true || item.layer !== 'existing'
+      || seen.has(id) || placedIds.has(id)) continue;
+    const label = text(item.label, 160) ?? kind.replace(/[-_]/g, ' ');
+    const sourceWallId = text(item.wallId, 64);
+    const photoIds = Array.isArray(item.photoIds) ? item.photoIds : item.photoId ? [item.photoId] : [];
+    const evidenceIds = [...new Set(photoIds.slice(0, 32).flatMap(value => {
+      const photoId = text(value, 64);
+      return photoId && /^[A-Za-z0-9_-]+$/.test(photoId) ? [`photo:${photoId}`] : [];
+    }))];
+    const hint = item.placement;
+    result.push({ id, kind, label, status: 'needs-placement-and-size', evidenceIds,
+      ...(sourceWallId ? { sourceWallId, ...(knownWallIds.has(sourceWallId) ? { wallId: sourceWallId } : {}) } : {}),
+      ...(hint === 'wall' || hint === 'floor' || hint === 'unlocated' ? { placementHint: hint } : {}),
+    });
+    seen.add(id);
+  }
+  return result;
 }
 
 /** Converts both new explicit chains and legacy V1 corners. A closed *draft*
@@ -157,6 +189,9 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
       document.objects.push(object);
     }
   }
+  const physicalIds = new Set([...document.openings, ...document.services, ...document.objects].map(item => item.id));
+  const pending = pendingPhotoFeaturesFromState(draft.adapterState, wallIds, physicalIds);
+  if (pending.length) document.pendingPhotoFeatures = pending;
   return document;
 }
 
@@ -165,6 +200,7 @@ export interface CaptureUpdatePreview {
   added: { walls: number; openings: number; services: number; objects: number };
   deferred: { walls: number; openings: number; services: number; objects: number };
   updatedWallEvidence: number;
+  addedPhotoObservations: number;
   changedExisting: number;
   cornerConflicts: number;
 }
@@ -219,17 +255,35 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     + changedById(current.openings, incoming.openings)
     + changedById(current.services, incoming.services)
     + changedById(current.objects, incoming.objects);
+  // Evidence-only observations are safe to append; they cannot change room
+  // geometry or cabinet clearances. Keep existing records and user edits.
+  const knownPendingIds = new Set((current.pendingPhotoFeatures ?? []).map(item => item.id));
+  const physicalIds = new Set([...current.openings, ...current.services, ...current.objects].map(item => item.id));
+  const addedPending: PendingPhotoFeature[] = [];
+  for (const item of incoming.pendingPhotoFeatures ?? []) {
+    if (knownPendingIds.has(item.id) || physicalIds.has(item.id)) continue;
+    // New walls are deferred until their coordinate frame is verified. Their
+    // photo observations may appear in the review list, but are not attached
+    // to a wall that does not exist in the saved room.
+    if (item.wallId && !wallIds.has(item.wallId)) {
+      const { wallId, ...unmatched } = item;
+      addedPending.push({ ...unmatched, sourceWallId: item.sourceWallId ?? wallId });
+    } else addedPending.push(structuredClone(item));
+    knownPendingIds.add(item.id);
+  }
   return {
     document: {
       ...current,
       revision: current.revision + 1,
       walls: existingWalls,
+      ...(addedPending.length ? { pendingPhotoFeatures: [...(current.pendingPhotoFeatures ?? []), ...addedPending] } : {}),
       capture: { ...current.capture, sourceRevision: hasDeferredGeometry
         ? current.capture.sourceRevision : incoming.capture.sourceRevision ?? current.capture.sourceRevision },
     },
     added: { walls: 0, openings: 0, services: 0, objects: 0 },
     deferred,
     updatedWallEvidence,
+    addedPhotoObservations: addedPending.length,
     changedExisting,
     cornerConflicts,
   };

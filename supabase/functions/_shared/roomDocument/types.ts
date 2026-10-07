@@ -105,6 +105,21 @@ export interface RoomObject {
   evidenceIds?: string[];
 }
 
+/** A photographed feature with no trustworthy size or physical pose yet.
+ * It must not participate in openings, object footprints or clearances. */
+export interface PendingPhotoFeature {
+  id: string;
+  kind: string;
+  label: string;
+  status: 'needs-placement-and-size';
+  /** A matching wall in this document, only when its ID is known here. */
+  wallId?: string;
+  /** Original scan reference, retained even if that wall is not registered. */
+  sourceWallId?: string;
+  placementHint?: 'wall' | 'floor' | 'unlocated';
+  evidenceIds: string[];
+}
+
 export interface RoomDocumentV1 {
   version: 1;
   id: string;
@@ -118,6 +133,7 @@ export interface RoomDocumentV1 {
   openings: RoomOpening[];
   services: RoomService[];
   objects: RoomObject[];
+  pendingPhotoFeatures?: PendingPhotoFeature[];
   capture?: { captureId: string; source?: string; sourceRevision?: string; photoIds?: string[] };
   /** JSON snapshot of the record before its first migration. */
   legacySnapshot?: unknown;

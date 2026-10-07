@@ -299,7 +299,7 @@ export default function JobEditor() {
   const acceptScanUpdate = async () => {
     if (!jobId || !scanUpdate || scanUpdate.status !== 'review' || isLocked) return;
     const { room, preview } = scanUpdate;
-    if (preview.updatedWallEvidence === 0) return;
+    if (preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0) return;
     const bounds = derivedLegacyBounds(preview.document);
     const updatedRoom: TradeRoom = { ...room, roomDocument: preview.document,
       config: bounds ? { ...room.config, width: Math.max(1, Math.round(bounds.widthMm)),
@@ -589,18 +589,22 @@ export default function JobEditor() {
               <p className="mt-2">It also adds outline evidence to {scanUpdate.preview.updatedWallEvidence} existing
                 {' '}walls whose corners have not changed. Checked lengths and your edits stay as they are.</p>
             )}
+            {scanUpdate.preview.addedPhotoObservations > 0 && (
+              <p className="mt-2">It adds {scanUpdate.preview.addedPhotoObservations} photo observations to the review list.
+                {' '}Their positions and sizes remain unresolved; they do not change the plan or cabinet clearances.</p>
+            )}
             {(scanUpdate.preview.changedExisting > 0 || scanUpdate.preview.cornerConflicts > 0) && (
               <p className="mt-2">{scanUpdate.preview.changedExisting} changed existing features and
                 {' '}{scanUpdate.preview.cornerConflicts} corner differences need manual review; they will not overwrite your edits.</p>
             )}
-            {scanUpdate.preview.updatedWallEvidence === 0 && (
+            {scanUpdate.preview.updatedWallEvidence === 0 && scanUpdate.preview.addedPhotoObservations === 0 && (
               <p className="mt-2">No new finding can be placed safely in this room yet. Keep the current room and
                 review the newer scan separately.</p>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-              {scanUpdate.preview.updatedWallEvidence > 0 && (
+              {(scanUpdate.preview.updatedWallEvidence > 0 || scanUpdate.preview.addedPhotoObservations > 0) && (
                 <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
-                  Add matching wall evidence
+                  Add safe scan evidence
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setScanUpdateDismissed(true)}>

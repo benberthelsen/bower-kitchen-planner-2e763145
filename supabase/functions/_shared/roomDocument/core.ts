@@ -4,7 +4,7 @@
  * scanner and planner can validate the same millimetre document. */
 export type {
   RoomPoint, DimensionSource, DimensionValue, WallGeometryEvidence, RoomCorner, RoomWall, RoomWallChain,
-  ConfirmedFloorBoundary, RoomOpening, RoomPlacement, RoomService, RoomObject,
+  ConfirmedFloorBoundary, RoomOpening, RoomPlacement, RoomService, RoomObject, PendingPhotoFeature,
   RoomDocumentV1, RoomEdit, RoomIssue, RoomEditResult,
 } from './types.ts';
 export {

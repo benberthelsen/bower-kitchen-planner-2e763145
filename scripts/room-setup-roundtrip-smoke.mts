@@ -8,6 +8,10 @@ import type { TradeRoom } from '../src/types/trade';
 const source = createRoomDocument('open-kitchen', 'Open kitchen');
 const edited = applyRoomEdit(source, { type: 'add-wall', lengthMm: 1645, angleDeg: 45, wallId: 'angled' });
 assert.equal(edited.applied, true);
+edited.document.pendingPhotoFeatures = [{
+  id: 'photo-window', kind: 'window', label: 'Window beside sink', status: 'needs-placement-and-size',
+  wallId: 'angled', sourceWallId: 'angled', evidenceIds: ['photo:0032'],
+}];
 
 const config: WizardRoomConfig = {
   name: 'Eight Hibiscus kitchen', description: 'Three photographed walls', shape: 'custom', roomDocument: edited.document,
@@ -42,6 +46,8 @@ const room: TradeRoom = {
 };
 
 const reopened = toRoomConfig(JSON.parse(JSON.stringify(room)) as TradeRoom);
+assert.deepEqual(reopened.roomDocument?.pendingPhotoFeatures, edited.document.pendingPhotoFeatures,
+  'unplaced photo observations survive saved room setup');
 for (const key of Object.keys(config) as (keyof WizardRoomConfig)[]) {
   // Rectangle width/depth are explicitly derived compatibility values for custom walls.
   if (key === 'roomWidth' || key === 'roomDepth') continue;

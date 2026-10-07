@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { wallEvidenceAppearance, wallGeometrySource } from '@/lib/roomDocument/wallEvidenceAppearance';
+import { wallEditForPlanClick, type WallConnection } from './roomPlanPlacement';
 import './RoomDocumentEditor.css';
 import {
   applyRoomEdit,
@@ -18,6 +19,7 @@ import {
   type RoomIssue,
   type RoomService,
   type RoomWall,
+  type RoomPoint,
   type DimensionSource,
 } from '@/lib/roomDocument';
 
@@ -79,6 +81,9 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   const [newStartZ, setNewStartZ] = useState<number | null>(null);
   const [splitOffsets, setSplitOffsets] = useState<Record<string, number>>({});
   const [addEnd, setAddEnd] = useState<'start' | 'end' | 'separate'>('end');
+  const [planMode, setPlanMode] = useState<'select' | 'draw-walls' | 'floor-drain' | 'floor-gpo'>('select');
+  const [pendingWallStart, setPendingWallStart] = useState<RoomPoint | null>(null);
+  const [planMessage, setPlanMessage] = useState('');
   const [showOpenings, setShowOpenings] = useState(true);
   const [showObjects, setShowObjects] = useState(true);
   const [showServices, setShowServices] = useState(true);
@@ -91,6 +96,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
       setPast([]); setFuture([]); setIssues([]);
       setSplitOffsets({});
       setNewStartX(null); setNewStartZ(null);
+      setPlanMode('select'); setPendingWallStart(null); setPlanMessage('');
       setSelectedWallId(document.walls[0]?.id ?? null);
       setSelectedOpeningId(null);
       setSelectedServiceId(null);
@@ -146,24 +152,68 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   };
   const bounds = useMemo(() => {
     const xs = points.map(point => point.xMm), zs = points.map(point => point.zMm);
-    const minX = Math.min(0, ...xs), maxX = Math.max(1000, ...xs);
-    const minZ = Math.min(0, ...zs), maxZ = Math.max(1000, ...zs);
+    // Keep a useful six-metre drawing area even before the first wall exists.
+    // Actual geometry expands the view when it extends beyond that area.
+    const minX = Math.min(0, ...xs), maxX = Math.max(6000, ...xs);
+    const minZ = Math.min(0, ...zs), maxZ = Math.max(6000, ...zs);
     const scale = (SIZE - PAD * 2) / Math.max(maxX - minX, maxZ - minZ, 1);
     return { minX, minZ, scale, xPad: (SIZE - (maxX - minX) * scale) / 2, zPad: (SIZE - (maxZ - minZ) * scale) / 2 };
   }, [points]);
   const px = (xMm: number) => bounds.xPad + (xMm - bounds.minX) * bounds.scale;
   const py = (zMm: number) => bounds.zPad + (zMm - bounds.minZ) * bounds.scale;
   const byId = (id: string) => dragCorner?.id === id ? dragCorner : document.corners.find(corner => corner.id === id);
-  const dragPoint = (event: React.PointerEvent<SVGCircleElement>) => {
-    const svg = event.currentTarget.ownerSVGElement;
+  const pointOnPlan = (clientX: number, clientY: number, svg: SVGSVGElement | null) => {
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
-    const x = (event.clientX - rect.left) * SIZE / rect.width;
-    const z = (event.clientY - rect.top) * SIZE / rect.height;
+    if (!rect.width || !rect.height) return null;
+    const x = (clientX - rect.left) * SIZE / rect.width;
+    const z = (clientY - rect.top) * SIZE / rect.height;
     return {
       xMm: Math.round((bounds.minX + (x - bounds.xPad) / bounds.scale) / 10) * 10,
       zMm: Math.round((bounds.minZ + (z - bounds.zPad) / bounds.scale) / 10) * 10,
     };
+  };
+  const dragPoint = (event: React.PointerEvent<SVGCircleElement>) =>
+    pointOnPlan(event.clientX, event.clientY, event.currentTarget.ownerSVGElement);
+
+  const choosePlanMode = (mode: typeof planMode) => {
+    setPlanMode(current => current === mode ? 'select' : mode);
+    setPendingWallStart(null);
+    setPlanMessage('');
+  };
+  const clickPlan = (event: React.MouseEvent<SVGRectElement>) => {
+    if (planMode === 'select') return;
+    const point = pointOnPlan(event.clientX, event.clientY, event.currentTarget.ownerSVGElement);
+    if (!point) return;
+    if (planMode === 'floor-drain' || planMode === 'floor-gpo') {
+      const kind: RoomService['kind'] = planMode === 'floor-drain' ? 'drain' : 'gpo';
+      const service: RoomService = {
+        id: crypto.randomUUID(), kind,
+        placement: { type: 'free', xMm: point.xMm, zMm: point.zMm, rotationDeg: 0 },
+        heightMm: kind === 'drain' ? 0 : 300,
+      };
+      if (apply({ type: 'upsert-service', service })) {
+        setSelectedServiceId(service.id);
+        setSelectedOpeningId(null); setSelectedObjectId(null);
+        setPlanMode('select'); setPlanMessage('');
+      }
+      return;
+    }
+    const wallId = crypto.randomUUID();
+    const outcome = wallEditForPlanClick(document, wall?.id ?? null, addEnd as WallConnection,
+      point, pendingWallStart, wallId);
+    if (outcome.kind === 'error') { setPlanMessage(outcome.message); return; }
+    if (outcome.kind === 'start') {
+      setPendingWallStart(outcome.point);
+      setPlanMessage('Tap again to place the wall endpoint.');
+      return;
+    }
+    if (apply(outcome.edit)) {
+      setSelectedWallId(wallId);
+      setPendingWallStart(null);
+      setAddEnd('end');
+      setPlanMessage('Wall added. Tap again to continue this open wall run.');
+    }
   };
 
   const makeOpening = (kind: RoomOpening['kind']) => {
@@ -191,6 +241,10 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   };
   const changeService = (patch: Partial<RoomService>) => {
     if (selectedService) apply({ type: 'upsert-service', service: { ...selectedService, ...patch } });
+  };
+  const changeFreeServicePlacement = (patch: Partial<Extract<RoomPlacement, { type: 'free' }>>) => {
+    if (selectedService?.placement.type !== 'free') return;
+    changeService({ placement: { ...selectedService.placement, ...patch } });
   };
   const addExistingObject = () => {
     if (!wall || !geometry) return;
@@ -244,6 +298,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   const selectedWallAppearance = wallEvidenceAppearance(wall
     ? wallGeometrySource(wall, Boolean(document.capture)) : undefined);
   return <section className={cn('room-document-editor min-w-0 w-full', className)} aria-label="Editable room plan" onKeyDown={event => {
+    if (event.key === 'Escape' && planMode !== 'select') { setPlanMode('select'); setPendingWallStart(null); setPlanMessage(''); }
     if ((event.ctrlKey || event.metaKey) && !['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement).tagName)) {
       if (event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
       if (event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
@@ -255,15 +310,28 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
     </div>
     <div className="room-document-editor__body">
       <div className="min-w-0 space-y-3">
+        <div className="flex flex-wrap gap-2" aria-label="Plan drawing tools">
+          <Button type="button" size="sm" variant={planMode === 'draw-walls' ? 'default' : 'outline'} aria-pressed={planMode === 'draw-walls'}
+            onClick={() => choosePlanMode('draw-walls')}>Draw walls on plan</Button>
+          <Button type="button" size="sm" variant={planMode === 'floor-drain' ? 'default' : 'outline'} aria-pressed={planMode === 'floor-drain'}
+            onClick={() => choosePlanMode('floor-drain')}>Place floor drain</Button>
+          <Button type="button" size="sm" variant={planMode === 'floor-gpo' ? 'default' : 'outline'} aria-pressed={planMode === 'floor-gpo'}
+            onClick={() => choosePlanMode('floor-gpo')}>Place floor power point</Button>
+        </div>
+        {planMode !== 'select' && <p className="text-xs text-trade-navy" role="status">{planMessage || (planMode === 'draw-walls'
+          ? !document.walls.length || addEnd === 'separate' ? 'Tap a start point, then an endpoint. Each later tap extends the open wall run.' : 'Tap the next endpoint to extend the selected open wall run.'
+          : 'Tap the floor plan where this service is located. Press Escape to cancel.')}</p>}
         <div className="relative max-w-[480px]">
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="block aspect-square h-auto w-full rounded-lg border border-trade-border bg-slate-50 touch-none" aria-label="Room floor plan">
+        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className={cn('block aspect-square h-auto w-full rounded-lg border border-trade-border bg-slate-50 touch-none', planMode !== 'select' && 'cursor-crosshair')} aria-label="Room floor plan">
           <defs>{evidenceSources.map(source => {
             const appearance = wallEvidenceAppearance(source);
             return <marker key={source} id={`room-wall-arrow-${source}`} markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
               <path d="M1 1 L7 4 L1 7" fill="none" stroke={appearance.planColor} strokeWidth="1.5" />
             </marker>;
           })}</defs>
-          {document.floorBoundary && <polygon points={document.floorBoundary.cornerIds.map(id => byId(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)).map(p => `${px(p.xMm)},${py(p.zMm)}`).join(' ')} fill="#d1fae5" fillOpacity="0.55" stroke="none" />}
+          <rect x="0" y="0" width={SIZE} height={SIZE} fill="transparent" onClick={clickPlan} aria-hidden="true" />
+          {document.floorBoundary && <polygon points={document.floorBoundary.cornerIds.map(id => byId(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)).map(p => `${px(p.xMm)},${py(p.zMm)}`).join(' ')} fill="#d1fae5" fillOpacity="0.55" stroke="none" pointerEvents="none" />}
+          {pendingWallStart && <circle cx={px(pendingWallStart.xMm)} cy={py(pendingWallStart.zMm)} r="6" fill="#0f766e" stroke="#fff" strokeWidth="2" pointerEvents="none" />}
           {document.walls.map((item, index) => {
             const a = byId(item.startCornerId), b = byId(item.endCornerId);
             if (!a || !b) return null;
@@ -364,6 +432,23 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           <label><input type="checkbox" checked={showObjects} onChange={event => setShowObjects(event.target.checked)} /> Existing / proposed</label>
           <label><input type="checkbox" checked={showServices} onChange={event => setShowServices(event.target.checked)} /> Services</label>
         </div>
+        {!!document.pendingPhotoFeatures?.length && <section className="rounded-lg border border-amber-300 bg-amber-50 p-3" aria-label="Photo observations needing review">
+          <h5 className="font-semibold text-amber-950">Seen in photos · needs placement/size</h5>
+          <p className="mt-1 text-xs text-amber-900">These are observations only. They are not placed doors, windows, services or objects, and do not affect cabinet clearances.</p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {document.pendingPhotoFeatures.map(feature => {
+              const wallIndex = feature.wallId ? document.walls.findIndex(item => item.id === feature.wallId) : -1;
+              const wallLabel = wallIndex >= 0 ? `Wall ${wallIndex + 1} · ${feature.wallId}`
+                : feature.sourceWallId ? `Source wall ${feature.sourceWallId} · not matched to this plan`
+                  : 'Wall not identified';
+              return <li key={feature.id} className="rounded border border-amber-200 bg-white p-2">
+                <span className="font-medium text-trade-navy">{feature.label}</span>
+                <span className="block text-xs text-slate-600">{feature.kind} · {wallLabel}</span>
+                <span className="block text-xs text-slate-600">Evidence: {feature.evidenceIds.length ? feature.evidenceIds.join(', ') : 'Photo citation retained in source scan'}</span>
+              </li>;
+            })}
+          </ul>
+        </section>}
         {!document.floorBoundary && <p className="text-xs text-amber-800">
           {document.chains.some(item => !item.closed)
             ? 'This wall survey is open. Missing walls and the floor area remain unconfirmed.'
@@ -434,6 +519,10 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           <h5 className="font-semibold text-trade-navy">{selectedService.kind}</h5>
           <div className="grid grid-cols-2 gap-2">
             {selectedService.placement.type === 'wall' && <NumberField id="service-offset" label="From wall start (mm)" value={selectedService.placement.offsetMm} min={0} onCommit={offsetMm => changeService({ placement: { type: 'wall', wallId: selectedService.placement.type === 'wall' ? selectedService.placement.wallId : wall?.id ?? '', offsetMm } })} />}
+            {selectedService.placement.type === 'free' && <>
+              <NumberField id="service-x" label="X on plan (mm)" value={selectedService.placement.xMm} onCommit={xMm => changeFreeServicePlacement({ xMm })} />
+              <NumberField id="service-z" label="Z on plan (mm)" value={selectedService.placement.zMm} onCommit={zMm => changeFreeServicePlacement({ zMm })} />
+            </>}
             <NumberField id="service-height" label="Height above floor (mm)" value={selectedService.heightMm} min={0} onCommit={heightMm => changeService({ heightMm })} />
           </div>
           <Button type="button" size="sm" variant="outline" onClick={() => { apply({ type: 'delete-service', serviceId: selectedService.id }); setSelectedServiceId(null); }}>Remove service</Button>
