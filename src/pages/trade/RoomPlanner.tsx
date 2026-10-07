@@ -104,6 +104,9 @@ export default function RoomPlanner() {
   const [showRoomEditor, setShowRoomEditor] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'catalog' | 'cabinets' | null>(null);
   const [scannerSession] = useState(() => captureScannerSession());
+  useEffect(() => {
+    if (userType === 'consumer' && currentRoom?.roomDocument?.capture?.captureId) setShowCatalog(false);
+  }, [userType, currentRoom?.roomDocument?.capture?.captureId]);
   const [selectedWallRunId, setSelectedWallRunId] = useState<string | null>(null);
   const [includeSuggestedIsland, setIncludeSuggestedIsland] = useState(false);
   // Open in 2D top-down for layout (drag maps 1:1 to the cursor); 3D is for viewing.
@@ -1171,7 +1174,7 @@ export default function RoomPlanner() {
               aria-expanded={mobilePanel === 'catalog'}
             >
               <PanelLeft className="mr-1 h-4 w-4" />
-              Catalog
+              {userType === 'consumer' ? 'Add cabinet' : 'Catalog'}
             </Button>
             {/* Opening conflicts (master plan §8.2): warn-only, never blocks.
                 Recomputes via useMemo on every placement/edit/undo change. */}
@@ -1257,7 +1260,7 @@ export default function RoomPlanner() {
 
             <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => setShowCatalog(!showCatalog)}>
               {showCatalog ? <PanelLeftClose className="w-4 h-4 mr-1" /> : <PanelLeft className="w-4 h-4 mr-1" />}
-              Catalog
+              {userType === 'consumer' ? (showCatalog ? 'Hide cabinet choices' : 'Add cabinet') : 'Catalog'}
             </Button>
 
             <Button variant={showRoomEditor ? 'default' : 'outline'} size="sm" className="order-first shrink-0 md:order-none" disabled={isPriceLocked}

@@ -124,6 +124,12 @@ const defaultConfig: RoomConfig = {
   baseTopMargin: 3,
 };
 
+/** Use the same room defaults when a reviewed scan opens the cabinet planner
+ * directly. The room document remains the authoritative wall geometry. */
+export function roomConfigWithDefaults(initialConfig: Partial<RoomConfig>): RoomConfig {
+  return { ...defaultConfig, ...initialConfig };
+}
+
 const steps = [
   { id: 1, name: 'Room Shape', shortName: 'Shape' },
   { id: 2, name: 'Room Features', shortName: 'Features' },
@@ -142,7 +148,7 @@ interface RoomSetupWizardProps {
 
 export default function RoomSetupWizard({ onComplete, onCancel, initialConfig, legacyRoom }: RoomSetupWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [config, setConfig] = useState<RoomConfig>({ ...defaultConfig, ...initialConfig });
+  const [config, setConfig] = useState<RoomConfig>(() => roomConfigWithDefaults(initialConfig ?? {}));
 
   const updateConfig = (updates: Partial<RoomConfig>) => {
     setConfig(prev => ({ ...prev, ...updates }));

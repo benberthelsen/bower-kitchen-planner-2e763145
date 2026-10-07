@@ -4,7 +4,7 @@ import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, Clock, CheckCir
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
-import RoomSetupWizard, { RoomConfig } from './components/RoomSetupWizard';
+import RoomSetupWizard, { roomConfigWithDefaults, type RoomConfig } from './components/RoomSetupWizard';
 import { useTradeRoom, TradeRoom } from '@/contexts/TradeRoomContext';
 import { TradeJobStatus, TRADE_JOB_STATUS_LABELS, isTradeJobStatus } from '@/types/trade';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
@@ -16,6 +16,8 @@ import { derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } fro
 import { readWizardRoomHandoff } from '@/lib/homeowner/wizardRoomHandoff';
 import { legacyRoomConfig, roomDimensions, roomSetupExtras, toRoomConfig } from '@/lib/trade/roomSetupMapping';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
+import { useAuth } from '@/hooks/useAuth';
+import { consumerScannerRoomConfig, consumerScannerRoomForFastPath } from '@/lib/trade/consumerScannerHandoff';
 import { JobNotes } from '@/components/shared/JobNotes';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -102,6 +104,7 @@ export default function JobEditor() {
   const { jobId } = useParams();
   const navigate = useNavigate();
   const isNewJob = jobId === 'new';
+  const { userType } = useAuth();
 
   // WS5 Phase 3: website → planner starter-design handoff (?handoff=<id>).
   const [searchParams] = useSearchParams();
@@ -145,6 +148,8 @@ export default function JobEditor() {
   const [scanUpdateSaving, setScanUpdateSaving] = useState(false);
   const [scanUpdateDismissed, setScanUpdateDismissed] = useState(false);
   const [existingCaptureRoom, setExistingCaptureRoom] = useState<ExistingCaptureRoom | null>(null);
+  const [showAdvancedScanSetup, setShowAdvancedScanSetup] = useState(false);
+  const [creatingConsumerRoom, setCreatingConsumerRoom] = useState(false);
 
   // Derive current job status & locked state
   const _jobData = jobQuery.data as { name?: string; status?: string; design_data?: Record<string, unknown> } | undefined;
@@ -234,6 +239,13 @@ export default function JobEditor() {
     // retaining the handoff's other room settings and capture reference.
     return { ...cfg, ...wizardConfig };
   }, [handoffPayload, handoffId, isNewJob, catalogMaterials, wizardRoom]);
+
+  // A consumer's saved scan already has an editable RoomDocument. Let them
+  // review that room and open the existing cabinet planner in one step;
+  // detailed room setup remains available when they choose it.
+  const consumerScannerRoom = consumerScannerRoomForFastPath({
+    userType, isNewJob, importingWizardRoom, initialConfig: handoffInitialConfig,
+  });
 
   // Both homeowner wall plans and tokenized scanner handoffs can import the
   // same capture. Surface the saved room before setup, then repeat the check
@@ -531,6 +543,17 @@ export default function JobEditor() {
     setEditingRoom(null);
   };
 
+  const openConsumerCabinetPlanner = async () => {
+    if (!consumerScannerRoom || !handoffInitialConfig || creatingConsumerRoom || existingCaptureRoom) return;
+    setCreatingConsumerRoom(true);
+    try {
+      await handleRoomComplete(consumerScannerRoomConfig(
+        roomConfigWithDefaults({}), handoffInitialConfig, consumerScannerRoom));
+    } finally {
+      setCreatingConsumerRoom(false);
+    }
+  };
+
   const handleRoomCancel = () => {
     if (isNewJob && displayRooms.length === 0) {
       navigate('/trade/dashboard');
@@ -550,7 +573,7 @@ export default function JobEditor() {
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
         {existingCaptureRoom && (
           <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
-            This scan already has a trade room. The current wizard edits have not overwritten that saved room.
+            This scan already has a saved kitchen plan. Your room changes have not overwritten it.
             <div className="mt-3"><Button variant="outline" onClick={() => openExistingCaptureRoom(existingCaptureRoom)}>Review saved room</Button></div>
           </div>
         )}
@@ -834,7 +857,31 @@ export default function JobEditor() {
               {!handoffLoading && handoffError &&
                 <div className="mt-3"><Button variant="outline" onClick={retryHandoff}>Retry handoff</Button></div>}
             </div>
-          ) : <RoomSetupWizard key={editingRoom?.id ?? handoffId ?? 'new'} onComplete={handleRoomComplete} onCancel={handleRoomCancel} initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} legacyRoom={editingRoom} />
+          ) : consumerScannerRoom && !showAdvancedScanSetup ? (
+            <section className="mx-auto max-w-xl rounded-xl border border-trade-border bg-white p-5 space-y-4" aria-label="Open your kitchen plan">
+              <div>
+                <h2 className="text-xl font-semibold text-trade-navy">Your room is ready to design</h2>
+                <p className="mt-2 text-sm text-slate-700">
+                  {consumerScannerRoom.walls.length} wall{consumerScannerRoom.walls.length === 1 ? '' : 's'} from your saved scan,
+                  {' '}{consumerScannerRoom.walls.filter(wall => wall.lengthEvidence?.source === 'measured').length} with a measured length.
+                  You can adjust walls and cabinets in the next view.
+                </p>
+                {!consumerScannerRoom.floorBoundary && <p className="mt-2 text-sm text-amber-800">
+                  The room outline is still an estimate. Check it before ordering cabinets.
+                </p>}
+              </div>
+              <Button className="w-full bg-trade-navy hover:bg-trade-navy-light text-white"
+                disabled={creatingConsumerRoom || Boolean(existingCaptureRoom)}
+                onClick={() => void openConsumerCabinetPlanner()}>
+                {creatingConsumerRoom ? 'Opening your kitchen…' : 'Continue to cabinets'}
+              </Button>
+              <Button variant="ghost" className="w-full" onClick={() => setShowAdvancedScanSetup(true)}>
+                Advanced room setup
+              </Button>
+            </section>
+          ) : <RoomSetupWizard key={editingRoom?.id ?? handoffId ?? 'new'} onComplete={handleRoomComplete}
+            onCancel={consumerScannerRoom ? () => setShowAdvancedScanSetup(false) : handleRoomCancel}
+            initialConfig={editingRoom ? toRoomConfig(editingRoom) : handoffInitialConfig} legacyRoom={editingRoom} />
         ) : displayRooms.length > 0 ? (
           <div className="space-y-6">
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
