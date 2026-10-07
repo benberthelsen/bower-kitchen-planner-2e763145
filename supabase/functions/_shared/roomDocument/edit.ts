@@ -24,6 +24,26 @@ function wallFor(doc: RoomDocumentV1, wallId: string): RoomWall | null {
   return doc.walls.find(wall => wall.id === wallId) ?? null;
 }
 
+const editedOutlineEvidence = () => ({ source: 'unknown' as const,
+  reason: 'Wall outline changed in the planner; verify its position and angle.' });
+
+function invalidateMovedWallEvidence(before: RoomDocumentV1, after: RoomDocumentV1): void {
+  const previousWalls = new Map(before.walls.map(wall => [wall.id, wall]));
+  const previousCorners = new Map(before.corners.map(corner => [corner.id, corner]));
+  const nextCorners = new Map(after.corners.map(corner => [corner.id, corner]));
+  for (const wall of after.walls) {
+    if (!wall.geometryEvidence) continue;
+    const previous = previousWalls.get(wall.id);
+    if (!previous) continue;
+    const changed = previous.startCornerId !== wall.startCornerId || previous.endCornerId !== wall.endCornerId
+      || [wall.startCornerId, wall.endCornerId].some(id => {
+        const oldCorner = previousCorners.get(id), nextCorner = nextCorners.get(id);
+        return !oldCorner || !nextCorner || oldCorner.xMm !== nextCorner.xMm || oldCorner.zMm !== nextCorner.zMm;
+      });
+    if (changed) wall.geometryEvidence = editedOutlineEvidence();
+  }
+}
+
 function movedMeasuredWall(before: RoomDocumentV1, after: RoomDocumentV1, exemptWallId?: string): string | null {
   for (const wall of before.walls) {
     if (wall.id === exemptWallId || wall.lengthEvidence?.source !== 'measured') continue;
@@ -129,7 +149,8 @@ function splitWall(doc: RoomDocumentV1, edit: Extract<RoomEdit, { type: 'split-w
   doc.corners.push({ id: newCornerId,
     xMm: geometry.start.xMm + geometry.tangent.xMm * edit.offsetMm,
     zMm: geometry.start.zMm + geometry.tangent.zMm * edit.offsetMm });
-  const nextWall: RoomWall = { ...clone(wall), id: newWallId, startCornerId: newCornerId, endCornerId: formerEndId, lengthEvidence: undefined };
+  const nextWall: RoomWall = { ...clone(wall), id: newWallId, startCornerId: newCornerId, endCornerId: formerEndId,
+    geometryEvidence: wall.geometryEvidence ? editedOutlineEvidence() : undefined, lengthEvidence: undefined };
   wall.endCornerId = newCornerId;
   wall.lengthEvidence = undefined;
   doc.walls.push(nextWall);
@@ -249,6 +270,7 @@ export function applyRoomEdit(doc: RoomDocumentV1, edit: RoomEdit): RoomEditResu
     if (changedMeasured) failure = `Wall ${changedMeasured} has a confirmed measured length. Adjust or clear that constraint first.`;
   }
   if (failure) return { document: previous, previous, issues: [error(failure, subjectId)], applied: false };
+  invalidateMovedWallEvidence(previous, next);
   const issues = validateRoomDocument(next);
   if (issues.some(item => item.severity === 'error')) return { document: previous, previous, issues, applied: false };
   next.revision += 1;

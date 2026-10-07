@@ -30,10 +30,12 @@ export const SITES_LOCK_REL = 'app-source/lib/roomScan/contract.lock.json';
  */
 export function resolveWebsiteRepo() {
   const explicit = process.env.WEBSITE_REPO;
+  const siblingWebsite = resolve('../bower-cabinet-web-site');
   const siblingSites = resolve('../bower-sites-source');
   const siteRepo = explicit || (existsSync(join(WEBSITE_REPO_DEFAULT, 'package.json'))
     ? WEBSITE_REPO_DEFAULT
-    : existsSync(join(siblingSites, 'package.json')) ? siblingSites : WEBSITE_REPO_DEFAULT);
+    : existsSync(join(siblingWebsite, 'package.json')) ? siblingWebsite
+      : existsSync(join(siblingSites, 'package.json')) ? siblingSites : WEBSITE_REPO_DEFAULT);
   const sitesLayout = existsSync(join(siteRepo, 'app-source'));
   return {
     siteRepo,

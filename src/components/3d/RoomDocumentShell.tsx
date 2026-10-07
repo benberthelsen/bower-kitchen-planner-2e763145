@@ -4,6 +4,7 @@ import { Edges } from '@react-three/drei';
 import type { GlobalDimensions, PlacedItem } from '@/types';
 import type { RoomDocumentV1 } from '@/lib/roomDocument';
 import { placementPose } from '@/lib/roomDocument/geometry';
+import { wallEvidenceAppearance, wallGeometrySource } from '@/lib/roomDocument/wallEvidenceAppearance';
 import { existingObjectVisual, type ExistingObjectVisual } from './roomDocumentVisuals';
 import { FridgeModel, fridgeStyleFor } from './appliances/fridgeModels';
 import Kickboard from './cabinet-parts/Kickboard';
@@ -133,7 +134,7 @@ function solidWallPieces(lengthMm: number, heightMm: number,
   return pieces;
 }
 
-/** The same measured wall chain used by the plan editor, in planner world coordinates. */
+/** The same wall geometry and evidence states as the plan editor, in planner world coordinates. */
 export default function RoomDocumentShell({ document, defaultHeightMm, renderedCabinetIds, globalDimensions }: {
   document: RoomDocumentV1;
   defaultHeightMm: number;
@@ -179,6 +180,7 @@ export default function RoomDocumentShell({ document, defaultHeightMm, renderedC
         const centreX = (start.xMm + end.xMm) / 2000 - inward.x * WALL_THICKNESS_M / 2;
         const centreZ = (start.zMm + end.zMm) / 2000 - inward.z * WALL_THICKNESS_M / 2;
         const rotationY = -Math.atan2(dz, dx);
+        const appearance = wallEvidenceAppearance(wallGeometrySource(wall, Boolean(document.capture)));
         const openings = document.openings.filter(opening => opening.wallId === wall.id);
         const solids = solidWallPieces(length * 1000, heightM * 1000, openings);
         return (
@@ -190,6 +192,7 @@ export default function RoomDocumentShell({ document, defaultHeightMm, renderedC
               return <Wall key={index} position={[x, (piece.bottomMm + piece.heightMm / 2) / 1000, z]}
                 rotation={[0, rotationY, 0]} width={piece.widthMm / 1000}
                 height={piece.heightMm / 1000} thickness={WALL_THICKNESS_M}
+                color={appearance.sceneColor} opacity={appearance.sceneOpacity}
                 roomCenter={[centreX + inward.x, 0, centreZ + inward.z]} />;
             })}
             {openings.map(opening => {

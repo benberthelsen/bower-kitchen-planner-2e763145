@@ -93,7 +93,7 @@ const arOnlyDraft = roomCaptureDraftV1Schema.parse({
 });
 const arHandoff = parseServerHandoff({ handoffSchemaVersion: 1, source: 'scanner',
   roomType: 'kitchen', styleTags: [], materials: {}, roomCaptureDraft: arOnlyDraft });
-assert.equal(arHandoff.ok, true, arHandoff.ok ? '' : arHandoff.reason);
+assert.equal(arHandoff.ok, true, 'reason' in arHandoff ? arHandoff.reason : '');
 if (!arHandoff.ok) throw new Error('AR-only handoff was rejected');
 const arDocument = roomDocumentFromCaptureDraft(arHandoff.handoff.roomCaptureDraft!, 'ar-doc');
 assert.deepEqual(captureDraftReadiness(arHandoff.handoff.roomCaptureDraft!),
@@ -101,6 +101,7 @@ assert.deepEqual(captureDraftReadiness(arHandoff.handoff.roomCaptureDraft!),
 assert.equal(arDocument.chains[0].closed, false);
 assert.equal(arDocument.floorBoundary, undefined);
 assert.deepEqual(arDocument.walls.map(wall => wall.lengthEvidence?.source), ['inferred', 'inferred', 'inferred']);
+assert.deepEqual(arDocument.walls.map(wall => wall.geometryEvidence?.source), ['inferred', 'inferred', 'inferred']);
 assert.equal(arDocument.walls.every(wall => wall.lengthEvidence?.source !== 'measured'), true);
 
 // A photo-first whole-room proposal may close geometrically without asserting
@@ -116,7 +117,8 @@ const provisionalOutline = roomCaptureDraftV1Schema.parse({
       ], wallIds: ['site-wall', 'photo-wall', 'inferred-wall', 'unchecked-wall'] }],
     wallMeasurements: [{ wallId: 'site-wall', millimetres: 3000 }],
     wallEvidence: [
-      { wallId: 'site-wall', source: 'measured', uncertaintyMm: 5, evidenceIds: ['tape-1'] },
+      { wallId: 'site-wall', source: 'inferred', uncertaintyMm: 250, evidenceIds: ['photo-1'],
+        reason: 'Wall turn inferred from the photos despite its checked length.' },
       { wallId: 'photo-wall', source: 'observed', uncertaintyMm: 120, evidenceIds: ['photo-2'] },
       { wallId: 'inferred-wall', source: 'inferred', uncertaintyMm: 350, reason: 'Corner hidden by a cabinet.' },
       { wallId: 'unchecked-wall', source: 'measured', evidenceIds: ['ar-3'] },
@@ -125,18 +127,47 @@ const provisionalOutline = roomCaptureDraftV1Schema.parse({
 });
 const provisionalHandoff = parseServerHandoff({ handoffSchemaVersion: 1, source: 'scanner',
   roomType: 'kitchen', styleTags: [], materials: {}, roomCaptureDraft: provisionalOutline });
-assert.equal(provisionalHandoff.ok, true, provisionalHandoff.ok ? '' : provisionalHandoff.reason);
+assert.equal(provisionalHandoff.ok, true, 'reason' in provisionalHandoff ? provisionalHandoff.reason : '');
 if (!provisionalHandoff.ok) throw new Error('Provisional outline was rejected');
 const provisionalDocument = roomDocumentFromCaptureDraft(provisionalHandoff.handoff.roomCaptureDraft!, 'provisional-doc');
 assert.equal(provisionalDocument.chains[0].closed, true);
 assert.equal(provisionalDocument.floorBoundary, undefined);
 assert.deepEqual(provisionalDocument.walls.map(wall => wall.lengthEvidence?.source),
   ['measured', 'observed', 'inferred', 'unknown']);
-assert.equal(provisionalDocument.walls[0].lengthEvidence?.uncertaintyMm, 5);
-assert.deepEqual(provisionalDocument.walls[1].lengthEvidence?.evidenceIds, ['photo-2']);
-assert.equal(provisionalDocument.walls[2].lengthEvidence?.reason, 'Corner hidden by a cabinet.');
+assert.deepEqual(provisionalDocument.walls.map(wall => wall.geometryEvidence?.source),
+  ['inferred', 'observed', 'inferred', 'measured']);
+assert.equal(provisionalDocument.walls[0].geometryEvidence?.uncertaintyMm, 250);
+assert.equal(provisionalDocument.walls[0].lengthEvidence?.source, 'measured');
+assert.deepEqual(provisionalDocument.walls[1].geometryEvidence?.evidenceIds, ['photo-2']);
+assert.equal(provisionalDocument.walls[2].geometryEvidence?.reason, 'Corner hidden by a cabinet.');
 assert.deepEqual(captureDraftReadiness(provisionalOutline),
   { wallChains: 1, walls: 4, openChains: 0, canDesignWholeRoom: false });
+// A linked room created before geometry evidence was stored can accept the new
+// interpretation without losing a checked length, user fitting or floor edit.
+const legacyLinkedRoom = structuredClone(provisionalDocument);
+legacyLinkedRoom.capture!.sourceRevision = 'old-transform';
+for (const wall of legacyLinkedRoom.walls) delete wall.geometryEvidence;
+legacyLinkedRoom.walls[0].lengthEvidence = { valueMm: 3050, source: 'measured' };
+legacyLinkedRoom.objects.push({ id: 'user-cabinet', layer: 'proposed', kind: 'cabinet-run',
+  placement: { type: 'wall', wallId: 'site-wall', offsetMm: 400 }, widthMm: 600, depthMm: 600 });
+legacyLinkedRoom.floorBoundary = { cornerIds: ['p1', 'p2', 'p3', 'p4'], confirmed: true };
+const reinterpretedScan = structuredClone(provisionalDocument);
+reinterpretedScan.capture!.sourceRevision = 'new-transform';
+const migrated = previewCaptureUpdate(legacyLinkedRoom, reinterpretedScan);
+assert.equal(migrated.updatedWallEvidence, 4);
+assert.equal(migrated.document.walls[0].geometryEvidence?.source, 'inferred');
+assert.equal(migrated.document.walls[0].lengthEvidence?.source, 'measured');
+assert.equal(migrated.document.walls[0].lengthEvidence?.valueMm, 3050);
+assert.equal(migrated.document.objects[0].id, 'user-cabinet');
+assert.equal(migrated.document.floorBoundary?.confirmed, true);
+assert.equal(migrated.document.capture?.sourceRevision, 'new-transform');
+const movedLinkedRoom = structuredClone(legacyLinkedRoom);
+movedLinkedRoom.corners[0].xMm = 200;
+const movedPreview = previewCaptureUpdate(movedLinkedRoom, reinterpretedScan);
+assert.equal(movedPreview.updatedWallEvidence, 2);
+assert.equal(movedPreview.document.walls[0].geometryEvidence, undefined);
+assert.equal(movedPreview.document.walls[3].geometryEvidence, undefined);
+assert.equal(movedPreview.cornerConflicts, 1);
 const duplicateEvidence = structuredClone(provisionalOutline);
 duplicateEvidence.partialGeometry!.wallEvidence!.push(duplicateEvidence.partialGeometry!.wallEvidence![0]);
 assert.equal(roomCaptureDraftV1Schema.safeParse(duplicateEvidence).success, false);
@@ -214,7 +245,7 @@ assert.deepEqual(angledDocument.objects.map(object => object.kind), ['fridge', '
 
 const correctedHandoff = parseServerHandoff({ handoffSchemaVersion: 1, source: 'scanner',
   roomType: 'kitchen', styleTags: [], materials: {}, roomCaptureDraft: angledKitchen });
-assert.equal(correctedHandoff.ok, true, correctedHandoff.ok ? '' : correctedHandoff.reason);
+assert.equal(correctedHandoff.ok, true, 'reason' in correctedHandoff ? correctedHandoff.reason : '');
 if (!correctedHandoff.ok) throw new Error('corrected feature handoff was rejected');
 assert.equal(correctedHandoff.handoff.roomCaptureDraft?.partialGeometry?.featureCandidates?.[0]
   .placementProvenance?.previousWallId, 'cooktop');

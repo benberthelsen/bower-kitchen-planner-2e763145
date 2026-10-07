@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { wallEvidenceAppearance, wallGeometrySource } from '@/lib/roomDocument/wallEvidenceAppearance';
 import './RoomDocumentEditor.css';
 import {
   applyRoomEdit,
@@ -17,6 +18,7 @@ import {
   type RoomIssue,
   type RoomService,
   type RoomWall,
+  type DimensionSource,
 } from '@/lib/roomDocument';
 
 interface Props {
@@ -30,6 +32,7 @@ const PAD = 42;
 const round = (value: number) => Math.round(value);
 const pretty = (value: number) => Number.isFinite(value) ? round(value).toString() : '—';
 const normaliseAngle = (angle: number) => ((angle + 180) % 360 + 360) % 360 - 180;
+const evidenceSources: DimensionSource[] = ['measured', 'observed', 'inferred', 'unknown'];
 
 function NumberField({ id, label, value, onCommit, min, max, step = 1, disabled = false }: {
   id: string;
@@ -238,6 +241,8 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   };
 
   const selectedWallLabel = wall ? `Wall ${document.walls.indexOf(wall) + 1}` : 'No wall selected';
+  const selectedWallAppearance = wallEvidenceAppearance(wall
+    ? wallGeometrySource(wall, Boolean(document.capture)) : undefined);
   return <section className={cn('room-document-editor min-w-0 w-full', className)} aria-label="Editable room plan" onKeyDown={event => {
     if ((event.ctrlKey || event.metaKey) && !['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement).tagName)) {
       if (event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
@@ -252,20 +257,37 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
       <div className="min-w-0 space-y-3">
         <div className="relative max-w-[480px]">
         <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="block aspect-square h-auto w-full rounded-lg border border-trade-border bg-slate-50 touch-none" aria-label="Room floor plan">
-          <defs><marker id="room-wall-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#047857" strokeWidth="1.5" /></marker></defs>
+          <defs>{evidenceSources.map(source => {
+            const appearance = wallEvidenceAppearance(source);
+            return <marker key={source} id={`room-wall-arrow-${source}`} markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M1 1 L7 4 L1 7" fill="none" stroke={appearance.planColor} strokeWidth="1.5" />
+            </marker>;
+          })}</defs>
           {document.floorBoundary && <polygon points={document.floorBoundary.cornerIds.map(id => byId(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)).map(p => `${px(p.xMm)},${py(p.zMm)}`).join(' ')} fill="#d1fae5" fillOpacity="0.55" stroke="none" />}
           {document.walls.map((item, index) => {
             const a = byId(item.startCornerId), b = byId(item.endCornerId);
             if (!a || !b) return null;
             const selected = item.id === wall?.id;
+            const source = wallGeometrySource(item, Boolean(document.capture));
+            const lengthMeasured = item.lengthEvidence?.source === 'measured';
+            const shownLengthMm = lengthMeasured ? item.lengthEvidence!.valueMm
+              : Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm);
+            const appearance = wallEvidenceAppearance(source);
             const mx = (px(a.xMm) + px(b.xMm)) / 2, my = (py(a.zMm) + py(b.zMm)) / 2;
-            return <g key={item.id} role="button" tabIndex={0} aria-label={`Select wall ${index + 1}`} aria-pressed={selected}
+            return <g key={item.id} role="button" tabIndex={0}
+              aria-label={`Select wall ${index + 1}, ${appearance.note}`} aria-pressed={selected}
               onClick={() => { setSelectedWallId(item.id); setSelectedOpeningId(null); setSelectedServiceId(null); setSelectedObjectId(null); }}
               onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedWallId(item.id); setSelectedOpeningId(null); setSelectedServiceId(null); setSelectedObjectId(null); } }} className="cursor-pointer">
+              <title>{appearance.note}</title>
               <line x1={px(a.xMm)} y1={py(a.zMm)} x2={px(b.xMm)} y2={py(b.zMm)} stroke="transparent" strokeWidth="24" />
-              <line x1={px(a.xMm)} y1={py(a.zMm)} x2={px(b.xMm)} y2={py(b.zMm)} stroke={selected ? '#047857' : '#475569'} strokeWidth={selected ? 5 : 3} strokeLinecap="round" markerEnd={selected ? 'url(#room-wall-arrow)' : undefined} />
-              <circle cx={px(a.xMm)} cy={py(a.zMm)} r="4" fill={selected ? '#047857' : '#475569'} />
-              <text x={mx} y={my - 9} textAnchor="middle" paintOrder="stroke" stroke="#f8fafc" strokeWidth="5" fill="#123b36" fontSize="12" fontWeight="600">{index + 1} · {pretty(Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm))}</text>
+              <line x1={px(a.xMm)} y1={py(a.zMm)} x2={px(b.xMm)} y2={py(b.zMm)} stroke={appearance.planColor}
+                strokeWidth={selected ? 5 : 3} strokeDasharray={appearance.planDasharray} strokeLinecap="round"
+                markerEnd={selected ? `url(#room-wall-arrow-${source})` : undefined} />
+              <circle cx={px(a.xMm)} cy={py(a.zMm)} r="4" fill="#fff" stroke={appearance.planColor} strokeWidth="2" />
+              <text x={mx} y={my - 9} textAnchor="middle" paintOrder="stroke" stroke="#f8fafc" strokeWidth="5"
+                fill={appearance.planColor} fontSize="12" fontWeight="600">
+                {index + 1} · {lengthMeasured ? '' : '~'}{pretty(shownLengthMm)} mm
+              </text>
             </g>;
           })}
           {document.corners.map(corner => {
@@ -328,12 +350,25 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
             onCommit={turn => apply({ type: 'set-wall-angle', wallId: wall!.id, angleDeg: normaliseAngle(previousGeometry!.angleDeg + turn) })} />
         </div>}
         </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-700" aria-label="Wall outline evidence legend">
+          {evidenceSources.map(source => {
+            const appearance = wallEvidenceAppearance(source);
+            return <span key={source} className="inline-flex items-center gap-1">
+              <svg width="24" height="8" aria-hidden="true"><line x1="1" y1="4" x2="23" y2="4" stroke={appearance.planColor}
+                strokeWidth="3" strokeDasharray={appearance.planDasharray} /></svg>{appearance.label}
+            </span>;
+          })}
+        </div>
         <div className="flex flex-wrap gap-3 text-xs text-slate-600">
           <label><input type="checkbox" checked={showOpenings} onChange={event => setShowOpenings(event.target.checked)} /> Openings</label>
           <label><input type="checkbox" checked={showObjects} onChange={event => setShowObjects(event.target.checked)} /> Existing / proposed</label>
           <label><input type="checkbox" checked={showServices} onChange={event => setShowServices(event.target.checked)} /> Services</label>
         </div>
-        {!document.floorBoundary && <p className="text-xs text-amber-800">Walls may be a partial scan. A floor area is shown only after its boundary is confirmed.</p>}
+        {!document.floorBoundary && <p className="text-xs text-amber-800">
+          {document.chains.some(item => !item.closed)
+            ? 'This wall survey is open. Missing walls and the floor area remain unconfirmed.'
+            : 'This outline is provisional. The floor area remains unconfirmed.'}
+        </p>}
       </div>
       <div className="min-w-0 space-y-4">
         {wall && geometry && <div className="rounded-lg border border-trade-border p-3 space-y-3">
@@ -351,7 +386,13 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
             </select>
             <p className="text-xs text-trade-muted">Cabinet suggestions need the room-facing side. Check the photo before choosing.</p>
           </div>
-          {wall.lengthEvidence && <p className="text-xs text-slate-600">Length: {wall.lengthEvidence.source}{wall.lengthEvidence.uncertaintyMm ? ` ±${wall.lengthEvidence.uncertaintyMm} mm` : ''}</p>}
+          <p className="text-xs font-medium" style={{ color: selectedWallAppearance.planColor }}>
+            Wall outline: {selectedWallAppearance.note}
+            {wall.geometryEvidence?.uncertaintyMm !== undefined ? ` · ±${wall.geometryEvidence.uncertaintyMm} mm` : ''}
+          </p>
+          <p className="text-xs text-slate-600">Length: {wallEvidenceAppearance(wall.lengthEvidence?.source).label}
+            {wall.lengthEvidence?.uncertaintyMm !== undefined ? ` · ±${wall.lengthEvidence.uncertaintyMm} mm` : ''}</p>
+          {wall.geometryEvidence?.reason && <p className="text-xs text-slate-600">{wall.geometryEvidence.reason}</p>}
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => apply({ type: 'set-wall-length', wallId: wall.id, lengthMm: geometry.lengthMm, measurement: { valueMm: geometry.lengthMm, source: 'measured' } })}>Mark length site measured</Button>
             {wall.lengthEvidence?.source === 'measured' && <Button type="button" size="sm" variant="outline" onClick={() => apply({ type: 'set-wall-length', wallId: wall.id, lengthMm: geometry.lengthMm })}>Clear measured status</Button>}

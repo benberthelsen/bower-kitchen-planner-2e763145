@@ -40,6 +40,18 @@ assert.deepEqual(objectPose(lengthResult.document, lengthResult.document.objects
 assert.equal(wallGeometry(lengthResult.document, 'cooktop')?.lengthMm, 1645);
 assert.equal(undoRoomEdit(lengthResult).revision, lengthResult.document.revision + 1);
 
+// A site-measured length can coexist with an observed outline. Moving any
+// surveyed corner makes the previous outline evidence stale on both sides.
+const evidencedOpen = structuredClone(open);
+for (const wall of evidencedOpen.walls) wall.geometryEvidence = { source: 'observed', evidenceIds: ['scan-photo'] };
+const checkedLength = edit(evidencedOpen, { type: 'set-wall-length', wallId: 'angled',
+  lengthMm: 1600, measurement: { valueMm: 1600, source: 'measured' } });
+assert.equal(checkedLength.walls[0].lengthEvidence?.source, 'measured');
+assert.equal(checkedLength.walls[0].geometryEvidence?.source, 'observed');
+const movedOutline = edit(evidencedOpen, { type: 'set-wall-length', wallId: 'angled', lengthMm: 1900 });
+assert.deepEqual(movedOutline.walls.map(wall => wall.geometryEvidence?.source), ['unknown', 'unknown', 'unknown']);
+assert.equal(movedOutline.walls[1].geometryEvidence?.evidenceIds, undefined);
+
 // The Eight Hibiscus fixture preview uses the recorded angled-wall pose and
 // dimensions. Unknown cabinet identity/height never becomes a made-up product.
 const visualRoom = structuredClone(open);
@@ -101,10 +113,12 @@ const crossingItem = edit(split, { type: 'upsert-object', object: {
 assert.match(applyRoomEdit(crossingItem, { type: 'split-wall', wallId: 'w1', offsetMm: 500 })
   .issues[0].message, /attached item crosses the split/i);
 split = edit(split, { type: 'upsert-opening', opening: { id: 'window', wallId: 'w1', kind: 'window', offsetMm: 600, widthMm: 100 } });
+split.walls[0].geometryEvidence = { source: 'observed', evidenceIds: ['scan-photo'] };
 split = edit(split, { type: 'split-wall', wallId: 'w1', offsetMm: 500, newWallId: 'w2', newCornerId: 'middle' });
 assert.equal(split.openings[0].wallId, 'w2');
 assert.equal(split.openings[0].offsetMm, 100);
 assert.equal(split.chains[0].closed, false);
+assert.deepEqual(split.walls.map(wall => wall.geometryEvidence?.source), ['unknown', 'unknown']);
 
 // Deliberate closure and floor confirmation are distinct transactions.
 let rectangle = createRoomDocument('rectangle');

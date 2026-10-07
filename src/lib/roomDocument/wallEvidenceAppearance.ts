@@ -1,0 +1,32 @@
+import type { DimensionSource, RoomWall } from './types';
+
+/** Older scanner rooms have no separate geometry evidence. A measured length
+ * alone must never make their photographed wall position look confirmed. */
+export function wallGeometrySource(wall: Pick<RoomWall, 'geometryEvidence' | 'lengthEvidence'>,
+  scannerCapture: boolean): DimensionSource {
+  return wall.geometryEvidence?.source ?? (scannerCapture ? 'unknown' : wall.lengthEvidence?.source ?? 'unknown');
+}
+
+/** Shared visual language for a wall's position and angle evidence in plan and 3D. */
+const appearances = {
+  measured: {
+    label: 'Site measured', note: 'Wall position and angle checked on site', planColor: '#047857',
+    planDasharray: undefined, sceneColor: '#e5e7eb', sceneOpacity: 1,
+  },
+  observed: {
+    label: 'Observed', note: 'Wall position and angle observed in the scan; check on site', planColor: '#0369a1',
+    planDasharray: undefined, sceneColor: '#93c5fd', sceneOpacity: 0.72,
+  },
+  inferred: {
+    label: 'Inferred', note: 'Wall position and angle inferred from the scan; check on site', planColor: '#b45309',
+    planDasharray: '9 6', sceneColor: '#fbbf24', sceneOpacity: 0.38,
+  },
+  unknown: {
+    label: 'Unverified', note: 'Wall position and angle unverified; check on site', planColor: '#64748b',
+    planDasharray: '3 6', sceneColor: '#94a3b8', sceneOpacity: 0.32,
+  },
+} as const;
+
+export function wallEvidenceAppearance(source: DimensionSource | undefined) {
+  return appearances[source ?? 'unknown'];
+}

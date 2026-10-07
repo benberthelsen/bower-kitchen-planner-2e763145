@@ -12,6 +12,14 @@ export interface DimensionValue {
   reason?: string;
 }
 
+/** Confidence in a wall's position and direction, independent of its length. */
+export interface WallGeometryEvidence {
+  source: DimensionSource;
+  uncertaintyMm?: number;
+  evidenceIds?: string[];
+  reason?: string;
+}
+
 export interface RoomCorner extends RoomPoint { id: string }
 export interface RoomWall {
   id: string;
@@ -21,6 +29,7 @@ export interface RoomWall {
    * the wall's inside face until the room or photographed side is reviewed. */
   interiorSide?: 'left' | 'right' | 'unknown';
   height?: DimensionValue;
+  geometryEvidence?: WallGeometryEvidence;
   /** Evidence for a stated length. Coordinates remain the geometric source. */
   lengthEvidence?: DimensionValue;
   evidenceIds?: string[];

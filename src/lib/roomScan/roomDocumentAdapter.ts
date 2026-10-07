@@ -95,20 +95,23 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
       usedWallIds.add(wallId);
       const a = corners[index], b = corners[(index + 1) % corners.length];
       const evidence = wallEvidence.get(wallId);
-      const statedSource = evidence?.source ?? sourceOf(chain);
-      const source: DimensionSource = measured.has(wallId) ? 'measured'
-        : statedSource === 'measured' ? 'unknown' : statedSource;
+      const geometrySource = evidence?.source ?? sourceOf(chain);
+      const lengthSource: DimensionSource = measured.has(wallId) ? 'measured'
+        : geometrySource === 'measured' ? 'unknown' : geometrySource;
       return {
         id: wallId,
         startCornerId: a.id,
         endCornerId: b.id,
         interiorSide: 'unknown',
-        lengthEvidence: {
-          valueMm: measured.get(wallId) ?? Math.round(Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm)),
-          source,
+        geometryEvidence: {
+          source: geometrySource,
           ...(evidence?.uncertaintyMm !== undefined ? { uncertaintyMm: evidence.uncertaintyMm } : {}),
           ...(evidence?.evidenceIds?.length ? { evidenceIds: evidence.evidenceIds } : {}),
           ...(evidence?.reason ? { reason: evidence.reason } : {}),
+        },
+        lengthEvidence: {
+          valueMm: measured.get(wallId) ?? Math.round(Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm)),
+          source: lengthSource,
         },
         ...(draft.dimensions?.heightMm ? { height: { valueMm: draft.dimensions.heightMm, source: 'unknown' as const } } : {}),
       };
@@ -160,14 +163,15 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
 export interface CaptureUpdatePreview {
   document: RoomDocumentV1;
   added: { walls: number; openings: number; services: number; objects: number };
+  updatedWallEvidence: number;
   changedExisting: number;
   cornerConflicts: number;
 }
 
-/** A later scan is additive evidence only. Stable IDs let new fragments join
- * the plan, while all previously edited positions, measurements, fittings and
- * the confirmed floor boundary remain authoritative until changed by a user.
- * Every new wall is an open segment; a scan cannot silently close the room. */
+/** A later scan adds fragments and can fill missing outline evidence on walls
+ * whose corners are unchanged. Previously edited positions, measurements,
+ * fittings and confirmed floor boundaries remain authoritative. Every new
+ * wall is an open segment; a scan cannot silently close the room. */
 export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocumentV1): CaptureUpdatePreview {
   if (!current.capture?.captureId || current.capture.captureId !== incoming.capture?.captureId)
     throw new Error('This scan belongs to a different room.');
@@ -180,6 +184,23 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
   });
   const wallIds = new Set(current.walls.map(wall => wall.id));
   const newWalls = incoming.walls.filter(wall => !wallIds.has(wall.id));
+  const incomingWallsById = new Map(incoming.walls.map(wall => [wall.id, wall]));
+  const incomingCornersById = new Map(incoming.corners.map(corner => [corner.id, corner]));
+  let updatedWallEvidence = 0;
+  const existingWalls = current.walls.map(wall => {
+    const next = incomingWallsById.get(wall.id);
+    if (!next?.geometryEvidence || wall.geometryEvidence
+      || wall.startCornerId !== next.startCornerId || wall.endCornerId !== next.endCornerId) return wall;
+    const start = cornersById.get(wall.startCornerId);
+    const end = cornersById.get(wall.endCornerId);
+    const nextStart = incomingCornersById.get(wall.startCornerId);
+    const nextEnd = incomingCornersById.get(wall.endCornerId);
+    if (!start || !end || !nextStart || !nextEnd
+      || start.xMm !== nextStart.xMm || start.zMm !== nextStart.zMm
+      || end.xMm !== nextEnd.xMm || end.zMm !== nextEnd.zMm) return wall;
+    updatedWallEvidence += 1;
+    return { ...wall, geometryEvidence: structuredClone(next.geometryEvidence) };
+  });
   const knownCorners = new Set([...current.corners, ...newCorners].map(corner => corner.id));
   if (newWalls.some(wall => !knownCorners.has(wall.startCornerId) || !knownCorners.has(wall.endCornerId)))
     throw new Error('A new scan wall is missing a corner.');
@@ -197,7 +218,7 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     const ids = new Map(previous.map(item => [item.id, item]));
     return next.filter(item => ids.has(item.id) && JSON.stringify(ids.get(item.id)) !== JSON.stringify(item)).length;
   };
-  const changedExisting = changedById(current.walls, incoming.walls)
+  const changedExisting = changedById(existingWalls, incoming.walls)
     + changedById(current.openings, incoming.openings)
     + changedById(current.services, incoming.services)
     + changedById(current.objects, incoming.objects);
@@ -213,7 +234,7 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
       ...current,
       revision: current.revision + 1,
       corners: [...current.corners, ...newCorners],
-      walls: [...current.walls, ...newWalls],
+      walls: [...existingWalls, ...newWalls],
       chains: [...current.chains, ...newChains],
       openings: [...current.openings, ...newOpenings],
       services: [...current.services, ...newServices],
@@ -222,6 +243,7 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     },
     added: { walls: newWalls.length, openings: newOpenings.length,
       services: newServices.length, objects: newObjects.length },
+    updatedWallEvidence,
     changedExisting,
     cornerConflicts,
   };

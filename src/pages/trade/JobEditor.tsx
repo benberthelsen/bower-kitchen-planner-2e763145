@@ -559,6 +559,10 @@ export default function JobEditor() {
               {' '}{scanUpdate.preview.added.openings} openings, {scanUpdate.preview.added.services} services and
               {' '}{scanUpdate.preview.added.objects} fittings. Your measured walls, cabinet layout and confirmed
               floor boundary stay as they are.</p>
+            {scanUpdate.preview.updatedWallEvidence > 0 && (
+              <p className="mt-2">It also adds outline evidence to {scanUpdate.preview.updatedWallEvidence} existing
+                {' '}walls whose corners have not changed. Checked lengths and your edits stay as they are.</p>
+            )}
             {(scanUpdate.preview.changedExisting > 0 || scanUpdate.preview.cornerConflicts > 0) && (
               <p className="mt-2">{scanUpdate.preview.changedExisting} changed existing features and
                 {' '}{scanUpdate.preview.cornerConflicts} corner differences need manual review; they will not overwrite your edits.</p>
