@@ -22,28 +22,26 @@ const fastPath = (overrides: Record<string, unknown> = {}) => consumerScannerRoo
 });
 
 assert.equal(fastPath(), scannedRoom, 'a consumer scan keeps its original editable wall document');
-assert.equal(fastPath({ userType: 'trade' }), null, 'trade handoffs keep detailed setup');
+assert.equal(fastPath({ userType: 'trade' }), scannedRoom, 'a trade account gets the same one-click start');
 assert.equal(fastPath({ isNewJob: false }), null, 'saved jobs do not create another room');
 assert.equal(fastPath({ importingWizardRoom: true }), null, 'homeowner wizard handoffs keep their existing flow');
 assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom, walls: [] } } }), null,
   'an empty scan cannot skip wall review');
 assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom, capture: undefined } } }), null,
   'a manually drawn room is not a scanner handoff');
-assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom,
-  chains: [{ ...scannedRoom.chains[0], closed: false }] } } }), null,
-  'an open photo or AR wall run stays in detailed setup');
-assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom,
-  capture: { ...scannedRoom.capture!, source: 'webxr' } } } }), null,
-  'AR geometry cannot enter the photo room shortcut');
-assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom,
-  walls: scannedRoom.walls.map(wall => ({ ...wall, geometryEvidence: { source: 'inferred' } })) } } }), null,
-  'an AR corner draft without photo-cited walls is not a photo-led room');
+const openRun = { ...scannedRoom, chains: [{ ...scannedRoom.chains[0], closed: false }] } as RoomDocumentV1;
+assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: openRun } }), openRun,
+  'an open wall run with a tape length can start straight away and stays open');
+const arCorners = { ...scannedRoom, capture: { ...scannedRoom.capture!, source: 'webxr' },
+  walls: scannedRoom.walls.map(wall => ({ ...wall, geometryEvidence: { source: 'inferred' } })) } as RoomDocumentV1;
+assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: arCorners } }), arCorners,
+  'an AR corner scan with a tape length gets the same one-click start');
 assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom,
   walls: scannedRoom.walls.map(wall => ({ ...wall, lengthEvidence: { valueMm: 2400, source: 'inferred' } })) } } }), null,
   'an unmeasured photo outline still needs a site length');
 assert.equal(fastPath({ initialConfig: { ...initialConfig, roomDocument: { ...scannedRoom,
   chains: [{ ...scannedRoom.chains[0], wallIds: ['wall-1', 'wall-2', 'wall-3'] }] } } }), null,
-  'the closed photo chain must account for every wall');
+  'the chains must account for every wall');
 
 const defaults = { roomHeight: 2700, baseDepth: 575, shape: 'rectangular' } as RoomConfig;
 const ready = consumerScannerRoomConfig(defaults, initialConfig, scannedRoom);

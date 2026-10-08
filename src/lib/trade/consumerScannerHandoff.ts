@@ -1,24 +1,24 @@
 import type { RoomDocumentV1 } from '@/lib/roomDocument';
 import type { RoomConfig } from '@/pages/trade/components/RoomSetupWizard';
 
-/** The short path is for a complete, photo-supported room with a site scale.
- * Open AR runs and AR corner drafts still need detailed room setup. */
+/** The short path ("Your room is ready to design") is for any scanned room
+ * that arrives with walls and at least one site-measured length, whoever is
+ * signed in and whichever scan made it: photo rooms, AR corner scans and open
+ * AR wall runs alike. The detailed six-step setup stays one tap away. An open
+ * run stays open; nothing here invents a closing wall or a floor. */
 export function consumerScannerRoomForFastPath(input: {
-  userType: 'consumer' | 'trade';
+  userType?: 'consumer' | 'trade';
   isNewJob: boolean;
   importingWizardRoom: boolean;
   initialConfig?: Partial<RoomConfig>;
 }): RoomDocumentV1 | null {
-  const { userType, isNewJob, importingWizardRoom, initialConfig } = input;
+  const { isNewJob, importingWizardRoom, initialConfig } = input;
   const room = initialConfig?.roomDocument;
-  if (userType !== 'consumer' || !isNewJob || importingWizardRoom
-    || !room?.capture?.captureId || room.capture.source !== 'photo-review') return null;
-  const chain = room.chains.length === 1 ? room.chains[0] : null;
-  if (!chain?.closed || room.walls.length < 3 || chain.wallIds.length !== room.walls.length
-    || new Set(chain.wallIds).size !== room.walls.length) return null;
-  const wallsById = new Map(room.walls.map(wall => [wall.id, wall]));
-  if (!chain.wallIds.every(id => wallsById.get(id)?.geometryEvidence?.evidenceIds?.some(
-    evidenceId => evidenceId.startsWith('photo:')))) return null;
+  if (!isNewJob || importingWizardRoom || !room?.capture?.captureId || !room.walls.length || !room.chains.length) return null;
+  // Every wall must belong to exactly one chain, so the editor can show them all.
+  const chained = room.chains.flatMap(chain => chain.wallIds);
+  if (chained.length !== room.walls.length || new Set(chained).size !== room.walls.length
+    || !room.walls.every(wall => chained.includes(wall.id))) return null;
   if (!room.walls.some(wall => wall.lengthEvidence?.source === 'measured'
     && Number.isFinite(wall.lengthEvidence.valueMm) && wall.lengthEvidence.valueMm > 0)) return null;
   return room;

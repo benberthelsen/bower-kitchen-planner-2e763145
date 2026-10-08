@@ -115,7 +115,9 @@ export function findRoomWallPlacement(req: RoomPlacementRequest): RoomPlacementC
   const best = candidates[0];
   return best
     ? { status: 'placed', xMm: best.pose.xMm, zMm: best.pose.zMm, rotationDeg: best.pose.rotationDeg, wallId: best.wallId, offsetMm: best.offsetMm }
-    : { status: 'unplaced', reason: 'No measured wall has enough clear space for this item.' };
+    : { status: 'unplaced', reason: req.document.walls.some(wall => wall.interiorSide === 'left' || wall.interiorSide === 'right')
+      ? 'No measured wall has enough clear space for this item.'
+      : 'Set which side of each wall faces into the room (Room plan, choose a wall), then add the item again.' };
 }
 
 /** Keep arbitrary rotations for freestanding items when the floor is known. */

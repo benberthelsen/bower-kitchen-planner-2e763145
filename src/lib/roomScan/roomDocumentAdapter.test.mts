@@ -308,4 +308,27 @@ if (!correctedHandoff.ok) throw new Error('corrected feature handoff was rejecte
 assert.equal(correctedHandoff.handoff.roomCaptureDraft?.partialGeometry?.featureCandidates?.[0]
   .placementProvenance?.previousWallId, 'cooktop');
 
+// Which side faces into the room comes from the drawn chain: a closed outline
+// by its winding, an open run only when every turn bends the same way.
+const sides = (closed: boolean, corners: Array<[number, number]>) => {
+  const ids = corners.map((_, index) => `k${index}`);
+  const wallIds = (closed ? ids : ids.slice(1)).map((_, index) => `w${index}`);
+  const doc = roomDocumentFromCaptureDraft(roomCaptureDraftV1Schema.parse({
+    schemaVersion: 1, state: 'draft', source: 'webxr', capturedAt: '2026-10-08T00:00:00.000Z', photos: [],
+    coordinateFrame: frame, adapterState: { captureId: 'sides', reviewKind: 'photo-draft', access: 'scanner-owner-only' },
+    partialGeometry: { wallChains: [{ id: 'chain', closed, provenance: 'inferred',
+      cornersMm: corners.map(([x, z], index) => ({ id: ids[index], x, z })), wallIds }] },
+  }), 'sides');
+  return doc.walls.map(wall => wall.interiorSide);
+};
+const square: Array<[number, number]> = [[0, 0], [4000, 0], [4000, 3000], [0, 3000]];
+assert.deepEqual(sides(true, square), ['left', 'left', 'left', 'left'], 'a counter-clockwise outline faces left of each wall');
+assert.deepEqual(sides(true, [...square].reverse()), ['right', 'right', 'right', 'right'], 'the reverse winding faces right');
+assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 2000]]), ['left', 'left'], 'an L scanned from inside faces its turn');
+assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 2000], [3000, 2600]]), ['left', 'left', 'left'],
+  'a straight continuation does not change the side');
+assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 500], [4000, 500]]), ['unknown', 'unknown', 'unknown'],
+  'a run that turns both ways is left for the person to decide');
+assert.deepEqual(sides(false, [[0, 0], [3000, 0]]), ['unknown'], 'one straight wall cannot tell which side is the room');
+
 console.log('room document handoff smoke passed');

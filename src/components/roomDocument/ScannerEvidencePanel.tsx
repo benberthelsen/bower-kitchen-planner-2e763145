@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { linkScannerRoom, loadScannerManifest, loadScannerPhoto, readScannerSession,
+import { linkScannerRoom, loadScannerManifest, loadScannerPhoto, readScannerSession, ScannerBridgeError,
   type ScannerEvidenceManifest, type ScannerSession } from '@/lib/roomScan/scannerSession';
 import { scannerEntryUrl } from '@/lib/roomScan/scannerEntryUrl';
 
@@ -14,6 +14,7 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
   const [manifest, setManifest] = useState<ScannerEvidenceManifest | null>(null);
   const [manifestError, setManifestError] = useState('');
   const [linkError, setLinkError] = useState('');
+  const [linkExpired, setLinkExpired] = useState(false);
   const [linkPending, setLinkPending] = useState(Boolean(session?.linkToken));
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -48,16 +49,21 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
     if (!session) return;
     setLinkError('');
     try { await linkScannerRoom(session, jobId, roomId, sourceRevision); setLinkPending(false); }
-    catch (error) { setLinkError(error instanceof Error ? error.message : 'Could not link scanner.'); }
+    catch (error) {
+      // An expired link cannot succeed on retry; offer the scan instead.
+      setLinkExpired(error instanceof ScannerBridgeError && error.status === 401);
+      setLinkError(error instanceof Error ? error.message : 'Could not link scanner.');
+    }
   };
 
-  return <section className="border-t p-4 space-y-3" aria-label="Scan photos and provenance">
-    <h2 className="font-semibold">Scan evidence</h2>
-    <p className="text-xs text-muted-foreground">Capture {captureId.slice(0, 8)} · source {sourceRevision ?? 'unversioned'}.
-      These photos support visual review; room lengths still need site checks.</p>
+  return <section className="border-t p-4 space-y-3" aria-label="Scan photos">
+    <h2 className="font-semibold">Photos from your scan</h2>
+    <p className="text-xs text-muted-foreground">These photos help you check the room; wall lengths still need site checks.</p>
     {linkPending && <div className="space-y-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
-      <p>The room is saved, but its link back to the scanner is pending.</p>
-      <Button size="sm" variant="outline" onClick={() => void retryLink()}>Retry scanner link</Button>
+      <p>The room is saved, but its link back to the scan has not finished.</p>
+      {linkExpired
+        ? reopenUrl && <a className="underline underline-offset-2" href={reopenUrl}>Open the scan and press its kitchen planner button</a>
+        : <Button size="sm" variant="outline" onClick={() => void retryLink()}>Retry scanner link</Button>}
       {linkError && <p role="alert" className="text-red-700">{linkError}</p>}
     </div>}
     {!session?.evidenceToken && <p className="text-sm text-amber-800">{reopenUrl
@@ -65,16 +71,18 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
         press its planner button.</>
       : 'Reopen this room from its scan to view private photos.'}</p>}
     {manifest && <>
-      <p className="text-sm">{manifest.photos.length} private scan photos available for review.</p>
+      <p className="text-sm">{manifest.photos.length} photo{manifest.photos.length === 1 ? '' : 's'} from the scan.</p>
       <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto">
         {manifest.photos.map(photo => <Button key={photo.id} size="sm" variant={selectedPhoto === photo.id ? 'default' : 'outline'}
-          onClick={() => void openPhoto(photo.id)} aria-label={`Open scan photo ${photo.id}`}>
-          {photo.id}
+          onClick={() => void openPhoto(photo.id)} aria-label={`Open scan photo ${Number(photo.id) + 1}`}>
+          Photo {Number(photo.id) + 1}
         </Button>)}
       </div>
     </>}
     {manifestError && <p role="alert" className="text-sm text-red-700">{manifestError}</p>}
-    {photoUrl && <img src={photoUrl} alt={`Scan evidence photo ${selectedPhoto ?? ''}`}
+    <details className="text-xs text-muted-foreground"><summary>Technical details</summary>
+      Capture {captureId.slice(0, 8)} · scan revision {sourceRevision ?? 'unversioned'}</details>
+    {photoUrl && <img src={photoUrl} alt={`Scan photo ${selectedPhoto ? Number(selectedPhoto) + 1 : ''}`}
       className="max-h-72 w-full rounded border object-contain" />}
   </section>;
 }

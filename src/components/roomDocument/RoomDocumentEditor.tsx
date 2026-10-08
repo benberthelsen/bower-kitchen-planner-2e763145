@@ -35,6 +35,10 @@ const round = (value: number) => Math.round(value);
 const pretty = (value: number) => Number.isFinite(value) ? round(value).toString() : '—';
 const normaliseAngle = (angle: number) => ((angle + 180) % 360 + 360) % 360 - 180;
 const evidenceSources: DimensionSource[] = ['measured', 'observed', 'inferred', 'unknown'];
+const SERVICE_LABELS: Record<string, string> = { 'water-supply': 'Water', drain: 'Waste', gpo: 'Power point', gas: 'Gas',
+  'hood-duct': 'Rangehood duct', light: 'Light', fan: 'Fan', door: 'Door', window: 'Window', walkway: 'Opening' };
+const plainKind = (kind: string) => SERVICE_LABELS[kind] ?? kind;
+const plainEvidence = (id: string) => /^photo:(\d{4})$/.test(id) ? `Seen in photo ${Number(id.slice(6)) + 1}` : id;
 
 function NumberField({ id, label, value, onCommit, min, max, step = 1, disabled = false }: {
   id: string;
@@ -310,6 +314,9 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
     </div>
     <div className="room-document-editor__body">
       <div className="min-w-0 space-y-3">
+        {/* A scanned room arrives with its walls; drawing and floor tools are
+            folded away so the wall lengths and inside faces come first. */}
+        <details open={!document.capture} className="space-y-2"><summary className="cursor-pointer text-sm font-medium text-trade-navy">More wall tools</summary>
         <div className="flex flex-wrap gap-2" aria-label="Plan drawing tools">
           <Button type="button" size="sm" variant={planMode === 'draw-walls' ? 'default' : 'outline'} aria-pressed={planMode === 'draw-walls'}
             onClick={() => choosePlanMode('draw-walls')}>Draw walls on plan</Button>
@@ -318,6 +325,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           <Button type="button" size="sm" variant={planMode === 'floor-gpo' ? 'default' : 'outline'} aria-pressed={planMode === 'floor-gpo'}
             onClick={() => choosePlanMode('floor-gpo')}>Place floor power point</Button>
         </div>
+        </details>
         {planMode !== 'select' && <p className="text-xs text-trade-navy" role="status">{planMessage || (planMode === 'draw-walls'
           ? !document.walls.length || addEnd === 'separate' ? 'Tap a start point, then an endpoint. Each later tap extends the open wall run.' : 'Tap the next endpoint to extend the selected open wall run.'
           : 'Tap the floor plan where this service is located. Press Escape to cancel.')}</p>}
@@ -443,8 +451,8 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
                   : 'Wall not identified';
               return <li key={feature.id} className="rounded border border-amber-200 bg-white p-2">
                 <span className="font-medium text-trade-navy">{feature.label}</span>
-                <span className="block text-xs text-slate-600">{feature.kind} · {wallLabel}</span>
-                <span className="block text-xs text-slate-600">Evidence: {feature.evidenceIds.length ? feature.evidenceIds.join(', ') : 'Photo citation retained in source scan'}</span>
+                <span className="block text-xs text-slate-600">{plainKind(feature.kind)} · {wallLabel}</span>
+                <span className="block text-xs text-slate-600">{feature.evidenceIds.length ? feature.evidenceIds.map(plainEvidence).join(', ') : 'Seen in the scan photos'}</span>
               </li>;
             })}
           </ul>
@@ -497,7 +505,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           </div>
           <div className="flex flex-wrap gap-2">
             {(['water-supply', 'drain', 'gpo', 'gas', 'hood-duct', 'light', 'fan'] as const).map(kind =>
-              <Button key={kind} type="button" size="sm" variant="outline" onClick={() => addService(kind)}>+ {kind}</Button>)}
+              <Button key={kind} type="button" size="sm" variant="outline" onClick={() => addService(kind)}>+ {plainKind(kind)}</Button>)}
           </div>
           <Button type="button" size="sm" variant="outline" onClick={addExistingObject}>Add existing item</Button>
         </div>}
@@ -557,8 +565,8 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           {selectedObject.layer === 'existing' && <div className="space-y-1"><Label htmlFor="existing-action" className="text-xs">Existing item</Label><select id="existing-action" className="w-full border rounded px-2 py-2 text-sm" value={selectedObject.existingAction ?? 'keep'} onChange={event => changeObject({ existingAction: event.target.value as RoomObject['existingAction'] })}><option value="keep">Keep</option><option value="remove">Remove</option><option value="relocate">Relocate</option></select></div>}
           <Button type="button" size="sm" variant="outline" onClick={() => { apply({ type: 'delete-object', objectId: selectedObject.id }); setSelectedObjectId(null); }}>Remove item from plan</Button>
         </div>}
-        <div className="rounded-lg border border-trade-border p-3 space-y-3">
-          <h5 className="font-semibold text-trade-navy">Add wall</h5>
+        <details open={!document.capture} className="rounded-lg border border-trade-border p-3 space-y-3">
+          <summary className="cursor-pointer font-semibold text-trade-navy">Add wall</summary>
           <div className="grid grid-cols-2 gap-2">
             <NumberField id="new-wall-length" label="Length (mm)" value={newLength} min={1} onCommit={setNewLength} />
             <NumberField id="new-wall-angle" label="Direction (degrees)" value={newAngle} min={-360} max={360} onCommit={setNewAngle} />
@@ -570,8 +578,8 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           </div>}
           <Button type="button" size="sm" onClick={addWall}>Add wall segment</Button>
           {chain && !chain.closed && chain.wallIds.length >= 2 && <Button type="button" size="sm" variant="outline" className="ml-2" onClick={closeChain}>Close outline</Button>}
-          {chain?.closed && !document.floorBoundary && <Button type="button" size="sm" variant="outline" className="ml-2" onClick={confirmBoundary}>Confirm floor boundary</Button>}
-        </div>
+          {chain?.closed && !document.floorBoundary && <Button type="button" size="sm" variant="outline" className="ml-2" onClick={confirmBoundary}>These walls are the whole room</Button>}
+        </details>
       </div>
     </div>
     {issues.length > 0 && <div role="alert" className="mt-3 space-y-1">{issues.map((issue, index) => <p key={`${issue.code}-${index}`} className={issue.severity === 'error' ? 'text-sm text-red-700' : 'text-sm text-amber-700'}>{issue.message}</p>)}</div>}

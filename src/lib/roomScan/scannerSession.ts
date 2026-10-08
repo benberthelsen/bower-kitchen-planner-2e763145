@@ -61,6 +61,12 @@ interface BridgeInput {
   photoId?: string;
 }
 
+/** The bridge's HTTP status, so a caller can tell an expired capability (401)
+ * from a network fault and offer the right next step. */
+export class ScannerBridgeError extends Error {
+  constructor(message: string, readonly status: number) { super(message); this.name = 'ScannerBridgeError'; }
+}
+
 async function scannerBridge(input: BridgeInput): Promise<Response> {
   const { supabase } = await import('@/integrations/supabase/client');
   const { data: { session } } = await supabase.auth.getSession();
@@ -77,12 +83,13 @@ async function scannerBridge(input: BridgeInput): Promise<Response> {
     cache: 'no-store',
   });
   if (!response.ok) {
-    if (response.status === 401) throw new Error('Scanner access was denied or expired. Reopen the saved scan.');
-    if (response.status === 403) throw new Error('This scan is not linked to this saved room.');
-    if (response.status === 404) throw new Error('That scan photo is no longer available. The rest of the scan is unaffected.');
-    if (response.status === 409) throw new Error('The scan changed. Review the new scan before linking it.');
-    if (response.status === 503) throw new Error('The private scanner is temporarily unavailable. Your room is saved; try again later.');
-    throw new Error(`Scanner connection failed (${response.status}).`);
+    const fail = (message: string) => new ScannerBridgeError(message, response.status);
+    if (response.status === 401) throw fail('Scanner access has expired. Open the scan and press its kitchen planner button again.');
+    if (response.status === 403) throw fail('This scan is not linked to this saved room.');
+    if (response.status === 404) throw fail('That scan photo is no longer available. The rest of the scan is unaffected.');
+    if (response.status === 409) throw fail('The scan changed. Review the new scan before linking it.');
+    if (response.status === 503) throw fail('The private scanner is temporarily unavailable. Your room is saved; try again later.');
+    throw fail(`Scanner connection failed (${response.status}).`);
   }
   return response;
 }

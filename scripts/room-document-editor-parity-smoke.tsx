@@ -79,7 +79,7 @@ assert.match(pendingMarkup, /Seen in photos · needs placement\/size/);
 assert.match(pendingMarkup, /Window beside sink/);
 assert.match(pendingMarkup, /Wall 2 · wall-2/);
 assert.match(pendingMarkup, /Source wall unknown-wall · not matched to this plan/);
-assert.match(pendingMarkup, /photo:0032/);
+assert.match(pendingMarkup, /Seen in photo 33/, "photo citations read as photo numbers, not storage ids");
 assert.doesNotMatch(pendingMarkup, /Edit window/, 'pending feature is not rendered as a physical opening');
 
 console.log('room document editor parity passed');

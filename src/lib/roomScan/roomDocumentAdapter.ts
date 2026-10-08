@@ -98,6 +98,34 @@ function pendingPhotoFeaturesFromState(state: unknown, knownWallIds: Set<string>
   return result;
 }
 
+/** Which side of each wall faces into the room, from the drawn chain alone.
+ * A closed outline's winding decides it exactly: with a positive signed area
+ * in plan (x, z) the room is on the left of each wall's direction, which is
+ * what the planner's geometry treats as 'left'. An open run is decided only
+ * when every turn bends the same way (an L or U scanned from inside); a run
+ * that zigzags or is a single straight wall stays 'unknown' for the user. */
+function chainInteriorSide(corners: RoomCorner[], closed: boolean): 'left' | 'right' | 'unknown' {
+  if (closed) {
+    if (corners.length < 3) return 'unknown';
+    let twiceArea = 0;
+    corners.forEach((a, index) => {
+      const b = corners[(index + 1) % corners.length];
+      twiceArea += a.xMm * b.zMm - b.xMm * a.zMm;
+    });
+    return Math.abs(twiceArea) < 1 ? 'unknown' : twiceArea > 0 ? 'left' : 'right';
+  }
+  let sign = 0;
+  for (let index = 1; index < corners.length - 1; index += 1) {
+    const a = corners[index - 1], b = corners[index], c = corners[index + 1];
+    const cross = (b.xMm - a.xMm) * (c.zMm - b.zMm) - (b.zMm - a.zMm) * (c.xMm - b.xMm);
+    if (Math.abs(cross) < 1) continue; // A straight continuation does not decide it.
+    const turn = Math.sign(cross);
+    if (sign && turn !== sign) return 'unknown';
+    sign = turn;
+  }
+  return sign > 0 ? 'left' : sign < 0 ? 'right' : 'unknown';
+}
+
 /** Converts both new explicit chains and legacy V1 corners. A closed *draft*
  * chain remains unconfirmed; only a separate user action can establish the
  * floorBoundary used by whole-room design. */
@@ -122,6 +150,7 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
     }
     const expected = chain.closed ? corners.length : corners.length - 1;
     if (chain.wallIds.length !== expected) throw new Error(`Capture chain ${chain.id} has inconsistent wall IDs.`);
+    const interiorSide = chainInteriorSide(corners, chain.closed);
     const walls: RoomWall[] = chain.wallIds.map((wallId, index) => {
       if (usedWallIds.has(wallId)) throw new Error(`Capture wall ${wallId} appears twice.`);
       usedWallIds.add(wallId);
@@ -134,7 +163,7 @@ export function roomDocumentFromCaptureDraft(draft: RoomCaptureDraftV1, document
         id: wallId,
         startCornerId: a.id,
         endCornerId: b.id,
-        interiorSide: 'unknown',
+        interiorSide,
         geometryEvidence: {
           source: geometrySource,
           ...(evidence?.uncertaintyMm !== undefined ? { uncertaintyMm: evidence.uncertaintyMm } : {}),
@@ -203,6 +232,8 @@ export interface CaptureUpdatePreview {
   addedPhotoObservations: number;
   changedExisting: number;
   cornerConflicts: number;
+  /** Walls in both rooms whose lengths differ; the saved room keeps its own. */
+  lengthDifferences: Array<{ wallId: string; currentMm: number; scanMm: number }>;
 }
 
 /** A later interpretation can fill missing outline evidence on walls whose
@@ -286,6 +317,12 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     addedPhotoObservations: addedPending.length,
     changedExisting,
     cornerConflicts,
+    lengthDifferences: current.walls.flatMap(wall => {
+      const next = incomingWallsById.get(wall.id);
+      const currentMm = wall.lengthEvidence?.valueMm, scanMm = next?.lengthEvidence?.valueMm;
+      return currentMm !== undefined && scanMm !== undefined && Math.round(currentMm) !== Math.round(scanMm)
+        ? [{ wallId: wall.id, currentMm: Math.round(currentMm), scanMm: Math.round(scanMm) }] : [];
+    }),
   };
 }
 

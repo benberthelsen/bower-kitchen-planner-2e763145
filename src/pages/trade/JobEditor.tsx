@@ -126,6 +126,13 @@ export default function JobEditor() {
     ? tokenizedHandoff.isPending || tokenizedHandoff.isFetching
     : handoffQuery.isPending || handoffQuery.isFetching;
   const handoffError = handoffToken ? tokenizedHandoff.isError : handoffQuery.isError;
+  // 404/410 (and a refused token) mean the link itself is gone: a retry cannot
+  // help, so the page sends the person back to the scan for a fresh link.
+  const handoffErrorStatus = ((handoffToken ? tokenizedHandoff.error : handoffQuery.error) as
+    { context?: { status?: number } } | null)?.context?.status;
+  const handoffGone = handoffErrorStatus !== undefined && [400, 401, 403, 404, 410].includes(handoffErrorStatus);
+  const scanPageUrl = scannerSession?.captureId ? scannerEntryUrl({ page: 'capture', captureId: scannerSession.captureId }) : null;
+  const fromScanner = (handoffPayload as { source?: string } | undefined)?.source === 'scanner';
   const retryHandoff = () => {
     void (handoffToken ? tokenizedHandoff.refetch() : handoffQuery.refetch());
   };
@@ -199,7 +206,7 @@ export default function JobEditor() {
     const cfg: Partial<RoomConfig> = {
       name: p.roomType ? p.roomType.charAt(0).toUpperCase() + p.roomType.slice(1) : 'Kitchen',
       description: [
-        'From website design scope',
+        (p as { source?: string }).source === 'scanner' ? 'From room scan' : 'From website design scope',
         p.styleTags?.length ? `Style: ${p.styleTags.join(', ')}` : '',
         p.notes?.trim() ?? '',
       ].filter(Boolean).join(' | '),
@@ -277,10 +284,13 @@ export default function JobEditor() {
   // D-3): consumption/linking happens only in handleRoomComplete after the
   // job actually exists, via the link-trade-handoff function.
   useEffect(() => {
-    if (handoffPayload) {
-      toast.success('Website design scope loaded — the wizard is pre-filled.');
-    }
-  }, [handoffPayload]);
+    if (!handoffPayload) return;
+    // A newer scan for a saved job is reviewed in its own banner; only a new
+    // job says what was loaded.
+    if ((handoffPayload as { source?: string }).source === 'scanner') {
+      if (isNewJob) toast.success('Your scanned room is loaded.');
+    } else toast.success('Website design scope loaded — the wizard is pre-filled.');
+  }, [handoffPayload, isNewJob]);
 
   const scanUpdate = useMemo(() => {
     if (isNewJob || !handoffPayload || !jobQuery.data) return null;
@@ -303,7 +313,8 @@ export default function JobEditor() {
   const acceptScanUpdate = async () => {
     if (!jobId || !scanUpdate || scanUpdate.status !== 'review' || isLocked) return;
     const { room, preview } = scanUpdate;
-    if (preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0) return;
+    const nothingDeferred = Object.values(preview.deferred).every(count => count === 0);
+    if (preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0 && !nothingDeferred) return;
     const bounds = derivedLegacyBounds(preview.document);
     const updatedRoom: TradeRoom = { ...room, roomDocument: preview.document,
       config: bounds ? { ...room.config, width: Math.max(1, Math.round(bounds.widthMm)),
@@ -456,9 +467,16 @@ export default function JobEditor() {
           await linkScannerRoom(roomScannerSession, newId, firstRoom.id,
             firstRoom.roomDocument.capture.sourceRevision);
         } catch {
-          // The planner room is durable. Its room page retains the tab-scoped
-          // token and presents a retry instead of losing the scan association.
-          toast.warning('Room saved, but the scanner link needs a retry in the planner.');
+          // The planner room is durable. Offer the retry right here; the room
+          // page keeps the tab-scoped token for a later retry too.
+          toast.warning('Room saved. Its link back to the scan did not finish.', {
+            duration: 15000,
+            action: { label: 'Retry now', onClick: () => {
+              void linkScannerRoom(roomScannerSession, newId, firstRoom.id, firstRoom.roomDocument?.capture?.sourceRevision)
+                .then(() => toast.success('The room is linked to its scan.'))
+                .catch((error: unknown) => toast.error(error instanceof Error ? error.message : 'Still not linked. Use Retry scanner link in Room plan.'));
+            } },
+          });
         }
       }
 
@@ -575,7 +593,7 @@ export default function JobEditor() {
   return (
     <TradeLayout>
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-        {existingCaptureRoom && (
+        {existingCaptureRoom && !isNewJob && (
           <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
             This scan already has a saved kitchen plan. Your room changes have not overwritten it.
             <div className="mt-3"><Button variant="outline" onClick={() => openExistingCaptureRoom(existingCaptureRoom)}>Review saved room</Button></div>
@@ -583,12 +601,23 @@ export default function JobEditor() {
         )}
         {!isNewJob && handoffId && !scanUpdateDismissed && scanUpdate?.status === 'review' && (
           <div role="alert" className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
-            <h2 className="font-semibold text-base">Review newer scan of {scanUpdate.room.name}</h2>
-            <p className="mt-1">The scan proposes {scanUpdate.preview.deferred.walls} new wall segments,
-              {' '}{scanUpdate.preview.deferred.openings} openings, {scanUpdate.preview.deferred.services} services and
-              {' '}{scanUpdate.preview.deferred.objects} fittings. These stay in the scanner review until their
-              coordinate frame is verified against this room. Your measured walls, cabinet layout and confirmed
-              floor boundary stay as they are. This update will remain available for review.</p>
+            <h2 className="font-semibold text-base">Newer scan of {scanUpdate.room.name}</h2>
+            {Object.values(scanUpdate.preview.deferred).some(count => count > 0)
+              ? <p className="mt-1">The newer scan has {([
+                  [scanUpdate.preview.deferred.walls, 'wall', 'walls'],
+                  [scanUpdate.preview.deferred.openings, 'door or window', 'doors or windows'],
+                  [scanUpdate.preview.deferred.services, 'service', 'services'],
+                  [scanUpdate.preview.deferred.objects, 'fitting', 'fittings'],
+                ] as const).filter(([count]) => count > 0).map(([count, one, many]) => `${count} ${count === 1 ? one : many}`).join(', ')}
+                {' '}that this room does not have. They are not added automatically, so your walls, edits and cabinets
+                stay as they are. Add them by hand in Room plan if they are right.</p>
+              : <p className="mt-1">Your walls, edits and cabinets stay as they are.</p>}
+            {scanUpdate.preview.lengthDifferences.length > 0 && (
+              <p className="mt-2">The scan has different lengths for {scanUpdate.preview.lengthDifferences.map(difference => {
+                const index = scanUpdate.room.roomDocument?.walls.findIndex(wall => wall.id === difference.wallId) ?? -1;
+                return `wall ${index + 1} (scan ${difference.scanMm.toLocaleString('en-AU')} mm, this room ${difference.currentMm.toLocaleString('en-AU')} mm)`;
+              }).join(', ')}. This room keeps its lengths; change them in Room plan if the scan is right.</p>
+            )}
             {scanUpdate.preview.updatedWallEvidence > 0 && (
               <p className="mt-2">It also adds outline evidence to {scanUpdate.preview.updatedWallEvidence} existing
                 {' '}walls whose corners have not changed. Checked lengths and your edits stay as they are.</p>
@@ -597,18 +626,18 @@ export default function JobEditor() {
               <p className="mt-2">It adds {scanUpdate.preview.addedPhotoObservations} photo observations to the review list.
                 {' '}Their positions and sizes remain unresolved; they do not change the plan or cabinet clearances.</p>
             )}
-            {(scanUpdate.preview.changedExisting > 0 || scanUpdate.preview.cornerConflicts > 0) && (
-              <p className="mt-2">{scanUpdate.preview.changedExisting} changed existing features and
-                {' '}{scanUpdate.preview.cornerConflicts} corner differences need manual review; they will not overwrite your edits.</p>
-            )}
-            {scanUpdate.preview.updatedWallEvidence === 0 && scanUpdate.preview.addedPhotoObservations === 0 && (
-              <p className="mt-2">No new finding can be placed safely in this room yet. Keep the current room and
-                review the newer scan separately.</p>
+            {scanUpdate.preview.cornerConflicts > 0 && (
+              <p className="mt-2">{scanUpdate.preview.cornerConflicts} corner{scanUpdate.preview.cornerConflicts === 1 ? ' is' : 's are'} in a
+                {' '}different place in the scan. This room keeps its corners.</p>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-              {(scanUpdate.preview.updatedWallEvidence > 0 || scanUpdate.preview.addedPhotoObservations > 0) && (
+              {(scanUpdate.preview.updatedWallEvidence > 0 || scanUpdate.preview.addedPhotoObservations > 0) ? (
                 <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
-                  Add safe scan evidence
+                  Add the scan's photo notes
+                </Button>
+              ) : Object.values(scanUpdate.preview.deferred).every(count => count === 0) && (
+                <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
+                  Mark this room up to date with the scan
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setScanUpdateDismissed(true)}>
@@ -631,7 +660,7 @@ export default function JobEditor() {
               <h1 className="text-2xl font-display font-bold text-trade-navy">{isNewJob ? 'Create New Job' : `Job #${(_jobData as { job_number?: number } | undefined)?.job_number ?? jobId?.slice(0, 8)}${_jobData?.name && !_jobData.name.startsWith('Job ') ? ' — ' + _jobData.name : ''}`}</h1>
               <p className="text-trade-muted text-sm">
                 {showRoomWizard
-                  ? (editingRoom ? `Editing: ${editingRoom.name}` : 'Configure room defaults')
+                  ? (editingRoom ? `Editing: ${editingRoom.name}` : fromScanner && isNewJob ? 'Check your scanned room' : 'Configure room defaults')
                   : `${displayRooms.length} room${displayRooms.length !== 1 ? 's' : ''} configured`}
               </p>
             </div>
@@ -855,15 +884,38 @@ export default function JobEditor() {
               The wall plan is no longer available in this browser tab. Return to the homeowner wizard and choose Continue to trade planner again.
               <div className="mt-3"><Button variant="outline" onClick={() => navigate('/wizard')}>Return to wall plan</Button></div>
             </div>
+          ) : isNewJob && handoffInitialConfig?.roomDocument?.capture && !handoffInitialConfig.roomDocument.walls.length && !editingRoom && !showAdvancedScanSetup ? (
+            <section className="mx-auto max-w-xl rounded-xl border border-amber-300 bg-amber-50 p-5 space-y-3 text-amber-950" role="alert">
+              <h2 className="text-lg font-semibold">The scan arrived without a measured wall</h2>
+              <p className="text-sm">Its walls cannot be drawn to size yet. Go back to the scan, enter one wall length you
+                measured, save, then press its kitchen planner button again.</p>
+              <div className="flex flex-wrap gap-2">
+                {scanPageUrl && <Button asChild variant="outline"><a href={scanPageUrl}>Open the scan</a></Button>}
+                <Button variant="ghost" onClick={() => setShowAdvancedScanSetup(true)}>Draw the walls here instead</Button>
+              </div>
+            </section>
+          ) : existingCaptureRoom && isNewJob ? (
+            <section className="mx-auto max-w-xl rounded-xl border border-trade-border bg-white p-5 space-y-3" aria-label="Scan already saved">
+              <h2 className="text-xl font-semibold text-trade-navy">You already saved this scan as a kitchen</h2>
+              <p className="text-sm text-slate-700">Open that kitchen to keep working on it. Nothing here has changed it.</p>
+              <Button className="w-full bg-trade-navy hover:bg-trade-navy-light text-white"
+                onClick={() => openExistingCaptureRoom(existingCaptureRoom)}>Open saved kitchen</Button>
+            </section>
           ) : handoffId && isNewJob && !handoffPayload && !wizardRoom ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-950" role={handoffLoading ? 'status' : 'alert'}>
               {handoffLoading
                 ? 'Loading the scanned room before setup…'
-                : handoffError
-                  ? 'The planner could not load this scanner handoff. The scan is still saved; retry the connection before room setup.'
-                  : 'This scanner handoff could not be opened. Reopen it from the scan rather than creating an empty room.'}
-              {!handoffLoading && handoffError &&
-                <div className="mt-3"><Button variant="outline" onClick={retryHandoff}>Retry handoff</Button></div>}
+                : handoffError && handoffGone
+                  ? 'This planner link has expired or was replaced. Go back to your scan and press its kitchen planner button again to get a fresh link. Your scan is still saved.'
+                  : handoffError
+                    ? 'The planner could not reach the scan just now. Your scan is still saved; try again.'
+                    : 'This planner link is missing its access key. Go back to your scan and press its kitchen planner button again.'}
+              {!handoffLoading && (handoffGone || !handoffError) && <div className="mt-3 flex flex-wrap gap-2">
+                {scanPageUrl && <Button asChild variant="outline"><a href={scanPageUrl}>Open the scan</a></Button>}
+                <Button variant="ghost" onClick={() => navigate('/trade/dashboard')}>Back to dashboard</Button>
+              </div>}
+              {!handoffLoading && handoffError && !handoffGone &&
+                <div className="mt-3"><Button variant="outline" onClick={retryHandoff}>Try again</Button></div>}
             </div>
           ) : consumerScannerRoom && !showAdvancedScanSetup ? (
             <section className="mx-auto max-w-xl rounded-xl border border-trade-border bg-white p-5 space-y-4" aria-label="Open your kitchen plan">
@@ -874,6 +926,9 @@ export default function JobEditor() {
                   {' '}{consumerScannerRoom.walls.filter(wall => wall.lengthEvidence?.source === 'measured').length} with a measured length.
                   You can adjust walls and cabinets in the next view.
                 </p>
+                {consumerScannerRoom.chains.some(chain => !chain.closed) && <p className="mt-2 text-sm text-slate-700">
+                  Only the walls the scan reached are included; the rest of the room is left open.
+                </p>}
                 {!consumerScannerRoom.floorBoundary && <p className="mt-2 text-sm text-amber-800">
                   The room outline is still an estimate. Check it before ordering cabinets.
                 </p>}
@@ -956,7 +1011,7 @@ export default function JobEditor() {
         )}
 
       {/* Activity & Notes */}
-      {jobId && (
+      {jobId && !isNewJob && (
         <div className="mt-6 bg-trade-surface-elevated rounded-xl border border-trade-border p-6">
           <JobNotes jobId={jobId} isAdmin={false} />
         </div>
