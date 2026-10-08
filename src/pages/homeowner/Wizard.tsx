@@ -1457,18 +1457,23 @@ function ScanRoomEntry() {
     const xr = (navigator as unknown as { xr?: { isSessionSupported(m: string): Promise<boolean> } }).xr;
     xr?.isSessionSupported('immersive-ar').then(setXrSupported).catch(() => {});
   }, []);
+  // Name the lane each device actually gets: the quick corner scan, the
+  // iPhone LiDAR import, or typed sizes on a desktop.
+  const apple = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const copy = xrSupported
+    ? { text: 'Got your phone? Point the camera and tap each corner — the room measures itself.', cta: 'Scan my room' }
+    : apple
+      ? { text: 'iPhone or iPad Pro? Import a LiDAR room scan, or type in your sizes.', cta: 'Scan or import my room' }
+      : { text: 'On your phone, scan the room. Here, type in the sizes or import a room scan.', cta: 'Add my room' };
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
-      <p className="text-xs text-slate-600">
-        {xrSupported
-          ? 'Got your phone? Point the camera and tap each corner — the room measures itself.'
-          : 'Got measurements or a LiDAR scan? Import a room plan, or enter the room by hand.'}
-      </p>
+      <p className="text-xs text-slate-600">{copy.text}</p>
       <Link
         to="/wizard/scan"
         className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium px-3 py-2 hover:bg-slate-700"
       >
-        {xrSupported ? 'Scan my room' : 'Add my room'}
+        {copy.cta}
       </Link>
     </div>
   );
