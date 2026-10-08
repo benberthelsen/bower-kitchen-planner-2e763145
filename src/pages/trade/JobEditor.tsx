@@ -13,7 +13,7 @@ import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
 import { captureScannerSession, forgetScannerLink, linkScannerRoom, readScannerSession, type ScannerSession } from '@/lib/roomScan/scannerSession';
 import { scannerEntryUrl } from '@/lib/roomScan/scannerEntryUrl';
-import { applyRoomEdit, derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
+import { derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
 import { readWizardRoomHandoff } from '@/lib/homeowner/wizardRoomHandoff';
 import { legacyRoomConfig, roomDimensions, roomSetupExtras, toRoomConfig } from '@/lib/trade/roomSetupMapping';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
@@ -117,7 +117,7 @@ export default function JobEditor() {
   const wizardRoom = useMemo(() => importingWizardRoom
     ? readWizardRoomHandoff(sessionStorage, handoffId) : null,
   [importingWizardRoom, handoffId]);
-  const [scannerSession] = useState<ScannerSession | null>(() => captureScannerSession());
+  const [scannerSession, setScannerSession] = useState<ScannerSession | null>(() => captureScannerSession());
   const [handoffToken] = useState<string | null>(() => captureHandoffToken(handoffId));
   const handoffQuery = usePlannerHandoff(handoffToken ? null : handoffId);
   const tokenizedHandoff = useTokenizedPlannerHandoff(handoffId, handoffToken);
@@ -315,21 +315,15 @@ export default function JobEditor() {
     } catch { return { status: 'invalid' as const }; }
   }, [handoffPayload, handoffId, isNewJob, jobQuery.data, roomsFromServer]);
 
-  const acceptScanUpdate = async (useScanLengths = false) => {
+  const acceptScanUpdate = async () => {
     if (!jobId || !scanUpdate || scanUpdate.status !== 'review' || isLocked) return;
     const { room, preview } = scanUpdate;
     const nothingDeferred = Object.values(preview.deferred).every(count => count === 0);
-    if (!useScanLengths && preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0 && !nothingDeferred) return;
-    // Apply each re-measured length with the room editor's own rule, so the
-    // connected walls follow exactly as they would for a hand edit.
-    let nextDocument = preview.document;
-    if (useScanLengths) {
-      for (const difference of preview.lengthDifferences) {
-        const result = applyRoomEdit(nextDocument, { type: 'set-wall-length', wallId: difference.wallId,
-          lengthMm: difference.scanMm, measurement: { valueMm: difference.scanMm, source: difference.scanSource } });
-        if (result.applied) nextDocument = result.document;
-      }
-    }
+    if (preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0 && !nothingDeferred) return;
+    // Lengths that differ are listed for the person to change by hand in Room
+    // plan: applying them one wall at a time moves single corners and can skew
+    // a closed outline, so they are never applied automatically.
+    const nextDocument = preview.document;
     const bounds = derivedLegacyBounds(nextDocument);
     const updatedRoom: TradeRoom = { ...room, roomDocument: nextDocument,
       config: bounds ? { ...room.config, width: Math.max(1, Math.round(bounds.widthMm)),
@@ -341,11 +335,13 @@ export default function JobEditor() {
         expectedRoomRevision: room.roomDocument?.revision ?? null });
       updateRoom(room.id, updatedRoom);
       if (handoffId) void linkTradeHandoff(handoffId, jobId);
-      if (scannerSession?.captureId === nextDocument.capture?.captureId
-        && nextDocument.capture?.sourceRevision !== room.roomDocument?.capture?.sourceRevision) {
-        try { await linkScannerRoom(scannerSession, jobId, room.id, nextDocument.capture.sourceRevision); }
+      const captureId = nextDocument.capture?.captureId;
+      const session = captureId ? (scannerSession?.captureId === captureId ? scannerSession : readScannerSession(captureId)) : null;
+      const advanced = nextDocument.capture?.sourceRevision !== room.roomDocument?.capture?.sourceRevision;
+      if (session && advanced) {
+        try { await linkScannerRoom(session, jobId, room.id, nextDocument.capture!.sourceRevision); }
         catch { toast.warning('Scan update saved; the scanner link needs a retry in the planner.'); }
-      } else if (nextDocument.capture?.captureId) forgetScannerLink(nextDocument.capture.captureId);
+      } else if (captureId && !advanced) forgetScannerLink(captureId);
       navigate(`/trade/job/${jobId}/room/${room.id}/planner`);
     } catch {
       toast.error('The scan update could not be saved. Your current room is unchanged; reload and review again.');
@@ -656,11 +652,6 @@ export default function JobEditor() {
                   Mark this room up to date with the scan
                 </Button>
               )}
-              {scanUpdate.preview.lengthDifferences.length > 0 && (
-                <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate(true)}>
-                  Use the scan’s lengths
-                </Button>
-              )}
               {Object.values(scanUpdate.preview.deferred).every(count => count === 0)
                 && scanUpdate.preview.updatedWallEvidence === 0 && scanUpdate.preview.addedPhotoObservations === 0
                 && (scanUpdate.preview.lengthDifferences.length > 0 || scanUpdate.preview.cornerConflicts > 0) && (
@@ -691,7 +682,11 @@ export default function JobEditor() {
                 // that can never finish. The job page stays mounted across
                 // this navigation, so reset it to a fresh new-job state.
                 const captureId = scannerSession?.captureId;
-                if (captureId) forgetScannerLink(captureId);
+                if (captureId) {
+                  forgetScannerLink(captureId);
+                  setScannerSession(previous => previous && { captureId: previous.captureId,
+                    ...(previous.evidenceToken ? { evidenceToken: previous.evidenceToken } : {}) });
+                }
                 setEditingRoom(null); setShowAdvancedScanSetup(false); setShowRoomWizard(true);
                 navigate(`/trade/job/new?handoff=${encodeURIComponent(handoffId)}`);
               }}>Start a new kitchen from this scan</Button>

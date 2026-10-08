@@ -138,8 +138,8 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
   // One choice sets the inside face for the whole wall run, as one undo step.
   const setRunSide = (wallId: string, side: 'left' | 'right' | 'unknown') => {
     const result = withRunInteriorSide(document, wallId, side);
-    if (!result) return;
     setIssues(result.first.issues);
+    if (!result.applied) return;
     setPast(previous => [...previous.slice(-49), document]);
     setFuture([]);
     onChange(result.document);

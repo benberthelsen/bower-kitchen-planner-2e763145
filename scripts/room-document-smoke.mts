@@ -39,11 +39,12 @@ assert.equal(open.walls.find(wall => wall.id === 'angled')?.interiorSide, 'left'
   run.walls.forEach(wall => { wall.interiorSide = 'unknown'; });
   const chosen = run.walls[0].id;
   const runChain = run.chains.find(chain => chain.wallIds.includes(chosen))!;
-  const marked = withRunInteriorSide(run, chosen, 'right')!.document;
+  const marked = withRunInteriorSide(run, chosen, 'right').document;
   assert.ok(runChain.wallIds.every(id => marked.walls.find(wall => wall.id === id)?.interiorSide === 'right'),
     'one choice sets the inside face for the whole wall run');
-  const kept = withRunInteriorSide(marked, runChain.wallIds.at(-1)!, 'left')!.document;
-  assert.equal(kept.walls.find(wall => wall.id === chosen)?.interiorSide, 'right', 'a side already chosen is not overwritten');
+  const corrected = withRunInteriorSide(marked, runChain.wallIds.at(-1)!, 'left').document;
+  assert.ok(runChain.wallIds.every(id => corrected.walls.find(wall => wall.id === id)?.interiorSide === 'left'),
+    'correcting the side corrects the whole run, so a run never ends up with mixed sides');
 }
 const lengthResult = applyRoomEdit(open, { type: 'set-wall-length', wallId: 'angled', lengthMm: 1900 });
 assert.equal(lengthResult.applied, true);
