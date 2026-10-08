@@ -474,7 +474,7 @@ export default function JobEditor() {
             action: { label: 'Retry now', onClick: () => {
               void linkScannerRoom(roomScannerSession, newId, firstRoom.id, firstRoom.roomDocument?.capture?.sourceRevision)
                 .then(() => toast.success('The room is linked to its scan.'))
-                .catch((error: unknown) => toast.error(error instanceof Error ? error.message : 'Still not linked. Use Retry scanner link in Room plan.'));
+                .catch((error: unknown) => toast.error(error instanceof Error ? error.message : 'Still not linked. Use Try again under Photos from your scan in Room plan.'));
             } },
           });
         }

@@ -63,7 +63,7 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
       <p>The room is saved, but its link back to the scan has not finished.</p>
       {linkExpired
         ? reopenUrl && <a className="underline underline-offset-2" href={reopenUrl}>Open the scan and press its kitchen planner button</a>
-        : <Button size="sm" variant="outline" onClick={() => void retryLink()}>Retry scanner link</Button>}
+        : <Button size="sm" variant="outline" onClick={() => void retryLink()}>Try again</Button>}
       {linkError && <p role="alert" className="text-red-700">{linkError}</p>}
     </div>}
     {!session?.evidenceToken && <p className="text-sm text-amber-800">{reopenUrl
@@ -71,7 +71,9 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
         press its planner button.</>
       : 'Reopen this room from its scan to view private photos.'}</p>}
     {manifest && <>
-      <p className="text-sm">{manifest.photos.length} photo{manifest.photos.length === 1 ? '' : 's'} from the scan.</p>
+      <p className="text-sm">{manifest.photos.length
+        ? `${manifest.photos.length} photo${manifest.photos.length === 1 ? '' : 's'} from the scan.`
+        : 'This scan has no photos (a corner scan is marked in AR without taking photos).'}</p>
       <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto">
         {manifest.photos.map(photo => <Button key={photo.id} size="sm" variant={selectedPhoto === photo.id ? 'default' : 'outline'}
           onClick={() => void openPhoto(photo.id)} aria-label={`Open scan photo ${Number(photo.id) + 1}`}>

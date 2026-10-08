@@ -29,13 +29,13 @@ const document: RoomDocumentV1 = {
 
 const markup = renderToStaticMarkup(<RoomDocumentEditor document={document} onChange={() => {}} />);
 const wallMarkup = (number: number) => markup.match(new RegExp(`<g[^>]*aria-label="Select wall ${number},[\\s\\S]*?<\\/g>`))?.[0] ?? '';
-assert.match(wallMarkup(1), /Wall position and angle inferred/);
+assert.match(wallMarkup(1), /Wall position and angle estimated/);
 assert.match(wallMarkup(1), /stroke-dasharray="9 6"/);
 assert.match(wallMarkup(1), /1 · 3000 mm/, 'site-measured length remains unqualified');
-assert.match(wallMarkup(2), /Wall position and angle observed/);
+assert.match(wallMarkup(2), /Wall position and angle seen in the scan/);
 assert.doesNotMatch(wallMarkup(2), /stroke-dasharray=/);
 assert.match(wallMarkup(3), /3 · ~3000 mm/);
-assert.match(wallMarkup(4), /Wall position and angle unverified/);
+assert.match(wallMarkup(4), /Wall position and angle not checked yet/);
 assert.match(wallMarkup(4), /stroke-dasharray="3 6"/);
 assert.match(markup, /wall survey is open/);
 assert.doesNotMatch(markup, /<polygon\b/, 'an open chain must not render a floor polygon');

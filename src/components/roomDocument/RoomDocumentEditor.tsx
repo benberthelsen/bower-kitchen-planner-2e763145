@@ -446,9 +446,8 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           <ul className="mt-2 space-y-2 text-sm">
             {document.pendingPhotoFeatures.map(feature => {
               const wallIndex = feature.wallId ? document.walls.findIndex(item => item.id === feature.wallId) : -1;
-              const wallLabel = wallIndex >= 0 ? `Wall ${wallIndex + 1} · ${feature.wallId}`
-                : feature.sourceWallId ? `Source wall ${feature.sourceWallId} · not matched to this plan`
-                  : 'Wall not identified';
+              const wallLabel = wallIndex >= 0 ? `Wall ${wallIndex + 1}`
+                : feature.sourceWallId ? 'Wall not matched yet' : 'Wall not identified';
               return <li key={feature.id} className="rounded border border-amber-200 bg-white p-2">
                 <span className="font-medium text-trade-navy">{feature.label}</span>
                 <span className="block text-xs text-slate-600">{plainKind(feature.kind)} · {wallLabel}</span>
