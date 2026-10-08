@@ -33,6 +33,17 @@ open = edit(open, { type: 'upsert-object', object: {
 const fridgeBefore = objectPose(open, open.objects[0]);
 open = edit(open, { type: 'set-wall-interior-side', wallId: 'angled', side: 'left' });
 assert.equal(open.walls.find(wall => wall.id === 'angled')?.interiorSide, 'left');
+{
+  const run = structuredClone(open);
+  run.walls.forEach(wall => { wall.interiorSide = 'unknown'; });
+  const chosen = run.walls[0].id;
+  const runChain = run.chains.find(chain => chain.wallIds.includes(chosen))!;
+  const marked = edit(run, { type: 'set-wall-interior-side', wallId: chosen, side: 'right' });
+  assert.ok(runChain.wallIds.every(id => marked.walls.find(wall => wall.id === id)?.interiorSide === 'right'),
+    'one choice sets the inside face for the whole wall run');
+  const kept = edit(marked, { type: 'set-wall-interior-side', wallId: runChain.wallIds.at(-1)!, side: 'left' });
+  assert.equal(kept.walls.find(wall => wall.id === chosen)?.interiorSide, 'right', 'a side already chosen is not overwritten');
+}
 const lengthResult = applyRoomEdit(open, { type: 'set-wall-length', wallId: 'angled', lengthMm: 1900 });
 assert.equal(lengthResult.applied, true);
 assert.equal(lengthResult.document.objects[0].widthMm, 600);

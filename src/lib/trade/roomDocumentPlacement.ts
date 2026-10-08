@@ -117,7 +117,7 @@ export function findRoomWallPlacement(req: RoomPlacementRequest): RoomPlacementC
     ? { status: 'placed', xMm: best.pose.xMm, zMm: best.pose.zMm, rotationDeg: best.pose.rotationDeg, wallId: best.wallId, offsetMm: best.offsetMm }
     : { status: 'unplaced', reason: req.document.walls.some(wall => wall.interiorSide === 'left' || wall.interiorSide === 'right')
       ? 'No measured wall has enough clear space for this item.'
-      : 'Set which side of each wall faces into the room (Room plan, choose a wall), then add the item again.' };
+      : 'Set which side of the walls faces into the room: open Room plan, choose a wall and pick its side (the rest of that wall run follows), then add the item again.' };
 }
 
 /** Keep arbitrary rotations for freestanding items when the floor is known. */

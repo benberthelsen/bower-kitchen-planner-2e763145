@@ -661,10 +661,13 @@ export default function JobEditor() {
                   Use the scan’s lengths
                 </Button>
               )}
-              {(scanUpdate.preview.lengthDifferences.length > 0 || scanUpdate.preview.cornerConflicts > 0)
-                && Object.values(scanUpdate.preview.deferred).every(count => count === 0) && (
+              {Object.values(scanUpdate.preview.deferred).every(count => count === 0)
+                && scanUpdate.preview.updatedWallEvidence === 0 && scanUpdate.preview.addedPhotoObservations === 0
+                && (scanUpdate.preview.lengthDifferences.length > 0 || scanUpdate.preview.cornerConflicts > 0) && (
                 <Button size="sm" variant="outline" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
-                  Keep this room’s lengths (this scan won’t be offered again)
+                  {scanUpdate.preview.lengthDifferences.length > 0
+                    ? 'Keep this room’s lengths (this scan won’t be offered again)'
+                    : 'Mark this room up to date with the scan'}
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => {
@@ -682,7 +685,17 @@ export default function JobEditor() {
             This job no longer has the room this scan was saved to (its walls may have been replaced with a standard
             shape), so the scan update can’t be added here. Your job is unchanged.
             <span className="mt-3 block"><Button size="sm" variant="outline"
-              onClick={() => navigate(`/trade/job/new?handoff=${encodeURIComponent(handoffId)}`)}>Start a new kitchen from this scan</Button></span>
+              onClick={() => {
+                // The scanner keeps its link to this job, so the new kitchen
+                // cannot link back; drop the token rather than show a link
+                // that can never finish. The job page stays mounted across
+                // this navigation, so reset it to a fresh new-job state.
+                const captureId = scannerSession?.captureId;
+                if (captureId) forgetScannerLink(captureId);
+                setEditingRoom(null); setShowAdvancedScanSetup(false); setShowRoomWizard(true);
+                navigate(`/trade/job/new?handoff=${encodeURIComponent(handoffId)}`);
+              }}>Start a new kitchen from this scan</Button>
+              <span className="mt-1 block text-xs">The scanner’s Reopen button will still open this job; open the new kitchen from your jobs list.</span></span>
           </p>
         )}
         {!isNewJob && handoffId && scanUpdate?.status === 'invalid' && (

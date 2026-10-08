@@ -101,7 +101,7 @@ async function scannerBridge(input: BridgeInput): Promise<Response> {
     const fail = (message: string) => new ScannerBridgeError(message, response.status);
     if (response.status === 401) throw fail('Scanner access has expired. Open the scan and press its kitchen planner button again.');
     if (response.status === 403) throw fail('This scan is not linked to this saved room.');
-    if (response.status === 404) throw fail('That scan photo is no longer available. The rest of the scan is unaffected.');
+    if (response.status === 404 && input.action === 'photo') throw fail('That scan photo is no longer available. The rest of the scan is unaffected.');
     if (response.status === 409) throw fail('This scan is already linked to another kitchen, or it changed. Open that kitchen from the scan.');
     throw fail('The scan can’t be reached right now. Your room is saved; try again in a few minutes.');
   }

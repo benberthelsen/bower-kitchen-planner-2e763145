@@ -51,7 +51,7 @@ assert.deepEqual(findRoomWallPlacement({ ...request, document: fullyBlocked }),
 const sidesUnknown: RoomDocumentV1 = { ...angled, walls: angled.walls.map(wall => ({ ...wall, interiorSide: 'unknown' as const })) };
 const noSide = findRoomWallPlacement({ ...request, document: sidesUnknown });
 assert.equal(noSide.status, 'unplaced');
-assert.match(noSide.status === 'unplaced' ? noSide.reason : '', /which side of each wall faces into the room/,
+assert.match(noSide.status === 'unplaced' ? noSide.reason : '', /which side of the walls faces into the room/,
   'an unplaced item names the missing inside face instead of blaming wall space');
 
 const moved = snapRoomDocumentPlacement({

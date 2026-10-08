@@ -324,11 +324,10 @@ const sides = (closed: boolean, corners: Array<[number, number]>) => {
 const square: Array<[number, number]> = [[0, 0], [4000, 0], [4000, 3000], [0, 3000]];
 assert.deepEqual(sides(true, square), ['left', 'left', 'left', 'left'], 'a counter-clockwise outline faces left of each wall');
 assert.deepEqual(sides(true, [...square].reverse()), ['right', 'right', 'right', 'right'], 'the reverse winding faces right');
-assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 2000]]), ['left', 'left'], 'an L scanned from inside faces its turn');
-assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 2000], [3000, 2600]]), ['left', 'left', 'left'],
-  'a straight continuation does not change the side');
-assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 500], [4000, 500]]), ['unknown', 'unknown', 'unknown'],
-  'a run that turns both ways is left for the person to decide');
+assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 2000]]), ['unknown', 'unknown'],
+  'an open L cannot be told from a run around a pier, so the person decides');
+assert.deepEqual(sides(false, [[1000, 0], [1000, 500], [2000, 500], [2000, 0]]), ['unknown', 'unknown', 'unknown'],
+  'a run around a pier is never guessed to face into the pier');
 assert.deepEqual(sides(false, [[0, 0], [3000, 0]]), ['unknown'], 'one straight wall cannot tell which side is the room');
 
 // A room saved before inside faces were set gets them from a newer scan of
@@ -347,6 +346,8 @@ assert.deepEqual(sideUpdate.document.walls.map(wall => wall.interiorSide), ['lef
   'unknown sides are filled from the scan; the side the person chose stays');
 assert.ok(sideUpdate.updatedWallEvidence >= 3, 'filling sides counts as something the update adds');
 const remeasured = previewCaptureUpdate(squareDoc('rev-1'), squareDoc('rev-3', 4200));
+assert.ok(remeasured.lengthDifferences.every(difference => difference.scanSource === 'measured'),
+  'scan estimates never compete with the room\'s lengths');
 assert.deepEqual(remeasured.lengthDifferences, [{ wallId: 'q-a', currentMm: 4000, scanMm: 4200, scanSource: 'measured' }],
   'a re-measured wall is reported with its measured source');
 

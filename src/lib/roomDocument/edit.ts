@@ -240,7 +240,18 @@ export function applyRoomEdit(doc: RoomDocumentV1, edit: RoomEdit): RoomEditResu
       subjectId = edit.wallId;
       const wall = wallFor(next, edit.wallId);
       if (!wall) failure = 'Choose a wall to set its inside face.';
-      else wall.interiorSide = edit.side;
+      else {
+        wall.interiorSide = edit.side;
+        // The room is on the same side of every wall along a run, so fill the
+        // run's other undecided walls; a side already chosen is left alone.
+        if (edit.side !== 'unknown') {
+          const run = next.chains.find(chain => chain.wallIds.includes(wall.id));
+          for (const id of run?.wallIds ?? []) {
+            const other = wallFor(next, id);
+            if (other && (other.interiorSide ?? 'unknown') === 'unknown') other.interiorSide = edit.side;
+          }
+        }
+      }
       break;
     }
     case 'add-wall': failure = addWall(next, edit); break;

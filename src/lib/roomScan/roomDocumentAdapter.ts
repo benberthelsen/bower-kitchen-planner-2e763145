@@ -101,9 +101,11 @@ function pendingPhotoFeaturesFromState(state: unknown, knownWallIds: Set<string>
 /** Which side of each wall faces into the room, from the drawn chain alone.
  * A closed outline's winding decides it exactly: with a positive signed area
  * in plan (x, z) the room is on the left of each wall's direction, which is
- * what the planner's geometry treats as 'left'. An open run is decided only
- * when every turn bends the same way (an L or U scanned from inside); a run
- * that zigzags or is a single straight wall stays 'unknown' for the user. */
+ * what the planner's geometry treats as 'left'. An open run cannot be decided
+ * from its shape: a run around a chimney breast or pier turns the same way as
+ * an L scanned from inside, with the room on the other side. It stays
+ * 'unknown'; one choice in the editor sets the whole run, because the room is
+ * on the same side of every wall along a run. */
 function chainInteriorSide(corners: RoomCorner[], closed: boolean): 'left' | 'right' | 'unknown' {
   if (closed) {
     if (corners.length < 3) return 'unknown';
@@ -114,16 +116,7 @@ function chainInteriorSide(corners: RoomCorner[], closed: boolean): 'left' | 'ri
     });
     return Math.abs(twiceArea) < 1 ? 'unknown' : twiceArea > 0 ? 'left' : 'right';
   }
-  let sign = 0;
-  for (let index = 1; index < corners.length - 1; index += 1) {
-    const a = corners[index - 1], b = corners[index], c = corners[index + 1];
-    const cross = (b.xMm - a.xMm) * (c.zMm - b.zMm) - (b.zMm - a.zMm) * (c.xMm - b.xMm);
-    if (Math.abs(cross) < 1) continue; // A straight continuation does not decide it.
-    const turn = Math.sign(cross);
-    if (sign && turn !== sign) return 'unknown';
-    sign = turn;
-  }
-  return sign > 0 ? 'left' : sign < 0 ? 'right' : 'unknown';
+  return 'unknown';
 }
 
 /** Converts both new explicit chains and legacy V1 corners. A closed *draft*
@@ -327,7 +320,10 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     lengthDifferences: current.walls.flatMap(wall => {
       const next = incomingWallsById.get(wall.id);
       const currentMm = wall.lengthEvidence?.valueMm, scanMm = next?.lengthEvidence?.valueMm;
-      return currentMm !== undefined && scanMm !== undefined && Math.round(currentMm) !== Math.round(scanMm)
+      // An estimate from the scan's geometry never competes with a length;
+      // only a wall the scan itself measured is offered.
+      return currentMm !== undefined && scanMm !== undefined && next?.lengthEvidence?.source === 'measured'
+        && Math.round(currentMm) !== Math.round(scanMm)
         ? [{ wallId: wall.id, currentMm: Math.round(currentMm), scanMm: Math.round(scanMm),
           scanSource: next!.lengthEvidence!.source }] : [];
     }),
