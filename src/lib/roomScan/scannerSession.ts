@@ -79,6 +79,7 @@ async function scannerBridge(input: BridgeInput): Promise<Response> {
   if (!response.ok) {
     if (response.status === 401) throw new Error('Scanner access was denied or expired. Reopen the saved scan.');
     if (response.status === 403) throw new Error('This scan is not linked to this saved room.');
+    if (response.status === 404) throw new Error('That scan photo is no longer available. The rest of the scan is unaffected.');
     if (response.status === 409) throw new Error('The scan changed. Review the new scan before linking it.');
     if (response.status === 503) throw new Error('The private scanner is temporarily unavailable. Your room is saved; try again later.');
     throw new Error(`Scanner connection failed (${response.status}).`);
@@ -110,7 +111,9 @@ export async function loadScannerManifest(session: ScannerSession, jobId: string
   const response = await scannerBridge({ action: 'manifest', jobId, roomId,
     captureId: session.captureId, sourceRevision, token: session.evidenceToken });
   const manifest = await response.json() as ScannerEvidenceManifest;
-  if (manifest.captureId !== session.captureId || manifest.sourceRevision !== sourceRevision
+  // The manifest names the scanner's current revision; photos are per capture,
+  // so a room saved from an earlier revision still shows them.
+  if (manifest.captureId !== session.captureId || typeof manifest.sourceRevision !== 'string'
     || !Array.isArray(manifest.photos)) throw new Error('Scanner evidence is invalid.');
   return manifest;
 }

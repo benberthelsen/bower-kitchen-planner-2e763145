@@ -31,7 +31,11 @@ assert.ok(photoInput);
 assert.equal(scannerBridgePath(photoInput), `/api/room-capture/jobs/${captureId}/planner-evidence/photos/0001`);
 assert.equal(validScannerManifest({ captureId, sourceRevision: 'revision-1',
   photos: [{ id: '0001', bytes: 1024 }] }, input), true);
-assert.equal(validScannerManifest({ captureId, sourceRevision: 'old', photos: [] }, input), false);
+assert.equal(validScannerManifest({ captureId, sourceRevision: 'revision-2', photos: [] }, input), true,
+  'photos belong to the capture, so a newer scanner revision still serves them');
+assert.equal(validScannerManifest({ captureId, sourceRevision: '', photos: [] }, input), false);
+assert.equal(validScannerManifest({ captureId: '00000000-0000-0000-0000-000000000001',
+  sourceRevision: 'revision-1', photos: [] }, input), false);
 assert.equal(validScannerManifest({ captureId, sourceRevision: 'revision-1',
   photos: [{ id: '0160', bytes: 1 }] }, input), false);
 assert.equal(validScannerPhotoBytes(new Uint8Array([255, 216, 1, 255, 217])), true);

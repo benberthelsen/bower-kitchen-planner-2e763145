@@ -65,11 +65,16 @@ export function scannerBridgePath(input: ScannerBridgeInput): string {
       : `${base}/planner-evidence/photos/${input.photoId}`;
 }
 
+/** Photographs belong to the capture, not to one review revision: the scanner
+ * issues each evidence capability for the revision current at that moment,
+ * so a room saved from an earlier revision must still see the same photos.
+ * The saved room's revision is already checked by savedRoomMatchesCapture. */
 export function validScannerManifest(value: unknown, input: ScannerBridgeInput): boolean {
   if (!value || typeof value !== 'object') return false;
   const record = value as { captureId?: unknown; sourceRevision?: unknown; photos?: unknown };
   return record.captureId === input.captureId
-    && record.sourceRevision === input.sourceRevision
+    && typeof record.sourceRevision === 'string' && record.sourceRevision.length >= 1
+    && record.sourceRevision.length <= 256
     && Array.isArray(record.photos) && record.photos.length <= 160
     && record.photos.every((photo: unknown) => {
       if (!photo || typeof photo !== 'object') return false;
