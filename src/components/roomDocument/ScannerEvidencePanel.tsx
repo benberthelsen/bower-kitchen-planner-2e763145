@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { linkScannerRoom, loadScannerManifest, loadScannerPhoto, readScannerSession,
   type ScannerEvidenceManifest, type ScannerSession } from '@/lib/roomScan/scannerSession';
+import { scannerEntryUrl } from '@/lib/roomScan/scannerEntryUrl';
 
 /** Photos are read through a short-lived, capture-scoped capability. Image
  * bytes are never saved in the job or eagerly loaded as a large gallery. */
@@ -16,6 +17,9 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
   const [linkPending, setLinkPending] = useState(Boolean(session?.linkToken));
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  // The scanner's draft page is the only place that issues a fresh photo
+  // capability; link there when the planner knows the scanner's address.
+  const reopenUrl = scannerEntryUrl({ page: 'capture', captureId });
 
   useEffect(() => {
     if (!evidenceToken) return;
@@ -56,7 +60,10 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
       <Button size="sm" variant="outline" onClick={() => void retryLink()}>Retry scanner link</Button>
       {linkError && <p role="alert" className="text-red-700">{linkError}</p>}
     </div>}
-    {!session?.evidenceToken && <p className="text-sm text-amber-800">Reopen this room from its scan to view private photos.</p>}
+    {!session?.evidenceToken && <p className="text-sm text-amber-800">{reopenUrl
+      ? <>To view private photos, <a className="underline underline-offset-2" href={reopenUrl}>reopen this room from its scan</a> and
+        press its planner button.</>
+      : 'Reopen this room from its scan to view private photos.'}</p>}
     {manifest && <>
       <p className="text-sm">{manifest.photos.length} private scan photos available for review.</p>
       <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto">

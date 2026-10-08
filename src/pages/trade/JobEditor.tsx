@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, Clock, CheckCircle2, Wrench, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, FileDown, Send, Plus, LayoutGrid, Box, Clock, CheckCircle2, Wrench, AlertCircle, ScanLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import TradeLayout from './components/TradeLayout';
@@ -12,6 +12,7 @@ import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff, lin
 import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
 import { captureScannerSession, linkScannerRoom, readScannerSession, type ScannerSession } from '@/lib/roomScan/scannerSession';
+import { scannerEntryUrl } from '@/lib/roomScan/scannerEntryUrl';
 import { derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
 import { readWizardRoomHandoff } from '@/lib/homeowner/wizardRoomHandoff';
 import { legacyRoomConfig, roomDimensions, roomSetupExtras, toRoomConfig } from '@/lib/trade/roomSetupMapping';
@@ -104,7 +105,10 @@ export default function JobEditor() {
   const { jobId } = useParams();
   const navigate = useNavigate();
   const isNewJob = jobId === 'new';
-  const { userType } = useAuth();
+  const { userType, isAdmin } = useAuth();
+  // The private scanner admits only its owner, so the entry shows for admin
+  // accounts and only when the build knows the scanner's address.
+  const scannerEntry = isAdmin ? scannerEntryUrl({ page: 'corners' }) : null;
 
   // WS5 Phase 3: website → planner starter-design handoff (?handoff=<id>).
   const [searchParams] = useSearchParams();
@@ -923,6 +927,13 @@ export default function JobEditor() {
                 <div className="p-3 bg-trade-surface rounded-full group-hover:bg-trade-amber/10 transition-colors"><Plus className="h-6 w-6 text-trade-muted group-hover:text-trade-amber" /></div>
                 <span className="mt-3 font-medium text-trade-muted group-hover:text-trade-amber">Add Another Room</span>
               </button>
+              {scannerEntry && (
+                <a href={scannerEntry} className="bg-trade-surface-elevated rounded-xl border-2 border-dashed border-trade-border p-5 hover:border-trade-amber hover:bg-trade-amber/5 transition-all flex flex-col items-center justify-center min-h-[180px] group text-center">
+                  <div className="p-3 bg-trade-surface rounded-full group-hover:bg-trade-amber/10 transition-colors"><ScanLine className="h-6 w-6 text-trade-muted group-hover:text-trade-amber" /></div>
+                  <span className="mt-3 font-medium text-trade-muted group-hover:text-trade-amber">Scan a room with your phone</span>
+                  <span className="mt-1 text-xs text-trade-muted">Mark the corners in AR, then open the result here.</span>
+                </a>
+              )}
             </div>
           </div>
         ) : (
@@ -935,6 +946,11 @@ export default function JobEditor() {
                 <Plus className="h-4 w-4 mr-2" />
                 Add First Room
               </Button>
+              {scannerEntry && (
+                <p className="mt-4 text-sm text-trade-muted">
+                  Or <a href={scannerEntry} className="font-medium text-trade-navy underline underline-offset-4">scan a room with your phone</a> and open the result here.
+                </p>
+              )}
             </div>
           </div>
         )}
