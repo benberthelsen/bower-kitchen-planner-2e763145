@@ -45,6 +45,11 @@ assert.equal(open.walls.find(wall => wall.id === 'angled')?.interiorSide, 'left'
   const corrected = withRunInteriorSide(marked, runChain.wallIds.at(-1)!, 'left').document;
   assert.ok(runChain.wallIds.every(id => corrected.walls.find(wall => wall.id === id)?.interiorSide === 'left'),
     'correcting the side corrects the whole run, so a run never ends up with mixed sides');
+  const mixed = structuredClone(run);
+  mixed.walls.forEach((wall, index) => { wall.interiorSide = index % 2 ? 'left' : 'unknown'; });
+  const settled = withRunInteriorSide(mixed, chosen, 'right').document;
+  assert.ok(runChain.wallIds.every(id => settled.walls.find(wall => wall.id === id)?.interiorSide === 'right'),
+    'a run with mixed or undecided sides ends up with one side');
 }
 const lengthResult = applyRoomEdit(open, { type: 'set-wall-length', wallId: 'angled', lengthMm: 1900 });
 assert.equal(lengthResult.applied, true);

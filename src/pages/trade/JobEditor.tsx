@@ -306,7 +306,7 @@ export default function JobEditor() {
       return { status: 'invalid' as const };
     const room = roomsFromServer.find(candidate => candidate.roomDocument?.capture?.captureId
       === resolved.document!.capture?.captureId);
-    if (!room?.roomDocument) return { status: 'unlinked' as const };
+    if (!room?.roomDocument) return { status: 'unlinked' as const, captureId: resolved.document.capture?.captureId };
     if (room.roomDocument.capture?.sourceRevision === resolved.document.capture?.sourceRevision)
       return { status: 'current' as const, room };
     try {
@@ -473,7 +473,7 @@ export default function JobEditor() {
 
       const roomScannerSession = scannerSession ?? (firstRoom.roomDocument?.capture?.captureId
         ? readScannerSession(firstRoom.roomDocument.capture.captureId) : null);
-      if (roomScannerSession && firstRoom.roomDocument?.capture?.captureId === roomScannerSession.captureId) {
+      if (roomScannerSession?.linkToken && firstRoom.roomDocument?.capture?.captureId === roomScannerSession.captureId) {
         try {
           await linkScannerRoom(roomScannerSession, newId, firstRoom.id,
             firstRoom.roomDocument.capture.sourceRevision);
@@ -681,7 +681,7 @@ export default function JobEditor() {
                 // cannot link back; drop the token rather than show a link
                 // that can never finish. The job page stays mounted across
                 // this navigation, so reset it to a fresh new-job state.
-                const captureId = scannerSession?.captureId;
+                const captureId = (scanUpdate?.status === 'unlinked' ? scanUpdate.captureId : undefined) ?? scannerSession?.captureId;
                 if (captureId) {
                   forgetScannerLink(captureId);
                   setScannerSession(previous => previous && { captureId: previous.captureId,
