@@ -85,12 +85,44 @@ export function validScannerPhotoBytes(bytes: Uint8Array): boolean {
     && bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9;
 }
 
-/** Upstream error bodies may contain private details; expose only a category. */
+/** Upstream error bodies may contain private details; expose only a category.
+ * 403 means the scanner rejected this function's Origin (PLANNER_ORIGIN does
+ * not match its PLANNER_TRADE_URL), which is a configuration fault, not an
+ * outage; 404 means the capture or photograph no longer exists. */
 export function scannerUpstreamFailure(status: number): { status: number; code: string } | null {
   if (status === 401) return { status: 401, code: 'scanner_access_denied' };
+  if (status === 403) return { status: 502, code: 'scanner_origin_rejected' };
+  if (status === 404) return { status: 404, code: 'scanner_not_found' };
   if (status === 409) return { status: 409, code: 'scanner_revision_conflict' };
   if (status < 200 || status >= 300) return { status: 502, code: 'scanner_unavailable' };
   return null;
+}
+
+const PREVIEW_SCANNER_ORIGIN = 'https://bower-room-scanner-test-20260912.bowerbuilding.chatgpt.site';
+const PREVIEW_PLANNER_ORIGIN = 'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev';
+
+/** Exact https origins only: no path, query, fragment or credentials. */
+function exactHttpsOrigin(value: string): string | null {
+  let url: URL;
+  try { url = new URL(value.trim()); } catch { return null; }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+    || (url.pathname !== '/' && url.pathname !== '')) return null;
+  return url.origin;
+}
+
+/** The scanner Site the bridge calls and the planner origin it presents.
+ * Both come from Edge secrets so a production planner can be paired with a
+ * production scanner without a code change; the private preview pair is the
+ * default. Returns null when a configured value is not an exact https origin,
+ * so a typo fails closed instead of calling an unexpected host. */
+export function bridgeOrigins(read: (name: string) => string | undefined):
+  { scanner: string; planner: string } | null {
+  const scannerValue = read('SCANNER_ORIGIN')?.trim();
+  const plannerValue = read('PLANNER_ORIGIN')?.trim();
+  const scanner = scannerValue ? exactHttpsOrigin(scannerValue) : PREVIEW_SCANNER_ORIGIN;
+  const planner = plannerValue ? exactHttpsOrigin(plannerValue) : PREVIEW_PLANNER_ORIGIN;
+  if (!scanner || !planner) return null;
+  return { scanner, planner };
 }
 
 /** Cap the actual stream, not just Content-Length (which may be absent or false). */

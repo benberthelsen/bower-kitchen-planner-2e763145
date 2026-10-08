@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  parseScannerBridgeInput, readBoundedBytes, savedRoomMatchesCapture,
+  bridgeOrigins, parseScannerBridgeInput, readBoundedBytes, savedRoomMatchesCapture,
   scannerBridgePath, scannerUpstreamFailure, validScannerManifest,
   validScannerPhotoBytes,
 } from '../supabase/functions/_shared/roomScan/scannerPrivateBridge';
@@ -38,8 +38,24 @@ assert.equal(validScannerPhotoBytes(new Uint8Array([255, 216, 1, 255, 217])), tr
 assert.equal(validScannerPhotoBytes(new Uint8Array([255, 216, 1])), false);
 assert.deepEqual(scannerUpstreamFailure(401), { status: 401, code: 'scanner_access_denied' });
 assert.deepEqual(scannerUpstreamFailure(409), { status: 409, code: 'scanner_revision_conflict' });
+assert.deepEqual(scannerUpstreamFailure(403), { status: 502, code: 'scanner_origin_rejected' });
+assert.deepEqual(scannerUpstreamFailure(404), { status: 404, code: 'scanner_not_found' });
 assert.deepEqual(scannerUpstreamFailure(302), { status: 502, code: 'scanner_unavailable' });
 assert.equal(scannerUpstreamFailure(200), null);
+
+const env = (values: Record<string, string>) => (name: string) => values[name];
+assert.deepEqual(bridgeOrigins(env({})), {
+  scanner: 'https://bower-room-scanner-test-20260912.bowerbuilding.chatgpt.site',
+  planner: 'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev',
+}, 'unset secrets keep the private preview pair');
+assert.deepEqual(bridgeOrigins(env({
+  SCANNER_ORIGIN: ' https://scanner.example.com/ ', PLANNER_ORIGIN: 'https://planner.bowercabinets.com',
+})), { scanner: 'https://scanner.example.com', planner: 'https://planner.bowercabinets.com' });
+for (const bad of ['http://scanner.example.com', 'https://scanner.example.com/api',
+  'https://user:pw@scanner.example.com', 'https://scanner.example.com/?x=1', 'not a url']) {
+  assert.equal(bridgeOrigins(env({ SCANNER_ORIGIN: bad })), null, `rejects ${bad}`);
+  assert.equal(bridgeOrigins(env({ PLANNER_ORIGIN: bad })), null, `rejects ${bad}`);
+}
 
 const bytes = await readBoundedBytes(new Request('https://example.invalid', {
   method: 'POST', body: new Uint8Array([1, 2, 3, 4]),

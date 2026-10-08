@@ -28,8 +28,14 @@ export function ProtectedRoute({ children, requireAdmin = false, requireUserType
             sessionStorage.setItem('bower.authReturnTo',
               window.location.pathname + window.location.search + window.location.hash);
           } catch { /* Sign-in still works when storage is unavailable. */ }
+          // Do not leave the capability fragment in browser history while the
+          // person signs in; the return path above carries it to the job page.
+          if (window.location.hash) {
+            window.history.replaceState(window.history.state, '',
+              window.location.pathname + window.location.search);
+          }
         }
-        navigate('/auth');
+        navigate('/auth', { replace: true });
       } else if (requireUserType && userType !== requireUserType) {
         // Temporary fail-open for canonical /trade/* flow to prevent auth redirect loops
         // when legacy consumer profiles access trade routes.

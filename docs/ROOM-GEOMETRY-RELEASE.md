@@ -22,10 +22,15 @@ token. Later revisions are offered as additive review: existing measured
 walls, user edits, cabinets and confirmed floor stay intact. Private photos
 are fetched individually through a capture-scoped, four-hour capability; no
 photo bytes, private paths or capabilities are stored in the room document.
-Set `VITE_ROOM_SCANNER_ORIGIN` for a planner preview outside the current phone
-test Site. The Site must configure its planner handoff endpoint, planner URL,
-publishable API key and exact planner origin, and must run behind its trusted
-owner identity gateway.
+The `scanner-private-bridge` Edge function is the only planner component that
+reaches the scanner Site. It reads three server-side secrets: `SCANNER_ORIGIN`
+(the Site origin), `PLANNER_ORIGIN` (the exact origin the scanner's
+`PLANNER_TRADE_URL` points at, which the scanner requires as the request
+Origin) and `SCANNER_SITES_ACCESS_TOKEN`. When the two origins are unset the
+function uses the private preview pair; a value that is not an exact https
+origin makes the bridge answer 503 rather than call an unexpected host. The
+Site must configure its planner handoff endpoint, planner URL and publishable
+API key, and must run behind its trusted owner identity gateway.
 
 Release checks:
 

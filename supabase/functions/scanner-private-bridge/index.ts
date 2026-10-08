@@ -9,13 +9,14 @@ import {
   newRequestId, rateLimited,
 } from '../_shared/roomScan/security.ts';
 import {
-  parseScannerBridgeInput, readBoundedBytes, savedRoomMatchesCapture,
+  bridgeOrigins, parseScannerBridgeInput, readBoundedBytes, savedRoomMatchesCapture,
   scannerBridgePath, scannerUpstreamFailure, validScannerManifest,
   validScannerPhotoBytes,
 } from '../_shared/roomScan/scannerPrivateBridge.ts';
 
-const SCANNER_ORIGIN = 'https://bower-room-scanner-test-20260912.bowerbuilding.chatgpt.site';
-const PLANNER_ORIGIN = 'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev';
+// SCANNER_ORIGIN (the private Sites gateway) and PLANNER_ORIGIN (the planner
+// the scanner's PLANNER_TRADE_URL points at) are Edge secrets; the private
+// preview pair is used when they are unset. See docs/ROOM-GEOMETRY-RELEASE.md.
 const MAX_REQUEST_BYTES = 4096;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
@@ -58,10 +59,11 @@ serve(async (req) => {
     || !savedRoomMatchesCapture(job.design_data, input)) return fail(403, 'not_authorized');
 
   const siteToken = Deno.env.get('SCANNER_SITES_ACCESS_TOKEN');
-  if (!siteToken) return fail(503, 'scanner_unavailable');
+  const origins = bridgeOrigins((name) => Deno.env.get(name));
+  if (!siteToken || !origins) return fail(503, 'scanner_unavailable');
   const upstreamHeaders: Record<string, string> = {
     'OAI-Sites-Authorization': `Bearer ${siteToken}`,
-    Origin: PLANNER_ORIGIN,
+    Origin: origins.planner,
     'Cache-Control': 'no-store',
   };
   if (input.action === 'link') upstreamHeaders['Content-Type'] = 'application/json';
@@ -69,7 +71,7 @@ serve(async (req) => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${SCANNER_ORIGIN}${scannerBridgePath(input)}`, {
+    upstream = await fetch(`${origins.scanner}${scannerBridgePath(input)}`, {
       method: input.action === 'link' ? 'POST' : 'GET',
       headers: upstreamHeaders,
       ...(input.action === 'link' ? { body: JSON.stringify({
@@ -82,7 +84,12 @@ serve(async (req) => {
   } catch { return fail(502, 'scanner_unavailable'); }
 
   const upstreamFailure = scannerUpstreamFailure(upstream.status);
-  if (upstreamFailure) return fail(upstreamFailure.status, upstreamFailure.code);
+  if (upstreamFailure) {
+    // The upstream status is a number, never private data; it tells an
+    // origin misconfiguration apart from an outage in the function logs.
+    logOutcome('scanner-private-bridge', rid, `${upstreamFailure.code}:${upstream.status}`, started);
+    return errorResponse(req, upstreamFailure.status, upstreamFailure.code);
+  }
   const expectedType = input.action === 'photo' ? 'image/jpeg' : 'application/json';
   if (upstream.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== expectedType)
     return fail(502, 'scanner_invalid_response');
