@@ -11,9 +11,9 @@ import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
 import { captureHandoffToken, usePlannerHandoff, useTokenizedPlannerHandoff, linkTradeHandoff } from '@/hooks/usePlannerHandoff';
 import { parseLegacyWebsitePlannerHandoff } from '@/lib/roomScan/contract';
 import { previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
-import { captureScannerSession, linkScannerRoom, readScannerSession, type ScannerSession } from '@/lib/roomScan/scannerSession';
+import { captureScannerSession, forgetScannerLink, linkScannerRoom, readScannerSession, type ScannerSession } from '@/lib/roomScan/scannerSession';
 import { scannerEntryUrl } from '@/lib/roomScan/scannerEntryUrl';
-import { derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
+import { applyRoomEdit, derivedLegacyBounds, RoomRevisionConflictError, saveRoomSetupEdit } from '@/lib/roomDocument';
 import { readWizardRoomHandoff } from '@/lib/homeowner/wizardRoomHandoff';
 import { legacyRoomConfig, roomDimensions, roomSetupExtras, toRoomConfig } from '@/lib/trade/roomSetupMapping';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
@@ -273,6 +273,11 @@ export default function JobEditor() {
   }, [importedCaptureId]);
 
   const openExistingCaptureRoom = (existing: ExistingCaptureRoom) => {
+    // The same JobEditor instance stays mounted across this navigation, so
+    // drop the new-job wizard state or the saved job opens on a blank setup.
+    setShowRoomWizard(false);
+    setEditingRoom(null);
+    setShowAdvancedScanSetup(false);
     // Keep a later scanner handoff available for review against the edited
     // room; a direct planner route would drop the incoming scan update.
     navigate(handoffId && !importingWizardRoom
@@ -310,13 +315,23 @@ export default function JobEditor() {
     } catch { return { status: 'invalid' as const }; }
   }, [handoffPayload, handoffId, isNewJob, jobQuery.data, roomsFromServer]);
 
-  const acceptScanUpdate = async () => {
+  const acceptScanUpdate = async (useScanLengths = false) => {
     if (!jobId || !scanUpdate || scanUpdate.status !== 'review' || isLocked) return;
     const { room, preview } = scanUpdate;
     const nothingDeferred = Object.values(preview.deferred).every(count => count === 0);
-    if (preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0 && !nothingDeferred) return;
-    const bounds = derivedLegacyBounds(preview.document);
-    const updatedRoom: TradeRoom = { ...room, roomDocument: preview.document,
+    if (!useScanLengths && preview.updatedWallEvidence === 0 && preview.addedPhotoObservations === 0 && !nothingDeferred) return;
+    // Apply each re-measured length with the room editor's own rule, so the
+    // connected walls follow exactly as they would for a hand edit.
+    let nextDocument = preview.document;
+    if (useScanLengths) {
+      for (const difference of preview.lengthDifferences) {
+        const result = applyRoomEdit(nextDocument, { type: 'set-wall-length', wallId: difference.wallId,
+          lengthMm: difference.scanMm, measurement: { valueMm: difference.scanMm, source: difference.scanSource } });
+        if (result.applied) nextDocument = result.document;
+      }
+    }
+    const bounds = derivedLegacyBounds(nextDocument);
+    const updatedRoom: TradeRoom = { ...room, roomDocument: nextDocument,
       config: bounds ? { ...room.config, width: Math.max(1, Math.round(bounds.widthMm)),
         depth: Math.max(1, Math.round(bounds.depthMm)) } : room.config,
       updatedAt: new Date() };
@@ -326,11 +341,11 @@ export default function JobEditor() {
         expectedRoomRevision: room.roomDocument?.revision ?? null });
       updateRoom(room.id, updatedRoom);
       if (handoffId) void linkTradeHandoff(handoffId, jobId);
-      if (scannerSession?.captureId === preview.document.capture?.captureId
-        && preview.document.capture?.sourceRevision !== room.roomDocument?.capture?.sourceRevision) {
-        try { await linkScannerRoom(scannerSession, jobId, room.id, preview.document.capture.sourceRevision); }
+      if (scannerSession?.captureId === nextDocument.capture?.captureId
+        && nextDocument.capture?.sourceRevision !== room.roomDocument?.capture?.sourceRevision) {
+        try { await linkScannerRoom(scannerSession, jobId, room.id, nextDocument.capture.sourceRevision); }
         catch { toast.warning('Scan update saved; the scanner link needs a retry in the planner.'); }
-      }
+      } else if (nextDocument.capture?.captureId) forgetScannerLink(nextDocument.capture.captureId);
       navigate(`/trade/job/${jobId}/room/${room.id}/planner`);
     } catch {
       toast.error('The scan update could not be saved. Your current room is unchanged; reload and review again.');
@@ -635,12 +650,28 @@ export default function JobEditor() {
                 <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
                   Add the scan's photo notes
                 </Button>
-              ) : Object.values(scanUpdate.preview.deferred).every(count => count === 0) && (
+              ) : Object.values(scanUpdate.preview.deferred).every(count => count === 0)
+                && scanUpdate.preview.lengthDifferences.length === 0 && scanUpdate.preview.cornerConflicts === 0 && (
                 <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
                   Mark this room up to date with the scan
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={() => setScanUpdateDismissed(true)}>
+              {scanUpdate.preview.lengthDifferences.length > 0 && (
+                <Button size="sm" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate(true)}>
+                  Use the scan’s lengths
+                </Button>
+              )}
+              {(scanUpdate.preview.lengthDifferences.length > 0 || scanUpdate.preview.cornerConflicts > 0)
+                && Object.values(scanUpdate.preview.deferred).every(count => count === 0) && (
+                <Button size="sm" variant="outline" disabled={scanUpdateSaving || isLocked} onClick={() => void acceptScanUpdate()}>
+                  Keep this room’s lengths (this scan won’t be offered again)
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => {
+                setScanUpdateDismissed(true);
+                const captureId = scanUpdate.room.roomDocument?.capture?.captureId;
+                if (captureId) forgetScannerLink(captureId);
+              }}>
                 Keep current room
               </Button>
             </div>
@@ -650,6 +681,8 @@ export default function JobEditor() {
           <p role="alert" className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
             This job no longer has the room this scan was saved to (its walls may have been replaced with a standard
             shape), so the scan update can’t be added here. Your job is unchanged.
+            <span className="mt-3 block"><Button size="sm" variant="outline"
+              onClick={() => navigate(`/trade/job/new?handoff=${encodeURIComponent(handoffId)}`)}>Start a new kitchen from this scan</Button></span>
           </p>
         )}
         {!isNewJob && handoffId && scanUpdate?.status === 'invalid' && (

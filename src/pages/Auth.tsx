@@ -27,7 +27,10 @@ function takeTradeReturnPath(): string | null {
 export default function Auth() {
   // A scanner handoff that needed a sign-in left its return path here.
   const [scanWaiting] = useState(() => {
-    try { return /^\/trade\/job\//.test(sessionStorage.getItem('bower.authReturnTo') ?? ''); } catch { return false; }
+    try {
+      const path = sessionStorage.getItem('bower.authReturnTo') ?? '';
+      return /^\/trade\/job\//.test(path) && /[?&#](?:handoff|scannerCaptureId)=/.test(path);
+    } catch { return false; }
   });
   const { user, loading, isAdmin, signIn, signUp } = useAuth();
   const navigate = useNavigate();

@@ -460,6 +460,9 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           {document.chains.some(item => !item.closed)
             ? 'This wall survey is open. Missing walls and the floor area remain unconfirmed.'
             : 'This outline is provisional. The floor area remains unconfirmed.'}
+          {document.chains.length === 1 && document.chains[0].closed && <Button type="button" size="sm" variant="outline" className="ml-2"
+            onClick={() => { const only = document.chains[0]; const ordered = only.wallIds.map(id => document.walls.find(item => item.id === id)?.startCornerId).filter((id): id is string => Boolean(id)); apply({ type: 'set-floor-boundary', cornerIds: ordered }); }}>
+            These walls are the whole room</Button>}
         </p>}
       </div>
       <div className="min-w-0 space-y-4">
@@ -474,7 +477,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           <div className="space-y-1"><Label htmlFor="wall-interior-side" className="text-xs">Which side faces into the room?</Label>
             <select id="wall-interior-side" className="w-full border rounded px-2 py-2 text-sm" value={wall.interiorSide ?? 'unknown'}
               onChange={event => apply({ type: 'set-wall-interior-side', wallId: wall.id, side: event.target.value as 'left' | 'right' | 'unknown' })}>
-              <option value="unknown">Needs review</option><option value="left">Left of wall direction</option><option value="right">Right of wall direction</option>
+              <option value="unknown">Needs review</option><option value="left">Right of the arrow on the plan</option><option value="right">Left of the arrow on the plan</option>
             </select>
             <p className="text-xs text-trade-muted">Cabinet suggestions need the room-facing side. Check the photo before choosing.</p>
           </div>

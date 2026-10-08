@@ -331,4 +331,23 @@ assert.deepEqual(sides(false, [[0, 0], [3000, 0], [3000, 500], [4000, 500]]), ['
   'a run that turns both ways is left for the person to decide');
 assert.deepEqual(sides(false, [[0, 0], [3000, 0]]), ['unknown'], 'one straight wall cannot tell which side is the room');
 
+// A room saved before inside faces were set gets them from a newer scan of
+// the same walls; a side the person already chose is never overwritten.
+const squareDoc = (sourceRevision: string, wallMm?: number) => roomDocumentFromCaptureDraft(roomCaptureDraftV1Schema.parse({
+  schemaVersion: 1, state: 'draft', source: 'photo-review', capturedAt: '2026-10-08T00:00:00.000Z', photos: [],
+  coordinateFrame: frame, adapterState: { captureId: 'older-room', sourceRevision, reviewKind: 'photo-draft', access: 'scanner-owner-only' },
+  partialGeometry: { wallChains: [{ id: 'room', closed: true, provenance: 'inferred',
+    cornersMm: square.map(([x, z], index) => ({ id: `q${index}`, x, z })), wallIds: ['q-a', 'q-b', 'q-c', 'q-d'] }],
+    wallMeasurements: [{ wallId: 'q-a', millimetres: wallMm ?? 4000 }] },
+}), 'older-room');
+const olderRoom = squareDoc('rev-1');
+olderRoom.walls = olderRoom.walls.map((wall, index) => ({ ...wall, interiorSide: index === 1 ? 'right' as const : 'unknown' as const }));
+const sideUpdate = previewCaptureUpdate(olderRoom, squareDoc('rev-2'));
+assert.deepEqual(sideUpdate.document.walls.map(wall => wall.interiorSide), ['left', 'right', 'left', 'left'],
+  'unknown sides are filled from the scan; the side the person chose stays');
+assert.ok(sideUpdate.updatedWallEvidence >= 3, 'filling sides counts as something the update adds');
+const remeasured = previewCaptureUpdate(squareDoc('rev-1'), squareDoc('rev-3', 4200));
+assert.deepEqual(remeasured.lengthDifferences, [{ wallId: 'q-a', currentMm: 4000, scanMm: 4200, scanSource: 'measured' }],
+  'a re-measured wall is reported with its measured source');
+
 console.log('room document handoff smoke passed');

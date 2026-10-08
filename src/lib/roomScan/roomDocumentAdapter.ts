@@ -233,7 +233,7 @@ export interface CaptureUpdatePreview {
   changedExisting: number;
   cornerConflicts: number;
   /** Walls in both rooms whose lengths differ; the saved room keeps its own. */
-  lengthDifferences: Array<{ wallId: string; currentMm: number; scanMm: number }>;
+  lengthDifferences: Array<{ wallId: string; currentMm: number; scanMm: number; scanSource: DimensionSource }>;
 }
 
 /** A later interpretation can fill missing outline evidence on walls whose
@@ -255,8 +255,7 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
   let updatedWallEvidence = 0;
   const existingWalls = current.walls.map(wall => {
     const next = incomingWallsById.get(wall.id);
-    if (!next?.geometryEvidence || wall.geometryEvidence
-      || wall.startCornerId !== next.startCornerId || wall.endCornerId !== next.endCornerId) return wall;
+    if (!next || wall.startCornerId !== next.startCornerId || wall.endCornerId !== next.endCornerId) return wall;
     const start = cornersById.get(wall.startCornerId);
     const end = cornersById.get(wall.endCornerId);
     const nextStart = incomingCornersById.get(wall.startCornerId);
@@ -264,8 +263,16 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
     if (!start || !end || !nextStart || !nextEnd
       || start.xMm !== nextStart.xMm || start.zMm !== nextStart.zMm
       || end.xMm !== nextEnd.xMm || end.zMm !== nextEnd.zMm) return wall;
+    // Same wall in the same place: fill in what the saved room lacks, and
+    // never overwrite what it already has (evidence, a side the person chose).
+    const addEvidence = !!next.geometryEvidence && !wall.geometryEvidence;
+    const addSide = (wall.interiorSide ?? 'unknown') === 'unknown'
+      && (next.interiorSide === 'left' || next.interiorSide === 'right');
+    if (!addEvidence && !addSide) return wall;
     updatedWallEvidence += 1;
-    return { ...wall, geometryEvidence: structuredClone(next.geometryEvidence) };
+    return { ...wall,
+      ...(addEvidence ? { geometryEvidence: structuredClone(next.geometryEvidence!) } : {}),
+      ...(addSide ? { interiorSide: next.interiorSide } : {}) };
   });
   const addById = <T extends { id: string }>(previous: T[], next: T[]): T[] => {
     const ids = new Set(previous.map(item => item.id));
@@ -321,7 +328,8 @@ export function previewCaptureUpdate(current: RoomDocumentV1, incoming: RoomDocu
       const next = incomingWallsById.get(wall.id);
       const currentMm = wall.lengthEvidence?.valueMm, scanMm = next?.lengthEvidence?.valueMm;
       return currentMm !== undefined && scanMm !== undefined && Math.round(currentMm) !== Math.round(scanMm)
-        ? [{ wallId: wall.id, currentMm: Math.round(currentMm), scanMm: Math.round(scanMm) }] : [];
+        ? [{ wallId: wall.id, currentMm: Math.round(currentMm), scanMm: Math.round(scanMm),
+          scanSource: next!.lengthEvidence!.source }] : [];
     }),
   };
 }

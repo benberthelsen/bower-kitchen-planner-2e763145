@@ -23,6 +23,18 @@ export function readScannerSession(captureId: string): ScannerSession | null {
 }
 
 /** Run before captureHandoffToken(), which removes the entire URL fragment. */
+/** Keep the photo capability but drop a link token the person chose not to
+ * use (the scanner refuses it once the room keeps its earlier revision), so
+ * the room page does not show a link that can never finish. */
+export function forgetScannerLink(captureId: string): void {
+  const session = readScannerSession(captureId);
+  if (!session?.linkToken) return;
+  try {
+    sessionStorage.setItem(keyFor(captureId), JSON.stringify({ captureId,
+      ...(session.evidenceToken ? { evidenceToken: session.evidenceToken } : {}) }));
+  } catch { /* Nothing stored, nothing to forget. */ }
+}
+
 export function captureScannerSession(): ScannerSession | null {
   if (typeof window === 'undefined') return null;
   const fragment = new URLSearchParams(window.location.hash.slice(1));
