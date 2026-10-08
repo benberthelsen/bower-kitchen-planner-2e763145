@@ -10,7 +10,7 @@ assert.equal(buildScannerEntryUrl(origin, false, { page: 'corners' }),
 assert.equal(buildScannerEntryUrl(`${origin}/`, false, { page: 'captures' }),
   'https://scanner.example.com/room-capture/?source=planner-trade');
 assert.equal(buildScannerEntryUrl(origin, false, { page: 'capture', captureId }),
-  `https://scanner.example.com/room-draft/?capture=${captureId}`);
+  `https://scanner.example.com/room-review/?capture=${captureId}`);
 assert.equal(buildScannerEntryUrl(origin, false, { page: 'capture', captureId: '../other' }), null,
   'only a capture id reaches the draft page');
 for (const bad of ['http://scanner.example.com', `${origin}/room-walk/`, `${origin}/?x=1`,

@@ -136,7 +136,7 @@ export default function Auth() {
         <Card className="w-full border-slate-200 shadow-sm">
         <CardHeader className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Bower Cabinets</p>
-          <CardTitle className="text-2xl font-bold text-slate-900">Trade Portal</CardTitle>
+          <CardTitle className="text-2xl font-bold text-slate-900">{scanWaiting ? 'Sign in to see your kitchen' : 'Trade Portal'}</CardTitle>
           <CardDescription>{scanWaiting
             ? 'Sign in to open your scanned room. It opens as soon as you sign in.'
             : 'Sign in to manage repeat customers, jobs, plans and quotes'}</CardDescription>

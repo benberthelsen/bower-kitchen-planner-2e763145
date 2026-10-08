@@ -648,8 +648,26 @@ export default function JobEditor() {
         )}
         {!isNewJob && handoffId && scanUpdate?.status === 'unlinked' && (
           <p role="alert" className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
-            This scan is not linked to a room in this job. Reopen the scan from its owner account before importing it.
+            This job no longer has the room this scan was saved to (its walls may have been replaced with a standard
+            shape), so the scan update can’t be added here. Your job is unchanged.
           </p>
+        )}
+        {!isNewJob && handoffId && scanUpdate?.status === 'invalid' && (
+          <p role="alert" className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+            This scan update could not be read. Your room has not changed. Open the scan and send it again.
+          </p>
+        )}
+        {!isNewJob && handoffId && !handoffPayload && (handoffLoading || handoffError) && (
+          <div role={handoffLoading ? 'status' : 'alert'} className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+            {handoffLoading ? 'Loading the newer scan…'
+              : handoffGone
+                ? 'This scan update link has expired or was replaced. Go back to the scan and press its kitchen planner button again. Your job is unchanged.'
+                : 'The newer scan could not be reached just now. Your job is unchanged; try again.'}
+            {!handoffLoading && <div className="mt-3 flex flex-wrap gap-2">
+              {handoffGone ? scanPageUrl && <Button asChild variant="outline" size="sm"><a href={scanPageUrl}>Open the scan</a></Button>
+                : <Button variant="outline" size="sm" onClick={retryHandoff}>Try again</Button>}
+            </div>}
+          </div>
         )}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
@@ -870,10 +888,10 @@ export default function JobEditor() {
         {showRoomWizard && wizardRoom && handoffId && !handoffPayload
           && !handoffLoading && (
           <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="alert">
-            {handoffError
-              ? 'The planner could not load the scanner handoff. Your edited wall plan is still here; retry loading its details.'
-              : 'The scanner handoff details could not be reopened. Your edited wall plan is still here; save it after review. Reopen the private scan if its photos are needed.'}
-            {handoffError && <Button variant="outline" className="ml-3" onClick={retryHandoff}>Retry handoff</Button>}
+            {handoffError && !handoffGone
+              ? 'The scan details could not be reached just now. Your edited wall plan is still here; try again.'
+              : 'This planner link has expired. Your edited wall plan is still here; save it, and reopen the scan if you need its photos.'}
+            {handoffError && !handoffGone && <Button variant="outline" className="ml-3" onClick={retryHandoff}>Try again</Button>}
           </div>
         )}
         {showRoomWizard ? (

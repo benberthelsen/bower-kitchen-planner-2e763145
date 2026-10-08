@@ -51,7 +51,7 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
     try { await linkScannerRoom(session, jobId, roomId, sourceRevision); setLinkPending(false); }
     catch (error) {
       // An expired link cannot succeed on retry; offer the scan instead.
-      setLinkExpired(error instanceof ScannerBridgeError && error.status === 401);
+      setLinkExpired(error instanceof ScannerBridgeError && (error.status === 401 || error.status === 409));
       setLinkError(error instanceof Error ? error.message : 'Could not link scanner.');
     }
   };
@@ -79,7 +79,8 @@ export default function ScannerEvidencePanel({ captureId, sourceRevision, jobId,
         </Button>)}
       </div>
     </>}
-    {manifestError && <p role="alert" className="text-sm text-red-700">{manifestError}</p>}
+    {manifestError && <p role="alert" className="text-sm text-red-700">{manifestError}
+      {/expired/.test(manifestError) && reopenUrl && <> <a className="underline underline-offset-2" href={reopenUrl}>Open the scan</a></>}</p>}
     <details className="text-xs text-muted-foreground"><summary>Technical details</summary>
       Capture {captureId.slice(0, 8)} · scan revision {sourceRevision ?? 'unversioned'}</details>
     {photoUrl && <img src={photoUrl} alt={`Scan photo ${selectedPhoto ? Number(selectedPhoto) + 1 : ''}`}

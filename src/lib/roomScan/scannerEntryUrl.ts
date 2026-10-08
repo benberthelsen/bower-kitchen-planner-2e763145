@@ -25,7 +25,9 @@ export function buildScannerEntryUrl(configuredOrigin: string | undefined, isDev
   if (base.username || base.password || base.pathname !== '/' || base.search || base.hash) return null;
   if (entry.page === 'capture') {
     if (!UUID.test(entry.captureId)) return null;
-    const url = new URL('/room-draft/', base);
+    // The review page sends each kind of capture (photo room, corner scan,
+    // AR wall run, photo wall plan) to the page that holds its planner button.
+    const url = new URL('/room-review/', base);
     url.searchParams.set('capture', entry.captureId);
     return url.toString();
   }

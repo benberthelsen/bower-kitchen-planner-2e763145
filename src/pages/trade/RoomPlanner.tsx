@@ -1113,6 +1113,31 @@ export default function RoomPlanner() {
   );
   const geometryConflicts = cabinets.filter(cabinet => cabinet.geometryConflict);
 
+  // The job query has settled and this room is not in it: the job belongs to
+  // another account (row-level security hides it), the room was removed, or
+  // the connection failed. Say so instead of loading forever.
+  const roomMissing = !currentRoom && Boolean(jobId) && jobId !== 'new' && !jobQuery.isLoading
+    && (jobQuery.isError || !jobQuery.data || !roomsFromServer.some(room => room.id === roomId));
+  if (roomMissing) {
+    return (
+      <TradeLayout>
+        <div className="flex items-center justify-center h-[calc(100vh-64px)] p-6">
+          <div className="max-w-md text-center space-y-3" role="alert">
+            <Box className="w-12 h-12 mx-auto text-muted-foreground" />
+            <h2 className="text-lg font-semibold">We couldn’t open this kitchen</h2>
+            <p className="text-sm text-muted-foreground">{jobQuery.isError
+              ? 'The connection dropped while loading it. Your kitchen is saved; try again.'
+              : 'It may belong to a different planner account, or the room was removed from this job. Sign in with the account that saved it, or open your jobs.'}</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {jobQuery.isError && <Button variant="outline" onClick={() => void jobQuery.refetch()}>Try again</Button>}
+              <Button variant="outline" onClick={() => navigate('/trade/dashboard')}>Back to my jobs</Button>
+            </div>
+          </div>
+        </div>
+      </TradeLayout>
+    );
+  }
+
   if (!currentRoom) {
     return (
       <TradeLayout>

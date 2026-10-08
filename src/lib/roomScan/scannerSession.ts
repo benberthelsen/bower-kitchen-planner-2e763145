@@ -71,7 +71,8 @@ async function scannerBridge(input: BridgeInput): Promise<Response> {
   const { supabase } = await import('@/integrations/supabase/client');
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Sign in to the planner to view this scan.');
-  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scanner-private-bridge`, {
+  let response: Response;
+  try { response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scanner-private-bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -81,15 +82,16 @@ async function scannerBridge(input: BridgeInput): Promise<Response> {
     body: JSON.stringify(input),
     redirect: 'error',
     cache: 'no-store',
-  });
+  }); } catch {
+    throw new ScannerBridgeError('The scan could not be reached. Check your connection and try again; your room is saved.', 0);
+  }
   if (!response.ok) {
     const fail = (message: string) => new ScannerBridgeError(message, response.status);
     if (response.status === 401) throw fail('Scanner access has expired. Open the scan and press its kitchen planner button again.');
     if (response.status === 403) throw fail('This scan is not linked to this saved room.');
     if (response.status === 404) throw fail('That scan photo is no longer available. The rest of the scan is unaffected.');
-    if (response.status === 409) throw fail('The scan changed. Review the new scan before linking it.');
-    if (response.status === 503) throw fail('The private scanner is temporarily unavailable. Your room is saved; try again later.');
-    throw fail(`Scanner connection failed (${response.status}).`);
+    if (response.status === 409) throw fail('This scan is already linked to another kitchen, or it changed. Open that kitchen from the scan.');
+    throw fail('The scan can’t be reached right now. Your room is saved; try again in a few minutes.');
   }
   return response;
 }
