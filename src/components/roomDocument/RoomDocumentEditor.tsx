@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { wallEvidenceAppearance, wallGeometrySource } from '@/lib/roomDocument/wallEvidenceAppearance';
 import { wallEditForPlanClick, type WallConnection } from './roomPlanPlacement';
+import { withRunInteriorSide } from './interiorSideRun';
 import './RoomDocumentEditor.css';
 import {
   applyRoomEdit,
@@ -133,6 +134,15 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
     setFuture([]);
     onChange(result.document);
     return true;
+  };
+  // One choice sets the inside face for the whole wall run, as one undo step.
+  const setRunSide = (wallId: string, side: 'left' | 'right' | 'unknown') => {
+    const result = withRunInteriorSide(document, wallId, side);
+    if (!result) return;
+    setIssues(result.first.issues);
+    setPast(previous => [...previous.slice(-49), document]);
+    setFuture([]);
+    onChange(result.document);
   };
   const undo = () => {
     if (!past.length) return;
@@ -476,7 +486,7 @@ export default function RoomDocumentEditor({ document, onChange, className }: Pr
           </div>
           <div className="space-y-1"><Label htmlFor="wall-interior-side" className="text-xs">Which side faces into the room?</Label>
             <select id="wall-interior-side" className="w-full border rounded px-2 py-2 text-sm" value={wall.interiorSide ?? 'unknown'}
-              onChange={event => apply({ type: 'set-wall-interior-side', wallId: wall.id, side: event.target.value as 'left' | 'right' | 'unknown' })}>
+              onChange={event => setRunSide(wall.id, event.target.value as 'left' | 'right' | 'unknown')}>
               <option value="unknown">Needs review</option><option value="left">Right of the arrow on the plan</option><option value="right">Left of the arrow on the plan</option>
             </select>
             <p className="text-xs text-trade-muted">Cabinet suggestions need the room-facing side. Check the photo before choosing.</p>
