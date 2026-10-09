@@ -15,8 +15,8 @@ import {
 } from '../_shared/roomScan/scannerPrivateBridge.ts';
 
 // SCANNER_ORIGIN (the private Sites gateway) and PLANNER_ORIGIN (the planner
-// the scanner's PLANNER_TRADE_URL points at) are Edge secrets; the private
-// preview pair is used when they are unset. See docs/ROOM-GEOMETRY-RELEASE.md.
+// the scanner's PLANNER_TRADE_URL points at) are Edge secrets; the bridge
+// answers 503 when either is unset. See docs/ROOM-GEOMETRY-RELEASE.md.
 const MAX_REQUEST_BYTES = 4096;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
@@ -57,6 +57,15 @@ serve(async (req) => {
     .select('customer_id, design_data').eq('id', input.jobId).maybeSingle();
   if (jobError || !job || job.customer_id !== identity.user.id
     || !savedRoomMatchesCapture(job.design_data, input)) return fail(403, 'not_authorized');
+  // The scanner admits only its owner, so only Bower staff may reach it
+  // through the planner, even for a job they own.
+  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data: isStaff, error: staffError } = await service
+    .rpc('is_bower_staff', { p_user: identity.user.id });
+  if (staffError || isStaff !== true) {
+    logOutcome('scanner-private-bridge', rid, 'not_staff', started);
+    return errorResponse(req, 403, 'not_authorized');
+  }
 
   const siteToken = Deno.env.get('SCANNER_SITES_ACCESS_TOKEN');
   const origins = bridgeOrigins((name) => Deno.env.get(name));

@@ -103,9 +103,6 @@ export function scannerUpstreamFailure(status: number): { status: number; code: 
   return null;
 }
 
-const PREVIEW_SCANNER_ORIGIN = 'https://bower-room-scanner-test-20260912.bowerbuilding.chatgpt.site';
-const PREVIEW_PLANNER_ORIGIN = 'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev';
-
 /** Exact https origins only: no path, query, fragment or credentials. */
 function exactHttpsOrigin(value: string): string | null {
   let url: URL;
@@ -117,15 +114,15 @@ function exactHttpsOrigin(value: string): string | null {
 
 /** The scanner Site the bridge calls and the planner origin it presents.
  * Both come from Edge secrets so a production planner can be paired with a
- * production scanner without a code change; the private preview pair is the
- * default. Returns null when a configured value is not an exact https origin,
- * so a typo fails closed instead of calling an unexpected host. */
+ * production scanner without a code change. There is no default: returns
+ * null when either is unset or is not an exact https origin, so a missing
+ * secret or a typo fails closed instead of calling an unexpected host. */
 export function bridgeOrigins(read: (name: string) => string | undefined):
   { scanner: string; planner: string } | null {
   const scannerValue = read('SCANNER_ORIGIN')?.trim();
   const plannerValue = read('PLANNER_ORIGIN')?.trim();
-  const scanner = scannerValue ? exactHttpsOrigin(scannerValue) : PREVIEW_SCANNER_ORIGIN;
-  const planner = plannerValue ? exactHttpsOrigin(plannerValue) : PREVIEW_PLANNER_ORIGIN;
+  const scanner = scannerValue ? exactHttpsOrigin(scannerValue) : null;
+  const planner = plannerValue ? exactHttpsOrigin(plannerValue) : null;
   if (!scanner || !planner) return null;
   return { scanner, planner };
 }

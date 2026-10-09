@@ -88,7 +88,9 @@ export interface TokenizedHandoff {
   expiresAt: string | null;
 }
 
-/** PUBLIC path: tokenized retrieval via edge function. Never consumes. */
+/** PUBLIC path: tokenized retrieval via edge function. Never consumes.
+ *  functions.invoke sends the signed-in session's JWT, which the function
+ *  requires to be staff for a scanner handoff. */
 export function useTokenizedPlannerHandoff(handoffId: string | null, token: string | null) {
   return useQuery({
     queryKey: ['planner-handoff-tokenized', handoffId ?? 'none'],
