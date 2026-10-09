@@ -262,28 +262,10 @@ ok(
     && scanRoomSource.includes('Four-point fallback')
     && scanRoomSource.includes('wallTapIssue(hit)'),
 );
-ok(
-  'scanner UI: reads the viewer pose and pauses marking while tracking is lost',
-  scanRoomSource.includes('frame.getViewerPose(refSpace)')
-    && scanRoomSource.includes('emulatedPosition')
-    && scanRoomSource.includes('const cornerCaptureDisabled = !reading.tracked'),
-);
-ok(
-  'scanner UI: corners fall back to the floor ray and the ceiling to a wall top edge',
-  scanRoomSource.includes('floorTargetFromAim(hit, aim)')
-    && scanRoomSource.includes('ceilingReading(hit, aim, cornersRef.current)'),
-);
-ok(
-  'scanner UI: progress survives the AR session and Start never silently discards it',
-  scanRoomSource.includes('QUICK_SCAN_PROGRESS_KEY')
-    && scanRoomSource.includes('Use these {savedCorners} corners')
-    && scanRoomSource.includes('setConfirmRestart(true)'),
-);
-ok(
-  'scanner UI: a missing dom-overlay is explained and a taps-only scan offered',
-  scanRoomSource.includes('session.domOverlayState')
-    && scanRoomSource.includes('Scan with taps only'),
-);
+// Tracking loss, the floor-ray and wall-edge readings, saved progress, the
+// resume card and the dom-overlay fallback are driven for real, with a fake
+// AR session, by scripts/quick-scan-capture-smoke.tsx (test:quick-scan-capture).
+// Source-string checks for them passed with the behaviour broken.
 ok(
   'scanner UI: makes floor and wall plane acquisition visible',
   scanRoomSource.includes('Floor locked')

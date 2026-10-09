@@ -7,7 +7,7 @@ const F = await import(pathToFileURL(resolve('.tmp-snap-test/webxrFit.mjs')).hre
 const {
   buildScanFromCorners, buildScanFromCapture, intersectDetectedWallLines, snapToPlanes,
   aimFromViewerMatrix, floorPointFromRay, floorTargetFromAim, hiddenCornerFromAims, aimSeparationDeg,
-  wallPlaneHeightFromRay, ceilingReading, wallTapIssue,
+  wallPlaneHeightFromRay, ceilingReading, wallTapIssue, confirmWallEdgeHeight, cornerMarkIssue,
 } = F;
 
 let pass = 0;
@@ -150,6 +150,40 @@ const ROOM = [{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0, z: 3 }];
   check('corner target: tracking lost marks nothing', floorTargetFromAim(v3(1, 0, 0), null) === null);
   check('corner target: level aim with a bench hit marks nothing', floorTargetFromAim(v3(1, 0.9, 0.7), { origin, direction: v3(0, 0, -1) }) === null);
 
+  // Never through a wall. Camera at (0, 1.4, 0), detected wall at z = -3: a
+  // hit on the wall 0.3, 0.4 or 0.6 m up used to give a floor-ray corner 818,
+  // 1200 or 2250 mm behind it, with Mark enabled.
+  const cam = v3(0, 1.4, 0);
+  const wallLine = { a: { x: -2, z: -3 }, b: { x: 2, z: -3 } };
+  for (const y of [0.3, 0.4, 0.6]) {
+    const toWall = { origin: cam, direction: v3(0, y - 1.4, -3) };
+    const upright = { ...v3(0, y, -3), normalY: 0 };
+    check(`corner target: a hit on a wall ${y} m up marks nothing`, floorTargetFromAim(upright, toWall, [wallLine]) === null);
+    check(`corner target: a wall hit ${y} m up marks nothing with no wall detected`, floorTargetFromAim(upright, toWall) === null);
+  }
+  check('corner target: a slanted upright face (cabinet front) marks nothing',
+    floorTargetFromAim({ ...v3(0, 0.5, -2), normalY: 0.3 }, { origin: cam, direction: v3(0, -0.9, -2) }) === null);
+  // A benchtop top against that wall: the ray passes the bench and the wall.
+  const overBench = { origin: cam, direction: v3(0, 0.9 - 1.4, -2.8) };
+  check('corner target: a bench hit with a detected wall behind it marks nothing',
+    floorTargetFromAim({ ...v3(0, 0.9, -2.8), normalY: 1 }, overBench, [wallLine]) === null);
+  const bench2 = floorTargetFromAim({ ...v3(0, 0.9, -2.8), normalY: 1 }, overBench);
+  check('corner target: the same bench hit with no wall detected falls back to the floor ray', bench2 && bench2.source === 'floor-ray', JSON.stringify(bench2));
+  // A bench in front of a corner the ring is on: the floor point stays in the room.
+  const benchFront = floorTargetFromAim({ ...v3(0, 0.9, -0.9), normalY: 0.98 }, { origin: cam, direction: v3(0, -1.4, -2.9) }, [wallLine]);
+  check('corner target: a bench in front of a corner still uses the floor ray', benchFront && benchFront.source === 'floor-ray' && near(benchFront.z, -2.9, 1e-9), JSON.stringify(benchFront));
+  // Within snapping distance of the wall is still allowed (snapping pulls it on).
+  const justPast = floorTargetFromAim({ ...v3(0, 0.9, -0.93), normalY: 1 }, { origin: cam, direction: v3(0, -1.4, -3.1) }, [wallLine], 0.15);
+  check('corner target: a floor point within snapping distance behind a wall is kept', justPast && near(justPast.z, -3.1, 1e-9), JSON.stringify(justPast));
+  // Past the END of the detected wall (it spans x -2..2) the line is crossed
+  // at x 3.17, where no wall was seen; inside its extent, at x 1.17, it is not.
+  const pastEnd = floorTargetFromAim({ ...v3(2.5, 0.9, -1), normalY: 1 }, { origin: cam, direction: v3(3.5, -1.4, -4) }, [wallLine]);
+  check('corner target: a ray clear of the detected wall extent is kept', pastEnd && pastEnd.source === 'floor-ray' && near(pastEnd.z, -4, 1e-9), JSON.stringify(pastEnd));
+  check('corner target: the same ray through the detected extent marks nothing',
+    floorTargetFromAim({ ...v3(0.5, 0.9, -1), normalY: 1 }, { origin: cam, direction: v3(1.5, -1.4, -4) }, [wallLine]) === null);
+  check('corner target: no hit still uses the floor ray with walls detected',
+    floorTargetFromAim(null, { origin: cam, direction: v3(0, -1.4, -2.9) }, [wallLine])?.source === 'floor-ray');
+
   // A viewer pose's aim is its -Z axis: the centre of the view, where the
   // reticle sits and where the viewer-space hit test points.
   const m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 1.4, -0.2, 1];
@@ -187,6 +221,68 @@ const ROOM = [{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0, z: 3 }];
   const byWall = ceilingReading(v3(2, 1.6, 0), aim, ROOM);
   check('ceiling reading: a wall hit falls back to the wall top edge', byWall && byWall.heightMm === 2700 && byWall.source === 'wall-edge', JSON.stringify(byWall));
   check('ceiling reading: nothing without an aim or a ceiling hit', ceilingReading(v3(2, 1.6, 0), null, ROOM) === null);
+  check('ceiling reading: a wall-edge reading carries its plan range', byWall && near(byWall.planRangeM, 2), JSON.stringify(byWall));
+}
+
+// 8b. A wall-edge reading is right only with the ring on the wall-ceiling
+// line, so it needs a second reading from another distance. 4 x 3 m room,
+// eye 1.5 m, true ceiling 2.40 m, no ceiling hit: aiming at the ceiling from
+// 1.5 m read 2366, 2759, 3000 or 3642 mm and was stored as measured.
+{
+  const EYE = 1.5;
+  const C = 2.4;
+  const aimFrom = (dist, rise) => ({ origin: v3(2, EYE, dist), direction: v3(0, rise, -1) });
+  const read = (dist, rise) => ceilingReading(null, aimFrom(dist, rise), ROOM);
+  for (const deg of [30, 40, 45, 55]) {
+    const t = Math.tan(deg * Math.PI / 180);
+    const first = read(1.5, t);
+    const second = read(2.5, t);
+    const both = first && second && confirmWallEdgeHeight(first, second);
+    check(`wall-edge ceiling: aiming at the ceiling at ${deg} degrees from two distances is refused`,
+      (!first || !second) || (both && both.ok === false && both.restart === true), JSON.stringify([first, second, both]));
+  }
+  const onLine = (dist) => read(dist, (C - EYE) / dist);
+  const a = onLine(1.5);
+  const b = onLine(2.6);
+  const confirmed = confirmWallEdgeHeight(a, b);
+  check('wall-edge ceiling: two readings on the line from 1.5 and 2.6 m agree at 2400',
+    confirmed.ok === true && confirmed.heightMm === 2400, JSON.stringify([a, b, confirmed]));
+  const noisy = confirmWallEdgeHeight({ heightMm: 2380, planRangeM: 1.5 }, { heightMm: 2425, planRangeM: 2.5 });
+  check('wall-edge ceiling: readings within 60 mm average', noisy.ok === true && noisy.heightMm === 2403, JSON.stringify(noisy));
+  const sameSpot = confirmWallEdgeHeight(a, onLine(1.9));
+  check('wall-edge ceiling: a second reading from nearly the same distance asks for a step, keeping the first',
+    sameSpot.ok === false && sameSpot.restart === false && /Step/.test(sameSpot.reason), JSON.stringify(sameSpot));
+  // Stepping sideways along the wall keeps the distance: no confirmation.
+  const sideways = ceilingReading(null, { origin: v3(3, EYE, 1.5), direction: v3(0, (C - EYE) / 1.5, -1) }, ROOM);
+  check('wall-edge ceiling: a sideways step is not a second distance', confirmWallEdgeHeight(a, sideways).ok === false);
+
+  const at = '2026-10-09T00:00:00.000Z';
+  const est = buildScanFromCapture(ROOM, { heightMm: 2400, heightSource: 'wall-edge' }, at);
+  check('wall-edge ceiling: stored as an estimate', est.ok && est.scan.room.height === 2400 && est.scan.confidence.fields.height === 'estimated', JSON.stringify(est.scan?.confidence));
+  const surface = buildScanFromCapture(ROOM, { heightMm: 2550, heightSource: 'surface' }, at);
+  check('ceiling surface reading: stored as measured', surface.ok && surface.scan.confidence.fields.height === 'measured');
+  const plain = buildScanFromCapture(ROOM, { heightMm: 2550 }, at);
+  check('ceiling with no source: stored as measured (unchanged)', plain.ok && plain.scan.confidence.fields.height === 'measured');
+  const none = buildScanFromCapture(ROOM, { heightSource: 'wall-edge' }, at);
+  check('no ceiling: default', none.ok && none.scan.room.height === 2700 && none.scan.confidence.fields.height === 'default');
+}
+
+// 8c. Corner marks: a tap on any marked corner is refused, not only the
+// last one. Tapping corner 1 again to close the room added a fifth corner
+// 3 m from the last one, and the whole capture then failed to fit.
+{
+  const [A, B, C, D] = ROOM;
+  const closing = { x: 0.08, z: 0.05 };
+  check('corner mark: closing tap on corner 1 is refused', /corner 1 again/.test(cornerMarkIssue([A, B, C, D], closing) ?? ''));
+  check('corner mark: the capture without it fits', buildScanFromCapture([A, B, C, D], {}, '2026-10-09T00:00:00.000Z').ok);
+  check('corner mark: with it the fit fails, which is why it is refused', !buildScanFromCapture([A, B, C, D, closing]).ok);
+  check('corner mark: repeat of the last corner', /just marked/.test(cornerMarkIssue([A, B, C], { x: 4.1, z: 3.05 }) ?? ''));
+  check('corner mark: repeat of a middle corner names it', /corner 2/.test(cornerMarkIssue([A, B, C], { x: 3.9, z: 0.1 }) ?? ''));
+  check('corner mark: corner 1 before the room has 4 corners is a repeat', /corner 1, already/.test(cornerMarkIssue([A, B, C], { x: 0.05, z: 0 }) ?? ''));
+  check('corner mark: the first corner is free', cornerMarkIssue([], A) === null);
+  check('corner mark: a new corner is free', cornerMarkIssue([A, B], C) === null);
+  const eight = [[0, 0], [2, 0], [2, 1], [4, 1], [4, 3], [2, 3], [2, 4], [0, 4]].map(([x, z]) => ({ x, z }));
+  check('corner mark: no ninth corner', /at most 8/.test(cornerMarkIssue(eight, { x: 1, z: 2 }) ?? ''));
 }
 
 // 9. Four-point fallback: a benchtop top, the floor or the ceiling is not a wall point.

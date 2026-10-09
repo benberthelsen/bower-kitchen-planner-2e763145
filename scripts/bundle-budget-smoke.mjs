@@ -13,8 +13,9 @@ const entryBytes = statSync(entryPath).size;
 // validation, mobile sheets and the scanner evidence panel add a small
 // allowance to the original budget (the release build measured 4,579,840
 // bytes on 8 October 2026). The quick scan's floor-ray and two-aim corners,
-// wall-edge ceiling, tracking check and saved progress add 11 KB (4,602,892
-// bytes on 9 October 2026). Keep the guard tight: splitting the bundle would
+// confirmed wall-edge ceiling, tracking check and editable saved progress
+// take the build to 4,606,193 bytes (9 October 2026), 6.2 KB over the
+// previous 4,600,000 budget. Keep the guard tight: splitting the bundle would
 // break browsers that block dynamic app modules.
 const budgetBytes = 4_612_000;
 assert.ok(

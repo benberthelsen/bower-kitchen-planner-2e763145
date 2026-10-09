@@ -10,7 +10,7 @@
  * either used as it is or discarded — never mixed with a new session.
  */
 
-import type { XrCorner, XrOpeningMark } from './webxrFit';
+import type { XrCaptureExtras, XrCorner, XrOpeningMark } from './webxrFit';
 
 export const QUICK_SCAN_PROGRESS_KEY = 'bower.quickScan.progress';
 /** Progress older than this is ignored (the wizard keeps its own state 24 h). */
@@ -18,10 +18,14 @@ export const QUICK_SCAN_PROGRESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_ITEMS = 32;
 const MAX_COORD_M = 100;
 
+export type QuickScanHeightSource = NonNullable<XrCaptureExtras['heightSource']>;
+
 export interface QuickScanProgress {
   version: 1;
   corners: XrCorner[];
   heightMm: number | null;
+  /** how heightMm was read; null with no height */
+  heightSource: QuickScanHeightSource | null;
   openings: XrOpeningMark[];
   savedAt: string;
 }
@@ -57,17 +61,20 @@ export function parseQuickScanProgress(raw: string | null, now = Date.now()): Qu
   }
   const h = value.heightMm;
   const heightMm = typeof h === 'number' && Number.isFinite(h) && h > 0 && h < 10_000 ? Math.round(h) : null;
-  return { version: 1, corners: corners as XrCorner[], heightMm, openings, savedAt: value.savedAt };
+  // Anything but a surface reading is kept as the weaker wall-edge estimate.
+  const heightSource = heightMm === null ? null : value.heightSource === 'surface' ? 'surface' : 'wall-edge';
+  return { version: 1, corners: corners as XrCorner[], heightMm, heightSource, openings, savedAt: value.savedAt };
 }
 
 export function serializeQuickScanProgress(
-  progress: Pick<QuickScanProgress, 'corners' | 'heightMm' | 'openings'>,
+  progress: Pick<QuickScanProgress, 'corners' | 'heightMm' | 'heightSource' | 'openings'>,
   now = new Date(),
 ): string {
   const record: QuickScanProgress = {
     version: 1,
     corners: progress.corners.map(({ x, z }) => ({ x, z })),
     heightMm: progress.heightMm,
+    heightSource: progress.heightMm === null ? null : progress.heightSource,
     openings: progress.openings.map(({ a, b, type }) => ({ a: { x: a.x, z: a.z }, b: { x: b.x, z: b.z }, type })),
     savedAt: now.toISOString(),
   };

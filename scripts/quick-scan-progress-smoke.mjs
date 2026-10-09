@@ -17,6 +17,7 @@ const now = new Date('2026-10-09T03:00:00.000Z');
 const capture = {
   corners: [{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0, z: 3 }],
   heightMm: 2650,
+  heightSource: 'surface',
   openings: [{ a: { x: 1, z: 0 }, b: { x: 1.9, z: 0 }, type: 'door' }],
 };
 
@@ -28,6 +29,7 @@ check('round trip keeps corners, height and openings',
   back !== null
     && JSON.stringify(back.corners) === JSON.stringify(capture.corners)
     && back.heightMm === 2650
+    && back.heightSource === 'surface'
     && JSON.stringify(back.openings) === JSON.stringify(capture.openings),
   JSON.stringify(back));
 
@@ -55,8 +57,16 @@ check('too many corners are refused', bad((v) => { v.corners = Array.from({ leng
 check('unknown opening type is refused', bad((v) => { v.openings[0].type = 'hatch'; }) === null);
 check('implausible height becomes null, corners kept', (() => {
   const r = bad((v) => { v.heightMm = -5; });
-  return r !== null && r.heightMm === null && r.corners.length === 4;
+  return r !== null && r.heightMm === null && r.heightSource === null && r.corners.length === 4;
 })());
+
+// A wall-edge ceiling is an estimate; it must not come back as a surface reading.
+const wallEdge = parseQuickScanProgress(serializeQuickScanProgress({ ...capture, heightSource: 'wall-edge' }, now), now.getTime());
+check('wall-edge height source survives the round trip', wallEdge?.heightSource === 'wall-edge', JSON.stringify(wallEdge));
+check('unknown height source is kept as the weaker wall-edge estimate', bad((v) => { v.heightSource = 'laser'; })?.heightSource === 'wall-edge');
+check('missing height source is kept as the weaker wall-edge estimate', bad((v) => { delete v.heightSource; })?.heightSource === 'wall-edge');
+const noHeight = parseQuickScanProgress(serializeQuickScanProgress({ ...capture, heightMm: null, heightSource: 'surface' }, now), now.getTime());
+check('no height, no height source', noHeight?.heightMm === null && noHeight?.heightSource === null, JSON.stringify(noHeight));
 
 console.log(`quick scan progress smoke: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

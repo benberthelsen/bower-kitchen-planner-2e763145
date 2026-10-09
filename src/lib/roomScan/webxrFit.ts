@@ -22,7 +22,9 @@
  *
  * The aim-ray helpers (floorPointFromRay, hiddenCornerFromAims,
  * wallPlaneHeightFromRay) need only tracking and the floor plane, so a corner
- * or ceiling can be read where ARCore has detected no plane at all.
+ * or ceiling can be read where ARCore has detected no plane at all. A
+ * wall-edge ceiling is confirmed from two distances (confirmWallEdgeHeight)
+ * and kept as an estimate.
  */
 
 import { parseRoomScan, type RoomScanV1 } from './contract';
@@ -39,6 +41,9 @@ export interface XrOpeningMark {
 export interface XrCaptureExtras {
   /** measured ceiling height in mm (from a ceiling reticle tap); omit = default */
   heightMm?: number;
+  /** 'wall-edge': read from aims at a wall's top edge rather than a ceiling
+   *  surface, so it is kept as an estimate. Omitted = a surface reading. */
+  heightSource?: 'surface' | 'wall-edge';
   openings?: XrOpeningMark[];
 }
 
@@ -176,6 +181,14 @@ export const MIN_CEILING_READING_MM = 2000;
  *  the ceiling. Without this a benchtop top or the floor counted as a wall. */
 export const WALL_TAP_MIN_Y_M = 1.0;
 export const WALL_TAP_MAX_Y_M = 2.0;
+/** A hit pose's Y axis is the surface normal. Above this |normal.y| the
+ *  surface is level (floor, benchtop, ceiling); at or below it, upright (a
+ *  wall, a cabinet front). */
+export const LEVEL_NORMAL_Y = 0.7;
+/** Two wall-edge ceiling readings must come from distances to the wall at
+ *  least this far apart, and agree to within WALL_EDGE_MAX_SPREAD_MM. */
+export const WALL_EDGE_MIN_STEP_M = 0.75;
+export const WALL_EDGE_MAX_SPREAD_MM = 60;
 
 const unit = (v: XrVec3): XrVec3 | null => {
   const l = Math.hypot(v.x, v.y, v.z);
@@ -204,17 +217,61 @@ export function floorPointFromRay(aim: XrAim, floorY = 0): { x: number; z: numbe
 
 export interface FloorTarget { x: number; z: number; source: 'floor-hit' | 'floor-ray'; rangeM: number }
 
+/** True when the plan path from `from` to `to` crosses the wall line within
+ *  its detected extent and ends more than tolM behind it. */
+function endsBehindWall(from: XrCorner, to: XrCorner, wall: WallLine, tolM: number): boolean {
+  const wx = wall.b.x - wall.a.x;
+  const wz = wall.b.z - wall.a.z;
+  const len = Math.hypot(wx, wz);
+  if (len === 0) return false;
+  const side = (p: XrCorner) => (wx * (p.z - wall.a.z) - wz * (p.x - wall.a.x)) / len;
+  const sFrom = side(from);
+  const sTo = side(to);
+  if (sFrom * sTo >= 0 || Math.abs(sTo) <= tolM) return false;
+  const k = sFrom / (sFrom - sTo);
+  const w = ((from.x + (to.x - from.x) * k - wall.a.x) * wx + (from.z + (to.z - from.z) * k - wall.a.z) * wz) / (len * len);
+  return w >= 0 && w <= 1;
+}
+
 /** Where a corner mark lands: a floor-level hit, else the aim ray meeting the
- *  floor plane (no hit, or a benchtop in front). Null while tracking is lost
- *  (no aim) or when neither works. */
-export function floorTargetFromAim(hit: XrVec3 | null, aim: XrAim | null): FloorTarget | null {
+ *  floor plane — when there is no hit, or the hit is a level surface such as
+ *  a benchtop in front of the corner. Never through a wall: a hit on an
+ *  upright surface above the floor (a wall, a cabinet front) has the floor
+ *  the ray meets behind it, so it marks nothing; nor does a ray that passes a
+ *  level hit and then a detected wall (a benchtop against that wall) to land
+ *  more than wallTolM behind it. With no hit at all the ray met no detected
+ *  surface on its way. Null while tracking is lost (no aim) or when nothing
+ *  works. */
+export function floorTargetFromAim(
+  hit: (XrVec3 & { normalY?: number }) | null,
+  aim: XrAim | null,
+  walls: readonly WallLine[] = [],
+  wallTolM = 0.15,
+): FloorTarget | null {
   if (!aim) return null;
   if (hit && Math.abs(hit.y) <= FLOOR_TOLERANCE_M) {
     const rangeM = Math.hypot(hit.x - aim.origin.x, hit.y - aim.origin.y, hit.z - aim.origin.z);
     return { x: hit.x, z: hit.z, source: 'floor-hit', rangeM };
   }
+  if (hit?.normalY !== undefined && Math.abs(hit.normalY) <= LEVEL_NORMAL_Y) return null;
   const ray = floorPointFromRay(aim);
-  return ray && { ...ray, source: 'floor-ray' };
+  if (!ray || (hit && walls.some((wall) => endsBehindWall(hit, ray, wall, wallTolM)))) return null;
+  return { ...ray, source: 'floor-ray' };
+}
+
+/** Why a new corner cannot be marked at this point, or null when it can. A
+ *  point within MIN_CORNER_SEPARATION_M of any marked corner repeats it —
+ *  most often corner 1 tapped again to close the room — and the fit would
+ *  refuse the whole capture for it, so the mark is refused instead. */
+export function cornerMarkIssue(corners: readonly XrCorner[], point: XrCorner): string | null {
+  const index = corners.findIndex((c) => distance(c, point) < MIN_CORNER_SEPARATION_M);
+  if (index === 0 && corners.length >= 4) return 'That is corner 1 again — the room is already closed.';
+  if (index >= 0 && index === corners.length - 1) return 'That is the corner you just marked — move on to the next one.';
+  if (index >= 0) return `That is corner ${index + 1}, already marked — move on to the next one.`;
+  if (corners.length >= MAX_CAPTURE_CORNERS) {
+    return `A room can have at most ${MAX_CAPTURE_CORNERS} corners — finish here, or remove a corner.`;
+  }
+  return null;
 }
 
 /** Plan angle between two aims (0–90°), or null when either is near vertical. */
@@ -252,7 +309,7 @@ export function hiddenCornerFromAims(
 export function wallPlaneHeightFromRay(
   aim: XrAim,
   corners: readonly XrCorner[],
-): { heightMm: number; wallIndex: number; rangeM: number } | null {
+): { heightMm: number; wallIndex: number; rangeM: number; planRangeM: number } | null {
   const d = unit(aim.direction);
   if (!d || corners.length < 2) return null;
   const hl = Math.hypot(d.x, d.z);
@@ -279,29 +336,66 @@ export function wallPlaneHeightFromRay(
   const t = best.s / hl;
   const heightMm = Math.round((aim.origin.y + d.y * t) * 1000);
   if (t > MAX_AIM_RANGE_M || heightMm < MIN_CEILING_READING_MM || heightMm > MAX_CEILING_MM) return null;
-  return { heightMm, wallIndex: best.wallIndex, rangeM: t };
+  return { heightMm, wallIndex: best.wallIndex, rangeM: t, planRangeM: best.s };
+}
+
+export interface CeilingReading {
+  heightMm: number;
+  source: 'ceiling-hit' | 'wall-edge';
+  /** wall-edge only: plan metres from the phone to the wall along the aim */
+  planRangeM?: number;
 }
 
 /** Ceiling height from a ceiling surface hit, else from an aim at the top
- *  edge of a marked wall — which needs no ceiling detection. */
+ *  edge of a marked wall — which needs no ceiling detection, but is right
+ *  only with the ring on that edge (see confirmWallEdgeHeight). */
 export function ceilingReading(
   hit: XrVec3 | null,
   aim: XrAim | null,
   corners: readonly XrCorner[],
-): { heightMm: number; source: 'ceiling-hit' | 'wall-edge' } | null {
+): CeilingReading | null {
   if (hit) {
     const heightMm = Math.round(hit.y * 1000);
     if (heightMm >= MIN_CEILING_READING_MM && heightMm <= MAX_CEILING_MM) return { heightMm, source: 'ceiling-hit' };
   }
   const byWall = aim ? wallPlaneHeightFromRay(aim, corners) : null;
-  return byWall && { heightMm: byWall.heightMm, source: 'wall-edge' };
+  return byWall && { heightMm: byWall.heightMm, source: 'wall-edge', planRangeM: byWall.planRangeM };
+}
+
+/** A wall-edge reading is right only when the ring sits exactly on the line
+ *  where the wall meets the ceiling. Aimed at the ceiling itself, the ray
+ *  carries on to the wall's plane above the ceiling and the reading grows
+ *  with the distance to the wall (eye 1.5 m, 1.5 m from the wall, true
+ *  ceiling 2.40 m: 2.76 m at 40° up, 3.64 m at 55°). Two readings from
+ *  distances at least WALL_EDGE_MIN_STEP_M apart agree only when both were
+ *  on the line. `restart` drops the first reading. */
+export function confirmWallEdgeHeight(
+  first: { heightMm: number; planRangeM: number },
+  second: { heightMm: number; planRangeM: number },
+): { ok: true; heightMm: number } | { ok: false; restart: boolean; reason: string } {
+  if (Math.abs(second.planRangeM - first.planRangeM) < WALL_EDGE_MIN_STEP_M) {
+    return {
+      ok: false,
+      restart: false,
+      reason: 'Step at least 1 m closer to or further from the wall, then put the ring on the same wall–ceiling line again.',
+    };
+  }
+  const spreadMm = Math.abs(second.heightMm - first.heightMm);
+  if (spreadMm > WALL_EDGE_MAX_SPREAD_MM) {
+    return {
+      ok: false,
+      restart: true,
+      reason: `The two readings differ by ${spreadMm} mm, so the ring was not on the line where the wall meets the ceiling. Put it exactly on that line and start again.`,
+    };
+  }
+  return { ok: true, heightMm: Math.round((first.heightMm + second.heightMm) / 2) };
 }
 
 /** Why a 4-point fallback tap is not a wall point, or null when it is. A hit
  *  pose's Y axis is the surface normal; when known, a level surface (floor,
  *  benchtop, ceiling) is refused whatever its height. */
 export function wallTapIssue(hit: { y: number; normalY?: number }): string | null {
-  if (hit.normalY !== undefined && Math.abs(hit.normalY) > 0.7) {
+  if (hit.normalY !== undefined && Math.abs(hit.normalY) > LEVEL_NORMAL_Y) {
     return 'That is a flat surface, not a wall — aim at the wall itself.';
   }
   if (hit.y < WALL_TAP_MIN_Y_M) return 'That point is below benchtop height — aim at the wall above the benchtop.';
@@ -655,12 +749,13 @@ export function buildScanFromCapture(
   // Ceiling height: measured if plausible, else default (with a warning when
   // the measurement was clearly bad rather than silently swallowing it).
   let heightMm = 2700;
-  let heightField: 'measured' | 'default' = 'default';
+  let heightField: 'measured' | 'estimated' | 'default' = 'default';
   if (extras.heightMm !== undefined) {
     const h = Math.round(extras.heightMm);
     if (h >= MIN_CEILING_MM && h <= MAX_CEILING_MM) {
       heightMm = h;
-      heightField = 'measured';
+      // A wall-edge height comes from aims, not a ceiling surface.
+      heightField = extras.heightSource === 'wall-edge' ? 'estimated' : 'measured';
     } else {
       warnings.push(`ceiling measurement ${h}mm looked wrong — using the standard 2700mm instead`);
     }
