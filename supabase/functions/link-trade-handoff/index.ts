@@ -3,7 +3,8 @@
  * POST { handoffId, jobId } with the caller's Authorization header.
  * Replaces the browser's direct planner_handoffs UPDATE (removed by RLS).
  * Links/consumes only AFTER the trade job exists — never on page load.
- * Authorization lives in the RPC: caller must be Bower staff or own the job.
+ * Authorization lives in the RPC: caller must be Bower staff or own the job,
+ * and a scanner handoff needs staff (otherwise it reads as an unknown id).
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';

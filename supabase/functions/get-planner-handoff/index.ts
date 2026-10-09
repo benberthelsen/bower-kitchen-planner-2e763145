@@ -56,11 +56,17 @@ serve(async (req) => {
   }
 
   const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const { data: row } = await service
-    .from('planner_handoffs')
-    .select('id, source, payload, lead_name, consumed_at, expires_at, public_token_hash')
-    .eq('id', handoffId)
-    .maybeSingle();
+  // The staff check runs for every well-formed request, alongside the lookup,
+  // so its cost depends only on the caller's Authorization and never tells
+  // whether the row exists, the token matches or the row is a scanner row.
+  const [{ data: row }, isStaff] = await Promise.all([
+    service
+      .from('planner_handoffs')
+      .select('id, source, payload, lead_name, consumed_at, expires_at, public_token_hash')
+      .eq('id', handoffId)
+      .maybeSingle(),
+    callerIsStaff(req, service),
+  ]);
 
   // Unknown id and wrong token return the SAME generic error.
   const tokenHash = await sha256Hex(token);
@@ -71,7 +77,7 @@ serve(async (req) => {
 
   // Checked after the token and before expiry, with the same generic error,
   // so a caller who is not staff cannot tell a scanner handoff exists.
-  if (row.source === 'scanner' && !(await callerIsStaff(req, service))) {
+  if (row.source === 'scanner' && !isStaff) {
     logOutcome('get-planner-handoff', rid, 'scanner_not_staff', started);
     return errorResponse(req, 404, 'invalid_capability');
   }

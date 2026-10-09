@@ -77,6 +77,8 @@ const handoffs = new Map([
 
 let env = {};
 let calls = [];
+// While set, every identity lookup waits for this promise (a slow auth server).
+let identityHold = null;
 globalThis.Deno = { env: { get: (name) => env[name] } };
 globalThis.__fakeSupabase = {
   createClient(_url, key, options) {
@@ -86,6 +88,7 @@ globalThis.__fakeSupabase = {
       auth: {
         async getUser(jwt) {
           calls.push({ op: 'getUser', key });
+          if (identityHold) await identityHold;
           const user = users.get(jwt);
           return user ? { data: { user }, error: null } : { data: { user: null }, error: { message: 'invalid JWT' } };
         },
@@ -210,7 +213,7 @@ test('get-planner-handoff: website rows open with the token alone', async () => 
   }
   const noStaffCheck = await call(getHandoff, { handoffId: websiteId, token: TOKEN });
   assert.equal(calls.some((entry) => entry.op === 'getUser' || entry.op === 'rpc'), false,
-    'a website row needs no identity lookup');
+    'without Authorization there is no identity to look up');
   assert.equal(noStaffCheck.status, 200);
 });
 
@@ -229,12 +232,47 @@ test('get-planner-handoff: a scanner row looks like a bad token to anyone but st
   }
 });
 
-test('get-planner-handoff: the staff check runs only after a valid token', async () => {
+// A scanner row's 404 must not take longer than a wrong token's: the identity
+// lookup is a network round trip, so it runs for every request or none.
+const notFoundCases = [
+  { handoffId: unknownId, token: TOKEN },
+  { handoffId: websiteId, token: 'w'.repeat(43) },
+  { handoffId: scannerId, token: 'w'.repeat(43) },
+  { handoffId: scannerId, token: TOKEN },
+  { handoffId: expiredScannerId, token: TOKEN },
+];
+
+test('get-planner-handoff: every 404 makes the same lookups, whatever the row', async () => {
   env = configuredEnv();
-  const result = await call(getHandoff, { handoffId: scannerId, token: 'w'.repeat(43) }, STAFF_JWT);
-  assert.equal(result.status, 404);
-  assert.deepEqual(result.body, { error: 'invalid_capability' });
-  assert.equal(calls.some((entry) => entry.op === 'getUser' || entry.op === 'rpc'), false);
+  for (const bearer of [ANON_KEY, CUSTOMER_JWT]) {
+    const lookups = [];
+    for (const body of notFoundCases) {
+      const result = await call(getHandoff, body, bearer);
+      assert.equal(result.status, 404, `${body.handoffId} with ${bearer}`);
+      assert.deepEqual(result.body, { error: 'invalid_capability' });
+      assert.ok(calls.some((entry) => entry.op === 'getUser'), 'the caller is looked up for every request');
+      lookups.push(JSON.stringify(calls.map(({ op, name, key }) => ({ op, name, key }))));
+    }
+    assert.equal(new Set(lookups).size, 1, `lookups differ by row for ${bearer}: ${lookups.join(' | ')}`);
+  }
+});
+
+test('get-planner-handoff: no 404 answers before the identity lookup finishes', async () => {
+  env = configuredEnv();
+  for (const body of notFoundCases) {
+    let release;
+    identityHold = new Promise((resolve) => { release = resolve; });
+    let answered = false;
+    const pending = call(getHandoff, body, ANON_KEY).then((result) => { answered = true; return result; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.equal(answered, false, `${body.handoffId} answered before the identity lookup`);
+    } finally {
+      release();
+      identityHold = null;
+    }
+    assert.equal((await pending).status, 404);
+  }
 });
 
 test('get-planner-handoff: staff open a scanner row and see its expiry', async () => {

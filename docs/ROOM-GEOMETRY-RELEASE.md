@@ -36,7 +36,13 @@ While the scanner admits only its owner, its planner paths are staff-only.
 The bridge answers 403 unless the caller owns the job and
 `is_bower_staff` is true. `get-planner-handoff` returns a `source='scanner'`
 handoff only with a staff JWT; any other caller gets the same 404
-`invalid_capability` as a wrong token. Website handoffs still open with the
+`invalid_capability` as a wrong token, and it looks the caller up for every
+request so a scanner row's 404 takes no longer than a wrong token's. Migration
+`20261009100000_scanner_handoffs_staff_only.sql` closes the other two paths:
+`link_trade_handoff_v1` links a scanner handoff only for staff, and
+`submit_planner_enquiry_v1` never attaches one to a homeowner enquiry. Both
+answer `invalid_handoff`, as for an unknown id, and leave the row untouched.
+Apply it with the function deploys. Website handoffs still open with the
 token alone, and the job editor shows the scanner entry only to admins.
 
 Release checks:
