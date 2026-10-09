@@ -20,7 +20,7 @@ import { UnifiedScene } from '@/components/3d/UnifiedScene';
 import Scene3DErrorBoundary from '@/components/3d/Scene3DErrorBoundary';
 import { DEFAULT_GLOBAL_DIMENSIONS, FINISH_OPTIONS, BENCHTOP_OPTIONS } from '@/constants';
 import {
-  compileSpec, defaultSpecFor, generateCandidatePool,
+  compileSpec, defaultSpecFor, generateCandidatePool, generateRoomDocumentCandidates,
 } from '@/lib/layout';
 import type { DesignBrief, KitchenSpec, ProposedRoomPatch, StyleSpec } from '@/lib/layout';
 import type { LayoutShape } from '@/lib/layout';
@@ -46,8 +46,11 @@ import {
   createPlannerAlternatives,
   mergeDistinctPlannerAlternatives,
 } from '@/lib/homeowner/plannerAlternatives';
+import { applyRoomDocumentProposal } from '@/lib/homeowner/roomDocumentProposal';
+import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 
 const KitchenUnitEditor = lazy(() => import('@/components/homeowner/KitchenUnitEditor'));
+const RoomDocumentEditor = lazy(() => import('@/components/roomDocument/RoomDocumentEditor'));
 type AiDesignResultProvider = 'openai' | 'local-openai' | 'local-simulator';
 
 interface Props {
@@ -55,10 +58,13 @@ interface Props {
   shape: LayoutShape;
   style: StyleSpec;
   design: WizardDesign | null;
+  roomDocument?: RoomDocumentV1;
   chosenAppliances: Record<string, string>;
   onDesignChange: (design: WizardDesign) => void;
+  onRoomDocumentChange: (document: RoomDocumentV1) => void;
   onRoomPatchProposed: (patch: ProposedRoomPatch) => void;
   onReturnToRoom: () => void;
+  onSaveRoomDocument: () => void;
 }
 
 interface ChatEntry { role: 'user' | 'assistant'; content: string }
@@ -121,10 +127,13 @@ export default function StepDesign({
   shape,
   style,
   design,
+  roomDocument,
   chosenAppliances,
   onDesignChange,
+  onRoomDocumentChange,
   onRoomPatchProposed,
   onReturnToRoom,
+  onSaveRoomDocument,
 }: Props) {
   const navigate = useNavigate();
   const { generate, refine, loading, error, lastError, hasActiveSession } = useAiDesigner();
@@ -142,6 +151,7 @@ export default function StepDesign({
   // The first design goes through the same deterministic candidate engine and
   // professional gate as the alternatives. AI is never needed to rescue it.
   useEffect(() => {
+    if (roomDocument) return;
     const needsCurrentComposition = shouldRefreshAutomaticStarter(design)
       || shouldRegenerateAutomaticStarterForStyle(design, style);
     if (!design || needsCurrentComposition) {
@@ -169,7 +179,7 @@ export default function StepDesign({
         onDesignChange(createWizardDesign({ name: 'Standard layout', spec, aiGenerated: false }));
       }
     }
-  }, [brief, design, onDesignChange, shape, style]);
+  }, [brief, design, onDesignChange, roomDocument, shape, style]);
 
   // rotate loading copy
   useEffect(() => {
@@ -187,7 +197,7 @@ export default function StepDesign({
     return { ...design.spec, style: { ...design.spec.style, ...style } };
   }, [design, style]);
 
-  const compiled = useMemo(() => (activeSpec ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room]);
+  const compiled = useMemo(() => (activeSpec && !roomDocument ? compileSpec(activeSpec, brief.room) : null), [activeSpec, brief.room, roomDocument]);
 
   // Homeowner appliance catalog — enrich compiled items with chosen catalog
   // products so the 3D preview here, the AR export below, the Review page
@@ -471,6 +481,47 @@ export default function StepDesign({
     trackEvent('homeowner_cabinet_editor_saved', { changeCount });
     toast.success('Kitchen edits saved');
   };
+
+  const wallRunPool = useMemo(() => roomDocument
+    ? generateRoomDocumentCandidates({ document: roomDocument, style, maxCandidates: 3 })
+    : null, [roomDocument, style]);
+  if (wallRunPool) {
+    const proposedCount = roomDocument!.objects.filter(object => object.layer === 'proposed').length;
+    return <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-slate-900">Plan along your measured walls</h2>
+      <p className="text-sm text-slate-600">Check which face of each wall points into the room, then add a preliminary cabinet idea. The open ends and wall angles stay as drawn.</p>
+      {proposedCount > 0 && <p className="text-sm text-slate-700" role="status">{proposedCount} proposed cabinet {proposedCount === 1 ? 'position is' : 'positions are'} on the plan. Select an item below to adjust its wall or position.</p>}
+      {wallRunPool.candidates.length > 0 && <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-800">Possible wall runs</p>
+        {wallRunPool.candidates.map(candidate => <div key={candidate.candidateId} className="rounded-lg border border-slate-200 p-3 space-y-2">
+          <p className="font-medium text-slate-900">{candidate.wallIds.length} wall{candidate.wallIds.length === 1 ? '' : 's'} · {candidate.items.length} provisional cabinet positions</p>
+          <p className="text-xs text-slate-600 mt-1">{candidate.unresolved.join(' ')}</p>
+          <Button type="button" size="sm" onClick={() => {
+            const result = applyRoomDocumentProposal(roomDocument!, candidate, style);
+            if (result.ok === false) { toast.error(result.reason); return; }
+            onRoomDocumentChange(result.document);
+            toast.success(`${result.count} cabinet ${result.count === 1 ? 'position' : 'positions'} added for review`);
+          }}>Add this idea to the plan</Button>
+        </div>)}
+      </div>}
+      {wallRunPool.capability.reasons.map(reason => <p key={reason} className="text-sm text-amber-800">{reason}</p>)}
+      {wallRunPool.capability.supported && wallRunPool.candidates.length === 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-1" role="status">
+        <p className="text-sm font-medium text-amber-900">No complete wall-run idea fits the current plan.</p>
+        {[...new Set(wallRunPool.rejected.flatMap(candidate => candidate.reasons))].slice(0, 4)
+          .map(reason => <p key={reason} className="text-xs text-amber-800">{reason}</p>)}
+      </div>}
+      <Suspense fallback={<p className="text-sm text-slate-600">Loading the wall editor…</p>}>
+        <RoomDocumentEditor document={roomDocument!} onChange={onRoomDocumentChange} />
+      </Suspense>
+      {!wallRunPool.capability.floorConfirmed && <p className="text-sm text-amber-800">Room-wide circulation and clearance remain unresolved until the floor boundary is confirmed.</p>}
+      <p className="text-sm text-amber-800">Quote review for this wall plan is not available in this wizard. Choose manual room sizes if you need a whole-room quote here.</p>
+      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 space-y-2">
+        <p className="text-sm text-sky-900">Continue to the trade planner to review room settings and save this wall plan as a draft room.</p>
+        <Button type="button" onClick={onSaveRoomDocument}>Continue to trade planner</Button>
+      </div>
+      <Button type="button" variant="outline" onClick={onReturnToRoom}>Back to room review</Button>
+    </div>;
+  }
 
   return (
     <div className="space-y-5 sm:space-y-6">

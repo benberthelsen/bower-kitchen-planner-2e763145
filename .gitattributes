@@ -1,0 +1,4 @@
+# Versioned cross-repository contracts are hashed as bytes. Always check them
+# out with LF, including on Windows hosts with core.autocrlf=true.
+src/lib/roomScan/contract.ts text eol=lf
+supabase/functions/_shared/roomScan/contract.ts text eol=lf

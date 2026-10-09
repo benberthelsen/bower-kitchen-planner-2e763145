@@ -46,7 +46,8 @@ class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      if (this.props.fallback) {
+      // fallback={null} means "render nothing"; only an absent fallback shows the error UI.
+      if (this.props.fallback !== undefined) {
         return this.props.fallback;
       }
 

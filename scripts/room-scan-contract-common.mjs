@@ -13,6 +13,8 @@ export const DENO_PATH = 'supabase/functions/_shared/roomScan/contract.ts';
 export const WEBSITE_REPO_DEFAULT = resolve('..');
 export const WEBSITE_CONTRACT_REL = 'src/lib/roomScan/contract.ts';
 export const WEBSITE_LOCK_REL = 'src/lib/roomScan/contract.lock.json';
+export const SITES_CONTRACT_REL = 'app-source/lib/roomScan/contract.ts';
+export const SITES_LOCK_REL = 'app-source/lib/roomScan/contract.lock.json';
 
 /**
  * Resolve where the website contract consumer lives.
@@ -28,11 +30,19 @@ export const WEBSITE_LOCK_REL = 'src/lib/roomScan/contract.lock.json';
  */
 export function resolveWebsiteRepo() {
   const explicit = process.env.WEBSITE_REPO;
-  const siteRepo = explicit || WEBSITE_REPO_DEFAULT;
+  const siblingWebsite = resolve('../bower-cabinet-web-site');
+  const siblingSites = resolve('../bower-sites-source');
+  const siteRepo = explicit || (existsSync(join(WEBSITE_REPO_DEFAULT, 'package.json'))
+    ? WEBSITE_REPO_DEFAULT
+    : existsSync(join(siblingWebsite, 'package.json')) ? siblingWebsite
+      : existsSync(join(siblingSites, 'package.json')) ? siblingSites : WEBSITE_REPO_DEFAULT);
+  const sitesLayout = existsSync(join(siteRepo, 'app-source'));
   return {
     siteRepo,
     explicit: Boolean(explicit),
     looksLikeRepo: existsSync(join(siteRepo, 'package.json')),
+    contractRel: sitesLayout ? SITES_CONTRACT_REL : WEBSITE_CONTRACT_REL,
+    lockRel: sitesLayout ? SITES_LOCK_REL : WEBSITE_LOCK_REL,
   };
 }
 

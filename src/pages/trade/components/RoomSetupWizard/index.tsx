@@ -3,6 +3,8 @@ import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { Opening, ServicePoint } from '@/types';
+import type { RoomDocumentV1 } from '@/lib/roomDocument';
+import type { TradeRoom } from '@/types/trade';
 import RoomShapeStep from './RoomShapeStep';
 import RoomFeaturesStep from './RoomFeaturesStep';
 import MaterialDefaultsStep from './MaterialDefaultsStep';
@@ -14,7 +16,9 @@ export interface RoomConfig {
   // Step 1: Shape
   name: string;
   description: string;
-  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula' | 'island';
+  shape: 'rectangular' | 'l-shaped' | 'u-shaped' | 'galley' | 'peninsula' | 'island' | 'custom';
+  /** Authoritative wall geometry for scanned and manually drawn rooms. */
+  roomDocument?: RoomDocumentV1;
   
   // Room Dimensions (floor plan)
   roomWidth: number;
@@ -46,6 +50,7 @@ export interface RoomConfig {
   hingeStyle: string;
   drawerStyle: string;
   supplyHardware: boolean;
+  supplyMethod: 'assembled' | 'flat-pack';
   adjustableLegs: boolean;
   
   // Step 4: Dimensions
@@ -99,6 +104,7 @@ const defaultConfig: RoomConfig = {
   hingeStyle: 'Series 200 110 KnockIn',
   drawerStyle: 'Hafele Alto Slim 500',
   supplyHardware: true,
+  supplyMethod: 'assembled',
   adjustableLegs: true,
   toeKickHeight: 135,
   shelfSetback: 5,
@@ -118,6 +124,12 @@ const defaultConfig: RoomConfig = {
   baseTopMargin: 3,
 };
 
+/** Use the same room defaults when a reviewed scan opens the cabinet planner
+ * directly. The room document remains the authoritative wall geometry. */
+export function roomConfigWithDefaults(initialConfig: Partial<RoomConfig>): RoomConfig {
+  return { ...defaultConfig, ...initialConfig };
+}
+
 const steps = [
   { id: 1, name: 'Room Shape', shortName: 'Shape' },
   { id: 2, name: 'Room Features', shortName: 'Features' },
@@ -131,11 +143,12 @@ interface RoomSetupWizardProps {
   onComplete: (config: RoomConfig) => void;
   onCancel: () => void;
   initialConfig?: Partial<RoomConfig>;
+  legacyRoom?: TradeRoom;
 }
 
-export default function RoomSetupWizard({ onComplete, onCancel, initialConfig }: RoomSetupWizardProps) {
+export default function RoomSetupWizard({ onComplete, onCancel, initialConfig, legacyRoom }: RoomSetupWizardProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [config, setConfig] = useState<RoomConfig>({ ...defaultConfig, ...initialConfig });
+  const [config, setConfig] = useState<RoomConfig>(() => roomConfigWithDefaults(initialConfig ?? {}));
 
   const updateConfig = (updates: Partial<RoomConfig>) => {
     setConfig(prev => ({ ...prev, ...updates }));
@@ -165,7 +178,7 @@ export default function RoomSetupWizard({ onComplete, onCancel, initialConfig }:
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <RoomShapeStep config={config} updateConfig={updateConfig} />;
+        return <RoomShapeStep config={config} updateConfig={updateConfig} legacyRoom={legacyRoom} />;
       case 2:
         return <RoomFeaturesStep config={config} updateConfig={updateConfig} />;
       case 3:

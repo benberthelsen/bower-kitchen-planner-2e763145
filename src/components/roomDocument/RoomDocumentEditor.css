@@ -1,0 +1,15 @@
+.room-document-editor {
+  container: room-document-editor / inline-size;
+}
+
+.room-document-editor__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+@container room-document-editor (min-width: 760px) {
+  .room-document-editor__body {
+    grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  }
+}

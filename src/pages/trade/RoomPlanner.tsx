@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import TradeLayout from './components/TradeLayout';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import {
   useTradeRoom,
@@ -25,8 +26,21 @@ import { PlacedItem } from '@/types';
 import { defaultCornerArmDepth, STANDARD_CORNER_ARM_DEPTH } from '@/lib/cornerDefaults';
 import { calculateSnapPosition, findAutoWallPlacement, isCornerClear } from '@/utils/snapping';
 import { useTradeJobPersistence } from '@/hooks/useTradeJobPersistence';
+import { JobWriteConflictError, RoomRevisionConflictError } from '@/hooks/useTradeJobPersistence';
 import { exportPlanViewPdf } from '@/lib/planViewPdf';
 import { computeOpeningWarnings } from '@/lib/trade/openingWarnings';
+import RoomDocumentEditor from '@/components/roomDocument/RoomDocumentEditor';
+import ScannerEvidencePanel from '@/components/roomDocument/ScannerEvidencePanel';
+import { captureScannerSession } from '@/lib/roomScan/scannerSession';
+import { cabinetFootprintDepthMm, derivedLegacyBounds, footprintCorners, footprintInsideConfirmedFloor, footprintsIntersect,
+  migrateTradeRoom, placementPose, reconcileTradeRoomCabinets } from '@/lib/roomDocument';
+import type { RoomDocumentV1 } from '@/lib/roomDocument';
+import { findRoomWallPlacement, placeWithinRoomDocument, snapRoomDocumentPlacement,
+  validateRoomWallPlacement } from '@/lib/trade/roomDocumentPlacement';
+import { findRoomDocumentCornerPlacement } from '@/lib/trade/roomDocumentCornerPlacement';
+import { applyEditedCabinetProjection, syncCabinetProjectionMembership } from '@/lib/trade/roomDocumentCabinetEdit';
+import { createRoomSaveQueue } from '@/lib/trade/roomSaveQueue';
+import { generateRoomDocumentCandidates } from '@/lib/layout/roomDocumentCandidates';
 import {
   ArrowLeft,
   Save,
@@ -44,6 +58,12 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
+function cabinetElevationMm(cabinet: ConfiguredCabinet, wallMountHeightMm = 1350): number {
+  return cabinet.category === 'Wall'
+    ? cabinet.position?.y || wallMountHeightMm
+    : cabinet.position?.y ?? 0;
+}
+
 export default function RoomPlanner() {
   const { jobId, roomId } = useParams();
   const navigate = useNavigate();
@@ -55,7 +75,6 @@ export default function RoomPlanner() {
     setCurrentRoom,
     rooms,
     addCabinet,
-    placeCabinet,
     removeCabinet,
     duplicateCabinet,
     replaceCabinet,
@@ -82,23 +101,51 @@ export default function RoomPlanner() {
   } = useTradeJobPersistence(jobId);
 
   const [showCatalog, setShowCatalog] = useState(true);
+  const [showRoomEditor, setShowRoomEditor] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<'catalog' | 'cabinets' | null>(null);
+  const [scannerSession] = useState(() => captureScannerSession());
+  useEffect(() => {
+    if (userType === 'consumer' && currentRoom?.roomDocument?.capture?.captureId) setShowCatalog(false);
+  }, [userType, currentRoom?.roomDocument?.capture?.captureId]);
+  const [selectedWallRunId, setSelectedWallRunId] = useState<string | null>(null);
+  const [includeSuggestedIsland, setIncludeSuggestedIsland] = useState(false);
   // Open in 2D top-down for layout (drag maps 1:1 to the cursor); 3D is for viewing.
   const [is3D, setIs3D] = useState(false);
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [benchtopDialogOpen, setBenchtopDialogOpen] = useState(false);
   const [editDialogCabinet, setEditDialogCabinet] = useState<ConfiguredCabinet | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [dirty, setDirtyState] = useState(false);
+  const editGenerationRef = useRef(0);
+  const serverRoomRevisionRef = useRef(new Map<string, number | null>());
+  const deletedPlanCabinetsRef = useRef(new Map<string, Map<string, ConfiguredCabinet>>());
+  const roomSaveQueueRef = useRef(createRoomSaveQueue());
+  const setDirty = useCallback((value: boolean) => {
+    if (value) editGenerationRef.current += 1;
+    setDirtyState(value);
+  }, []);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle');
   const [cameraControls, setCameraControls] = useState<{ zoomIn: () => void; zoomOut: () => void; resetView: () => void; fitAll: () => void; setView: (preset: 'front' | 'top' | 'corner') => void } | null>(null);
   const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quotePersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedQuoteRef = useRef<string>('');
 
   useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const closeMobilePanel = () => {
+      if (desktop.matches) setMobilePanel(null);
+    };
+    desktop.addEventListener('change', closeMobilePanel);
+    return () => desktop.removeEventListener('change', closeMobilePanel);
+  }, []);
+
+  useEffect(() => {
     // Don't let a server snapshot overwrite un-saved local edits — this was
     // wiping a freshly-added 2nd cabinet before its autosave landed.
     if (jobId && jobId !== 'new' && jobQuery.data && !dirty) {
+      for (const room of roomsFromServer) {
+        serverRoomRevisionRef.current.set(room.id, room.roomDocument?.revision ?? null);
+      }
       hydrateRooms(roomsFromServer);
     }
   }, [jobId, jobQuery.data, roomsFromServer, hydrateRooms, dirty]);
@@ -185,7 +232,7 @@ export default function RoomPlanner() {
       z: cabinet.position!.z,
       rotation: cabinet.position!.rotation,
       width: cabinet.dimensions.width,
-      depth: isLCorner ? cabinet.dimensions.width : storedDepth,
+      depth: cabinetFootprintDepthMm(cabinet),
       height: cabinet.dimensions.height,
       hinge: cabinet.construction?.hingeSide ?? ('Left' as const),
       cabinetNumber: cabinet.cabinetNumber,
@@ -216,45 +263,268 @@ export default function RoomPlanner() {
     width: currentRoom?.config.width || 4000,
     depth: currentRoom?.config.depth || 3000,
     height: currentRoom?.config.height || 2400,
-    shape: 'Rectangle' as const,
+    shape: currentRoom?.config.shape ?? 'Rectangle' as const,
     cutoutWidth: currentRoom?.config.cutoutWidth || 0,
     cutoutDepth: currentRoom?.config.cutoutDepth || 0,
     // Room features flow into the 3D scene (openings + service markers) —
     // previously dropped here, which left the scene opening-blind.
     openings: currentRoom?.config.openings ?? [],
     services: currentRoom?.config.services ?? [],
+    roomDocument: currentRoom?.roomDocument,
   }), [currentRoom]);
+
+  const editableDocument = useMemo(() => currentRoom
+    ? currentRoom.roomDocument ?? migrateTradeRoom(currentRoom)
+    : null, [currentRoom]);
+
+  const planningDocument = useMemo(() => editableDocument && currentRoom
+    ? reconcileTradeRoomCabinets(editableDocument, currentRoom.cabinets,
+      { wallMountHeight: currentRoom.dimensions?.wallMountHeight })
+    : null, [editableDocument, currentRoom]);
+  const wallRunPool = useMemo(() => planningDocument
+    ? generateRoomDocumentCandidates({ document: planningDocument, dimensions: currentRoom?.dimensions, maxCandidates: 3 })
+    : null, [planningDocument, currentRoom?.dimensions]);
+  const selectedWallRun = wallRunPool?.candidates.find(candidate => candidate.candidateId === selectedWallRunId) ?? null;
+  const suggestedIsland = selectedWallRun && wallRunPool?.islandOption?.baseCandidateId === selectedWallRun.candidateId
+    ? wallRunPool.islandOption : null;
+  const selectedSuggestionItems = selectedWallRun
+    ? [...selectedWallRun.items.map(entry => entry.item),
+      ...(includeSuggestedIsland && suggestedIsland ? suggestedIsland.items : [])] : [];
+
+  const handleRoomDocumentChange = useCallback((document: RoomDocumentV1) => {
+    if (!currentRoom || isPriceLocked) return;
+    const previous = planningDocument ?? migrateTradeRoom(currentRoom);
+    let undoArchive = deletedPlanCabinetsRef.current.get(currentRoom.id);
+    if (!undoArchive) {
+      undoArchive = new Map<string, ConfiguredCabinet>();
+      deletedPlanCabinetsRef.current.set(currentRoom.id, undoArchive);
+    }
+    const membership = syncCabinetProjectionMembership(previous, document, currentRoom.cabinets, undoArchive);
+    const updatedCabinets = membership.cabinets.map(originalCabinet => {
+      const { cabinet, directlyEdited } = applyEditedCabinetProjection(previous, document, originalCabinet);
+      if (!cabinet.wallAttachment) return cabinet;
+      const oldWall = previous.walls.find(wall => wall.id === originalCabinet.wallAttachment?.wallId);
+      const oldStart = previous.corners.find(corner => corner.id === oldWall?.startCornerId);
+      const oldEnd = previous.corners.find(corner => corner.id === oldWall?.endCornerId);
+      const newWall = document.walls.find(wall => wall.id === cabinet.wallAttachment!.wallId);
+      const newStart = document.corners.find(corner => corner.id === newWall?.startCornerId);
+      const newEnd = document.corners.find(corner => corner.id === newWall?.endCornerId);
+      if (!newWall || !newStart || !newEnd) return { ...cabinet, geometryConflict: 'The supporting wall was removed.' };
+      const oldLength = oldStart && oldEnd ? Math.hypot(oldEnd.xMm - oldStart.xMm, oldEnd.zMm - oldStart.zMm) : 0;
+      const newLength = Math.hypot(newEnd.xMm - newStart.xMm, newEnd.zMm - newStart.zMm);
+      const ratio = !directlyEdited && cabinet.dimensionStatus === 'inferred' && oldLength > 0 ? newLength / oldLength : 1;
+      const width = !directlyEdited && cabinet.dimensionStatus === 'inferred'
+        ? Math.max(1, Math.round(cabinet.dimensions.width * ratio)) : cabinet.dimensions.width;
+      const offsetMm = !directlyEdited && cabinet.dimensionStatus === 'inferred'
+        ? Math.max(0, Math.round(cabinet.wallAttachment.offsetMm * ratio))
+        : cabinet.wallAttachment.offsetMm;
+      const pose = placementPose(document, {
+        type: 'wall', wallId: newWall.id, offsetMm,
+        depthOffsetMm: cabinet.wallAttachment.depthOffsetMm ?? (directlyEdited ? 0 : 10),
+      }, width, cabinetFootprintDepthMm(cabinet));
+      if (!pose) return { ...cabinet, geometryConflict: 'The wall geometry is invalid.' };
+      const conflict = offsetMm + width > newLength - 1
+        ? 'This cabinet extends beyond its edited wall.'
+        : document.openings.some(opening => opening.wallId === newWall.id
+            && (opening.kind !== 'window' || cabinet.category === 'Wall' || cabinet.category === 'Tall')
+            && offsetMm < opening.offsetMm + opening.widthMm && offsetMm + width > opening.offsetMm)
+          ? 'This cabinet overlaps an opening on its wall.' : undefined;
+      const cornerCheck = cabinet.cornerJoinWallId
+        ? findRoomDocumentCornerPlacement({
+            document: { ...document, objects: document.objects.filter(object => !object.sourceCabinetId) },
+            footprintMm: width, category: cabinet.category,
+            elevationMm: cabinetElevationMm(cabinet, currentRoom.dimensions?.wallMountHeight),
+            heightMm: cabinet.dimensions.height,
+            preferredPoint: { xMm: pose.xMm, zMm: pose.zMm },
+          }) : null;
+      const cornerConflict = cabinet.cornerJoinWallId && (cornerCheck?.status !== 'placed'
+        || cornerCheck.wallAttachment.wallId !== newWall.id
+        || cornerCheck.joinedWallId !== cabinet.cornerJoinWallId)
+        ? 'The corner cabinet no longer has a compatible 90° wall join.' : undefined;
+      return {
+        ...cabinet,
+        dimensions: { ...cabinet.dimensions, width },
+        wallAttachment: { ...cabinet.wallAttachment, offsetMm },
+        position: { x: pose.xMm, y: cabinet.position?.y ?? 0, z: pose.zMm, rotation: pose.rotationDeg },
+        geometryConflict: conflict ?? cornerConflict,
+      };
+    });
+    const cabinets = updatedCabinets.map((cabinet, index) => {
+      if (!cabinet.isPlaced || !cabinet.position) return cabinet;
+      const footprint = footprintCorners({ xMm: cabinet.position.x, zMm: cabinet.position.z,
+        rotationDeg: cabinet.position.rotation }, cabinet.dimensions.width, cabinetFootprintDepthMm(cabinet));
+      const floor = footprintInsideConfirmedFloor(document, footprint);
+      const elevation = cabinetElevationMm(cabinet, currentRoom.dimensions?.wallMountHeight);
+      const collides = updatedCabinets.some((other, otherIndex) => otherIndex !== index && other.isPlaced && other.position
+        && elevation < cabinetElevationMm(other, currentRoom.dimensions?.wallMountHeight) + other.dimensions.height
+        && cabinetElevationMm(other, currentRoom.dimensions?.wallMountHeight) < elevation + cabinet.dimensions.height
+        && footprintsIntersect(footprint,
+          footprintCorners({ xMm: other.position!.x, zMm: other.position!.z,
+            rotationDeg: other.position!.rotation }, other.dimensions.width, cabinetFootprintDepthMm(other)), 1));
+      const geometryConflict = cabinet.geometryConflict
+        ?? (floor.status === 'outside' ? 'This cabinet crosses the edited floor boundary.' : undefined)
+        ?? (collides ? 'This cabinet overlaps another item after the wall edit.' : undefined);
+      return geometryConflict ? { ...cabinet, geometryConflict } : cabinet;
+    });
+    const reconciledDocument = reconcileTradeRoomCabinets(document, cabinets,
+      { wallMountHeight: currentRoom.dimensions?.wallMountHeight });
+    const bounds = derivedLegacyBounds(reconciledDocument);
+    updateRoom(currentRoom.id, {
+      roomDocument: reconciledDocument,
+      cabinets,
+      config: bounds ? { ...currentRoom.config, width: Math.max(1, Math.round(bounds.widthMm)),
+        depth: Math.max(1, Math.round(bounds.depthMm)) } : currentRoom.config,
+    });
+    if (selectedCabinetId && membership.removedIds.includes(selectedCabinetId)) {
+      selectCabinet(null);
+      setEditDialogOpen(false);
+      setEditDialogCabinet(null);
+    }
+    setDirty(true);
+  }, [currentRoom, isPriceLocked, planningDocument, selectedCabinetId, selectCabinet, setDirty, updateRoom]);
+
+  const applySelectedWallRun = useCallback(() => {
+    if (!currentRoom || !planningDocument || !selectedWallRun || isPriceLocked) return;
+    if (selectedWallRun.roomRevision !== planningDocument.revision) {
+      toast.error('The room changed. Review a fresh wall-run suggestion.');
+      return;
+    }
+    const islandItems = includeSuggestedIsland && suggestedIsland ? suggestedIsland.items : [];
+    const allItems = [...selectedWallRun.items.map(entry => entry.item), ...islandItems];
+    const missing = allItems.filter(item => !catalog.some(product => product.id === item.definitionId));
+    if (missing.length) {
+      toast.error('Some suggested products are unavailable in the current catalogue.');
+      return;
+    }
+    const now = new Date();
+    const added: ConfiguredCabinet[] = allItems.map((item, index) => {
+      const product = catalog.find(entry => entry.id === item.definitionId)!;
+      const wallItem = selectedWallRun.items.find(entry => entry.item.instanceId === item.instanceId);
+      const category = product.itemType === 'Appliance' ? 'Appliance'
+        : product.renderConfig?.category || getCategoryFromSpecGroup(product.specGroup) || product.category || 'Base';
+      return {
+        instanceId: crypto.randomUUID(),
+        definitionId: item.definitionId,
+        cabinetNumber: `C${String(currentRoom.cabinets.length + index + 1).padStart(2, '0')}`,
+        productName: product.name,
+        category: category as ConfiguredCabinet['category'],
+        dimensions: { width: item.width, depth: item.depth, height: item.height },
+        materials: currentRoom.materialDefaults,
+        hardware: {
+          handleType: currentRoom.hardwareDefaults.handleType,
+          handleColor: 'matte-black',
+          hingeType: currentRoom.hardwareDefaults.hingeType,
+          drawerType: currentRoom.hardwareDefaults.drawerType,
+          softClose: currentRoom.hardwareDefaults.softClose,
+        },
+        accessories: { shelfCount: 2, adjustableShelves: true, dividers: false,
+          softCloseUpgrade: false, specialFittings: [] },
+        position: { x: item.x, y: item.y, z: item.z, rotation: item.rotation },
+        isPlaced: true,
+        wallAttachment: wallItem ? { wallId: wallItem.wallId, offsetMm: wallItem.offsetMm } : undefined,
+        dimensionStatus: 'confirmed',
+        createdAt: now, updatedAt: now,
+      };
+    });
+    const cabinets = [...currentRoom.cabinets, ...added];
+    updateRoom(currentRoom.id, { roomDocument: reconcileTradeRoomCabinets(planningDocument, cabinets,
+      { wallMountHeight: currentRoom.dimensions?.wallMountHeight }), cabinets });
+    setSelectedWallRunId(null);
+    setIncludeSuggestedIsland(false);
+    setDirty(true);
+    toast.success('Wall-run idea added for review', { description: selectedWallRun.unresolved[0] });
+  }, [catalog, currentRoom, planningDocument, includeSuggestedIsland, isPriceLocked, selectedWallRun, setDirty, suggestedIsland, updateRoom]);
 
   const catalogById = useMemo(() => new Map(catalog.map((item) => [item.id, item])), [catalog]);
 
 
   const clampPositionToRoom = useCallback((room: TradeRoom, cabinet: ConfiguredCabinet, position: { x: number; y: number; z: number; rotation: number }) => {
+    if (room.roomDocument) {
+      const placement = snapRoomDocumentPlacement({
+        document: room.roomDocument,
+        widthMm: cabinet.dimensions.width,
+        depthMm: cabinetFootprintDepthMm(cabinet),
+        category: cabinet.category,
+        elevationMm: cabinetElevationMm({ ...cabinet, position }, room.dimensions?.wallMountHeight),
+        heightMm: cabinet.dimensions.height,
+        point: { xMm: position.x, zMm: position.z },
+        rotationDeg: position.rotation,
+        excludeId: cabinet.instanceId,
+        obstacles: room.cabinets.filter(item => item.isPlaced && item.position).map(item => ({
+          id: item.instanceId, xMm: item.position!.x, zMm: item.position!.z,
+          rotationDeg: item.position!.rotation, widthMm: item.dimensions.width,
+          depthMm: cabinetFootprintDepthMm(item), category: item.category,
+          elevationMm: cabinetElevationMm(item, room.dimensions?.wallMountHeight),
+          heightMm: item.dimensions.height,
+        })),
+      });
+      return placement.status === 'placed'
+        ? { x: placement.xMm, y: position.y, z: placement.zMm, rotation: placement.rotationDeg,
+            wallAttachment: placement.wallId ? { wallId: placement.wallId, offsetMm: placement.offsetMm! } : undefined }
+        : null;
+    }
     // x/z are CENTRE coordinates. Clamp rotation-aware so a snapped position
     // against the right/front wall is preserved (the previous corner-based
     // clamp pulled cabinets half a width away from those walls).
     const rot = ((Math.round(position.rotation) % 360) + 360) % 360;
     const rotated = rot === 90 || rot === 270;
-    const halfW = (rotated ? cabinet.dimensions.depth : cabinet.dimensions.width) / 2;
-    const halfD = (rotated ? cabinet.dimensions.width : cabinet.dimensions.depth) / 2;
+    const planDepth = cabinetFootprintDepthMm(cabinet);
+    const halfW = (rotated ? planDepth : cabinet.dimensions.width) / 2;
+    const halfD = (rotated ? cabinet.dimensions.width : planDepth) / 2;
     return {
       ...position,
       x: Math.min(Math.max(position.x, halfW), Math.max(halfW, room.config.width - halfW)),
       z: Math.min(Math.max(position.z, halfD), Math.max(halfD, room.config.depth - halfD)),
+      wallAttachment: undefined,
     };
   }, []);
 
-  const saveRoomToServer = useCallback(async () => {
-    if (!jobId || jobId === 'new' || !currentRoom || isPriceLocked) return;
-    try {
-      setSaveState('saving');
-      await replaceRoomInJob({ jobId, room: currentRoom });
-      setDirty(false);
-      setSaveState('saved');
-    } catch {
-      setSaveState('error');
-      toast.error('Failed to save room');
-    }
-  }, [currentRoom, isPriceLocked, jobId, replaceRoomInJob]);
+  const saveRoomToServer = useCallback((): Promise<boolean> => {
+    if (!jobId || jobId === 'new' || !currentRoom || isPriceLocked) return Promise.resolve(false);
+    const generation = editGenerationRef.current;
+    const documentToSave = planningDocument ?? currentRoom.roomDocument;
+    const roomToSave = documentToSave
+      ? { ...currentRoom, roomDocument: documentToSave }
+      : currentRoom;
+    return roomSaveQueueRef.current(async () => {
+      try {
+        setSaveState('saving');
+        // Read the server revision when this write actually begins. A previous
+        // autosave may still be in flight when the next edit's debounce fires.
+        await replaceRoomInJob({
+          jobId, room: roomToSave,
+          expectedRoomRevision: serverRoomRevisionRef.current.get(roomToSave.id),
+        });
+        serverRoomRevisionRef.current.set(roomToSave.id, documentToSave?.revision ?? null);
+        if (generation === editGenerationRef.current) {
+          setDirty(false);
+          setSaveState('saved');
+          return true;
+        }
+        return false;
+      } catch (error) {
+        if (error instanceof RoomRevisionConflictError || error instanceof JobWriteConflictError) {
+          setSaveState('conflict');
+          toast.error('This room changed on another device. Download your unsaved draft before reloading.');
+        } else {
+          setSaveState('error');
+          toast.error('Could not save this room. Your changes remain on this device.');
+        }
+        return false;
+      }
+    });
+  }, [currentRoom, isPriceLocked, jobId, planningDocument, replaceRoomInJob, setDirty]);
+
+  const downloadRoomBackup = useCallback(() => {
+    if (!currentRoom) return;
+    const snapshot = { ...currentRoom, roomDocument: planningDocument ?? currentRoom.roomDocument };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${currentRoom.id}-room-draft.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }, [currentRoom, planningDocument]);
 
   useEffect(() => {
     if (!dirty || !jobId || jobId === 'new' || !currentRoom) return;
@@ -345,9 +615,15 @@ export default function RoomPlanner() {
     if (!sourceCabinet) return;
 
     const clamped = clampPositionToRoom(currentRoom, sourceCabinet, position);
-    placeCabinet(currentRoom.id, instanceId, clamped);
+    if (!clamped) return;
+    replaceCabinet(currentRoom.id, {
+      ...sourceCabinet,
+      position: { x: clamped.x, y: clamped.y, z: clamped.z, rotation: clamped.rotation },
+      isPlaced: true,
+      wallAttachment: clamped.wallAttachment,
+    });
     setDirty(true);
-  }, [clampPositionToRoom, currentRoom, getCabinetById, placeCabinet]);
+  }, [clampPositionToRoom, currentRoom, getCabinetById, replaceCabinet, setDirty]);
 
   const handleRotateSelected = useCallback(() => {
     if (!currentRoom) return;
@@ -444,7 +720,46 @@ export default function RoomPlanner() {
         blocksFloor: c.category !== 'Wall',
         blocksWall: c.category === 'Wall' || c.category === 'Tall',
       }));
-    const auto = findAutoWallPlacement({
+    const isCornerProduct = /corner|diagonal|blind|pie/i.test(`${productId} ${catalogItem.name}`);
+    const documentCornerPlacement = currentRoom.roomDocument && isCornerProduct
+      ? findRoomDocumentCornerPlacement({
+          document: currentRoom.roomDocument,
+          footprintMm: defaultWidth,
+          category: category as 'Base' | 'Wall' | 'Tall' | 'Appliance',
+          elevationMm: category === 'Wall' ? currentRoom.dimensions?.wallMountHeight ?? 1350 : 0,
+          heightMm: defaultHeight,
+          obstacles: cabinets.filter(c => c.isPlaced && c.position).map(c => ({
+            id: c.instanceId, xMm: c.position!.x, zMm: c.position!.z,
+            rotationDeg: c.position!.rotation, widthMm: c.dimensions.width,
+            depthMm: cabinetFootprintDepthMm(c), category: c.category,
+            elevationMm: cabinetElevationMm(c, currentRoom.dimensions?.wallMountHeight),
+            heightMm: c.dimensions.height,
+          })),
+        }) : null;
+    const documentPlacement = currentRoom.roomDocument
+      ? isCornerProduct
+        ? documentCornerPlacement?.status === 'placed'
+          ? { ...documentCornerPlacement,
+            wallId: documentCornerPlacement.wallAttachment.wallId,
+            offsetMm: documentCornerPlacement.wallAttachment.offsetMm }
+          : documentCornerPlacement
+        : findRoomWallPlacement({
+            document: currentRoom.roomDocument,
+            widthMm: defaultWidth,
+            depthMm: defaultDepth,
+            category: category as 'Base' | 'Wall' | 'Tall' | 'Appliance',
+            elevationMm: category === 'Wall' ? currentRoom.dimensions?.wallMountHeight ?? 1350 : 0,
+            heightMm: defaultHeight,
+            obstacles: cabinets.filter(c => c.isPlaced && c.position).map(c => ({
+              id: c.instanceId, xMm: c.position!.x, zMm: c.position!.z,
+              rotationDeg: c.position!.rotation, widthMm: c.dimensions.width,
+              depthMm: cabinetFootprintDepthMm(c), category: c.category,
+              elevationMm: cabinetElevationMm(c, currentRoom.dimensions?.wallMountHeight),
+              heightMm: c.dimensions.height,
+            })),
+          })
+      : null;
+    const auto = currentRoom.roomDocument ? null : findAutoWallPlacement({
       room: currentRoom.config,
       width: defaultWidth,
       depth: defaultDepth,
@@ -454,15 +769,20 @@ export default function RoomPlanner() {
     let rawPosition = auto
       ? { x: auto.x, y: 0, z: auto.z, rotation: auto.rotation }
       : calculateDefaultPosition(currentRoom, cabinets, defaultWidth);
+    if (documentPlacement?.status === 'placed') {
+      rawPosition = { x: documentPlacement.xMm, y: 0, z: documentPlacement.zMm,
+        rotation: documentPlacement.rotationDeg };
+    }
 
     // Corner cabinets start at the nearest FREE room corner so the snapping
     // engine nests them into it with the correct rotation (doors facing the
     // room) — instead of landing mid-wall like standard cabinets.
-    const isCornerProduct = /corner|diagonal|blind|pie/i.test(`${productId} ${catalogItem.name}`);
     const cornerConstruction = isCornerProduct
-      ? { cabinetDepthLeft: STANDARD_CORNER_ARM_DEPTH, cabinetDepthRight: STANDARD_CORNER_ARM_DEPTH }
+      ? { cabinetDepthLeft: STANDARD_CORNER_ARM_DEPTH, cabinetDepthRight: STANDARD_CORNER_ARM_DEPTH,
+          ...(documentCornerPlacement?.status === 'placed'
+            ? { cornerReturnSide: documentCornerPlacement.cornerReturnSide } : {}) }
       : undefined;
-    if (isCornerProduct) {
+    if (isCornerProduct && !currentRoom.roomDocument) {
       const roomW = currentRoom.config.width;
       const roomD = currentRoom.config.depth;
       const isWallCat = category === 'Wall';
@@ -510,8 +830,11 @@ export default function RoomPlanner() {
       x: rawPosition.x, y: 0, z: rawPosition.z, rotation: rawPosition.rotation,
       width: defaultWidth, depth: defaultDepth, height: defaultHeight,
     };
-    const snapped = calculateSnapPosition(rawPosition.x, rawPosition.z, snapItem, placedItems, currentRoom.config, 50, DEFAULT_GLOBAL_DIMENSIONS);
-    const position = { x: snapped.x, y: rawPosition.y, z: snapped.z, rotation: snapped.rotation };
+    const snapped = currentRoom.roomDocument ? null
+      : calculateSnapPosition(rawPosition.x, rawPosition.z, snapItem, placedItems, currentRoom.config, 50, DEFAULT_GLOBAL_DIMENSIONS);
+    const position = documentPlacement?.status === 'unplaced' ? undefined
+      : snapped ? { x: snapped.x, y: rawPosition.y, z: snapped.z, rotation: snapped.rotation }
+      : rawPosition;
 
     // Stage 1 — appliance catalog snapshot: freeze price/name/category at
     // placement so the quote line stays stable even if the catalog is edited.
@@ -556,8 +879,17 @@ export default function RoomPlanner() {
         softCloseUpgrade: false,
         specialFittings: [],
       },
-      isPlaced: true,
+      isPlaced: Boolean(position),
       position,
+      wallAttachment: documentCornerPlacement?.status === 'placed'
+        ? { wallId: documentCornerPlacement.wallAttachment.wallId,
+            offsetMm: documentCornerPlacement.wallAttachment.offsetMm,
+            depthOffsetMm: (defaultWidth - defaultDepth) / 2 }
+        : documentPlacement?.status === 'placed' && documentPlacement.wallId
+          ? { wallId: documentPlacement.wallId, offsetMm: documentPlacement.offsetMm! } : undefined,
+      cornerJoinWallId: documentCornerPlacement?.status === 'placed'
+        ? documentCornerPlacement.joinedWallId : undefined,
+      dimensionStatus: 'confirmed',
       ...(cornerConstruction ? { construction: cornerConstruction } : {}),
       ...applianceExtras,
     });
@@ -568,11 +900,15 @@ export default function RoomPlanner() {
     selectCabinet(newCabinet.instanceId);
     setDirty(true);
     // Stable id so rapid adds collapse into one toast instead of stacking (WS8).
+    if (documentPlacement?.status === 'unplaced') {
+      toast.warning(`${catalogItem.name} added as unplaced`, { description: documentPlacement.reason });
+      return;
+    }
     toast.success(`${catalogItem.name} added`, {
       id: 'cabinet-added',
       description: 'Selected — press R to rotate, or double-click to edit options.'
     });
-  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition]);
+  }, [currentRoom, catalog, cabinets, addCabinet, selectCabinet, calculateDefaultPosition, placedItems, setDirty]);
 
 
   const handleDuplicateCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
@@ -586,7 +922,7 @@ export default function RoomPlanner() {
     setDirty(true);
     selectCabinet(duplicated.instanceId);
     toast.success(`${duplicated.cabinetNumber} duplicated`);
-  }, [currentRoom, duplicateCabinet, selectCabinet]);
+  }, [currentRoom, duplicateCabinet, selectCabinet, setDirty]);
 
   const handleRemoveCabinet = useCallback(async (cabinet: ConfiguredCabinet) => {
     if (!currentRoom) return;
@@ -607,12 +943,12 @@ export default function RoomPlanner() {
         },
       },
     });
-  }, [currentRoom, removeCabinet, addCabinet, selectCabinet]);
+  }, [currentRoom, removeCabinet, addCabinet, selectCabinet, setDirty]);
 
-  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>) => {
-    if (!currentRoom) return;
+  const handleCabinetPatch = useCallback(async (instanceId: string, updates: Partial<ConfiguredCabinet>): Promise<boolean> => {
+    if (!currentRoom) return false;
     const currentCab = getCabinetById(currentRoom.id, instanceId);
-    if (!currentCab) return;
+    if (!currentCab) return false;
     const merged: ConfiguredCabinet = {
       ...currentCab,
       ...updates,
@@ -622,9 +958,49 @@ export default function RoomPlanner() {
       updatedAt: new Date(),
     };
 
+    const geometryChanged = Boolean(updates.dimensions || updates.position || updates.wallAttachment);
+    const document = planningDocument ?? currentRoom.roomDocument;
+    if (document && geometryChanged && merged.isPlaced && merged.position) {
+      const obstacles = currentRoom.cabinets.filter(item => item.isPlaced && item.position).map(item => ({
+        id: item.instanceId, xMm: item.position!.x, zMm: item.position!.z,
+        rotationDeg: item.position!.rotation, widthMm: item.dimensions.width,
+        depthMm: cabinetFootprintDepthMm(item), category: item.category,
+        elevationMm: cabinetElevationMm(item, currentRoom.dimensions?.wallMountHeight),
+        heightMm: item.dimensions.height,
+      }));
+      const request = {
+        document, widthMm: merged.dimensions.width, depthMm: cabinetFootprintDepthMm(merged),
+        category: merged.category, elevationMm: cabinetElevationMm(merged, currentRoom.dimensions?.wallMountHeight),
+        heightMm: merged.dimensions.height, obstacles, excludeId: instanceId,
+      };
+      const placement = merged.wallAttachment
+        ? validateRoomWallPlacement({ ...request, ...merged.wallAttachment })
+        : placeWithinRoomDocument({ ...request,
+            point: { xMm: merged.position.x, zMm: merged.position.z },
+            rotationDeg: merged.position.rotation });
+      if (placement.status === 'unplaced') {
+        toast.error('Cabinet edit does not fit this room', { description: placement.reason });
+        return false;
+      }
+      merged.position = { x: placement.xMm, y: merged.position.y,
+        z: placement.zMm, rotation: placement.rotationDeg };
+      if (merged.cornerJoinWallId) {
+        const corner = findRoomDocumentCornerPlacement({
+          ...request, footprintMm: merged.dimensions.width,
+          preferredPoint: { xMm: placement.xMm, zMm: placement.zMm },
+        });
+        if (corner.status !== 'placed' || corner.wallAttachment.wallId !== merged.wallAttachment?.wallId
+          || corner.joinedWallId !== merged.cornerJoinWallId) {
+          toast.error('This corner cabinet needs a compatible 90° wall join.');
+          return false;
+        }
+      }
+    }
+
     replaceCabinet(currentRoom.id, merged);
     setDirty(true);
-  }, [currentRoom, getCabinetById, replaceCabinet]);
+    return true;
+  }, [currentRoom, getCabinetById, planningDocument, replaceCabinet, setDirty]);
 
   const handleEditCabinet = (cabinet: ConfiguredCabinet) => {
     selectCabinet(cabinet.instanceId);
@@ -735,6 +1111,32 @@ export default function RoomPlanner() {
         : [],
     [currentRoom, cabinets],
   );
+  const geometryConflicts = cabinets.filter(cabinet => cabinet.geometryConflict);
+
+  // The job query has settled and this room is not in it: the job belongs to
+  // another account (row-level security hides it), the room was removed, or
+  // the connection failed. Say so instead of loading forever.
+  const roomMissing = !currentRoom && Boolean(jobId) && jobId !== 'new' && !jobQuery.isLoading
+    && (jobQuery.isError || !jobQuery.data || !roomsFromServer.some(room => room.id === roomId));
+  if (roomMissing) {
+    return (
+      <TradeLayout>
+        <div className="flex items-center justify-center h-[calc(100vh-64px)] p-6">
+          <div className="max-w-md text-center space-y-3" role="alert">
+            <Box className="w-12 h-12 mx-auto text-muted-foreground" />
+            <h2 className="text-lg font-semibold">We couldn’t open this kitchen</h2>
+            <p className="text-sm text-muted-foreground">{jobQuery.isError
+              ? 'The connection dropped while loading it. Your kitchen is saved; try again.'
+              : 'It may belong to a different planner account, or the room was removed from this job. Sign in with the account that saved it, or open your jobs.'}</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {jobQuery.isError && <Button variant="outline" onClick={() => void jobQuery.refetch()}>Try again</Button>}
+              <Button variant="outline" onClick={() => navigate('/trade/dashboard')}>Back to my jobs</Button>
+            </div>
+          </div>
+        </div>
+      </TradeLayout>
+    );
+  }
 
   if (!currentRoom) {
     return (
@@ -753,23 +1155,52 @@ export default function RoomPlanner() {
   return (
     <TradeLayout>
       <div className="flex flex-col h-[calc(100vh-64px)]">
-        <div className="flex items-center justify-between px-4 py-2 border-b bg-background">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate(`/trade/job/${jobId}`)}>
+        <div className="flex flex-col gap-2 px-3 py-2 border-b bg-white md:flex-row md:items-center md:justify-between md:px-4">
+          <div className="flex min-w-0 items-center gap-2 md:gap-4">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(`/trade/job/${jobId}`)}>
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <div>
-              <h1 className="text-lg font-semibold text-trade-navy">{currentRoom.name}</h1>
-              <p className="text-xs text-muted-foreground">
-                {currentRoom.config.width} × {currentRoom.config.depth}mm • {cabinets.length} cabinet{cabinets.length !== 1 ? 's' : ''}
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-semibold text-trade-navy">{currentRoom.name}</h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {currentRoom.roomDocument ? 'Plan extents ' : ''}{currentRoom.config.width} × {currentRoom.config.depth}mm • {cabinets.length} cabinet{cabinets.length !== 1 ? 's' : ''}
                 <span className="ml-2">
-                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : dirty ? 'Unsaved changes' : 'Up to date'}
+                  {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved'
+                    : saveState === 'conflict' ? 'Changed on another device'
+                      : saveState === 'error' ? 'Save failed' : dirty ? 'Unsaved changes' : 'Up to date'}
                 </span>
               </p>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto shrink-0 md:hidden"
+              onClick={() => {
+                setShowRoomEditor(false);
+                setMobilePanel(panel => panel === 'cabinets' ? null : 'cabinets');
+              }}
+              aria-label={`Cabinets (${cabinets.length})`}
+              aria-expanded={mobilePanel === 'cabinets'}
+            >
+              <Box className="mr-1 h-4 w-4" />
+              Cabinets
+            </Button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 overflow-x-auto whitespace-nowrap pb-1 md:w-auto md:overflow-visible md:pb-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 md:hidden"
+              onClick={() => {
+                setShowRoomEditor(false);
+                setMobilePanel(panel => panel === 'catalog' ? null : 'catalog');
+              }}
+              aria-expanded={mobilePanel === 'catalog'}
+            >
+              <PanelLeft className="mr-1 h-4 w-4" />
+              {userType === 'consumer' ? 'Add cabinet' : 'Catalog'}
+            </Button>
             {/* Opening conflicts (master plan §8.2): warn-only, never blocks.
                 Recomputes via useMemo on every placement/edit/undo change. */}
             {openingWarnings.length > 0 && (
@@ -781,6 +1212,13 @@ export default function RoomPlanner() {
                 <span className="text-xs font-semibold">
                   {openingWarnings.length} opening conflict{openingWarnings.length !== 1 ? 's' : ''}
                 </span>
+              </div>
+            )}
+            {geometryConflicts.length > 0 && (
+              <div className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1 text-red-800"
+                title={geometryConflicts.map(cabinet => `${cabinet.productName}: ${cabinet.geometryConflict}`).join('\n')}>
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-xs font-semibold">{geometryConflicts.length} geometry conflict{geometryConflicts.length === 1 ? '' : 's'}</span>
               </div>
             )}
             {/* Pricing-trust warnings (WS2 guard): unmatched/unpriced materials */}
@@ -845,11 +1283,26 @@ export default function RoomPlanner() {
               {is3D ? 'Right-drag orbit · scroll zoom' : 'Right-drag pan · scroll zoom'}
             </span>
 
-            <Button variant="outline" size="sm" onClick={() => setShowCatalog(!showCatalog)}>
+            <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => setShowCatalog(!showCatalog)}>
               {showCatalog ? <PanelLeftClose className="w-4 h-4 mr-1" /> : <PanelLeft className="w-4 h-4 mr-1" />}
-              Catalog
+              {userType === 'consumer' ? (showCatalog ? 'Hide cabinet choices' : 'Add cabinet') : 'Catalog'}
             </Button>
 
+            <Button variant={showRoomEditor ? 'default' : 'outline'} size="sm" className="order-first shrink-0 md:order-none" disabled={isPriceLocked}
+              onClick={() => {
+                setMobilePanel(null);
+                if (!showRoomEditor && currentRoom && !currentRoom.roomDocument && planningDocument) {
+                  updateRoom(currentRoom.id, { roomDocument: planningDocument });
+                  setDirty(true);
+                }
+                setShowRoomEditor(value => !value);
+              }} title="Edit measured walls and openings">
+              <Pencil className="w-4 h-4 mr-1" /> Room plan
+            </Button>
+
+            {(saveState === 'error' || saveState === 'conflict') && <Button variant="outline" size="sm" onClick={downloadRoomBackup}>
+              Download unsaved room
+            </Button>}
             <Button
               variant="outline"
               size="sm"
@@ -865,16 +1318,13 @@ export default function RoomPlanner() {
 
             <Button
               size="sm"
-              className="bg-trade-amber hover:bg-trade-amber/90 text-trade-navy"
+              className="order-first shrink-0 bg-trade-amber hover:bg-trade-amber/90 text-trade-navy md:order-none"
               disabled={saveState === 'saving'}
               onClick={async () => {
                 if (!jobId || jobId === 'new') return;
                 try {
-                  await saveRoomToServer();
-                  toast.success('Room saved', { description: 'Changes persisted to server.' });
-                } catch {
-                  toast.error('Failed to save room');
-                }
+                  if (await saveRoomToServer()) toast.success('Room saved', { description: 'Changes persisted to server.' });
+                } catch { /* saveRoomToServer keeps the draft and reports the error. */ }
               }}
             >
               <Save className="w-4 h-4 mr-1" />
@@ -919,12 +1369,64 @@ export default function RoomPlanner() {
           </div>
         )}
 
-        <div className="flex-1 flex overflow-hidden">
-          {showCatalog && (
-            <div className="w-64 border-r flex-shrink-0">
+        <div className="flex-1 flex overflow-hidden relative">
+          {showRoomEditor && editableDocument && (
+            <aside className="absolute inset-0 z-30 min-w-0 overflow-y-auto overflow-x-hidden border-r bg-white md:relative md:inset-auto md:w-[420px] md:flex-shrink-0"
+              aria-label="Room wall and opening editor">
+              <RoomDocumentEditor document={planningDocument ?? editableDocument} onChange={handleRoomDocumentChange} />
+              {planningDocument?.capture?.captureId && jobId && currentRoom && (
+                <ScannerEvidencePanel captureId={planningDocument.capture.captureId}
+                  sourceRevision={planningDocument.capture.sourceRevision} jobId={jobId}
+                  roomId={currentRoom.id} initialSession={scannerSession} />
+              )}
+              <section className="border-t p-4 space-y-3" aria-label="Preliminary wall-run suggestions">
+                <h2 className="font-semibold">Wall-run ideas</h2>
+                <p className="text-xs text-muted-foreground">These suggestions use the drawn wall segments. Check dimensions, services and clearances on site before ordering.</p>
+                {!wallRunPool?.capability.supported && wallRunPool?.capability.reasons.map(reason => (
+                  <p key={reason} className="text-sm text-amber-800">{reason}</p>
+                ))}
+                {wallRunPool?.candidates.map(candidate => (
+                  <Button key={candidate.candidateId} variant={selectedWallRunId === candidate.candidateId ? 'default' : 'outline'}
+                    className="w-full justify-start" onClick={() => { setSelectedWallRunId(candidate.candidateId); setIncludeSuggestedIsland(false); }}>
+                    {candidate.wallIds.length} wall{candidate.wallIds.length === 1 ? '' : 's'} · {candidate.items.length} items
+                  </Button>
+                ))}
+                {wallRunPool?.capability.supported && !wallRunPool.candidates.length && (
+                  <div className="space-y-1" role="status">
+                    <p className="text-sm text-amber-800">No complete wall run fits the current walls, openings and existing items.</p>
+                    {[...new Set(wallRunPool.rejected.flatMap(candidate => candidate.reasons))].slice(0, 4)
+                      .map(reason => <p key={reason} className="text-xs text-amber-800">{reason}</p>)}
+                  </div>
+                )}
+                {selectedWallRun && (
+                  <div className="rounded-md border p-3 space-y-2">
+                    <p className="text-sm font-medium">Preview on {selectedWallRun.wallIds.join(', ')}</p>
+                    {selectedWallRun.unresolved.map(note => <p key={note} className="text-xs text-amber-800">{note}</p>)}
+                    {suggestedIsland && <Button size="sm" variant={includeSuggestedIsland ? 'default' : 'outline'}
+                      onClick={() => setIncludeSuggestedIsland(value => !value)}>
+                      {includeSuggestedIsland ? 'Remove island from preview' : `Preview island · ${suggestedIsland.clearanceMm} mm circulation`}
+                    </Button>}
+                    {!suggestedIsland && wallRunPool?.islandReason && <p className="text-xs text-muted-foreground">{wallRunPool.islandReason}</p>}
+                    <Button size="sm" disabled={isPriceLocked} onClick={applySelectedWallRun}>Add this idea to the plan</Button>
+                  </div>
+                )}
+              </section>
+            </aside>
+          )}
+          {(showCatalog || mobilePanel === 'catalog') && (
+            <div className={`${mobilePanel === 'catalog' ? 'block' : 'hidden'} absolute inset-0 z-20 w-full overflow-y-auto border-r bg-white ${showCatalog ? 'md:relative md:inset-auto md:block md:w-64 md:flex-shrink-0' : 'md:hidden'}`}>
+              <div className="flex items-center justify-between border-b px-4 py-2 md:hidden">
+                <span className="font-semibold">Catalog</span>
+                <Button variant="ghost" size="icon" onClick={() => setMobilePanel(null)} aria-label="Close catalog">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
               <UnifiedCatalog
                 userType={catalogMode}
-                onSelectProduct={handleQuickAddProduct}
+                onSelectProduct={(productId) => {
+                  setMobilePanel(null);
+                  void handleQuickAddProduct(productId);
+                }}
                 placementItemId={placementItemId}
                 onCancelPlacement={() => setPlacementItemId(null)}
               />
@@ -944,9 +1446,15 @@ export default function RoomPlanner() {
               }
             }}
           >
+            {planningDocument?.objects.some(object => object.layer === 'existing' && object.existingAction !== 'remove') && (
+              <p className="border-b bg-amber-50 px-3 py-1 text-xs text-amber-900">
+                Amber outlines mark existing scan fittings. Their appearance is provisional; check style, finish and dimensions on site.
+              </p>
+            )}
             <Scene3DErrorBoundary>
               <UnifiedScene
-                items={placedItems}
+                items={selectedWallRun && showRoomEditor
+                  ? [...placedItems, ...selectedSuggestionItems] : placedItems}
                 room={roomConfig}
                 globalDimensions={currentRoom?.dimensions || DEFAULT_GLOBAL_DIMENSIONS}
                 selectedItemId={selectedCabinetId}
@@ -965,18 +1473,42 @@ export default function RoomPlanner() {
             </Scene3DErrorBoundary>
           </div>
 
-          <CabinetListPanel
-            roomId={currentRoom.id}
-            cabinets={cabinets}
-            getCabinetPrice={getCabinetPrice}
-            onEditCabinet={handleEditCabinet}
-            onSelectCabinet={handleCabinetSelect}
-            onDuplicateCabinet={handleDuplicateCabinet}
-            onRemoveCabinet={handleRemoveCabinet}
-            onRotateCabinet={handleRotateSelected}
-            className="w-72 flex-shrink-0"
-          />
+          <div className="hidden w-72 flex-shrink-0 md:block">
+            <CabinetListPanel
+              roomId={currentRoom.id}
+              cabinets={cabinets}
+              getCabinetPrice={getCabinetPrice}
+              onEditCabinet={handleEditCabinet}
+              onSelectCabinet={handleCabinetSelect}
+              onDuplicateCabinet={handleDuplicateCabinet}
+              onRemoveCabinet={handleRemoveCabinet}
+              onRotateCabinet={handleRotateSelected}
+              className="w-full"
+            />
+          </div>
         </div>
+
+        <Sheet open={mobilePanel === 'cabinets'} onOpenChange={(open) => setMobilePanel(open ? 'cabinets' : null)}>
+          <SheetContent side="bottom" className="flex h-[80dvh] w-full flex-col p-0 md:hidden">
+            <SheetHeader className="shrink-0 border-b px-4 py-3 text-left">
+              <SheetTitle>Cabinets</SheetTitle>
+            </SheetHeader>
+            <CabinetListPanel
+              roomId={currentRoom.id}
+              cabinets={cabinets}
+              getCabinetPrice={getCabinetPrice}
+              onEditCabinet={(cabinet) => {
+                setMobilePanel(null);
+                handleEditCabinet(cabinet);
+              }}
+              onSelectCabinet={handleCabinetSelect}
+              onDuplicateCabinet={handleDuplicateCabinet}
+              onRemoveCabinet={handleRemoveCabinet}
+              onRotateCabinet={handleRotateSelected}
+              className="min-h-0 w-full flex-1 border-l-0"
+            />
+          </SheetContent>
+        </Sheet>
 
         <CabinetEditDialog
           roomId={currentRoom.id}

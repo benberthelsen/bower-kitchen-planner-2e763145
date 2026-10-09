@@ -1,0 +1,172 @@
+/** Planner-owned, millimetre room record. Geometry and capture evidence are
+ * independent from the legacy rectangle dimensions kept for older consumers. */
+export interface RoomPoint { xMm: number; zMm: number }
+
+export type DimensionSource = 'measured' | 'observed' | 'inferred' | 'unknown';
+export interface DimensionValue {
+  valueMm: number;
+  source: DimensionSource;
+  uncertaintyMm?: number;
+  evidenceIds?: string[];
+  reason?: string;
+}
+
+/** Confidence in a wall's position and direction, independent of its length. */
+export interface WallGeometryEvidence {
+  source: DimensionSource;
+  uncertaintyMm?: number;
+  evidenceIds?: string[];
+  reason?: string;
+}
+
+export interface RoomCorner extends RoomPoint { id: string }
+export interface RoomWall {
+  id: string;
+  startCornerId: string;
+  endCornerId: string;
+  /** Left/right of the directed start→end edge. Unknown prevents a claim about
+   * the wall's inside face until the room or photographed side is reviewed. */
+  interiorSide?: 'left' | 'right' | 'unknown';
+  height?: DimensionValue;
+  geometryEvidence?: WallGeometryEvidence;
+  /** Evidence for a stated length. Coordinates remain the geometric source. */
+  lengthEvidence?: DimensionValue;
+  evidenceIds?: string[];
+}
+
+export interface RoomWallChain {
+  id: string;
+  wallIds: string[];
+  closed: boolean;
+}
+
+export interface ConfirmedFloorBoundary {
+  cornerIds: string[];
+  confirmed: true;
+  evidenceIds?: string[];
+}
+
+export interface RoomOpening {
+  id: string;
+  wallId: string;
+  kind: 'door' | 'window' | 'walkway';
+  offsetMm: number;
+  widthMm: number;
+  heightMm?: number;
+  sillHeightMm?: number;
+  revealMm?: number;
+  swing?: 'in-left' | 'in-right' | 'out' | 'slider';
+  benchtopObjectId?: string;
+  benchtopRelationship?: 'above' | 'behind' | 'intersects' | 'through-reveal' | 'unknown';
+  dimensionEvidence?: Record<string, DimensionValue>;
+  evidenceIds?: string[];
+}
+
+export type RoomPlacement =
+  | { type: 'wall'; wallId: string; offsetMm: number; depthOffsetMm?: number }
+  | { type: 'free'; xMm: number; zMm: number; rotationDeg: number };
+
+export interface RoomService {
+  id: string;
+  kind: 'water-supply' | 'drain' | 'gpo' | 'gas' | 'hood-duct' | 'light' | 'fan' | 'other';
+  placement: RoomPlacement;
+  heightMm?: number;
+  dimensionEvidence?: Record<string, DimensionValue>;
+  evidenceIds?: string[];
+}
+
+export interface RoomObject {
+  id: string;
+  layer: 'existing' | 'proposed';
+  kind: string;
+  placement: RoomPlacement;
+  widthMm: number;
+  depthMm: number;
+  heightMm?: number;
+  /** Height of the object's bottom above the floor, in millimetres. */
+  elevationMm?: number;
+  /** Real catalogue identity survives migration and round trips. */
+  catalogueId?: string;
+  /** ConfiguredCabinet.instanceId when this is the room view of a priced item. */
+  sourceCabinetId?: string;
+  /** Explicit user correction to a scanned object's wall association. */
+  placementProvenance?: {
+    source: 'user-correction';
+    note: string;
+    /** Older reviewed scanner drafts recorded the correction without a time. */
+    correctedAt?: string;
+    previousWallId?: string;
+  };
+  existingAction?: 'keep' | 'remove' | 'relocate';
+  /** Confirmed dimensions and catalogue/appliance sizes never stretch with a wall. */
+  sizeLock?: 'none' | 'confirmed' | 'catalogue';
+  dimensionEvidence?: Record<string, DimensionValue>;
+  evidenceIds?: string[];
+}
+
+/** A photographed feature with no trustworthy size or physical pose yet.
+ * It must not participate in openings, object footprints or clearances. */
+export interface PendingPhotoFeature {
+  id: string;
+  kind: string;
+  label: string;
+  status: 'needs-placement-and-size';
+  /** A matching wall in this document, only when its ID is known here. */
+  wallId?: string;
+  /** Original scan reference, retained even if that wall is not registered. */
+  sourceWallId?: string;
+  placementHint?: 'wall' | 'floor' | 'unlocated';
+  evidenceIds: string[];
+}
+
+export interface RoomDocumentV1 {
+  version: 1;
+  id: string;
+  revision: number;
+  name?: string;
+  corners: RoomCorner[];
+  walls: RoomWall[];
+  chains: RoomWallChain[];
+  /** A measured/scanned wall chain does not establish a floor boundary. */
+  floorBoundary?: ConfirmedFloorBoundary;
+  openings: RoomOpening[];
+  services: RoomService[];
+  objects: RoomObject[];
+  pendingPhotoFeatures?: PendingPhotoFeature[];
+  capture?: { captureId: string; source?: string; sourceRevision?: string; photoIds?: string[] };
+  /** JSON snapshot of the record before its first migration. */
+  legacySnapshot?: unknown;
+}
+
+export type RoomEdit =
+  | { type: 'set-wall-length'; wallId: string; lengthMm: number; measurement?: DimensionValue }
+  | { type: 'set-wall-angle'; wallId: string; angleDeg: number }
+  | { type: 'set-wall-height'; wallId: string; heightMm: number; measurement?: DimensionValue }
+  | { type: 'set-wall-interior-side'; wallId: string; side: 'left' | 'right' | 'unknown' }
+  | { type: 'add-wall'; chainId?: string; end?: 'start' | 'end'; start?: RoomPoint; lengthMm: number; angleDeg: number; wallId?: string; cornerId?: string }
+  | { type: 'split-wall'; wallId: string; offsetMm: number; newWallId?: string; newCornerId?: string }
+  | { type: 'delete-wall'; wallId: string }
+  | { type: 'close-chain'; chainId: string; wallId?: string }
+  | { type: 'move-corner'; cornerId: string; xMm: number; zMm: number }
+  | { type: 'set-floor-boundary'; cornerIds: string[]; evidenceIds?: string[] }
+  | { type: 'clear-floor-boundary' }
+  | { type: 'upsert-opening'; opening: RoomOpening }
+  | { type: 'delete-opening'; openingId: string }
+  | { type: 'upsert-service'; service: RoomService }
+  | { type: 'delete-service'; serviceId: string }
+  | { type: 'upsert-object'; object: RoomObject }
+  | { type: 'delete-object'; objectId: string };
+
+export interface RoomIssue {
+  code: string;
+  message: string;
+  subjectId?: string;
+  severity: 'error' | 'warning';
+}
+
+export interface RoomEditResult {
+  document: RoomDocumentV1;
+  previous: RoomDocumentV1;
+  issues: RoomIssue[];
+  applied: boolean;
+}

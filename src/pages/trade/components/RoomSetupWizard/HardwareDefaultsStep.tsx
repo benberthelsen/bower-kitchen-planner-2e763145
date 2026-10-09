@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { useMaterialsCatalog } from '@/hooks/useMaterialsCatalog';
 import { cn } from '@/lib/utils';
@@ -147,19 +147,6 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
   const hingeName = hingeList.find((h) => h.id === config.hingeStyle)?.name ?? config.hingeStyle;
   const drawerName = drawerList.find((d) => d.id === config.drawerStyle)?.name ?? config.drawerStyle;
 
-  // Auto-fill the shop-standard hinge/runner when the saved value is empty or a
-  // legacy name that no longer matches a price-list id (so the dropdowns aren't blank).
-  useEffect(() => {
-    if (hingeList.length > 0 && !hingeList.some((h) => h.id === config.hingeStyle)) {
-      updateConfig({ hingeStyle: hingeList[0].id });
-    }
-  }, [hingeList, config.hingeStyle]);
-  useEffect(() => {
-    if (drawerList.length > 0 && !drawerList.some((d) => d.id === config.drawerStyle)) {
-      updateConfig({ drawerStyle: drawerList[0].id });
-    }
-  }, [drawerList, config.drawerStyle]);
-
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <p className="text-center text-trade-muted">
@@ -183,8 +170,8 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
           {supplyMethods.map((method) => (
             <OptionCard
               key={method.id}
-              selected={method.id === 'assembled' ? config.supplyHardware : !config.supplyHardware}
-              onClick={() => updateConfig({ supplyHardware: method.id === 'assembled' })}
+              selected={method.id === 'assembled' ? config.supplyMethod === 'assembled' : config.supplyMethod === 'flat-pack'}
+              onClick={() => updateConfig({ supplyMethod: method.id === 'assembled' ? 'assembled' : 'flat-pack' })}
               icon={method.icon}
               name={method.name}
               description={method.description}
@@ -269,6 +256,8 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              {config.hingeStyle && !hingeList.some(hinge => hinge.id === config.hingeStyle) &&
+                <SelectItem value={config.hingeStyle}>Saved selection: {config.hingeStyle}</SelectItem>}
               {hingeList.map((hinge) => (
                 <SelectItem key={hinge.id} value={hinge.id}>
                   <div>
@@ -309,6 +298,8 @@ export default function HardwareDefaultsStep({ config, updateConfig }: HardwareD
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              {config.drawerStyle && !drawerList.some(drawer => drawer.id === config.drawerStyle) &&
+                <SelectItem value={config.drawerStyle}>Saved selection: {config.drawerStyle}</SelectItem>}
               {drawerList.map((drawer) => (
                 <SelectItem key={drawer.id} value={drawer.id}>
                   <div>

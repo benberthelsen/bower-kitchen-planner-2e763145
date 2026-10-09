@@ -74,7 +74,8 @@ export function usePlannerHandoff(handoffId: string | null) {
         .select('*')
         .eq('id', handoffId!)
         .maybeSingle();
-      if (error || !data) return null;
+      if (error) throw error;
+      if (!data) return null;
       return data as PlannerHandoffRow;
     },
   });
@@ -87,7 +88,9 @@ export interface TokenizedHandoff {
   expiresAt: string | null;
 }
 
-/** PUBLIC path: tokenized retrieval via edge function. Never consumes. */
+/** PUBLIC path: tokenized retrieval via edge function. Never consumes.
+ *  functions.invoke sends the signed-in session's JWT, which the function
+ *  requires to be staff for a scanner handoff. */
 export function useTokenizedPlannerHandoff(handoffId: string | null, token: string | null) {
   return useQuery({
     queryKey: ['planner-handoff-tokenized', handoffId ?? 'none'],
@@ -98,7 +101,8 @@ export function useTokenizedPlannerHandoff(handoffId: string | null, token: stri
       const { data, error } = await supabase.functions.invoke('get-planner-handoff', {
         body: { handoffId, token },
       });
-      if (error || !data) return null;
+      if (error) throw error;
+      if (!data) throw new Error('The scanner handoff returned no data.');
       return data as TokenizedHandoff;
     },
   });

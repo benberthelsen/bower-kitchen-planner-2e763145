@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { TradeRoom, ConfiguredCabinet } from '@/types/trade';
+import { cabinetFootprintDepthMm, footprintCorners, objectPose, placementPose, wallGeometry } from '@/lib/roomDocument';
 
 /**
  * Auto-generated PLAN VIEW export.
@@ -25,8 +26,9 @@ function effectiveFootprint(cab: ConfiguredCabinet): PlanCabinet | null {
   if (!cab.isPlaced || !cab.position) return null;
   const rot = ((Math.round(cab.position.rotation) % 360) + 360) % 360;
   const rotated = rot === 90 || rot === 270;
-  const w = rotated ? cab.dimensions.depth : cab.dimensions.width;
-  const d = rotated ? cab.dimensions.width : cab.dimensions.depth;
+  const planDepth = cabinetFootprintDepthMm(cab);
+  const w = rotated ? planDepth : cab.dimensions.width;
+  const d = rotated ? cab.dimensions.width : planDepth;
   return {
     cabinet: cab,
     x: cab.position.x - w / 2,
@@ -45,8 +47,24 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   const pageW = doc.internal.pageSize.getWidth();   // 297
   const pageH = doc.internal.pageSize.getHeight();  // 210
 
-  const roomW = room.config.width;
-  const roomD = room.config.depth;
+  const roomDocument = room.roomDocument;
+  const documentPoints = roomDocument ? [
+    ...roomDocument.corners.map(corner => ({ xMm: corner.xMm, zMm: corner.zMm })),
+    ...(room.cabinets ?? []).filter(cabinet => cabinet.isPlaced && cabinet.position)
+      .flatMap(cabinet => footprintCorners({ xMm: cabinet.position!.x, zMm: cabinet.position!.z,
+        rotationDeg: cabinet.position!.rotation }, cabinet.dimensions.width, cabinetFootprintDepthMm(cabinet))),
+    ...roomDocument.objects.filter(object => object.existingAction !== 'remove' && !object.sourceCabinetId)
+      .flatMap(object => {
+        const pose = objectPose(roomDocument, object);
+        return pose ? footprintCorners(pose, object.widthMm, object.depthMm) : [];
+      }),
+  ] : [];
+  const minX = documentPoints.length ? Math.min(...documentPoints.map(point => point.xMm)) : 0;
+  const minZ = documentPoints.length ? Math.min(...documentPoints.map(point => point.zMm)) : 0;
+  const roomW = Math.max(1, documentPoints.length
+    ? Math.max(...documentPoints.map(point => point.xMm)) - minX : room.config.width);
+  const roomD = Math.max(1, documentPoints.length
+    ? Math.max(...documentPoints.map(point => point.zMm)) - minZ : room.config.depth);
 
   // ---- layout: plan on the left ~2/3, schedule on the right ----
   const margin = 18;
@@ -58,8 +76,8 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   const ox = margin + 12; // extra space for the depth dimension line
   const oy = margin + 16; // extra space for the title + width dimension line
 
-  const X = (mm: number) => ox + mm * scale;
-  const Y = (mm: number) => oy + mm * scale;
+  const X = (mm: number) => ox + (mm - minX) * scale;
+  const Y = (mm: number) => oy + (mm - minZ) * scale;
 
   // ---- title block ----
   doc.setFont('helvetica', 'bold');
@@ -68,7 +86,7 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.text(
-    `Room ${roomW} × ${roomD} × ${room.config.height}mm   •   Scale 1:${Math.round(1 / scale)}   •   ${new Date().toLocaleDateString('en-AU')}`,
+    `${roomDocument ? roomDocument.floorBoundary?.confirmed ? 'Confirmed room outline' : 'Open wall survey — floor unconfirmed' : `Room ${roomW} × ${roomD} × ${room.config.height}mm`}   •   Scale 1:${Math.round(1 / scale)}   •   ${new Date().toLocaleDateString('en-AU')}`,
     margin,
     margin + 1,
   );
@@ -76,15 +94,39 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   // ---- room outline (double line = wall) ----
   doc.setDrawColor(40);
   doc.setLineWidth(0.8);
-  doc.rect(X(0), Y(0), planW, planH);
-  doc.setLineWidth(0.25);
-  doc.rect(X(0) - 1.6, Y(0) - 1.6, planW + 3.2, planH + 3.2);
+  if (roomDocument) {
+    const corners = new Map(roomDocument.corners.map(corner => [corner.id, corner]));
+    if (roomDocument.floorBoundary?.confirmed) {
+      doc.setDrawColor(155, 169, 168);
+      doc.setLineWidth(0.25);
+      const ids = roomDocument.floorBoundary.cornerIds;
+      ids.forEach((id, index) => {
+        const a = corners.get(id), b = corners.get(ids[(index + 1) % ids.length]);
+        if (a && b) doc.line(X(a.xMm), Y(a.zMm), X(b.xMm), Y(b.zMm));
+      });
+    }
+    doc.setDrawColor(25, 89, 83);
+    doc.setLineWidth(0.85);
+    roomDocument.walls.forEach(wall => {
+      const a = corners.get(wall.startCornerId), b = corners.get(wall.endCornerId);
+      if (!a || !b) return;
+      doc.line(X(a.xMm), Y(a.zMm), X(b.xMm), Y(b.zMm));
+      doc.setFontSize(6);
+      doc.text(`${Math.round(Math.hypot(b.xMm - a.xMm, b.zMm - a.zMm))} ${wall.lengthEvidence?.source === 'measured' ? 'mm' : 'mm ~'}`,
+        X((a.xMm + b.xMm) / 2), Y((a.zMm + b.zMm) / 2) - 1, { align: 'center' });
+    });
+  } else {
+    doc.rect(X(0), Y(0), planW, planH);
+    doc.setLineWidth(0.25);
+    doc.rect(X(0) - 1.6, Y(0) - 1.6, planW + 3.2, planH + 3.2);
+  }
 
   // ---- room dimension lines ----
   doc.setLineWidth(0.2);
   doc.setFontSize(8);
   // width (top)
-  const dimY = Y(0) - 6;
+  const dimY = Y(minZ) - 6;
+  if (!roomDocument) {
   doc.line(X(0), dimY, X(roomW), dimY);
   doc.line(X(0), dimY - 1.5, X(0), dimY + 1.5);
   doc.line(X(roomW), dimY - 1.5, X(roomW), dimY + 1.5);
@@ -95,6 +137,7 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   doc.line(dimX - 1.5, Y(0), dimX + 1.5, Y(0));
   doc.line(dimX - 1.5, Y(roomD), dimX + 1.5, Y(roomD));
   doc.text(`${roomD}`, dimX - 1.2, Y(roomD / 2), { align: 'center', angle: 90 });
+  }
 
   // ---- room features: openings + services (master plan §8.2) ----
   // Same wall/offset convention as PlannerScene/RoomFeaturesEditor:
@@ -103,7 +146,22 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
     door: [180, 83, 9], window: [3, 105, 161], walkway: [161, 161, 170],
   };
   const OPENING_LETTER: Record<string, string> = { door: 'D', window: 'W', walkway: 'O' };
-  (room.config.openings ?? []).forEach((o) => {
+  (roomDocument?.openings ?? []).forEach(opening => {
+    const wall = wallGeometry(roomDocument!, opening.wallId);
+    if (!wall) return;
+    const start = { xMm: wall.start.xMm + wall.tangent.xMm * opening.offsetMm,
+      zMm: wall.start.zMm + wall.tangent.zMm * opening.offsetMm };
+    const end = { xMm: start.xMm + wall.tangent.xMm * opening.widthMm,
+      zMm: start.zMm + wall.tangent.zMm * opening.widthMm };
+    const rgb = OPENING_RGB[opening.kind] ?? [120, 120, 120];
+    doc.setDrawColor(...rgb);
+    doc.setLineWidth(1.2);
+    doc.line(X(start.xMm), Y(start.zMm), X(end.xMm), Y(end.zMm));
+    doc.setFontSize(6);
+    doc.text(OPENING_LETTER[opening.kind] ?? '?', X((start.xMm + end.xMm) / 2),
+      Y((start.zMm + end.zMm) / 2) - 0.8, { align: 'center' });
+  });
+  if (!roomDocument) (room.config.openings ?? []).forEach((o) => {
     const rgb = OPENING_RGB[o.type] ?? [120, 120, 120];
     doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
     doc.setLineWidth(1.2);
@@ -127,7 +185,18 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   const SERVICE_LETTER: Record<string, string> = {
     drain: 'S', 'water-supply': 'W', gpo: 'P', gas: 'G', 'hood-duct': 'H',
   };
-  (room.config.services ?? []).forEach((s) => {
+  (roomDocument?.services ?? []).forEach(service => {
+    const pose = placementPose(roomDocument!, service.placement, 0, 0);
+    if (!pose) return;
+    const rgb = SERVICE_RGB[service.kind] ?? [120, 120, 120];
+    const cx = X(pose.xMm), cy = Y(pose.zMm);
+    doc.setFillColor(...rgb);
+    doc.circle(cx, cy, 1.4, 'F');
+    doc.setFontSize(5.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(SERVICE_LETTER[service.kind] ?? '?', cx, cy + 0.7, { align: 'center' });
+  });
+  if (!roomDocument) (room.config.services ?? []).forEach((s) => {
     const rgb = SERVICE_RGB[s.type] ?? [120, 120, 120];
     let cx: number, cy: number;
     if (s.placement === 'floor' && s.xMm !== undefined && s.zMm !== undefined) {
@@ -150,12 +219,40 @@ export function exportPlanViewPdf(room: TradeRoom, jobName?: string) {
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(40);
 
+  if (roomDocument) roomDocument.objects.filter(object => object.existingAction !== 'remove'
+    && !object.sourceCabinetId).forEach(object => {
+    const pose = objectPose(roomDocument, object);
+    if (!pose) return;
+    const points = footprintCorners(pose, object.widthMm, object.depthMm);
+    doc.setDrawColor(object.layer === 'existing' ? 113 : 83, object.layer === 'existing' ? 113 : 118, 113);
+    doc.setLineWidth(0.3);
+    points.forEach((point, index) => {
+      const next = points[(index + 1) % points.length];
+      doc.line(X(point.xMm), Y(point.zMm), X(next.xMm), Y(next.zMm));
+    });
+    doc.setFontSize(5.5);
+    doc.text(object.kind, X(pose.xMm), Y(pose.zMm), { align: 'center' });
+  });
+
   // ---- cabinets ----
   const placed = (room.cabinets || [])
     .map(effectiveFootprint)
     .filter((p): p is PlanCabinet => p !== null);
 
   placed.forEach((p) => {
+    if (roomDocument && p.cabinet.position) {
+      const points = footprintCorners({ xMm: p.cabinet.position.x, zMm: p.cabinet.position.z,
+        rotationDeg: p.cabinet.position.rotation }, p.cabinet.dimensions.width, cabinetFootprintDepthMm(p.cabinet));
+      doc.setDrawColor(p.cabinet.category === 'Wall' ? 130 : 40);
+      doc.setLineWidth(0.45);
+      points.forEach((point, index) => {
+        const next = points[(index + 1) % points.length];
+        doc.line(X(point.xMm), Y(point.zMm), X(next.xMm), Y(next.zMm));
+      });
+      doc.setFontSize(7);
+      doc.text(p.cabinet.cabinetNumber || '', X(p.cabinet.position.x), Y(p.cabinet.position.z), { align: 'center' });
+      return;
+    }
     const px = X(p.x);
     const py = Y(p.y);
     const pw = p.w * scale;
