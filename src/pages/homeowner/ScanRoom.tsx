@@ -29,7 +29,13 @@ import { cn } from '@/lib/utils';
 import {
   buildScanFromCapture, intersectWallLines, type XrCorner, type XrOpeningMark,
   dominantLine, intersectDetectedWallLines, snapToPlanes, type PlaneSnap, type WallLine,
+  aimFromViewerMatrix, aimSeparationDeg, ceilingReading, floorPointFromRay, floorTargetFromAim,
+  hiddenCornerFromAims, wallTapIssue, type XrAim,
+  FLOOR_TOLERANCE_M, MIN_CORNER_SEPARATION_M, MIN_HIDDEN_AIM_ANGLE_DEG,
 } from '@/lib/roomScan/webxrFit';
+import {
+  QUICK_SCAN_PROGRESS_KEY, parseQuickScanProgress, serializeQuickScanProgress, type QuickScanProgress,
+} from '@/lib/roomScan/quickScanProgress';
 import { importRoomPlanFileText } from '@/lib/roomScan/roomplanImport';
 import {
   MANUAL_WALL_OPTIONS,
@@ -60,19 +66,44 @@ const HIDDEN_SNAP_TOL_M = 0.3;
  *  by intersecting two locked wall planes. Two 3 m walls each off by 3 deg
  *  already intersect ~300 mm from truth, so 2 m accepted near-nonsense. */
 const HIDDEN_CORNER_MAX_M = 0.6;
-/** A corner tap must land near the floor. local-floor reference space puts
- *  y = 0 at the floor, so this rejects taps that hit a benchtop or island. */
-const FLOOR_TOLERANCE_M = 0.25;
 
 export const PENDING_SCAN_KEY = 'bower.pendingScan';
 
 type Support = 'checking' | 'insecure' | 'no-xr' | 'no-ar' | 'ready';
 type Phase = 'corners' | 'height' | 'openings';
 type OpeningType = XrOpeningMark['type'];
-type AimTarget = 'searching' | 'floor' | 'surface' | 'wall' | 'corner';
-type HiddenCaptureMode = 'smart' | 'manual';
+/** lost = no trusted viewer pose; ray = the aim meets the floor plane with no
+ *  floor-level hit (the scanner's floor-ray fallback). */
+type AimTarget = 'lost' | 'searching' | 'floor' | 'ray' | 'surface' | 'wall' | 'corner';
+type HiddenCaptureMode = 'smart' | 'aims' | 'manual';
 
-interface Hit { x: number; y: number; z: number }
+/** normalY: the hit pose's Y axis is the surface normal; ~0 on a wall. */
+interface Hit { x: number; y: number; z: number; normalY: number }
+
+/** Per-frame readings the overlay shows. Updated only when one changes. */
+interface AimReading {
+  tracked: boolean;
+  /** range of a floor-ray corner mark, in decimetres */
+  rangeDm: number | null;
+  /** a hit above floor level sits in front of the aimed floor point */
+  blocked: boolean;
+  /** whole degrees between the first hidden-corner aim and the current aim */
+  angleDeg: number | null;
+  ceiling: ReturnType<typeof ceilingReading>;
+}
+const NO_READING: AimReading = { tracked: false, rangeDm: null, blocked: false, angleDeg: null, ceiling: null };
+
+const HIDDEN_MODES: [HiddenCaptureMode, string][] = [['smart', 'Wall lock'], ['aims', 'Two aims'], ['manual', '4 points']];
+const TRACKING_LOST = 'Tracking is lost — move the phone slowly until the floor is found again.';
+
+function readSavedProgress(): QuickScanProgress | null {
+  try {
+    const progress = parseQuickScanProgress(sessionStorage.getItem(QUICK_SCAN_PROGRESS_KEY));
+    return progress?.corners.length ? progress : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Minimal WebXR plane-detection surface (not yet in the TS DOM lib). */
 interface XRPlaneLike {
@@ -131,6 +162,12 @@ export default function ScanRoom() {
   const [floorLocked, setFloorLocked] = useState(false);
   const [aimTarget, setAimTarget] = useState<AimTarget>('searching');
   const [hiddenHint, setHiddenHint] = useState<string | null>(null);
+  const [reading, setReading] = useState<AimReading>(NO_READING);
+  const [hiddenAimSet, setHiddenAimSet] = useState(false);
+  // Corners kept in this tab after the AR session ends (see quickScanProgress).
+  const [savedProgress, setSavedProgress] = useState<QuickScanProgress | null>(readSavedProgress);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [overlayMissing, setOverlayMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -161,6 +198,13 @@ export default function ScanRoom() {
   const heightRef = useRef<number | null>(null);
   const detectedHeightRef = useRef<number | null>(null);
   const lastHitRef = useRef<Hit | null>(null);
+  // The centre-of-view aim; null while the viewer pose is missing or emulated.
+  const aimRef = useRef<XrAim | null>(null);
+  const hiddenAimRef = useRef<XrAim | null>(null);
+  const readingKeyRef = useRef('');
+  // True from the moment a session is granted: only then does a change to
+  // the capture overwrite the saved progress.
+  const captureLiveRef = useRef(false);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const arCleanupRef = useRef<() => void>(() => {});
   // Rebuilds the in-scene "ghost" of everything captured so far; assigned a
@@ -204,6 +248,11 @@ export default function ScanRoom() {
     rebuildGhostRef.current = () => {};
     captureCurrentPointRef.current = () => {};
     lastHitRef.current = null;
+    aimRef.current = null;
+    hiddenAimRef.current = null;
+    readingKeyRef.current = '';
+    setReading(NO_READING);
+    setHiddenAimSet(false);
     currentPlaneSnapRef.current = null;
     lockedWallLineRef.current = null;
     detectedWallCountRef.current = 0;
@@ -234,6 +283,41 @@ export default function ScanRoom() {
     return true;
   }, [navigate]);
 
+  const clearProgress = useCallback(() => {
+    captureLiveRef.current = false;
+    try { sessionStorage.removeItem(QUICK_SCAN_PROGRESS_KEY); } catch { /* storage blocked */ }
+    setSavedProgress(null);
+  }, []);
+
+  // Save the capture on every change, so leaving AR — the Back button, the
+  // page going to the background, a crash — never throws the corners away.
+  useEffect(() => {
+    if (!captureLiveRef.current) return;
+    const progress = corners.length ? { corners, heightMm, openings } : null;
+    try {
+      if (progress) sessionStorage.setItem(QUICK_SCAN_PROGRESS_KEY, serializeQuickScanProgress(progress));
+      else sessionStorage.removeItem(QUICK_SCAN_PROGRESS_KEY);
+    } catch { /* storage blocked: the copy in state still offers the corners */ }
+    setSavedProgress(progress && { version: 1, ...progress, savedAt: new Date().toISOString() });
+  }, [corners, heightMm, openings]);
+
+  const applySavedCorners = useCallback(() => {
+    if (!savedProgress) return;
+    const result = buildScanFromCapture(savedProgress.corners, {
+      ...(savedProgress.heightMm !== null ? { heightMm: savedProgress.heightMm } : {}),
+      openings: savedProgress.openings,
+    });
+    if ('reason' in result) {
+      setError(`${result.reason} — scan again from corner 1, or enter the room by hand.`);
+      return;
+    }
+    if (!storeAndGo(result.scan)) {
+      setError('could not store the scan — your browser may be blocking storage');
+      return;
+    }
+    clearProgress();
+  }, [clearProgress, savedProgress, storeAndGo]);
+
   const finish = useCallback(async () => {
     const result = buildScanFromCapture(cornersRef.current, {
       ...(heightRef.current !== null ? { heightMm: heightRef.current } : {}),
@@ -253,11 +337,20 @@ export default function ScanRoom() {
     await endSession();
     if (!storeAndGo(result.scan)) {
       setError('could not store the scan — your browser may be blocking storage');
+      return;
     }
-  }, [endSession, storeAndGo]);
+    clearProgress();
+  }, [clearProgress, endSession, storeAndGo]);
 
-  const startScan = useCallback(async () => {
+  /** tapOnly: run without the DOM overlay — each tap marks a corner and the
+   *  phone's Back button ends the scan (see the dom-overlay check below). */
+  const startScan = useCallback(async (tapOnly = false) => {
+    // The resets below must not touch the saved progress until the new
+    // session is granted (a refused camera keeps the old corners).
+    captureLiveRef.current = false;
     setError(null);
+    setConfirmRestart(false);
+    setOverlayMissing(false);
     setCorners([]);
     setOpenings([]);
     setPendingPoint(null);
@@ -285,6 +378,9 @@ export default function ScanRoom() {
     setAimTarget('searching');
     setHiddenHint(null);
     lastHitRef.current = null;
+    aimRef.current = null;
+    hiddenAimRef.current = null;
+    setHiddenAimSet(false);
     hasSurfaceRef.current = false;
     setHasSurface(false);
     setPhaseBoth('corners');
@@ -302,6 +398,18 @@ export default function ScanRoom() {
         domOverlay: overlayRef.current ? { root: overlayRef.current } : undefined,
       } as XRSessionInit);
       sessionRef.current = session;
+      // dom-overlay is optional, and without it the in-AR controls (Walls
+      // done, Finish) never appear and nothing says why. Stop before anything
+      // is marked, explain, and offer a taps-only scan instead.
+      if (!session.domOverlayState && !tapOnly) {
+        await endSession();
+        setOverlayMissing(true);
+        return;
+      }
+      // Older corners cannot join this session (new floor origin), so the
+      // saved progress is replaced only now that the new scan has started.
+      clearProgress();
+      captureLiveRef.current = true;
       setScanning(true);
 
       // Ghost overlay: a real three.js scene renders everything captured so
@@ -399,6 +507,14 @@ export default function ScanRoom() {
           panel(lockedWallLineRef.current.a, lockedWallLineRef.current.b, EMERALD, 0.42, 1.2);
         }
         for (const t of wallTapsRef.current) post(t, AMBER, 0.9);
+        // First of two hidden-corner aims: its vertical plane, which the
+        // second aim must cross at the corner edge.
+        const firstAim = hiddenAimRef.current;
+        if (firstAim) {
+          const len = Math.hypot(firstAim.direction.x, firstAim.direction.z) || 1;
+          const { x, z } = firstAim.origin;
+          panel({ x, z }, { x: x + (firstAim.direction.x / len) * 6, z: z + (firstAim.direction.z / len) * 6 }, AMBER, 0.12, 2.4);
+        }
         if (pendingPointRef.current) post(pendingPointRef.current, AMBER, 0.6);
         for (const o of openingsRef.current) {
           const h = o.type === 'window' ? 1.2 : o.type === 'door' ? 2.04 : 2.1;
@@ -427,18 +543,47 @@ export default function ScanRoom() {
         setLockedWallCount(0);
         wallTapsRef.current = [];
         setWallTaps([]);
+        hiddenAimRef.current = null;
+        setHiddenAimSet(false);
         setHiddenHint(message);
+      };
+
+      // A refused mark says why (in the overlay) and buzzes differently, which
+      // is the only feedback in a taps-only scan without the overlay.
+      const refuse = (message: string) => {
+        if (phaseRef.current === 'corners') {
+          setHiddenHint(message);
+          setTimeout(() => setHiddenHint((current) => (current === message ? null : current)), 3000);
+        } else {
+          setScanHint(message);
+        }
+        if (navigator.vibrate) navigator.vibrate([60, 80, 60]);
       };
 
       // Both a screen tap and the large overlay capture button call this same
       // action. The button makes acquisition explicit; tap-anywhere remains as
       // a convenient shortcut for customers already familiar with AR capture.
       const captureCurrentPoint = () => {
+        const aim = aimRef.current;
         const hit = lastHitRef.current;
-        if (!hit) return;
         const p = phaseRef.current;
+        if (!aim) { refuse(TRACKING_LOST); return; }
         if (p === 'corners') {
-          if (hiddenModeRef.current) {
+          if (hiddenModeRef.current && hiddenCaptureModeRef.current === 'aims') {
+            // Needs only tracking: no wall plane, no hit on the corner itself.
+            const first = hiddenAimRef.current;
+            if (!first) {
+              if (aimSeparationDeg(aim, aim) === null) { refuse('Aim across the room at the corner edge, not at the floor.'); return; }
+              hiddenAimRef.current = aim;
+              setHiddenAimSet(true);
+              setHiddenHint('First aim saved ✓ Step at least 1 m sideways, aim at the same corner edge, then tap again.');
+            } else {
+              const corner = hiddenCornerFromAims(first, aim);
+              if (!corner) { refuse('Those two aims do not cross cleanly. Step further sideways and aim at the same corner edge.'); return; }
+              completeHiddenCorner({ x: corner.x, z: corner.z }, `Hidden corner calculated from two aims ${Math.round(corner.angleDeg)}° apart ✓`);
+            }
+          } else if (hiddenModeRef.current) {
+            if (!hit) return;
             if (hiddenCaptureModeRef.current === 'smart') {
               const aimedAt = { x: hit.x, z: hit.z };
               const planeSnap = snapToPlanes(aimedAt, planeState.lines, HIDDEN_SNAP_TOL_M);
@@ -469,7 +614,10 @@ export default function ScanRoom() {
               }
             } else {
               // Compatibility fallback for devices that expose hit testing but
-              // not vertical plane detection: two points on each wall.
+              // not vertical plane detection: two points on each wall. A hit
+              // on a benchtop top or the floor is not a wall point.
+              const issue = wallTapIssue(hit);
+              if (issue) { refuse(issue); return; }
               const tapSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, HIDDEN_SNAP_TOL_M);
               wallTapsRef.current = [...wallTapsRef.current, tapSnap.point];
               setWallTaps(wallTapsRef.current);
@@ -488,22 +636,35 @@ export default function ScanRoom() {
           } else {
             // The ray returns the NEAREST hit of any orientation, so aiming at
             // a floor corner across a kitchen often lands on a benchtop front,
-            // an island or a bin — several hundred mm out. y is already known
-            // to be floor-relative here (local-floor reference space).
-            if (Math.abs(hit.y) > FLOOR_TOLERANCE_M) {
-              setHiddenHint('That is not floor level — aim at the floor, or use "Corner blocked?" for a hidden corner.');
-              setTimeout(() => setHiddenHint(null), 3000);
+            // an island or a bin — several hundred mm out. Such a hit is never
+            // the corner; the aim ray meeting the floor plane is used instead,
+            // as it is when there is no hit at all (ARCore may only return
+            // hits inside a detected floor area).
+            const floor = floorTargetFromAim(hit, aim);
+            if (!floor) {
+              refuse(hit && hit.y > FLOOR_TOLERANCE_M
+                ? 'That is not floor level — aim lower, at the floor, or use "Corner blocked?" for a hidden corner.'
+                : 'Aim down at the floor where the two walls meet.');
               return;
             }
-            const cornerSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, CORNER_SNAP_TOL_M);
+            const cornerSnap = snapToPlanes({ x: floor.x, z: floor.z }, planeState.lines, CORNER_SNAP_TOL_M);
+            const last = cornersRef.current[cornersRef.current.length - 1];
+            if (last && Math.hypot(last.x - cornerSnap.point.x, last.z - cornerSnap.point.z) < MIN_CORNER_SEPARATION_M) {
+              refuse('That is the corner you just marked — move on to the next one.');
+              return;
+            }
             cornersRef.current = [...cornersRef.current, cornerSnap.point];
             setCorners(cornersRef.current);
+            if (cornerSnap.kind === 'none' && floor.source === 'floor-ray') {
+              setHiddenHint(`Corner ${cornersRef.current.length} marked by aim at the floor, ${floor.rangeM.toFixed(1)} m away ✓`);
+              setTimeout(() => setHiddenHint(null), 2500);
+            }
             if (cornerSnap.kind !== 'none') {
               // Report HOW FAR the point moved. A 20 mm snap and a 450 mm snap
               // previously produced identical feedback, which is what made bad
               // corners impossible to notice until the fit failed at the end.
               const movedMm = Math.round(
-                Math.hypot(cornerSnap.point.x - hit.x, cornerSnap.point.z - hit.z) * 1000,
+                Math.hypot(cornerSnap.point.x - floor.x, cornerSnap.point.z - floor.z) * 1000,
               );
               const what = cornerSnap.kind === 'corner' ? 'wall corner' : 'wall';
               setHiddenHint(
@@ -515,18 +676,23 @@ export default function ScanRoom() {
             }
           }
         } else if (p === 'height') {
-          // local-floor: y≈0 at floor level, so the ceiling hit's y IS the height.
-          const measuredMm = Math.round(hit.y * 1000);
-          if (measuredMm < 2000 || measuredMm > 4500) {
-            setScanHint('That does not look like a ceiling. Aim overhead, or use the detected height or Skip height.');
+          // local-floor: y≈0 at floor level, so a ceiling hit's y IS the
+          // height. Without one, an aim at the top edge of a marked wall
+          // meets that wall's plane at ceiling height.
+          const ceiling = ceilingReading(hit, aim, cornersRef.current);
+          if (!ceiling) {
+            refuse('That does not look like a ceiling. Aim overhead or at the top edge of a wall, or use the detected height or Skip height.');
             return;
           }
-          heightRef.current = measuredMm;
+          heightRef.current = ceiling.heightMm;
           setHeightMm(heightRef.current);
           setScanHint(null);
           setPhaseBoth('openings');
         } else {
-          const point = { x: hit.x, z: hit.z };
+          const target = hit ?? floorPointFromRay(aim);
+          if (!target) { refuse('Aim at the side of the opening, near the floor.'); return; }
+          const point = { x: target.x, z: target.z };
+          setScanHint(null);
           if (pendingPointRef.current) {
             openingsRef.current = [
               ...openingsRef.current,
@@ -552,26 +718,25 @@ export default function ScanRoom() {
 
       renderer.setAnimationLoop((_t: number, frame?: XRFrame) => {
         if (!sessionRef.current || !frame) return;
-        const results = frame.getHitTestResults(hitTestSource);
-        if (results.length) {
-          const pose = results[0].getPose(refSpace);
-          if (pose) {
-            lastHitRef.current = {
-              x: pose.transform.position.x,
-              y: pose.transform.position.y,
-              z: pose.transform.position.z,
-            };
-            if (!hasSurfaceRef.current) {
-              hasSurfaceRef.current = true;
-              setHasSurface(true);
-            }
-          }
+        // Read the viewer pose every frame. With no pose, or an emulated one
+        // (tracking is lost and the phone is guessing where it is), nothing
+        // aimed at can be trusted, so marking pauses until tracking returns.
+        const viewerPose = frame.getViewerPose(refSpace);
+        const aim = viewerPose && !viewerPose.emulatedPosition
+          ? aimFromViewerMatrix(viewerPose.transform.matrix)
+          : null;
+        aimRef.current = aim;
+        const results = aim ? frame.getHitTestResults(hitTestSource) : [];
+        const hitPose = results.length ? results[0].getPose(refSpace) : undefined;
+        if (hitPose && !hitPose.emulatedPosition) {
+          const { x, y, z } = hitPose.transform.position;
+          lastHitRef.current = { x, y, z, normalY: hitPose.transform.matrix[5] };
         } else {
           lastHitRef.current = null;
-          if (hasSurfaceRef.current) {
-            hasSurfaceRef.current = false;
-            setHasSurface(false);
-          }
+        }
+        if (!!lastHitRef.current !== hasSurfaceRef.current) {
+          hasSurfaceRef.current = !!lastHitRef.current;
+          setHasSurface(hasSurfaceRef.current);
         }
 
         // Plane detection: harvest vertical planes into wall lines (keyed by
@@ -629,27 +794,59 @@ export default function ScanRoom() {
           }
         }
 
-        // Live preview line: from the last relevant point to the reticle.
+        // What a tap would mark now (before snapping), per phase. The same
+        // rules as captureCurrentPoint, so the overlay never promises a mark
+        // the tap then refuses.
         const hit = lastHitRef.current;
         const p = phaseRef.current;
+        const hidden = hiddenModeRef.current;
+        let target: XrCorner | null = null;
+        let nextAimTarget: AimTarget = !aim ? 'lost' : hit ? 'surface' : 'searching';
+        const next: AimReading = { ...NO_READING, tracked: !!aim };
+        if (aim && p === 'corners' && !hidden) {
+          const floor = floorTargetFromAim(hit, aim);
+          if (floor) {
+            target = floor;
+            nextAimTarget = floor.source === 'floor-hit' ? 'floor' : 'ray';
+            if (floor.source === 'floor-ray') next.rangeDm = Math.round(floor.rangeM * 10);
+          }
+          next.blocked = !!hit && hit.y > FLOOR_TOLERANCE_M;
+        } else if (aim && p === 'corners' && hiddenCaptureModeRef.current === 'aims') {
+          const angle = hiddenAimRef.current ? aimSeparationDeg(hiddenAimRef.current, aim) : null;
+          next.angleDeg = angle === null ? null : Math.round(angle);
+        } else if (hit && p === 'corners') {
+          target = hit;
+          if (Math.abs(hit.y) <= 0.2) nextAimTarget = 'floor';
+        } else if (aim && p === 'openings') {
+          target = hit ?? floorPointFromRay(aim);
+          if (!hit && target) nextAimTarget = 'ray';
+        } else if (aim && p === 'height') {
+          const ceiling = ceilingReading(hit, aim, cornersRef.current);
+          next.ceiling = ceiling && { ...ceiling, heightMm: Math.round(ceiling.heightMm / 10) * 10 };
+        }
+        const readingKey = `${next.tracked}|${next.rangeDm}|${next.blocked}|${next.angleDeg}|${next.ceiling?.heightMm}|${next.ceiling?.source}`;
+        if (readingKey !== readingKeyRef.current) {
+          readingKeyRef.current = readingKey;
+          setReading(next);
+        }
+
+        // Live preview line: from the last relevant point to the reticle.
         let from: { x: number; z: number } | null = null;
         let lineY = 0.02;
-        if (hit) {
-          if (p === 'corners') {
-            if (hiddenModeRef.current) {
-              from = wallTapsRef.current[wallTapsRef.current.length - 1] ?? null;
-              lineY = 0.9;
-            } else {
-              from = cornersRef.current[cornersRef.current.length - 1] ?? null;
-            }
-          } else if (p === 'openings') {
-            from = pendingPointRef.current;
+        if (target && p === 'corners') {
+          if (hidden) {
+            from = wallTapsRef.current[wallTapsRef.current.length - 1] ?? null;
+            lineY = 0.9;
+          } else {
+            from = cornersRef.current[cornersRef.current.length - 1] ?? null;
           }
+        } else if (target && p === 'openings') {
+          from = pendingPointRef.current;
         }
-        if (from && hit) {
+        if (from && target) {
           const pos = previewGeom.attributes.position as THREE.BufferAttribute;
           pos.setXYZ(0, from.x, lineY, from.z);
-          pos.setXYZ(1, hit.x, lineY, hit.z);
+          pos.setXYZ(1, target.x, lineY, target.z);
           pos.needsUpdate = true;
           preview.visible = true;
         } else {
@@ -657,29 +854,20 @@ export default function ScanRoom() {
         }
 
         let currentSnap: PlaneSnap | null = null;
-        let nextAimTarget: AimTarget = hit ? 'surface' : 'searching';
-        if (hit && p === 'corners') {
-          currentSnap = snapToPlanes({ x: hit.x, z: hit.z }, planeState.lines, hiddenModeRef.current ? HIDDEN_SNAP_TOL_M : CORNER_SNAP_TOL_M);
-          currentPlaneSnapRef.current = currentSnap;
-          nextAimTarget = currentSnap.kind === 'corner'
-            ? 'corner'
-            : currentSnap.kind === 'wall'
-              ? 'wall'
-              : Math.abs(hit.y) <= 0.2
-                ? 'floor'
-                : 'surface';
-        } else {
-          currentPlaneSnapRef.current = null;
+        if (target && p === 'corners') {
+          currentSnap = snapToPlanes({ x: target.x, z: target.z }, planeState.lines, hidden ? HIDDEN_SNAP_TOL_M : CORNER_SNAP_TOL_M);
+          if (currentSnap.kind !== 'none') nextAimTarget = currentSnap.kind;
         }
+        currentPlaneSnapRef.current = currentSnap;
         if (nextAimTarget !== aimTargetRef.current) {
           aimTargetRef.current = nextAimTarget;
           setAimTarget(nextAimTarget);
         }
 
-        if (hit && (p === 'corners' || p === 'openings')) {
+        if (target && (p === 'corners' || p === 'openings')) {
           // Snap the pillar onto detected wall geometry so it locks on target
           // instead of hovering nearby — the tap uses the same snapped point.
-          const snap = currentSnap ?? { point: { x: hit.x, z: hit.z }, kind: 'none' as const };
+          const snap = currentSnap ?? { point: { x: target.x, z: target.z }, kind: 'none' as const };
           previewPost.position.set(snap.point.x, 0.6, snap.point.z);
           const mat = previewPost.material as THREE.MeshBasicMaterial;
           mat.color.setHex(p === 'openings'
@@ -703,7 +891,7 @@ export default function ScanRoom() {
       await endSession();
       setError(quickScanErrorMessage(err));
     }
-  }, [endSession]);
+  }, [clearProgress, endSession]);
 
   useEffect(() => () => { void endSession(); }, [endSession]);
 
@@ -810,20 +998,42 @@ export default function ScanRoom() {
   };
 
 
+  // One reset for every hidden-corner method change, so a half-done wall
+  // lock, wall-point set or first aim never carries over to another method.
+  const setHiddenMethod = (active: boolean, mode: HiddenCaptureMode) => {
+    hiddenModeRef.current = active;
+    setHiddenMode(active);
+    hiddenCaptureModeRef.current = mode;
+    setHiddenCaptureMode(mode);
+    lockedWallLineRef.current = null;
+    setLockedWallCount(0);
+    wallTapsRef.current = [];
+    setWallTaps([]);
+    hiddenAimRef.current = null;
+    setHiddenAimSet(false);
+    setHiddenHint(null);
+    rebuildGhostRef.current();
+  };
+
+  const savedCorners = savedProgress?.corners.length ?? 0;
+
   // ── Overlay copy per phase ────────────────────────────────────────────────
   const topCaption =
     phase === 'corners'
       ? (hiddenMode
-          ? (hiddenCaptureMode === 'smart'
-              ? hiddenHint
-                ?? (detectedWallCount === 0
-                  ? 'Move slowly across both walls so the camera can recognise their planes.'
+          ? hiddenHint ?? (hiddenCaptureMode === 'smart'
+              ? (detectedWallCount === 0
+                  ? 'Move slowly across both walls so the camera can recognise their planes — or use Two aims.'
                   : lockedWallCount === 0
                     ? 'Point anywhere at the first wall above the cabinets, then lock it.'
                     : 'First wall locked. Point at the adjoining wall to calculate the hidden corner.')
-              : (wallTaps.length < 2
-                  ? `Fallback: mark 2 spaced points on the first wall (${wallTaps.length}/2)`
-                  : `Now mark 2 spaced points on the adjoining wall (${wallTaps.length - 2}/2)`))
+              : hiddenCaptureMode === 'aims'
+                ? (hiddenAimSet
+                    ? 'Step at least 1 m sideways, aim at the same corner edge again, then tap.'
+                    : 'Aim the ring at the vertical edge where the two walls meet, then tap.')
+                : (wallTaps.length < 2
+                    ? `Fallback: mark 2 spaced points on the first wall, above the benchtop (${wallTaps.length}/2)`
+                    : `Now mark 2 spaced points on the adjoining wall (${wallTaps.length - 2}/2)`))
           : hiddenHint
             ?? (corners.length === 0
               ? 'Floor level is locked. Aim at the first room corner and capture it.'
@@ -831,49 +1041,78 @@ export default function ScanRoom() {
       : phase === 'height'
         ? (detectedHeightMm
             ? `Ceiling detected at about ${(detectedHeightMm / 1000).toFixed(2)} m — use it or tap to remeasure`
-            : 'Aim at the CEILING and tap to measure height — or skip')
+            : 'Aim at the CEILING, or the top edge of a wall, and tap to measure height — or skip')
         : pendingPoint
           ? `Now tap the OTHER side of the ${OPENING_LABELS[openingType].toLowerCase()}`
           : `${openings.length} marked · Choose a type, then tap ONE side of it at floor level`;
 
   const reticleCaption =
-    phase === 'height'
-      ? (detectedHeightMm
-          ? `Detected ${(detectedHeightMm / 1000).toFixed(2)} m`
-          : hasSurface ? 'Surface found — tap to measure' : 'Aim at the ceiling')
-      : phase === 'corners' && hiddenMode && hiddenCaptureMode === 'smart'
-        ? (aimTarget === 'corner'
-            ? 'Two walls found — corner ready'
-            : aimTarget === 'wall'
-              ? (lockedWallCount ? 'Adjoining wall ready' : 'Wall ready to lock')
-              : detectedWallCount === 0
-                ? 'Scan slowly across the wall'
-                : 'Aim at a blue wall plane')
-        : hasSurface
-          ? (phase === 'corners'
-              ? aimTarget === 'corner'
-                ? 'Corner recognised — capture'
-                : aimTarget === 'wall'
-                  ? 'Wall found — aim toward its end'
-                  : 'Floor locked — aim at the corner'
-              : 'Tap to mark this point')
-          : 'Move slowly to find a surface';
+    !reading.tracked
+      ? 'Finding the floor — move the phone slowly'
+      : phase === 'height'
+        ? (reading.ceiling
+            ? `Ceiling ${(reading.ceiling.heightMm / 1000).toFixed(2)} m${reading.ceiling.source === 'wall-edge' ? ' at the wall top' : ''} — tap to use`
+            : detectedHeightMm
+              ? `Detected ${(detectedHeightMm / 1000).toFixed(2)} m`
+              : 'Aim at the ceiling or the top of a wall')
+        : phase === 'corners' && hiddenMode && hiddenCaptureMode === 'smart'
+          ? (aimTarget === 'corner'
+              ? 'Two walls found — corner ready'
+              : aimTarget === 'wall'
+                ? (lockedWallCount ? 'Adjoining wall ready' : 'Wall ready to lock')
+                : detectedWallCount === 0
+                  ? 'Scan slowly across the wall'
+                  : 'Aim at a blue wall plane')
+          : phase === 'corners' && hiddenMode && hiddenCaptureMode === 'aims'
+            ? (!hiddenAimSet
+                ? 'Aim at the corner edge'
+                : reading.angleDeg === null
+                  ? 'Aim at the same corner edge'
+                  : `${reading.angleDeg}° apart — ${reading.angleDeg < MIN_HIDDEN_AIM_ANGLE_DEG ? 'step further sideways' : 'tap to calculate'}`)
+            : phase === 'corners' && !hiddenMode
+              ? (aimTarget === 'corner'
+                  ? 'Corner recognised — capture'
+                  : aimTarget === 'wall'
+                    ? 'Wall found — aim toward its end'
+                    : aimTarget === 'floor'
+                      ? 'Floor locked — aim at the corner'
+                      : aimTarget === 'ray' && reading.rangeDm !== null
+                        ? `Aiming at the floor · ${(reading.rangeDm / 10).toFixed(1)} m${reading.blocked ? ' · bench in front? Use "Corner blocked?"' : reading.rangeDm > 40 ? ' · move closer' : ''}`
+                        : reading.blocked
+                          ? 'Aim lower, at the floor where the walls meet'
+                          : 'Aim down at the floor where the walls meet')
+              : hasSurface || aimTarget === 'ray'
+                ? 'Tap to mark this point'
+                : 'Move slowly to find a surface';
 
-  const cornerCaptureLabel = hiddenMode
-    ? hiddenCaptureMode === 'smart'
-      ? aimTarget === 'corner'
-        ? 'Use recognised corner'
-        : lockedWallCount
-          ? 'Lock adjoining wall'
-          : 'Lock first wall'
-      : `Mark wall point ${Math.min(wallTaps.length + 1, 4)} of 4`
-    : `Place corner ${corners.length + 1}`;
+  const cornerCaptureLabel = !reading.tracked
+    ? 'Waiting for tracking…'
+    : hiddenMode
+      ? hiddenCaptureMode === 'smart'
+        ? aimTarget === 'corner'
+          ? 'Use recognised corner'
+          : lockedWallCount
+            ? 'Lock adjoining wall'
+            : 'Lock first wall'
+        : hiddenCaptureMode === 'aims'
+          ? (hiddenAimSet ? 'Second aim — calculate corner' : 'First aim at the corner edge')
+          : `Mark wall point ${Math.min(wallTaps.length + 1, 4)} of 4`
+      : `Place corner ${corners.length + 1}`;
 
-  const cornerCaptureDisabled = !hasSurface || (
-    hiddenMode
-    && hiddenCaptureMode === 'smart'
-    && aimTarget !== 'wall'
-    && aimTarget !== 'corner'
+  // Mark is disabled while tracking is lost, and otherwise whenever the tap
+  // would be refused: the same rules as captureCurrentPoint.
+  const cornerCaptureDisabled = !reading.tracked || (
+    !hiddenMode
+      ? !(aimTarget === 'floor' || aimTarget === 'ray' || aimTarget === 'wall' || aimTarget === 'corner')
+      : hiddenCaptureMode === 'smart'
+        ? aimTarget !== 'wall' && aimTarget !== 'corner'
+        : hiddenCaptureMode === 'manual'
+          ? !hasSurface
+          : hiddenAimSet && (reading.angleDeg ?? 0) < MIN_HIDDEN_AIM_ANGLE_DEG
+  );
+
+  const ringLive = reading.tracked && (
+    hasSurface || aimTarget === 'ray' || !!reading.ceiling || (hiddenMode && hiddenCaptureMode === 'aims')
   );
 
   return (
@@ -918,20 +1157,76 @@ export default function ScanRoom() {
             corners, ceiling height, doors and windows. Nothing to install.
           </p>
           {support === 'checking' && <p className="text-sm text-slate-400">Checking your device…</p>}
+          {savedProgress && !scanning && (
+            <div role="status" className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-3 space-y-2">
+              <p className="text-sm font-medium text-emerald-900">
+                {savedCorners} corner{savedCorners === 1 ? '' : 's'} marked before the camera closed
+                {savedProgress.heightMm ? ` · ceiling ${(savedProgress.heightMm / 1000).toFixed(2)} m` : ''}
+                {savedProgress.openings.length ? ` · ${savedProgress.openings.length} opening${savedProgress.openings.length === 1 ? '' : 's'}` : ''}
+              </p>
+              <p className="text-xs text-emerald-800">
+                {savedCorners >= 4
+                  ? 'Kept in this browser tab only — nothing has been uploaded. Use them, or scan again from corner 1.'
+                  : 'A room needs at least 4 corners. Scan again from corner 1.'}
+              </p>
+              <div className="flex gap-2 pt-1">
+                {savedCorners >= 4 && (
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white" onClick={applySavedCorners}>
+                    <Check className="w-4 h-4 mr-1" /> Use these {savedCorners} corners
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => { clearProgress(); setConfirmRestart(false); }}>Discard</Button>
+              </div>
+            </div>
+          )}
           {support === 'ready' && !scanning && (
             <div className="space-y-3">
               <ol className="text-sm text-slate-600 space-y-2 rounded-md border border-slate-200 p-3">
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Move the camera slowly while the floor and wall planes lock, then capture each room corner — 4 corners, or 6 for an L-shaped room.</li>
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Existing cabinets hiding a corner? Tap "Corner blocked?", lock the two adjoining walls above the benchtop, and Smart wall lock calculates the corner for you.</li>
-                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Aim at the ceiling to measure the height — or skip it.</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Move the camera slowly while the floor locks, then aim at each room corner on the floor and capture it — 4 corners, or 6 for an L-shaped room.</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Existing cabinets hiding a corner? Tap "Corner blocked?" and aim at the corner edge from two spots a metre apart — or let Smart wall lock use the walls your phone recognises.</li>
+                <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Aim at the ceiling, or the top edge of a wall, to measure the height — or skip it.</li>
                 <li className="flex gap-2"><CircleDot className="w-4 h-4 mt-0.5 text-slate-400 flex-shrink-0" /> Mark each door and window by tapping both sides — or add them later on the plan.</li>
               </ol>
-              <Button onClick={startScan} className="w-full h-11 bg-slate-900 text-white hover:bg-slate-700">
-                <Camera className="w-4 h-4 mr-2" /> Start quick scan
-              </Button>
-              {error && <p role="alert" className="text-sm text-red-600 text-center">{error}</p>}
+              {overlayMissing && (
+                <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 space-y-2 text-sm text-amber-900">
+                  <p>
+                    This browser opened the camera but would not show the scan buttons over it, so the scan
+                    stopped before anything was marked.
+                  </p>
+                  <p>
+                    You can still scan with taps: tap the screen once at each floor corner, in order around the
+                    room, then press your phone's Back button and use the corners here. Ceiling height, doors and
+                    windows can be added on the next screen.
+                  </p>
+                  <Button size="sm" className="bg-slate-900 text-white hover:bg-slate-700" onClick={() => void startScan(true)}>
+                    Scan with taps only
+                  </Button>
+                </div>
+              )}
+              {confirmRestart ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 space-y-2 text-sm text-amber-900">
+                  <p>
+                    Start again from corner 1? This clears the {savedCorners} corner{savedCorners === 1 ? '' : 's'} you
+                    marked: a new scan measures from a new starting point, so they cannot be added to it.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="bg-slate-900 text-white hover:bg-slate-700" onClick={() => void startScan()}>
+                      Clear and scan again
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmRestart(false)}>Keep them</Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => (savedProgress ? setConfirmRestart(true) : void startScan())}
+                  className="w-full h-11 bg-slate-900 text-white hover:bg-slate-700"
+                >
+                  <Camera className="w-4 h-4 mr-2" /> {savedProgress ? 'Scan again from corner 1' : 'Start quick scan'}
+                </Button>
+              )}
             </div>
           )}
+          {error && !scanning && <p role="alert" className="text-sm text-red-600 text-center">{error}</p>}
           {support !== 'checking' && support !== 'ready' && (
             <p role="status" className="text-sm text-slate-500 rounded-md bg-slate-50 border border-slate-200 p-3">
               {supportCopy[support as Exclude<Support, 'ready' | 'checking'>]}{' '}
@@ -1097,11 +1392,11 @@ export default function ScanRoom() {
               <div className="mt-2.5 flex flex-wrap gap-2 text-[11px]">
                 <span className={cn(
                   'rounded-full border px-2.5 py-1',
-                  floorLocked
+                  floorLocked && reading.tracked
                     ? 'border-emerald-300/40 bg-emerald-400/15 text-emerald-100'
-                    : 'border-white/20 bg-white/5 text-slate-300',
+                    : 'border-amber-300/40 bg-amber-400/15 text-amber-100',
                 )}>
-                  {floorLocked ? '✓ Floor locked' : 'Finding floor…'}
+                  {floorLocked && reading.tracked ? '✓ Floor locked' : 'Finding floor… move slowly'}
                 </span>
                 <span className={cn(
                   'rounded-full border px-2.5 py-1',
@@ -1133,17 +1428,17 @@ export default function ScanRoom() {
               ? 'scale-110 border-emerald-300 bg-emerald-400/20 shadow-[0_0_0_8px_rgba(52,211,153,0.12)]'
               : aimTarget === 'wall'
                 ? 'border-sky-300 bg-sky-400/20 shadow-[0_0_0_6px_rgba(56,189,248,0.10)]'
-                : hasSurface
+                : ringLive
                   ? 'border-emerald-400 bg-emerald-400/15'
                   : 'border-white/70 bg-black/10',
           )}>
             <span className={cn(
               'absolute left-1/2 top-2 bottom-2 w-0.5 -translate-x-1/2',
-              aimTarget === 'wall' ? 'bg-sky-200' : hasSurface ? 'bg-emerald-300' : 'bg-white/70',
+              aimTarget === 'wall' ? 'bg-sky-200' : ringLive ? 'bg-emerald-300' : 'bg-white/70',
             )} />
             <span className={cn(
               'absolute top-1/2 left-2 right-2 h-0.5 -translate-y-1/2',
-              aimTarget === 'wall' ? 'bg-sky-200' : hasSurface ? 'bg-emerald-300' : 'bg-white/70',
+              aimTarget === 'wall' ? 'bg-sky-200' : ringLive ? 'bg-emerald-300' : 'bg-white/70',
             )} />
           </div>
           <span className="rounded-full bg-black/70 px-3 py-1.5 text-xs text-white">
@@ -1178,7 +1473,9 @@ export default function ScanRoom() {
                     <div>
                       <p className="text-xs font-semibold text-white">Hidden corner</p>
                       <p className="text-[11px] text-slate-300">
-                        {hiddenCaptureMode === 'smart' ? 'Smart wall lock' : 'Four-point fallback'}
+                        {hiddenCaptureMode === 'smart'
+                          ? 'Smart wall lock'
+                          : hiddenCaptureMode === 'aims' ? 'Two aims at the corner edge' : 'Four-point fallback'}
                       </p>
                     </div>
                     {hiddenCaptureMode === 'smart' && (
@@ -1212,25 +1509,24 @@ export default function ScanRoom() {
               </Button>
 
               {hiddenMode && (
-                <button
-                  type="button"
-                  className="mt-2 w-full rounded-lg py-1.5 text-xs text-slate-300 underline underline-offset-2 hover:text-white"
-                  onClick={() => {
-                    const next: HiddenCaptureMode = hiddenCaptureModeRef.current === 'smart' ? 'manual' : 'smart';
-                    hiddenCaptureModeRef.current = next;
-                    setHiddenCaptureMode(next);
-                    lockedWallLineRef.current = null;
-                    setLockedWallCount(0);
-                    wallTapsRef.current = [];
-                    setWallTaps([]);
-                    setHiddenHint(null);
-                    rebuildGhostRef.current();
-                  }}
-                >
-                  {hiddenCaptureMode === 'smart'
-                    ? 'Phone not finding walls? Use 4-point fallback'
-                    : 'Try Smart wall lock instead'}
-                </button>
+                // Two aims needs only tracking, so it is the default when no
+                // wall plane has been detected; the other two need hits.
+                <div role="group" aria-label="Hidden corner method" className="mt-2 grid grid-cols-3 gap-1">
+                  {HIDDEN_MODES.map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={hiddenCaptureMode === mode}
+                      className={cn(
+                        'rounded-lg py-1.5 text-[11px]',
+                        hiddenCaptureMode === mode ? 'bg-white font-semibold text-slate-950' : 'bg-white/10 text-slate-300',
+                      )}
+                      onClick={() => setHiddenMethod(true, mode)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               )}
 
               <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
@@ -1239,7 +1535,10 @@ export default function ScanRoom() {
                   size="sm"
                   className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
                   onClick={() => {
-                    if (lockedWallLineRef.current) {
+                    if (hiddenAimRef.current) {
+                      hiddenAimRef.current = null;
+                      setHiddenAimSet(false);
+                    } else if (lockedWallLineRef.current) {
                       lockedWallLineRef.current = null;
                       setLockedWallCount(0);
                     } else if (wallTapsRef.current.length > 0) {
@@ -1255,7 +1554,7 @@ export default function ScanRoom() {
                     setHiddenHint(null);
                     rebuildGhostRef.current();
                   }}
-                  disabled={corners.length === 0 && !hiddenMode && wallTaps.length === 0 && lockedWallCount === 0}
+                  disabled={corners.length === 0 && !hiddenMode && wallTaps.length === 0 && lockedWallCount === 0 && !hiddenAimSet}
                 >
                   <Redo2 className="mr-1 h-4 w-4" /> Undo
                 </Button>
@@ -1266,19 +1565,7 @@ export default function ScanRoom() {
                     'border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white',
                     hiddenMode && 'border-amber-300/60 bg-amber-400/20',
                   )}
-                  onClick={() => {
-                    const next = !hiddenModeRef.current;
-                    hiddenModeRef.current = next;
-                    setHiddenMode(next);
-                    hiddenCaptureModeRef.current = 'smart';
-                    setHiddenCaptureMode('smart');
-                    lockedWallLineRef.current = null;
-                    setLockedWallCount(0);
-                    wallTapsRef.current = [];
-                    setWallTaps([]);
-                    setHiddenHint(null);
-                    rebuildGhostRef.current();
-                  }}
+                  onClick={() => setHiddenMethod(!hiddenModeRef.current, detectedWallCountRef.current > 0 ? 'smart' : 'aims')}
                 >
                   {hiddenMode ? 'Cancel hidden' : 'Corner blocked?'}
                 </Button>

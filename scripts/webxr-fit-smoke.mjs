@@ -4,7 +4,11 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const F = await import(pathToFileURL(resolve('.tmp-snap-test/webxrFit.mjs')).href);
-const { buildScanFromCorners, intersectDetectedWallLines, snapToPlanes } = F;
+const {
+  buildScanFromCorners, buildScanFromCapture, intersectDetectedWallLines, snapToPlanes,
+  aimFromViewerMatrix, floorPointFromRay, floorTargetFromAim, hiddenCornerFromAims, aimSeparationDeg,
+  wallPlaneHeightFromRay, ceilingReading, wallTapIssue,
+} = F;
 
 let pass = 0;
 let fail = 0;
@@ -114,6 +118,178 @@ const apply = (m, p) => ({ x: m[0] * p.x + m[1] * p.z + m[2], z: m[3] * p.x + m[
     'far-away plane intersections are rejected',
     intersectDetectedWallLines(north, west, { x: 4, z: 4 }, 0.5) === null,
   );
+}
+
+// ── Aim-ray geometry, ported from the owner's scanner (tests/corner-scan.test.mjs)
+const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
+const v3 = (x, y, z) => ({ x, y, z });
+const ROOM = [{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 3 }, { x: 0, z: 3 }];
+
+// 6. The aim ray meets the floor plane only when it points down and lands in range.
+{
+  const origin = v3(1, 1.4, 2);
+  const down = floorPointFromRay({ origin, direction: v3(0, -1.4, -2) });
+  check('floor ray: lands on the floor', down && near(down.x, 1) && near(down.z, 0) && near(down.rangeM, Math.hypot(1.4, 2)), JSON.stringify(down));
+  check('floor ray: level aim refused', floorPointFromRay({ origin, direction: v3(0, 0, -1) }) === null);
+  check('floor ray: upward aim refused', floorPointFromRay({ origin, direction: v3(0, 0.3, -1) }) === null);
+  check('floor ray: under 5 degrees down refused', floorPointFromRay({ origin, direction: v3(0, -0.05, -1) }) === null);
+  check('floor ray: 6 degrees down from 1.4 m is beyond 12 m', floorPointFromRay({ origin, direction: v3(0, -Math.tan(6 * Math.PI / 180), -1) }) === null);
+  check('floor ray: zero direction refused', floorPointFromRay({ origin, direction: v3(0, 0, 0) }) === null);
+  const raised = floorPointFromRay({ origin: v3(0, 2, 0), direction: v3(1, -1, 0) }, 0.5);
+  check('floor ray: raised floor plane', raised && near(raised.x, 1.5) && near(raised.z, 0), JSON.stringify(raised));
+
+  // The planner's corner rule: a floor-level hit wins; a benchtop hit or no
+  // hit falls back to the floor ray; no aim (tracking lost) marks nothing.
+  const aim = { origin, direction: v3(0, -1.4, -2) };
+  const onFloor = floorTargetFromAim(v3(1.02, 0.01, 0.03), aim);
+  check('corner target: floor-level hit is used', onFloor && onFloor.source === 'floor-hit' && near(onFloor.x, 1.02), JSON.stringify(onFloor));
+  const bench = floorTargetFromAim(v3(1, 0.9, 0.7), aim);
+  check('corner target: benchtop hit falls back to the floor ray', bench && bench.source === 'floor-ray' && near(bench.z, 0), JSON.stringify(bench));
+  const noHit = floorTargetFromAim(null, aim);
+  check('corner target: no hit uses the floor ray', noHit && noHit.source === 'floor-ray', JSON.stringify(noHit));
+  check('corner target: tracking lost marks nothing', floorTargetFromAim(v3(1, 0, 0), null) === null);
+  check('corner target: level aim with a bench hit marks nothing', floorTargetFromAim(v3(1, 0.9, 0.7), { origin, direction: v3(0, 0, -1) }) === null);
+
+  // A viewer pose's aim is its -Z axis: the centre of the view, where the
+  // reticle sits and where the viewer-space hit test points.
+  const m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 1.4, -0.2, 1];
+  const a = aimFromViewerMatrix(m);
+  check('viewer aim: origin and -Z direction', near(a.origin.y, 1.4) && near(a.origin.x, 0.5) && near(a.direction.z, -1) && near(a.direction.y, 0), JSON.stringify(a));
+}
+
+// 7. Two aims at a hidden corner edge intersect; parallel, behind-camera and
+// straight-down aims are refused.
+{
+  const corner = { x: 4, z: 3 };
+  const from = (x, z) => ({ origin: v3(x, 1.4, z), direction: v3(corner.x - x, -0.2, corner.z - z) });
+  const hit = hiddenCornerFromAims(from(1, 1), from(2.5, 0.5));
+  check('two aims: corner found', hit && near(hit.x, 4, 1e-9) && near(hit.z, 3, 1e-9) && hit.angleDeg >= 15, JSON.stringify(hit));
+  check('two aims: barely moved refused', hiddenCornerFromAims(from(1, 1), from(1.05, 1.02)) === null);
+  check('two aims: lines meeting behind the second camera refused',
+    hiddenCornerFromAims(from(1, 1), { origin: v3(2, 1.4, 1), direction: v3(1, 0, 0) }) === null);
+  check('two aims: straight-down aim refused',
+    hiddenCornerFromAims({ origin: v3(1, 1.4, 1), direction: v3(0, -1, 0) }, from(2.5, 0.5)) === null);
+  const live = aimSeparationDeg(from(1, 1), from(2.5, 0.5));
+  check('two aims: live separation matches the result', live !== null && near(live, hit.angleDeg, 1e-9));
+}
+
+// 8. Ceiling height from the aim at the wall-ceiling line of a marked wall.
+{
+  const aim = { origin: v3(2, 1.4, 2), direction: v3(0, 2.7 - 1.4, -2) }; // toward wall z=0 at a 2.7 m ceiling
+  const result = wallPlaneHeightFromRay(aim, ROOM);
+  check('wall-edge ceiling: 2700 from wall 0', result && result.heightMm === 2700 && result.wallIndex === 0 && near(result.rangeM, Math.hypot(1.3, 2)), JSON.stringify(result));
+  check('wall-edge ceiling: straight up refused', wallPlaneHeightFromRay({ origin: v3(2, 1.4, 2), direction: v3(0, 1, 0) }, ROOM) === null);
+  check('wall-edge ceiling: meets the wall below ceiling range', wallPlaneHeightFromRay({ origin: v3(2, 1.4, 2), direction: v3(0, 0.1, -2) }, ROOM) === null);
+  check('wall-edge ceiling: needs two corners', wallPlaneHeightFromRay(aim, ROOM.slice(0, 1)) === null);
+  check('wall-edge ceiling: too high refused', wallPlaneHeightFromRay({ origin: v3(2, 1.4, 2), direction: v3(0, 4, -2) }, ROOM) === null);
+  const byHit = ceilingReading(v3(2, 2.55, 2), aim, ROOM);
+  check('ceiling reading: a ceiling hit wins', byHit && byHit.heightMm === 2550 && byHit.source === 'ceiling-hit', JSON.stringify(byHit));
+  const byWall = ceilingReading(v3(2, 1.6, 0), aim, ROOM);
+  check('ceiling reading: a wall hit falls back to the wall top edge', byWall && byWall.heightMm === 2700 && byWall.source === 'wall-edge', JSON.stringify(byWall));
+  check('ceiling reading: nothing without an aim or a ceiling hit', ceilingReading(v3(2, 1.6, 0), null, ROOM) === null);
+}
+
+// 9. Four-point fallback: a benchtop top, the floor or the ceiling is not a wall point.
+{
+  check('wall tap: wall above the benchtop accepted', wallTapIssue({ y: 1.3, normalY: 0.02 }) === null);
+  check('wall tap: benchtop top refused by its normal', wallTapIssue({ y: 1.05, normalY: 0.99 }) !== null);
+  check('wall tap: benchtop height refused', wallTapIssue({ y: 0.9 }) !== null);
+  check('wall tap: floor refused', wallTapIssue({ y: 0.0, normalY: 1 }) !== null);
+  check('wall tap: ceiling refused', wallTapIssue({ y: 2.6 }) !== null);
+}
+
+// 10. The first marked wall is canonical N whichever way round the room is
+// walked. Walking the other way used to put it at S: a door on it came out
+// as S, offset 2100, instead of N, offset 1000.
+{
+  const yaw = (23 * Math.PI) / 180;
+  const T = (x, z) => ({ x: x * Math.cos(yaw) - z * Math.sin(yaw) + 1.7, z: x * Math.sin(yaw) + z * Math.cos(yaw) - 0.6 });
+  const [A, B, C, D] = [T(0, 0), T(4, 0), T(4, 3), T(0, 3)];
+  const doorAB = { a: T(1.0, 0.01), b: T(1.9, 0.01), type: 'door' };
+  const doorAD = { a: T(0.01, 1.0), b: T(0.01, 1.9), type: 'door' };
+  const at = '2026-10-09T00:00:00.000Z';
+  const same = (r1, r2) => r1.ok && r2.ok
+    && JSON.stringify(r1.scan.room) === JSON.stringify(r2.scan.room)
+    && r1.scan.coordinateFrame.sourceToCanonicalMatrix.every((v, i) => Math.abs(v - r2.scan.coordinateFrame.sourceToCanonicalMatrix[i]) < 1e-6);
+  const walks = [
+    ['A→B clockwise', [A, B, C, D], [B, A, D, C], doorAB, 4000, 3000, 1000],
+    ['A→D the other way', [A, D, C, B], [D, A, B, C], doorAD, 3000, 4000, 1100],
+  ];
+  for (const [name, forward, back, door, w, d, offset] of walks) {
+    const r1 = buildScanFromCapture(forward, { openings: [door] }, at);
+    const r2 = buildScanFromCapture(back, { openings: [door] }, at);
+    check(`walk ${name}: both directions ok`, r1.ok && r2.ok, `${r1.reason ?? ''} ${r2.reason ?? ''}`);
+    if (!r1.ok || !r2.ok) continue;
+    check(`walk ${name}: first wall is the width`, r1.scan.room.width === w && r1.scan.room.depth === d, JSON.stringify(r1.scan.room));
+    const o = r1.scan.room.openings[0];
+    check(`walk ${name}: door on the first wall lands on N`, o && o.wall === 'N' && Math.abs(o.offsetMm - offset) <= 25 && Math.abs(o.widthMm - 900) <= 25, JSON.stringify(o));
+    check(`walk ${name}: walking the same wall the other way gives the same scan`, same(r1, r2), JSON.stringify([r1.scan.room.openings, r2.scan.room.openings]));
+    const m = r2.scan.coordinateFrame.sourceToCanonicalMatrix;
+    check(`walk ${name}: reverse walk is a rotation, not a mirror`, Math.abs(m[0] * m[4] - m[1] * m[3] - 1e6) < 1);
+  }
+  // Every starting wall, both directions: the first wall is always N.
+  const ring = [A, B, C, D];
+  for (let start = 0; start < 4; start++) {
+    const cw = [0, 1, 2, 3].map((k) => ring[(start + k) % 4]);
+    const ccw = [0, 1, 2, 3].map((k) => ring[(start - k + 4) % 4]);
+    for (const [dir, order] of [['clockwise', cw], ['anticlockwise', ccw]]) {
+      const first = { a: { x: order[0].x * 0.7 + order[1].x * 0.3, z: order[0].z * 0.7 + order[1].z * 0.3 }, b: { x: order[0].x * 0.45 + order[1].x * 0.55, z: order[0].z * 0.45 + order[1].z * 0.55 }, type: 'door' };
+      const r = buildScanFromCapture(order, { openings: [first] }, at);
+      check(`walk from corner ${start} ${dir}: door on first wall is N`, r.ok && r.scan.room.openings[0]?.wall === 'N', r.ok ? JSON.stringify(r.scan.room.openings) : r.reason);
+    }
+  }
+  // An L walked either way round from the same first wall fits identically.
+  const L = [[0, 0], [4.2, 0], [4.2, 2.2], [2.6, 2.2], [2.6, 3.4], [0, 3.4]].map(([x, z]) => T(x, z));
+  const l1 = buildScanFromCapture(L, {}, at);
+  const l2 = buildScanFromCapture([L[1], L[0], L[5], L[4], L[3], L[2]], {}, at);
+  check('walk L-shape: LShape both ways', l1.ok && l2.ok && l1.scan.room.shape === 'LShape' && l2.scan.room.shape === 'LShape');
+  check('walk L-shape: same fit both ways', same(l1, l2), JSON.stringify([l1.scan?.room, l2.scan?.room]));
+}
+
+// 11. The rectangle fit is unbiased. A bounding box of noisy corners reads
+// the room too large (+42 mm wide, +25 mm deep at 30 mm per-axis noise);
+// the mean-line fit must hold the average error near zero. Seeded, so the
+// run is identical every time; the bounding box of the same corners is
+// measured too, to prove the simulation can see a bias when there is one.
+{
+  let seed = 20261009;
+  const rand = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
+  const RUNS = 4000;
+  for (const sigma of [0.03, 0.05]) {
+    let errW = 0, errD = 0, boxW = 0, failed = 0;
+    for (let i = 0; i < RUNS; i++) {
+      const W = 3 + rand() * 2;
+      const D = 2.4 + rand() * 1.6;
+      const th = rand() * 2 * Math.PI;
+      const ox = rand() * 4 - 2;
+      const oz = rand() * 4 - 2;
+      const local = rand() < 0.5 ? [[0, 0], [W, 0], [W, D], [0, D]] : [[W, 0], [0, 0], [0, D], [W, D]];
+      const corners = local.map(([x, z]) => ({
+        x: ox + x * Math.cos(th) - z * Math.sin(th) + gauss() * sigma,
+        z: oz + x * Math.sin(th) + z * Math.cos(th) + gauss() * sigma,
+      }));
+      const r = buildScanFromCorners(corners, '2026-10-09T00:00:00.000Z');
+      if (!r.ok) { failed += 1; continue; }
+      errW += r.scan.room.width - W * 1000;
+      errD += r.scan.room.depth - D * 1000;
+      const m = r.scan.coordinateFrame.sourceToCanonicalMatrix;
+      const us = corners.map((p) => m[0] * p.x + m[1] * p.z + m[2]);
+      boxW += Math.max(...us) - Math.min(...us) - W * 1000;
+    }
+    const n = RUNS - failed;
+    const mm = Math.round(sigma * 1000);
+    check(`unbiased fit ${mm}mm: every run fits`, failed === 0, String(failed));
+    check(`unbiased fit ${mm}mm: mean width error near 0`, Math.abs(errW / n) < 4, (errW / n).toFixed(1));
+    check(`unbiased fit ${mm}mm: mean depth error near 0`, Math.abs(errD / n) < 4, (errD / n).toFixed(1));
+    check(`unbiased fit ${mm}mm: a bounding box of the same corners is biased`, boxW / n > 25, (boxW / n).toFixed(1));
+    console.log(`  ${mm}mm corner noise, ${n} runs: mean width ${(errW / n).toFixed(1)}mm, depth ${(errD / n).toFixed(1)}mm (bounding box width ${(boxW / n).toFixed(1)}mm)`);
+  }
 }
 
 console.log(`webxr fit smoke: ${pass} passed, ${fail} failed`);

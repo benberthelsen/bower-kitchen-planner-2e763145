@@ -12,9 +12,11 @@ const entryBytes = statSync(entryPath).size;
 // The shared geometry editor, Wizard-to-trade save, exact cabinet-edit
 // validation, mobile sheets and the scanner evidence panel add a small
 // allowance to the original budget (the release build measured 4,579,840
-// bytes on 8 October 2026). Keep the guard tight: splitting the bundle would
+// bytes on 8 October 2026). The quick scan's floor-ray and two-aim corners,
+// wall-edge ceiling, tracking check and saved progress add 11 KB (4,602,892
+// bytes on 9 October 2026). Keep the guard tight: splitting the bundle would
 // break browsers that block dynamic app modules.
-const budgetBytes = 4_600_000;
+const budgetBytes = 4_612_000;
 assert.ok(
   entryBytes <= budgetBytes,
   `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is ${(budgetBytes / 1024).toFixed(1)} KiB`,
