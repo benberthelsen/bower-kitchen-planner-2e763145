@@ -26,11 +26,24 @@ The `scanner-private-bridge` Edge function is the only planner component that
 reaches the scanner Site. It reads three server-side secrets: `SCANNER_ORIGIN`
 (the Site origin), `PLANNER_ORIGIN` (the exact origin the scanner's
 `PLANNER_TRADE_URL` points at, which the scanner requires as the request
-Origin) and `SCANNER_SITES_ACCESS_TOKEN`. When the two origins are unset the
-function uses the private preview pair; a value that is not an exact https
-origin makes the bridge answer 503 rather than call an unexpected host. The
-Site must configure its planner handoff endpoint, planner URL and publishable
-API key, and must run behind its trusted owner identity gateway.
+Origin) and `SCANNER_SITES_ACCESS_TOKEN`. There are no default origins: when
+either origin is unset, or is not an exact https origin, the bridge answers
+503 rather than call an unexpected host. The Site must configure its planner
+handoff endpoint, planner URL and publishable API key, and must run behind its
+trusted owner identity gateway.
+
+While the scanner admits only its owner, its planner paths are staff-only.
+The bridge answers 403 unless the caller owns the job and
+`is_bower_staff` is true. `get-planner-handoff` returns a `source='scanner'`
+handoff only with a staff JWT; any other caller gets the same 404
+`invalid_capability` as a wrong token, and it looks the caller up for every
+request so a scanner row's 404 takes no longer than a wrong token's. Migration
+`20261009100000_scanner_handoffs_staff_only.sql` closes the other two paths:
+`link_trade_handoff_v1` links a scanner handoff only for staff, and
+`submit_planner_enquiry_v1` never attaches one to a homeowner enquiry. Both
+answer `invalid_handoff`, as for an unknown id, and leave the row untouched.
+Apply it with the function deploys. Website handoffs still open with the
+token alone, and the job editor shows the scanner entry only to admins.
 
 Release checks:
 

@@ -48,17 +48,22 @@ assert.deepEqual(scannerUpstreamFailure(302), { status: 502, code: 'scanner_unav
 assert.equal(scannerUpstreamFailure(200), null);
 
 const env = (values: Record<string, string>) => (name: string) => values[name];
-assert.deepEqual(bridgeOrigins(env({})), {
-  scanner: 'https://bower-room-scanner-test-20260912.bowerbuilding.chatgpt.site',
-  planner: 'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev',
-}, 'unset secrets keep the private preview pair');
+assert.equal(bridgeOrigins(env({})), null, 'unset secrets have no default host');
+assert.equal(bridgeOrigins(env({ SCANNER_ORIGIN: 'https://scanner.example.com' })), null,
+  'an unset PLANNER_ORIGIN has no default');
+assert.equal(bridgeOrigins(env({ PLANNER_ORIGIN: 'https://planner.bowercabinets.com' })), null,
+  'an unset SCANNER_ORIGIN has no default');
+assert.equal(bridgeOrigins(env({ SCANNER_ORIGIN: ' ', PLANNER_ORIGIN: 'https://planner.bowercabinets.com' })), null,
+  'a blank secret counts as unset');
 assert.deepEqual(bridgeOrigins(env({
   SCANNER_ORIGIN: ' https://scanner.example.com/ ', PLANNER_ORIGIN: 'https://planner.bowercabinets.com',
 })), { scanner: 'https://scanner.example.com', planner: 'https://planner.bowercabinets.com' });
 for (const bad of ['http://scanner.example.com', 'https://scanner.example.com/api',
   'https://user:pw@scanner.example.com', 'https://scanner.example.com/?x=1', 'not a url']) {
-  assert.equal(bridgeOrigins(env({ SCANNER_ORIGIN: bad })), null, `rejects ${bad}`);
-  assert.equal(bridgeOrigins(env({ PLANNER_ORIGIN: bad })), null, `rejects ${bad}`);
+  assert.equal(bridgeOrigins(env({ SCANNER_ORIGIN: bad, PLANNER_ORIGIN: 'https://planner.bowercabinets.com' })),
+    null, `rejects ${bad}`);
+  assert.equal(bridgeOrigins(env({ SCANNER_ORIGIN: 'https://scanner.example.com', PLANNER_ORIGIN: bad })),
+    null, `rejects ${bad}`);
 }
 
 const bytes = await readBoundedBytes(new Request('https://example.invalid', {
