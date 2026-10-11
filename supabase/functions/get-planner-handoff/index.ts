@@ -1,23 +1,25 @@
 /**
  * get-planner-handoff — tokenized public retrieval (master plan §6.3).
- * POST { handoffId, token } → { payload, leadName, consumedAt, expiresAt }.
+ * POST { handoffId, token } → { payload, consumedAt, expiresAt }.
  * ID/token travel in the POST body only. Invalid capability responses never
- * reveal whether the handoff exists. Retrieval NEVER consumes.
+ * reveal whether the handoff exists. Retrieval NEVER consumes, and never
+ * returns contact details.
  * A scanner handoff also needs a Bower staff JWT in Authorization while the
  * scanner admits only its owner; website handoffs need the token alone.
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
+  durableRateLimit,
   errorResponse,
   gate,
-  ipKey,
   isToken,
   isUuid,
   jsonResponse,
   logOutcome,
   newRequestId,
-  rateLimited,
+  rateKeys,
+  rateLimitResponse,
   readJsonBody,
   sha256Hex,
 } from '../_shared/roomScan/security.ts';
@@ -42,9 +44,13 @@ serve(async (req) => {
   const gated = gate(req);
   if (gated) return gated;
 
-  if (rateLimited(`get:${await ipKey(req)}`, 60)) {
-    logOutcome('get-planner-handoff', rid, 'throttled', started);
-    return errorResponse(req, 429, 'rate_limited');
+  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const limit = await durableRateLimit(service, await rateKeys(req, 'get-planner-handoff'), 60, {
+    fn: 'get-planner-handoff',
+  });
+  if (limit !== 'allowed') {
+    logOutcome('get-planner-handoff', rid, limit, started);
+    return rateLimitResponse(req, limit);
   }
 
   const body = await readJsonBody(req);
@@ -55,14 +61,13 @@ serve(async (req) => {
     return errorResponse(req, 400, 'invalid_capability');
   }
 
-  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   // The staff check runs for every well-formed request, alongside the lookup,
   // so its cost depends only on the caller's Authorization and never tells
   // whether the row exists, the token matches or the row is a scanner row.
   const [{ data: row }, isStaff] = await Promise.all([
     service
       .from('planner_handoffs')
-      .select('id, source, payload, lead_name, consumed_at, expires_at, public_token_hash')
+      .select('id, source, payload, consumed_at, expires_at, public_token_hash')
       .eq('id', handoffId)
       .maybeSingle(),
     callerIsStaff(req, service),
@@ -91,7 +96,6 @@ serve(async (req) => {
   logOutcome('get-planner-handoff', rid, 'ok', started);
   return jsonResponse(req, 200, {
     payload: row.payload,
-    leadName: row.lead_name,
     consumedAt: row.consumed_at,
     expiresAt: row.expires_at,
   });

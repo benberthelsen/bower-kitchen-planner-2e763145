@@ -41,14 +41,13 @@ export interface WebsitePlannerHandoff {
   roomCaptureDraft?: RoomCaptureDraftV1;
 }
 
+/** Handoffs carry no contact details: create-planner-handoff stores the
+ *  lead_* columns as NULL, and the browser never selects them. */
 export interface PlannerHandoffRow {
   id: string;
   created_at: string;
   source: string;
   payload: WebsitePlannerHandoff;
-  lead_name: string | null;
-  lead_email: string | null;
-  lead_phone: string | null;
   consumed_at: string | null;
   job_id: string | null;
 }
@@ -71,7 +70,7 @@ export function usePlannerHandoff(handoffId: string | null) {
     queryFn: async (): Promise<PlannerHandoffRow | null> => {
       const { data, error } = await sb
         .from('planner_handoffs')
-        .select('*')
+        .select('id, created_at, source, payload, consumed_at, job_id')
         .eq('id', handoffId!)
         .maybeSingle();
       if (error) throw error;
@@ -83,7 +82,6 @@ export function usePlannerHandoff(handoffId: string | null) {
 
 export interface TokenizedHandoff {
   payload: WebsitePlannerHandoff;
-  leadName: string | null;
   consumedAt: string | null;
   expiresAt: string | null;
 }

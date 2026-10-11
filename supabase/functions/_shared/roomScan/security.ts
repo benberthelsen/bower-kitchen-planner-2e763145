@@ -9,8 +9,9 @@
  * - Generic, stable public error codes; existence is never revealed to an
  *   invalid capability.
  * - Body-size caps before JSON parsing; POST-only data operations.
- * - Best-effort per-instance rate limiting keyed by a pseudonymous IP hash
- *   (daily salt, never a durable raw IP).
+ * - Per-instance and durable rate limiting keyed by pseudonymous IP hashes
+ *   (daily salt, never a durable raw IP), counted against the platform
+ *   address and the leftmost X-Forwarded-For entry alike.
  * - Redacted logging: function name, outcome, duration, request id only.
  */
 
@@ -100,25 +101,129 @@ export async function sha256Hex(text: string): Promise<string> {
     .join('');
 }
 
-/** Pseudonymous, day-scoped IP key — never store or log a raw IP. */
-export async function ipKey(req: Request): Promise<string> {
-  const ip = (req.headers.get('x-forwarded-for') ?? 'unknown').split(',')[0].trim();
-  const daySalt = new Date().toISOString().slice(0, 10);
-  return (await sha256Hex(`${daySalt}:${ip}`)).slice(0, 24);
+/** One rate-limit bucket per subscriber: an IPv6 caller is grouped by its /64,
+ *  and an IPv4-mapped IPv6 address counts as the IPv4 address. Anything else
+ *  is used as written (bounded). */
+export function addressBucket(raw: string): string {
+  const value = raw.trim().toLowerCase().slice(0, 64);
+  const mapped = value.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1];
+  if (!value.includes(':') || !/^[0-9a-f:]+$/.test(value)) return value;
+  const halves = value.split('::');
+  if (halves.length > 2) return value;
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - left.length - right.length : 0;
+  if (fill < 0 || (halves.length === 2 && fill === 0)) return value;
+  const groups = [...left, ...Array(fill).fill('0'), ...right];
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return value;
+  return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, '')).join(':')}::/64`;
 }
 
-// Best-effort per-instance limiter (resets on cold start; the gateway remains
-// the durable layer — alerting on throttle rates is the §6.6 fast-follow).
+/**
+ * Pseudonymous, day-scoped caller keys, platform address first. Never store
+ * or log a raw IP.
+ *
+ * The leftmost X-Forwarded-For entry is whatever the client wrote whenever
+ * the gateway appends to a client-sent header (reported for Supabase in 2025
+ * as `forged,<client>`), so it cannot be the only key. CF-Connecting-IP is set
+ * by Cloudflare, which fronts Supabase: a client cannot choose it (Cloudflare
+ * refuses a request that brings its own, and a Worker on another zone always
+ * arrives as one fixed Workers address). Supabase does not document passing
+ * it to Edge Functions, so both addresses are returned and every limiter
+ * counts the request against each of them: a forged header buys no new
+ * bucket, and a request without CF-Connecting-IP is limited as before. The
+ * rightmost X-Forwarded-For entry is not used: behind Supabase's gateway it
+ * has been an internal hop that every caller shares.
+ */
+export async function ipKeys(req: Request): Promise<string[]> {
+  const platform = req.headers.get('cf-connecting-ip')?.trim();
+  const leftmost = req.headers.get('x-forwarded-for')?.split(',')[0].trim();
+  const addresses = [platform, leftmost]
+    .filter((value): value is string => Boolean(value))
+    .map(addressBucket);
+  const daySalt = new Date().toISOString().slice(0, 10);
+  const distinct = [...new Set(addresses.length ? addresses : ['unknown'])];
+  return Promise.all(distinct.map(async (address) => (await sha256Hex(`${daySalt}:${address}`)).slice(0, 24)));
+}
+
+/** The first of ipKeys: the platform address when there is one. */
+export async function ipKey(req: Request): Promise<string> {
+  return (await ipKeys(req))[0];
+}
+
+/** ipKeys scoped to one limiter, e.g. `create-planner-handoff:<key>`. */
+export async function rateKeys(req: Request, scope: string): Promise<string[]> {
+  return (await ipKeys(req)).map((key) => `${scope}:${key}`);
+}
+
+// Best-effort per-instance limiter (resets on cold start; durableRateLimit is
+// the shared layer). Every key is counted, and any key over the limit
+// throttles the request.
 const hits = new Map<string, { count: number; ts: number }>();
-export function rateLimited(key: string, limit: number, windowMs = 3_600_000): boolean {
+export function rateLimited(keys: string | readonly string[], limit: number, windowMs = 3_600_000): boolean {
   const now = Date.now();
-  const h = hits.get(key);
-  if (!h || now - h.ts > windowMs) {
-    hits.set(key, { count: 1, ts: now });
-    return false;
+  let limited = false;
+  for (const key of typeof keys === 'string' ? [keys] : keys) {
+    const h = hits.get(key);
+    if (!h || now - h.ts > windowMs) {
+      hits.set(key, { count: 1, ts: now });
+      continue;
+    }
+    h.count += 1;
+    if (h.count > limit) limited = true;
   }
-  h.count += 1;
-  return h.count > limit;
+  return limited;
+}
+
+type RateLimitStore = {
+  rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message?: string } | null }>;
+};
+
+export type RateLimitResult = 'allowed' | 'throttled' | 'unavailable';
+
+/**
+ * Shared fixed-window limit through bump_edge_rate_limit_v1 (service role),
+ * with the per-instance limiter as the fast path. Every key is bumped, and
+ * the request is throttled when any key is over the limit.
+ *
+ * When the RPC fails the default is to fall back to the per-instance limiter
+ * and log the degradation. `failClosed: true` answers 'unavailable' instead;
+ * use it on every path that sends email.
+ */
+export async function durableRateLimit(
+  service: RateLimitStore,
+  keys: readonly string[],
+  limit: number,
+  options: { fn: string; windowSeconds?: number; failClosed?: boolean },
+): Promise<RateLimitResult> {
+  const windowSeconds = options.windowSeconds ?? 3600;
+  if (rateLimited(keys, limit, windowSeconds * 1000)) return 'throttled';
+  const results = await Promise.all(keys.map(async (key) => {
+    try {
+      return await service.rpc('bump_edge_rate_limit_v1', {
+        p_key: key,
+        p_limit: limit,
+        p_window_seconds: windowSeconds,
+      });
+    } catch (err) {
+      return { data: null, error: { message: String(err) } };
+    }
+  }));
+  if (results.some((result) => !result.error && result.data === false)) return 'throttled';
+  const failed = results.find((result) => result.error);
+  if (failed) {
+    console.error(`[${options.fn}] durable rate limit unavailable`, String(failed.error?.message ?? '').slice(0, 200));
+    if (options.failClosed) return 'unavailable';
+  }
+  return 'allowed';
+}
+
+/** 429 for a throttled caller; 503 when a fail-closed limiter is down. */
+export function rateLimitResponse(req: Request, result: Exclude<RateLimitResult, 'allowed'>): Response {
+  return result === 'throttled'
+    ? errorResponse(req, 429, 'rate_limited')
+    : errorResponse(req, 503, 'rate_limit_unavailable');
 }
 
 export function newRequestId(): string {

@@ -1,21 +1,23 @@
 /**
  * create-planner-handoff — public capability creation (master plan §6.3).
- * POST { payload: WebsitePlannerHandoffV1, lead?: { name?, email?, phone? } }
- * → { id, token }. Stores only the token HASH; token travels once in the
- * response and then lives in the /wizard URL fragment.
+ * POST { payload: WebsitePlannerHandoffV1 } → { id, token, expiresAt }.
+ * Stores only the token HASH; token travels once in the response and then
+ * lives in the /wizard URL fragment. Contact details are never taken here:
+ * any `lead` in the body is ignored and the contact columns stay NULL.
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { parseWebsitePlannerHandoff } from '../_shared/roomScan/contract.ts';
 import {
+  durableRateLimit,
   errorResponse,
   gate,
   generateToken,
-  ipKey,
   jsonResponse,
   logOutcome,
   newRequestId,
-  rateLimited,
+  rateKeys,
+  rateLimitResponse,
   readJsonBody,
   sha256Hex,
 } from '../_shared/roomScan/security.ts';
@@ -28,14 +30,18 @@ serve(async (req) => {
   const gated = gate(req);
   if (gated) return gated;
 
-  if (rateLimited(`create:${await ipKey(req)}`, 20)) {
-    logOutcome('create-planner-handoff', rid, 'throttled', started);
-    return errorResponse(req, 429, 'rate_limited');
+  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const limit = await durableRateLimit(service, await rateKeys(req, 'create-planner-handoff'), 20, {
+    fn: 'create-planner-handoff',
+  });
+  if (limit !== 'allowed') {
+    logOutcome('create-planner-handoff', rid, limit, started);
+    return rateLimitResponse(req, limit);
   }
 
   const body = await readJsonBody(req);
   if (body instanceof Response) return body;
-  const { payload, lead } = (body ?? {}) as { payload?: unknown; lead?: Record<string, unknown> };
+  const { payload } = (body ?? {}) as { payload?: unknown };
 
   const parsed = parseWebsitePlannerHandoff(payload);
   if (!parsed.ok) {
@@ -47,15 +53,14 @@ serve(async (req) => {
   const tokenHash = await sha256Hex(token);
   const expiresAt = new Date(Date.now() + EXPIRY_DAYS * 86_400_000).toISOString();
 
-  const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data, error } = await service
     .from('planner_handoffs')
     .insert({
       source: parsed.handoff.source,
       payload: parsed.handoff,
-      lead_name: typeof lead?.name === 'string' ? lead.name.slice(0, 200) : null,
-      lead_email: typeof lead?.email === 'string' ? lead.email.slice(0, 200) : null,
-      lead_phone: typeof lead?.phone === 'string' ? lead.phone.slice(0, 50) : null,
+      lead_name: null,
+      lead_email: null,
+      lead_phone: null,
       public_token_hash: tokenHash,
       expires_at: expiresAt,
     })

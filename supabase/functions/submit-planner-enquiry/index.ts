@@ -14,15 +14,16 @@ import { confirmedRoomScanV1Schema } from '../_shared/roomScan/contract.ts';
 import { fingerprintV1 } from '../_shared/roomScan/fingerprint.ts';
 import { applianceItemsToLeadItems, publishBuildFlowLead } from '../_shared/buildFlow/leadIntake.ts';
 import {
+  durableRateLimit,
   errorResponse,
   gate,
-  ipKey,
   isToken,
   isUuid,
   jsonResponse,
   logOutcome,
   newRequestId,
-  rateLimited,
+  rateKeys,
+  rateLimitResponse,
   readJsonBody,
   sha256Hex,
 } from '../_shared/roomScan/security.ts';
@@ -114,25 +115,16 @@ serve(async (req) => {
     return errorResponse(req, 403, 'invalid_synthetic_test');
   }
 
-  const rateKey = `submit-planner-enquiry:${await ipKey(req)}`;
-  let throttled = syntheticTest ? false : rateLimited(rateKey, 20);
-  if (!syntheticTest && !throttled) {
-    const { data: allowed, error: rateError } = await service.rpc('bump_edge_rate_limit_v1', {
-      p_key: rateKey,
-      p_limit: 20,
-      p_window_seconds: 3600,
+  // Durable shared limit with the per-instance limiter as the fallback. It
+  // still fails open; set failClosed when this path's email is gated.
+  const limit = syntheticTest
+    ? 'allowed'
+    : await durableRateLimit(service, await rateKeys(req, 'submit-planner-enquiry'), 20, {
+      fn: 'submit-planner-enquiry',
     });
-    if (rateError) {
-      // Keep the per-instance limiter as a fail-open fallback, but make the
-      // loss of distributed protection visible in edge logs.
-      console.error('[submit-planner-enquiry] durable rate limit unavailable', rateError.message);
-    } else if (allowed === false) {
-      throttled = true;
-    }
-  }
-  if (throttled) {
-    logOutcome('submit-planner-enquiry', rid, 'throttled', started);
-    return errorResponse(req, 429, 'rate_limited');
+  if (limit !== 'allowed') {
+    logOutcome('submit-planner-enquiry', rid, limit, started);
+    return rateLimitResponse(req, limit);
   }
 
   const { submissionKey, handoffId, token, job } = (body ?? {}) as Record<string, unknown>;

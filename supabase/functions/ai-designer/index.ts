@@ -34,14 +34,15 @@ import {
 } from '../_shared/layout/index.ts';
 import { fingerprintV1 } from '../_shared/roomScan/fingerprint.ts';
 import {
+  durableRateLimit,
   errorResponse,
   gate,
   generateToken,
-  ipKey,
   jsonResponse,
   logOutcome,
   newRequestId,
-  rateLimited,
+  rateKeys,
+  rateLimitResponse,
   readJsonBody,
   sha256Hex,
 } from '../_shared/roomScan/security.ts';
@@ -617,8 +618,8 @@ serve(async (req) => {
     const service = createClient(supabaseUrl, serviceKey);
 
     // Durable shared rate limit (fixed hourly window in Postgres) with the
-    // per-instance limiter retained as a fast path / fallback. The key is the
-    // day-salted pseudonymous IP hash — raw IPs never leave the function.
+    // per-instance limiter retained as a fast path / fallback. The keys are
+    // day-salted pseudonymous IP hashes — raw IPs never leave the function.
     const body = await readJsonBody(req);
     if (body instanceof Response) return body;
     let syntheticTest: SyntheticTestContext | null;
@@ -629,21 +630,13 @@ serve(async (req) => {
       return errorResponse(req, 403, 'invalid_synthetic_test');
     }
 
-    const rateKey = `ai-designer:${await ipKey(req)}`;
-    let throttled = syntheticTest ? false : rateLimited(rateKey, 20);
-    if (!syntheticTest && !throttled) {
-      const { data: allowed, error: rateError } = await service
-        .rpc('bump_edge_rate_limit_v1', { p_key: rateKey, p_limit: 20, p_window_seconds: 3600 });
-      if (rateError) {
-        // Fail open to the in-memory limiter, but record the degradation.
-        console.error('[ai-designer] durable rate limit unavailable', rateError.message);
-      } else if (allowed === false) {
-        throttled = true;
-      }
-    }
-    if (throttled) {
-      logOutcome('ai-designer', requestId, 'throttled', started);
-      return errorResponse(req, 429, 'rate_limited');
+    // Fails open to the in-memory limiter, and logs the degradation.
+    const limit = syntheticTest
+      ? 'allowed'
+      : await durableRateLimit(service, await rateKeys(req, 'ai-designer'), 20, { fn: 'ai-designer' });
+    if (limit !== 'allowed') {
+      logOutcome('ai-designer', requestId, limit, started);
+      return rateLimitResponse(req, limit);
     }
 
     const requestBody = typeof body === 'object' && body !== null && !Array.isArray(body)
