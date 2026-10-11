@@ -9,6 +9,11 @@ verify_jwt = false
 [functions.ai-designer]
 verify_jwt = false
 
+# Read-only provisional wall-run ideas. Validates bounded RoomDocument input,
+# returns no prices and keeps open/irregular geometry intact.
+[functions.room-document-candidates]
+verify_jwt = false
+
 # Public, capability/rate-limited homeowner entry points. Each function owns
 # strict body validation; requiring a user JWT would reject organic visitors.
 [functions.submit-planner-enquiry]
@@ -47,4 +52,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.link-trade-handoff]
+verify_jwt = true
+
+# Signed-in trade owner only. The function checks the saved job/room/capture
+# before sending a short-lived scanner capability through the private Sites
+# gateway. SCANNER_SITES_ACCESS_TOKEN is an Edge secret, never a VITE_ value.
+[functions.scanner-private-bridge]
 verify_jwt = true

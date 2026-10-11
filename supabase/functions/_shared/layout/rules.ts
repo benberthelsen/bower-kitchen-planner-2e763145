@@ -26,6 +26,8 @@
  */
 
 import type { PlacedItem } from './core.ts';
+import { footprintCorners, footprintInsideConfirmedFloor, footprintsIntersect } from '../roomDocument/geometry.ts';
+import { polygonFromRoom, rectInsidePolygon } from './polygon.ts';
 import { rangeForWall } from './briefConstraints.ts';
 import {
   FRIDGE_ROOM_CORNER_CLEARANCE_MM,
@@ -98,6 +100,11 @@ const PREP_BENCH_MIN = 900;
 
 function finding(ruleId: string, tier: RuleTier, message: string, itemIds?: string[]): RuleFinding {
   return { ruleId, tier, message, ...(itemIds ? { itemIds } : {}) };
+}
+
+function physicalItemWidth(item: PlacedItem): number {
+  return item.layoutRole === 'fridge-gap' && item.applianceBodyWidth
+    ? item.applianceBodyWidth : item.width;
 }
 
 const TALL_ROLES = new Set<SegmentRole>([
@@ -199,12 +206,21 @@ export const RULES: Rule[] = [
     id: 'out-of-room', tier: 'hard', scope: 'spatial',
     title: 'Cabinet inside the room',
     why: 'Every cabinet must physically fit within the room outline.',
-    evaluate: ({ design, room }) => design.items.flatMap(item => {
-      const r = itemRect(item);
-      return (r.minX < -1 || r.maxX > room.width + 1 || r.minZ < -1 || r.maxZ > room.depth + 1)
-        ? [finding('out-of-room', 'hard', `${item.definitionId} extends outside the room`, [item.instanceId])]
-        : [];
-    }),
+    evaluate: ({ design, room }) => {
+      if (room.roomDocument && !room.roomDocument.floorBoundary?.confirmed) {
+        return [finding('floor-boundary-unconfirmed', 'hard',
+          'Confirm a floor boundary before generating a whole-room layout.')];
+      }
+      const legacyPolygon = room.roomDocument ? null : polygonFromRoom(room);
+      return design.items.flatMap(item => {
+        const inside = room.roomDocument
+          ? footprintInsideConfirmedFloor(room.roomDocument,
+            footprintCorners({ xMm: item.x, zMm: item.z, rotationDeg: item.rotation }, physicalItemWidth(item), item.depth)).status === 'inside'
+          : rectInsidePolygon(itemRect(item), legacyPolygon!, 1);
+        return inside ? []
+          : [finding('out-of-room', 'hard', `${item.definitionId} extends outside the room`, [item.instanceId])];
+      });
+    },
   },
   {
     id: 'overlap', tier: 'hard', scope: 'spatial',
@@ -214,7 +230,13 @@ export const RULES: Rule[] = [
       const out: RuleFinding[] = [];
       for (let i = 0; i < floorItems.length; i++) {
         for (let j = i + 1; j < floorItems.length; j++) {
-          if (rectsOverlap(itemRect(floorItems[i]), itemRect(floorItems[j]))) {
+          if (footprintsIntersect(
+            footprintCorners({ xMm: floorItems[i].x, zMm: floorItems[i].z, rotationDeg: floorItems[i].rotation },
+              physicalItemWidth(floorItems[i]), floorItems[i].depth),
+            footprintCorners({ xMm: floorItems[j].x, zMm: floorItems[j].z, rotationDeg: floorItems[j].rotation },
+              physicalItemWidth(floorItems[j]), floorItems[j].depth),
+            1,
+          )) {
             out.push(finding('overlap', 'hard',
               `${floorItems[i].definitionId} overlaps ${floorItems[j].definitionId}`,
               [floorItems[i].instanceId, floorItems[j].instanceId]));

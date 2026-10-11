@@ -13,7 +13,25 @@ import { z } from 'zod';
 const emailSchema = z.string().email('Invalid email address');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
 
+function takeTradeReturnPath(): string | null {
+  try {
+    const value = sessionStorage.getItem('bower.authReturnTo');
+    sessionStorage.removeItem('bower.authReturnTo');
+    // Never allow session storage to become an open redirect.
+    if (value && /^\/trade\/job\/(?:new|[0-9a-f-]{36})(?:[/?#]|$)/i.test(value)
+      && !value.includes('\\') && !value.includes('\n')) return value;
+  } catch { /* Continue to the normal post-login page. */ }
+  return null;
+}
+
 export default function Auth() {
+  // A scanner handoff that needed a sign-in left its return path here.
+  const [scanWaiting] = useState(() => {
+    try {
+      const path = sessionStorage.getItem('bower.authReturnTo') ?? '';
+      return /^\/trade\/job\//.test(path) && /[?&#](?:handoff|scannerCaptureId)=/.test(path);
+    } catch { return false; }
+  });
   const { user, loading, isAdmin, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,7 +48,7 @@ export default function Auth() {
 
   useEffect(() => {
     if (user && !loading) {
-      navigate(isAdmin ? '/admin' : '/trade/dashboard', { replace: true });
+      navigate(takeTradeReturnPath() ?? (isAdmin ? '/admin' : '/trade/dashboard'), { replace: true });
     }
   }, [user, loading, isAdmin, navigate]);
 
@@ -94,7 +112,9 @@ export default function Auth() {
         toast.error(error.message);
       }
     } else {
-      toast.success('Account created! You can now log in.');
+      toast.success(scanWaiting
+        ? 'Account created. If we sent you a confirmation email, confirm it, then come back to this tab and sign in to open your scanned room.'
+        : 'Account created! You can now log in.');
     }
   };
 
@@ -109,18 +129,20 @@ export default function Auth() {
   return (
     <div className="min-h-screen bg-slate-50 p-4">
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-md flex-col justify-center">
-        <Link
+        {!scanWaiting && <Link
           to="/wizard"
           className="mb-4 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to kitchen planner
-        </Link>
+        </Link>}
         <Card className="w-full border-slate-200 shadow-sm">
         <CardHeader className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Bower Cabinets</p>
-          <CardTitle className="text-2xl font-bold text-slate-900">Trade Portal</CardTitle>
-          <CardDescription>Sign in to manage repeat customers, jobs, plans and quotes</CardDescription>
+          <CardTitle className="text-2xl font-bold text-slate-900">{scanWaiting ? 'Sign in to see your kitchen' : 'Trade Portal'}</CardTitle>
+          <CardDescription>{scanWaiting
+            ? 'Sign in to open your scanned room. It opens as soon as you sign in.'
+            : 'Sign in to manage repeat customers, jobs, plans and quotes'}</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">

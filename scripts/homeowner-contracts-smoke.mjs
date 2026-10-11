@@ -76,8 +76,8 @@ assert.ok(
 );
 assert.ok(appSource.includes('<Navigate to="/wizard" replace />'), 'public root must enter the homeowner planner');
 assert.ok(
-  authSource.includes("navigate(isAdmin ? '/admin' : '/trade/dashboard', { replace: true })"),
-  'authenticated admins must land on the admin dashboard',
+  authSource.includes("takeTradeReturnPath() ?? (isAdmin ? '/admin' : '/trade/dashboard')"),
+  'authenticated admins must land on the admin dashboard unless returning to an explicit trade job',
 );
 assert.match(
   officeAdminMigration,

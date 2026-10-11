@@ -27,10 +27,19 @@ const DEFAULT_DEV_ORIGINS = [
   'http://127.0.0.1:4174',
 ];
 
+// The shared-room-geometry rollout uses a fixed, private planner preview.
+// Keep this exact origin in addition to the deployed origin list so scanner
+// handoffs can be reviewed there without weakening CORS for other Pages builds.
+const PLANNER_PREVIEW_ORIGINS = [
+  'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev',
+];
+
 function allowedOrigins(): string[] {
   const env = Deno.env.get('SCANNER_ALLOWED_ORIGINS');
-  if (env && env.trim()) return env.split(',').map((o) => o.trim()).filter(Boolean);
-  return DEFAULT_DEV_ORIGINS;
+  const configured = env && env.trim()
+    ? env.split(',').map((o) => o.trim()).filter(Boolean)
+    : DEFAULT_DEV_ORIGINS;
+  return [...new Set([...configured, ...PLANNER_PREVIEW_ORIGINS])];
 }
 
 const SECURITY_HEADERS: Record<string, string> = {

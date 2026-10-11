@@ -26,6 +26,9 @@ $PublicFunctions = @(
   'submit-planner-enquiry',
   'create-planner-handoff',
   'get-planner-handoff'
+  # room-document-candidates (supabase/config.toml, public) has no caller in
+  # the planner yet; the browser computes the same candidates locally. Add it
+  # here when a consumer exists rather than exposing an unused endpoint.
 )
 
 foreach ($FunctionName in $PublicFunctions) {
@@ -46,7 +49,10 @@ foreach ($FunctionName in @(
   'send-email',
   'sync-buildflow-lead',
   'sync-buildflow-design',
-  'link-trade-handoff'
+  'link-trade-handoff',
+  # Job-scoped bridge to the private scanner; needs the SCANNER_SITES_ACCESS_TOKEN
+  # secret and must keep JWT verification.
+  'scanner-private-bridge'
 )) {
   Write-Host "Deploying authenticated function $FunctionName..." -ForegroundColor Cyan
   supabase functions deploy $FunctionName --project-ref $ProjectRef --use-api

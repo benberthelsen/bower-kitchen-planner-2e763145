@@ -21,7 +21,9 @@ import { distributeDrawerHeights, DRAWER_BOX_FACE_OFFSET_MM } from '@/lib/drawer
 import {
   cabinetWidthGuidance,
   fillCabinetRunGap,
+  fillRoomDocumentRunGap,
   getCabinetRunSpacing,
+  getRoomDocumentRunSpacing,
 } from '@/lib/trade/cabinetRunSpacing';
 import { 
   Ruler, 
@@ -38,7 +40,7 @@ interface CabinetEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpenFullEditor: () => void;
-  onCabinetPatch?: (instanceId: string, updates: Partial<ConfiguredCabinet>) => Promise<void> | void;
+  onCabinetPatch?: (instanceId: string, updates: Partial<ConfiguredCabinet>) => Promise<boolean | void> | boolean | void;
 }
 
 export function CabinetEditDialog({
@@ -81,9 +83,13 @@ export function CabinetEditDialog({
   }, [cabinet?.instanceId, cabinet?.dimensions.width, cabinet?.dimensions.height, cabinet?.dimensions.depth]);
 
   const room = getRoomById(roomId);
-  const runSpacing = cabinet && room
+  const roomDocumentSpacing = cabinet && room?.roomDocument
+    ? getRoomDocumentRunSpacing(cabinet, getCabinetsByRoom(roomId), room, room.roomDocument)
+    : null;
+  const legacyRunSpacing = cabinet && room && !room.roomDocument
     ? getCabinetRunSpacing(cabinet, getCabinetsByRoom(roomId), room)
     : null;
+  const runSpacing = roomDocumentSpacing ?? legacyRunSpacing;
 
   if (!cabinet) return null;
 
@@ -132,7 +138,13 @@ export function CabinetEditDialog({
     onCabinetPatch?.(cabinet.instanceId, { construction: next });
   };
 
-  const handleUpdateDimensions = (updates: Partial<CabinetDimensions>) => {
+  const commitGeometryPatch = async (updates: Partial<ConfiguredCabinet>): Promise<boolean> => {
+    if (onCabinetPatch) return (await onCabinetPatch(cabinet.instanceId, updates)) !== false;
+    updateCabinet(roomId, cabinet.instanceId, updates);
+    return true;
+  };
+
+  const handleUpdateDimensions = async (updates: Partial<CabinetDimensions>) => {
     const requestedWidth = updates.width ?? cabinet.dimensions.width;
     const minimumWidth = cabinetWidthGuidance({
       ...cabinet,
@@ -144,22 +156,31 @@ export function CabinetEditDialog({
       depth: Math.max(200, updates.depth ?? cabinet.dimensions.depth),
     };
 
-    updateCabinet(roomId, cabinet.instanceId, { dimensions: next });
-    onCabinetPatch?.(cabinet.instanceId, { dimensions: next });
+    const applied = await commitGeometryPatch({ dimensions: next });
+    if (!applied) setDimDraft({
+      width: String(cabinet.dimensions.width), height: String(cabinet.dimensions.height),
+      depth: String(cabinet.dimensions.depth),
+    });
   };
 
-  const handleFillRunGap = (side: 'before' | 'after') => {
+  const handleFillRunGap = async (side: 'before' | 'after') => {
     if (!runSpacing) return;
-    const filled = fillCabinetRunGap(cabinet, runSpacing, side);
+    const filledDocument = roomDocumentSpacing && room?.roomDocument
+      ? fillRoomDocumentRunGap(cabinet, roomDocumentSpacing, side, room.roomDocument)
+      : null;
+    const filledLegacy = !filledDocument && legacyRunSpacing
+      ? fillCabinetRunGap(cabinet, legacyRunSpacing, side) : null;
+    const filled = filledDocument ?? filledLegacy;
     if (!filled) return;
     const nextDimensions = { ...cabinet.dimensions, width: filled.dimensions.width };
     const updates = {
       dimensions: nextDimensions,
       position: { ...filled.position, y: filled.position.y ?? cabinet.position?.y ?? 0 },
+      ...(filledDocument ? { wallAttachment: filledDocument.wallAttachment } : {}),
     };
-    updateCabinet(roomId, cabinet.instanceId, updates);
-    onCabinetPatch?.(cabinet.instanceId, updates);
-    setDimDraft((draft) => ({ ...draft, width: String(nextDimensions.width) }));
+    if (await commitGeometryPatch(updates)) {
+      setDimDraft((draft) => ({ ...draft, width: String(nextDimensions.width) }));
+    }
   };
 
   // Commit a dimension draft field (blur/Enter). Empty/invalid falls back to the
@@ -167,7 +188,7 @@ export function CabinetEditDialog({
   const commitDimension = (field: 'width' | 'height' | 'depth') => {
     const val = Number(dimDraft[field]);
     if (Number.isFinite(val) && val > 0) {
-      handleUpdateDimensions({ [field]: val });
+      void handleUpdateDimensions({ [field]: val });
     } else {
       // reset the field back to the live value
       setDimDraft((d) => ({ ...d, [field]: String(cabinet.dimensions[field]) }));
@@ -188,8 +209,7 @@ export function CabinetEditDialog({
 
   const handleUpdateMounting = (y: number) => {
     const next = { ...(cabinet.position ?? { x: 0, y: 0, z: 0, rotation: 0 }), y: Math.max(0, y) };
-    updateCabinet(roomId, cabinet.instanceId, { position: next });
-    onCabinetPatch?.(cabinet.instanceId, { position: next });
+    void commitGeometryPatch({ position: next });
   };
 
   const categoryColors: Record<string, string> = {
@@ -290,7 +310,7 @@ export function CabinetEditDialog({
                 <Label>Cabinet run spacing</Label>
                 <p className="text-xs text-muted-foreground">
                   {runSpacing
-                    ? `Measured along the ${runSpacing.wall} wall. Fill grows the cabinet and keeps its opposite edge fixed.`
+                    ? `Measured along ${roomDocumentSpacing ? runSpacing.wall : `the ${runSpacing.wall} wall`}. Fill grows the cabinet and keeps its opposite edge fixed.`
                     : 'Place this cabinet flush to a wall to measure the gaps beside it.'}
                 </p>
               </div>
@@ -309,8 +329,8 @@ export function CabinetEditDialog({
                           variant="outline"
                           size="sm"
                           className="mt-1 h-7 w-full text-xs"
-                          disabled={measured.gapMm <= 0}
-                          onClick={() => handleFillRunGap(side)}
+                          disabled={measured.gapMm <= 0 || Boolean(roomDocumentSpacing && (cabinet.category === 'Appliance' || isCornerCabinet))}
+                          onClick={() => { void handleFillRunGap(side); }}
                         >
                           {measured.gapMm > 0 ? `Fill to ${prospectiveWidth}mm` : 'Already joined'}
                         </Button>

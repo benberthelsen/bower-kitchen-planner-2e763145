@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { buildSync } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -18,12 +19,13 @@ const ROOT = process.cwd();
 
 const OUT = path.join(ROOT, '.tmp-sweep'); mkdirSync(OUT, { recursive: true }); writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 const LAYOUT_DIR = path.join(ROOT, 'src/lib/layout');
-const LAYOUT_FILES = ['types','versions','schemas','geometry','briefConstraints','polygon','blindCorner','catalogRoles','catalogCapabilities','styleDNA','solveRun','compileSpec','rules','validate','defaultSpec','priceDesign','wizardAdapter','proposalState','designScore','candidateGenerator','index'];
+const LAYOUT_FILES = ['types','versions','schemas','geometry','briefConstraints','polygon','blindCorner','catalogRoles','catalogCapabilities','styleDNA','solveRun','compileSpec','rules','validate','defaultSpec','priceDesign','wizardAdapter','proposalState','designScore','candidateGenerator','roomDocumentCandidates','index'];
 
 writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, { get: () => undefined });\n');
 
 function rewrite(src) {
   return src
+    .replace(/(['"])@\/lib\/roomDocument(?:\/geometry)?\1/g, "'./roomDocument_index'")
     .replace(/(['"])@\/constants\1/g, "'./constants'")
     .replace(/(['"])@\/types\1/g, "'./types_stub'")
     .replace(/(['"])(\.\.?\/[^'"]+?)\.ts\1/g, "$1$2$1");
@@ -37,6 +39,8 @@ function transpileTo(destName, srcPath) {
   writeFileSync(path.join(OUT, destName + '.js'), outputText);
 }
 transpileTo('constants', path.join(ROOT, 'src/constants.ts'));
+buildSync({ entryPoints: [path.join(ROOT, 'src/lib/roomDocument/index.ts')], bundle: true,
+  platform: 'node', format: 'cjs', outfile: path.join(OUT, 'roomDocument_index.js'), alias: { '@': './src' } });
 for (const f of LAYOUT_FILES) transpileTo(f, path.join(LAYOUT_DIR, f + '.ts'));
 
 const engine = require(path.join(OUT, 'index.js'));

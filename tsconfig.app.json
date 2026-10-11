@@ -30,6 +30,7 @@
     "src"
   ],
   "exclude": [
-    "src/lib/roomScan/compat-test.ts"
+    "src/lib/roomScan/compat-test.ts",
+    "src/lib/roomScan/roomDocumentAdapter.test.mts"
   ]
 }

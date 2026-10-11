@@ -63,6 +63,11 @@ export {
   type RejectedCandidate,
 } from './candidateGenerator';
 export {
+  generateRoomDocumentCandidates, roomDocumentCandidateCapability,
+  type RoomSuggestedItem, type RoomDocumentCandidate,
+  type RoomDocumentCandidatePool, type GenerateRoomDocumentCandidatesInput,
+} from './roomDocumentCandidates';
+export {
   RequestProposalRegistry,
   type ProposalSelection,
   type ProposalSelectionResult,

@@ -8,6 +8,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { buildSync } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -17,13 +18,14 @@ const OUT = path.join(ROOT, '.tmp-snap-test', 'trade-adapter');
 mkdirSync(OUT, { recursive: true });
 writeFileSync(path.join(OUT, 'package.json'), '{"type":"commonjs"}');
 
-const LAYOUT = ['types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'blindCorner', 'catalogRoles', 'catalogCapabilities', 'styleDNA', 'solveRun', 'compileSpec', 'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'index'];
+const LAYOUT = ['types', 'versions', 'schemas', 'geometry', 'briefConstraints', 'polygon', 'blindCorner', 'catalogRoles', 'catalogCapabilities', 'styleDNA', 'solveRun', 'compileSpec', 'rules', 'validate', 'defaultSpec', 'priceDesign', 'wizardAdapter', 'proposalState', 'designScore', 'candidateGenerator', 'roomDocumentCandidates', 'index'];
 const TRADE = ['cabinetPlacedItem', 'proposalToTradeRoom'];
 
 writeFileSync(path.join(OUT, 'types_stub.js'), 'module.exports = new Proxy({}, { get: () => undefined });\n');
 
 function rewrite(src) {
   return src
+    .replace(/(['"])@\/lib\/roomDocument(?:\/geometry)?\1/g, "'./roomDocument_index'")
     .replace(/(['"])@\/lib\/layout\1/g, "'./index'")
     .replace(/(['"])@\/constants\1/g, "'./constants'")
     .replace(/(['"])@\/types\/trade\1/g, "'./types_stub'")
@@ -39,6 +41,8 @@ function transpileTo(destName, srcPath) {
   writeFileSync(path.join(OUT, destName + '.js'), outputText);
 }
 transpileTo('constants', path.join(ROOT, 'src/constants.ts'));
+buildSync({ entryPoints: [path.join(ROOT, 'src/lib/roomDocument/index.ts')], bundle: true,
+  platform: 'node', format: 'cjs', outfile: path.join(OUT, 'roomDocument_index.js'), alias: { '@': './src' } });
 for (const f of LAYOUT) transpileTo(f, path.join(ROOT, 'src/lib/layout', f + '.ts'));
 for (const f of TRADE) transpileTo(f, path.join(ROOT, 'src/lib/trade', f + '.ts'));
 

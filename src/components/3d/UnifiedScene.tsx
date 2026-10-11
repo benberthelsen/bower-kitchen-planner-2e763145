@@ -13,6 +13,8 @@ import ApplianceMesh from './ApplianceMesh';
 import ApplianceModel from './ApplianceModel';
 import StructureMesh from './StructureMesh';
 import Wall, { WallCorner } from './Wall';
+import RoomDocumentShell from './RoomDocumentShell';
+import { snapRoomDocumentPlacement } from '@/lib/trade/roomDocumentPlacement';
 import SnapIndicators from './SnapIndicators';
 import SnapDebugOverlay from './SnapDebugOverlay';
 import SmartDimensions from './SmartDimensions';
@@ -22,6 +24,31 @@ import { sinkOpeningDimensions } from './appliances/sinkDimensions';
 
 // Drag threshold in mm - must move at least this much before dragging starts
 const DRAG_THRESHOLD = 20;
+
+function roomDocumentCategory(item: PlacedItem): 'Base' | 'Wall' | 'Tall' | 'Appliance' {
+  if (item.itemType === 'Appliance') return 'Appliance';
+  if (item.layoutRole === 'wall-cabinet' || item.y > 0) return 'Wall';
+  return item.height >= 1700 ? 'Tall' : 'Base';
+}
+
+function roomDocumentObstacles(items: PlacedItem[], wallMountHeightMm: number) {
+  return items.map(item => ({ id: item.instanceId, xMm: item.x, zMm: item.z,
+    rotationDeg: item.rotation, widthMm: item.width, depthMm: item.depth,
+    category: roomDocumentCategory(item),
+    elevationMm: roomDocumentCategory(item) === 'Wall' ? item.y || wallMountHeightMm : item.y,
+    heightMm: item.height }));
+}
+
+function roomExtentsM(room: RoomConfig) {
+  const corners = room.roomDocument?.corners;
+  if (!corners?.length) return { minX: 0, maxX: room.width / 1000, minZ: 0, maxZ: room.depth / 1000 };
+  return {
+    minX: Math.min(...corners.map(c => c.xMm)) / 1000,
+    maxX: Math.max(...corners.map(c => c.xMm)) / 1000,
+    minZ: Math.min(...corners.map(c => c.zMm)) / 1000,
+    maxZ: Math.max(...corners.map(c => c.zMm)) / 1000,
+  };
+}
 
 const OPENING_COLORS: Record<Opening['type'], string> = {
   door: '#b45309', window: '#0369a1', walkway: '#a1a1aa',
@@ -385,7 +412,20 @@ function PlacementHandler({
         height: def.defaultHeight,
       };
 
-      const snapResult = calculateSnapPosition(
+      const documentChoice = room.roomDocument && snapRoomDocumentPlacement({
+        document: room.roomDocument, widthMm: width, depthMm: depth,
+        category: def.itemType === 'Appliance' ? 'Appliance' : def.category === 'Wall' ? 'Wall' : def.category === 'Tall' ? 'Tall' : 'Base',
+        elevationMm: def.category === 'Wall' ? globalDimensions.wallMountHeight : 0,
+        heightMm: def.defaultHeight,
+        obstacles: roomDocumentObstacles(items, globalDimensions.wallMountHeight), point: { xMm: target.x * 1000, zMm: target.z * 1000 },
+        rotationDeg: 0,
+      });
+      const snapResult = documentChoice
+        ? documentChoice.status === 'placed'
+          ? { x: documentChoice.xMm, z: documentChoice.zMm, rotation: documentChoice.rotationDeg,
+              snappedTo: documentChoice.wallId ? 'wall' as const : null }
+          : null
+        : calculateSnapPosition(
         target.x * 1000,
         target.z * 1000,
         tempItem as PlacedItem,
@@ -396,6 +436,10 @@ function PlacementHandler({
       );
 
       latestSnapRef.current = snapResult;
+      if (!snapResult) {
+        onPositionUpdate({ position: [target.x, 0, target.z], rotation: 0, isValid: false });
+        return;
+      }
 
       const ghostItem = { ...tempItem, x: snapResult.x, z: snapResult.z, rotation: snapResult.rotation };
       const hasCollision = items.some(item => checkCollision(ghostItem as PlacedItem, item, 10));
@@ -425,7 +469,7 @@ function PlacementHandler({
         // Snap result is already clamped to the room (rotation-aware, with
         // the correct category depth) — use it directly.
         onItemAdd(placementItemId, snap.x, snap.z, snap.rotation);
-      } else {
+      } else if (!room.roomDocument) {
         const snappedX = Math.round((target.x * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
         const snappedZ = Math.round((target.z * 1000) / SNAP_INCREMENT) * SNAP_INCREMENT;
         onItemAdd(placementItemId, snappedX, snappedZ);
@@ -433,7 +477,7 @@ function PlacementHandler({
       latestSnapRef.current = null;
       setPlacementItem?.(null);
     }
-  }, [placementItemId, onItemAdd, camera, gl, setPlacementItem]);
+  }, [placementItemId, onItemAdd, camera, gl, setPlacementItem, room.roomDocument]);
 
   useEffect(() => {
     if (!placementItemId) return;
@@ -511,6 +555,19 @@ function DropZone({
           height: def.defaultHeight,
         };
 
+        const documentChoice = room.roomDocument && snapRoomDocumentPlacement({
+          document: room.roomDocument, widthMm: width, depthMm: depth,
+          category: def.itemType === 'Appliance' ? 'Appliance' : def.category === 'Wall' ? 'Wall' : def.category === 'Tall' ? 'Tall' : 'Base',
+          elevationMm: def.category === 'Wall' ? globalDimensions.wallMountHeight : 0,
+          heightMm: def.defaultHeight,
+          obstacles: roomDocumentObstacles(items, globalDimensions.wallMountHeight), point: { xMm: target.x * 1000, zMm: target.z * 1000 },
+          rotationDeg: 0,
+        });
+        if (documentChoice) {
+          if (documentChoice.status === 'placed') onItemAdd(definitionId,
+            documentChoice.xMm, documentChoice.zMm, documentChoice.rotationDeg);
+          return;
+        }
         const snapResult = calculateSnapPosition(
           target.x * 1000,
           target.z * 1000,
@@ -582,6 +639,25 @@ function DragManager({
       raycaster.current.setFromCamera(new THREE.Vector2(nx, ny), s.camera);
       const target = new THREE.Vector3();
       if (!raycaster.current.ray.intersectPlane(plane.current, target)) return;
+      if (s.room.roomDocument) {
+        const choice = snapRoomDocumentPlacement({
+          document: s.room.roomDocument,
+          widthMm: draggedItem.width, depthMm: draggedItem.depth,
+          category: roomDocumentCategory(draggedItem),
+          elevationMm: roomDocumentCategory(draggedItem) === 'Wall'
+            ? draggedItem.y || s.globalDimensions.wallMountHeight : draggedItem.y,
+          heightMm: draggedItem.height,
+          obstacles: roomDocumentObstacles(s.items, s.globalDimensions.wallMountHeight), excludeId: draggedItem.instanceId,
+          point: { xMm: target.x * 1000, zMm: target.z * 1000 },
+          rotationDeg: draggedItem.rotation,
+        });
+        if (choice.status === 'placed') {
+          s.onSnapChange({ snappedToItemId: null, snapEdge: undefined });
+          s.onSnapResultChange?.(null);
+          s.onItemMove(id, { x: choice.xMm, z: choice.zMm, rotation: choice.rotationDeg });
+        }
+        return;
+      }
       const snapResult = calculateSnapPosition(
         target.x * 1000,
         target.z * 1000,
@@ -639,22 +715,25 @@ function CameraController({
       the controls exist and the zoom/view buttons are silently dead. */
   onControlsReady?: (ready: boolean) => void;
 }) {
-  const widthM = room.width / 1000;
-  const depthM = room.depth / 1000;
+  const extents = roomExtentsM(room);
+  const widthM = extents.maxX - extents.minX;
+  const depthM = extents.maxZ - extents.minZ;
+  const centreX = (extents.minX + extents.maxX) / 2;
+  const centreZ = (extents.minZ + extents.maxZ) / 2;
 
   useEffect(() => {
     if (controlsRef.current) {
-      controlsRef.current.target.set(widthM / 2, 0, depthM / 2);
+      controlsRef.current.target.set(centreX, 0, centreZ);
       controlsRef.current.update();
     }
-  }, [widthM, depthM, controlsRef]);
+  }, [centreX, centreZ, controlsRef]);
 
   return (
     <>
       {viewMode === '3d' ? (
-        <PerspectiveCamera makeDefault position={[widthM * 1.5, 5, depthM * 1.5]} fov={45} />
+        <PerspectiveCamera makeDefault position={[centreX + widthM, 5, centreZ + depthM]} fov={45} />
       ) : (
-        <OrthographicCamera makeDefault position={[widthM / 2, 10, depthM / 2]} zoom={50} near={0.1} far={100} rotation={[-Math.PI / 2, 0, 0]} />
+        <OrthographicCamera makeDefault position={[centreX, 10, centreZ]} zoom={50} near={0.1} far={100} rotation={[-Math.PI / 2, 0, 0]} />
       )}
       <OrbitControls
         ref={(c: unknown) => { controlsRef.current = c; onControlsReady?.(Boolean(c)); }}
@@ -690,9 +769,10 @@ function SceneAutoFit({ itemsRef, room, viewMode }: { itemsRef: React.MutableRef
   useEffect(() => {
     if (!controls || !camera) return;
     const id = requestAnimationFrame(() => {
-      const widthM = room.width / 1000;
-      const depthM = room.depth / 1000;
+      const extents = roomExtentsM(room);
       const bbox = new THREE.Box3();
+      bbox.expandByPoint(new THREE.Vector3(extents.minX, 0, extents.minZ));
+      bbox.expandByPoint(new THREE.Vector3(extents.maxX, room.height / 1000, extents.maxZ));
       (itemsRef.current || []).forEach((item) => {
         const halfW = (item.width || 0) / 2000;
         const halfD = (item.depth || 0) / 2000;
@@ -700,10 +780,6 @@ function SceneAutoFit({ itemsRef, room, viewMode }: { itemsRef: React.MutableRef
         bbox.expandByPoint(new THREE.Vector3(item.x / 1000 - halfW, item.y / 1000, item.z / 1000 - halfD));
         bbox.expandByPoint(new THREE.Vector3(item.x / 1000 + halfW, item.y / 1000 + h, item.z / 1000 + halfD));
       });
-      if (bbox.isEmpty()) {
-        bbox.expandByPoint(new THREE.Vector3(0, 0, 0));
-        bbox.expandByPoint(new THREE.Vector3(widthM, 2, depthM));
-      }
       const center = new THREE.Vector3();
       bbox.getCenter(center);
       controls.target.copy(center);
@@ -809,9 +885,10 @@ export function UnifiedScene({
     const controls = controlsRef.current;
     if (!controls) return;
     const camera = controls.object;
-    const widthM = room.width / 1000;
-    const depthM = room.depth / 1000;
+    const extents = roomExtentsM(room);
     const bbox = new THREE.Box3();
+    bbox.expandByPoint(new THREE.Vector3(extents.minX, 0, extents.minZ));
+    bbox.expandByPoint(new THREE.Vector3(extents.maxX, room.height / 1000, extents.maxZ));
     itemsRef.current.forEach(item => {
       const halfW = (item.width || 0) / 2000;
       const halfD = (item.depth || 0) / 2000;
@@ -819,10 +896,6 @@ export function UnifiedScene({
       bbox.expandByPoint(new THREE.Vector3(item.x / 1000 - halfW, item.y / 1000, item.z / 1000 - halfD));
       bbox.expandByPoint(new THREE.Vector3(item.x / 1000 + halfW, item.y / 1000 + h, item.z / 1000 + halfD));
     });
-    if (bbox.isEmpty()) {
-      bbox.expandByPoint(new THREE.Vector3(0, 0, 0));
-      bbox.expandByPoint(new THREE.Vector3(widthM, 2, depthM));
-    }
     const center = new THREE.Vector3();
     bbox.getCenter(center);
     controls.target.copy(center);
@@ -1022,6 +1095,11 @@ export function UnifiedScene({
       />
 
       <group>
+        {room.roomDocument ? (
+          <RoomDocumentShell document={room.roomDocument} defaultHeightMm={room.height} globalDimensions={globalDimensions}
+            renderedCabinetIds={new Set(items.map(item => item.instanceId))} />
+        ) : (
+          <>
         {/* Floor */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[widthM / 2, -0.01, depthM / 2]} receiveShadow>
           <planeGeometry args={[widthM + 2, depthM + 2]} />
@@ -1116,6 +1194,8 @@ export function UnifiedScene({
 
         {/* Plumbing / power / gas / ducting markers on the walls */}
         <RoomServices room={room} />
+          </>
+        )}
 
         {/* Render items using proper component dispatch */}
         {items.map(item => {

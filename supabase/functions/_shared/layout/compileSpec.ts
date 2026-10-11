@@ -237,6 +237,9 @@ export function compileSpec(
   room: RoomSpec,
   dims: GlobalDimensions = DEFAULT_GLOBAL_DIMENSIONS,
 ): CompiledDesign {
+  if (room.roomDocument) {
+    throw new Error('RoomDocument geometry requires the wall-ID layout compiler; cardinal KitchenSpec runs would lose the actual wall shape.');
+  }
   const items: PlacedItem[] = [];
   const notes: string[] = [];
   const rolePositions: CompiledDesign['rolePositions'] = {};

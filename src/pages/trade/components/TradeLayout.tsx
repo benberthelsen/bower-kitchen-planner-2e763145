@@ -162,7 +162,7 @@ export default function TradeLayout({ children }: TradeLayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:pt-0 pt-14 min-h-screen">
+      <main className="min-w-0 flex-1 lg:pt-0 pt-14 min-h-screen">
         {children}
       </main>
     </div>

@@ -14,6 +14,8 @@ interface KickboardProps {
   map?: THREE.Texture | null;
   setback?: number;   // How far back from front (meters)
   showEdges?: boolean;
+  /** Surveyed standalone kicks use their exact recorded width. */
+  seamOverlap?: boolean;
   
   // Corner cabinet support
   isCorner?: boolean;
@@ -40,6 +42,7 @@ const Kickboard: React.FC<KickboardProps> = ({
   map,
   setback = 0.04, // Standard 40mm setback
   showEdges = true,
+  seamOverlap = true,
   isCorner = false,
   cornerType = 'blind',
   depth = 0.56,
@@ -128,7 +131,7 @@ const Kickboard: React.FC<KickboardProps> = ({
   // A run is manufactured from continuous plinth lengths. Let adjacent
   // cabinet segments overlap by 1mm per side so antialiasing and tiny float
   // errors cannot show a false white break between otherwise joined units.
-  const kickWidth = width + 0.002;
+  const kickWidth = width + (seamOverlap ? 0.002 : 0);
 
   return (
     <group position={position}>

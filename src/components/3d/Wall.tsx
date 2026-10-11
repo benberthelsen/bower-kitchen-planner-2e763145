@@ -8,6 +8,8 @@ interface WallProps {
   width: number;
   height: number;
   thickness?: number;
+  color?: string;
+  opacity?: number;
   fadeWhenBlocking?: boolean;
   roomCenter?: [number, number, number];
 }
@@ -18,6 +20,8 @@ const Wall: React.FC<WallProps> = ({
   width, 
   height, 
   thickness = 0.1, 
+  color = '#e5e7eb',
+  opacity = 1,
   fadeWhenBlocking = true,
   roomCenter = [0, 0, 0]
 }) => {
@@ -52,7 +56,7 @@ const Wall: React.FC<WallProps> = ({
     const separatesCameraAndRoom = camDist * centerDist < 0;
 
     // When blocking, fade (but keep slightly visible). When not blocking, fully opaque.
-    const targetOpacity = separatesCameraAndRoom ? 0.12 : 1;
+    const targetOpacity = separatesCameraAndRoom ? Math.min(0.12, opacity) : opacity;
 
     // Smoothly transition opacity
     const currentOpacity = materialRef.current.opacity;
@@ -68,9 +72,10 @@ const Wall: React.FC<WallProps> = ({
       <boxGeometry args={[width, height, thickness]} />
       <meshStandardMaterial 
         ref={materialRef}
-        color="#e5e7eb" 
+        color={color}
         transparent 
-        opacity={1}
+        opacity={opacity}
+        depthWrite={opacity > 0.5}
         side={THREE.DoubleSide} 
       />
     </mesh>

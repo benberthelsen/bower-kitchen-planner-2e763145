@@ -204,6 +204,8 @@ export interface RoomConfig {
   openings?: Opening[];
   /** Plumbing/power/gas points. Optional — legacy designs have none. */
   services?: ServicePoint[];
+  /** Authoritative geometry for scanned or custom rooms. Legacy dimensions remain a compatibility view. */
+  roomDocument?: import('../roomDocument/types.ts').RoomDocumentV1;
 }
 
 export type TextureType = 'none' | 'wood' | 'stone' | 'concrete' | 'marble';

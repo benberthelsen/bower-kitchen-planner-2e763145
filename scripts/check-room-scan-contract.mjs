@@ -6,8 +6,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   DENO_PATH,
-  WEBSITE_CONTRACT_REL,
-  WEBSITE_LOCK_REL,
   resolveWebsiteRepo,
   denoOutput,
   readCanonical,
@@ -32,8 +30,8 @@ if (!existsSync(resolve(DENO_PATH))) {
 }
 
 // Website copy (only when the sibling repo is actually present)
-const { siteRepo, explicit, looksLikeRepo } = resolveWebsiteRepo();
-const sitePath = join(siteRepo, WEBSITE_CONTRACT_REL);
+const { siteRepo, explicit, looksLikeRepo, contractRel, lockRel } = resolveWebsiteRepo();
+const sitePath = join(siteRepo, contractRel);
 if (!explicit && !looksLikeRepo) {
   console.log(`website repo not present at ${siteRepo} — skipped (website CI checks its lock hash)`);
 } else if (!existsSync(sitePath)) {
@@ -47,7 +45,7 @@ if (!explicit && !looksLikeRepo) {
   } else {
     console.log('website copy: in sync');
   }
-  const lockPath = join(siteRepo, WEBSITE_LOCK_REL);
+  const lockPath = join(siteRepo, lockRel);
   if (existsSync(lockPath)) {
     const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
     if (lock.canonicalSha256 !== sha256(canonical)) {
@@ -55,6 +53,16 @@ if (!explicit && !looksLikeRepo) {
       failed = true;
     } else {
       console.log('lock file: hash matches canonical');
+    }
+    if (lock.schemaVersion !== 1) {
+      console.error('DRIFT: website lock has an unsupported schema version');
+      failed = true;
+    }
+    if (lock.canonicalWorkingTree && process.env.CI) {
+      console.error('DRIFT: working-tree contract lock cannot be used in CI — commit canonical contract and regenerate');
+      failed = true;
+    } else if (lock.canonicalWorkingTree) {
+      console.log('website lock is provisional; regenerate after committing canonical contract');
     }
   } else {
     console.error(`DRIFT: website contract lock missing at ${lockPath}`);
