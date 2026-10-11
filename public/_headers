@@ -32,11 +32,17 @@
 #   troika run WebAssembly or scripts inside blob: workers.
 # - img-src https:: catalogue and product images come from database rows.
 # - 'unsafe-inline' styles: React style attributes and injected toast styles.
+#
+# Violations go to the csp-report Edge Function, which keeps daily counts in
+# public.csp_report_counts (origins and masked paths only). report-to is used
+# by browsers with the Reporting API (it needs the planner origin in
+# SCANNER_ALLOWED_ORIGINS for the CORS preflight); the others use report-uri.
 /*
   Permissions-Policy: camera=(self), xr-spatial-tracking=(self), screen-wake-lock=(self), geolocation=(), microphone=()
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://ehtwywctledgkxexztbh.supabase.co https://www.gstatic.com https://raw.githack.com https://cdn.jsdelivr.net data: blob:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'
+  Reporting-Endpoints: csp-endpoint="https://ehtwywctledgkxexztbh.supabase.co/functions/v1/csp-report"
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://ehtwywctledgkxexztbh.supabase.co https://www.gstatic.com https://raw.githack.com https://cdn.jsdelivr.net data: blob:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; report-uri https://ehtwywctledgkxexztbh.supabase.co/functions/v1/csp-report; report-to csp-endpoint
 
 # Quote links carry the job id in the path, so they send no referrer. Pages
 # joins a header set by two matching rules with a comma, in file order, and

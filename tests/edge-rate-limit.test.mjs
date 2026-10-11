@@ -1,18 +1,29 @@
 // Rate-limit identity for the public Edge Functions. A client can write the
 // leftmost X-Forwarded-For entry, so every limiter also counts the request
 // against Cloudflare's CF-Connecting-IP, and forging the header never buys a
-// fresh bucket. Loads the real shared helper with Deno's env stubbed.
+// fresh bucket. Keys are an HMAC under a server-side secret, so a stored key
+// cannot be reversed by hashing every address, and a fail-closed limiter
+// allows a request only on a `true` answer. Loads the real shared helper
+// with Deno's env stubbed.
 import assert from 'node:assert/strict';
+import { createHash, createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { transform } from 'esbuild';
 
 const source = await readFile(new URL('../supabase/functions/_shared/roomScan/security.ts', import.meta.url), 'utf8');
 const { code } = await transform(source, { loader: 'ts', format: 'esm' });
-globalThis.Deno = { env: { get: () => undefined } };
+const SERVICE_KEY = `service.key.${'k'.repeat(32)}`;
+let env = { SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY };
+globalThis.Deno = { env: { get: (name) => env[name] } };
+/** A fresh copy of the module: its own per-instance limiter and secret. */
+const loadSecurity = (() => {
+  let copy = 0;
+  return () => import(`data:text/javascript;base64,${Buffer.from(`${code}\n// copy ${copy += 1}\n`).toString('base64')}`);
+})();
 const {
   addressBucket, durableRateLimit, ipKey, ipKeys, rateKeys, rateLimitResponse, rateLimited,
-} = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+} = await loadSecurity();
 
 const request = (headers = {}) => new Request('https://project.supabase.invalid/functions/v1/fn', {
   method: 'POST', headers,
@@ -152,4 +163,84 @@ test('rateLimitResponse: 429 when throttled, 503 when a fail-closed limiter is d
   const unavailable = rateLimitResponse(req, 'unavailable');
   assert.equal(unavailable.status, 503);
   assert.deepEqual(await unavailable.json(), { error: 'rate_limit_unavailable' });
+});
+
+test('a fail-closed limiter allows only a `true` answer: any other value is unavailable', async () => {
+  const answering = (data) => ({ async rpc() { return { data, error: null }; } });
+  const unexpected = [null, undefined, 0, 1, 21, '', 'f', 'true', {}, { allowed: false }, { allowed: true }, [], [{ allowed: false }]];
+  for (const [index, data] of unexpected.entries()) {
+    const closed = await quietly(() => durableRateLimit(answering(data), [`odd-closed:${index}`], 5,
+      { fn: 'fn-closed', failClosed: true }));
+    assert.equal(closed.result, 'unavailable', `${JSON.stringify(data)} must not count as allowed`);
+    assert.ok(closed.errors.some((line) => line.includes('[fn-closed] durable rate limit unavailable')
+      && line.includes('unexpected result')), JSON.stringify(data));
+    // The fail-open default keeps today's outcome, but now logs the degradation.
+    const open = await quietly(() => durableRateLimit(answering(data), [`odd-open:${index}`], 5, { fn: 'fn-open' }));
+    assert.equal(open.result, 'allowed', JSON.stringify(data));
+    assert.ok(open.errors.some((line) => line.includes('[fn-open] durable rate limit unavailable')), JSON.stringify(data));
+  }
+  // Every key must answer `true`: one odd answer beside a `true` is unavailable.
+  let call = 0;
+  const mixed = { async rpc() { call += 1; return { data: call === 1 ? true : null, error: null }; } };
+  assert.equal((await quietly(() => durableRateLimit(mixed, ['odd-mixed:a', 'odd-mixed:b'], 5,
+    { fn: 'fn-closed', failClosed: true }))).result, 'unavailable');
+  // A `false` from any key still throttles, whatever the other key said.
+  call = 0;
+  const throttledBeside = { async rpc() { call += 1; return call === 1 ? { data: false, error: null } : { data: null, error: { message: 'down' } }; } };
+  assert.equal((await quietly(() => durableRateLimit(throttledBeside, ['odd-false:a', 'odd-false:b'], 5,
+    { fn: 'fn-closed', failClosed: true }))).result, 'throttled');
+  // And `true` from every key is allowed, silently.
+  const allowed = await quietly(() => durableRateLimit(answering(true), ['odd-true:a', 'odd-true:b'], 5,
+    { fn: 'fn-closed', failClosed: true }));
+  assert.equal(allowed.result, 'allowed');
+  assert.deepEqual(allowed.errors, []);
+});
+
+const day = () => new Date().toISOString().slice(0, 10);
+const plainHash = (text) => createHash('sha256').update(text).digest('hex').slice(0, 24);
+const hmacKey = (secret, address) => createHmac('sha256', secret).update(`rate-key-v2:${day()}:${address}`)
+  .digest('hex').slice(0, 24);
+
+test('a stored key cannot be reversed by hashing candidate addresses without the server secret', async () => {
+  const VICTIM = '203.0.113.77';
+  const key = await ipKey(request({ 'cf-connecting-ip': VICTIM }));
+  assert.equal(key, hmacKey(SERVICE_KEY, VICTIM), 'the key is an HMAC under the service role key');
+  // The reviewer's attack: hash "<public day>:<ip>" (and other unkeyed forms)
+  // for every address in the victim's /24. None of them reproduces the key.
+  for (let host = 0; host < 256; host += 1) {
+    const address = `203.0.113.${host}`;
+    for (const guess of [`${day()}:${address}`, `rate-key-v2:${day()}:${address}`, address]) {
+      assert.notEqual(plainHash(guess), key, guess);
+    }
+  }
+  // A dedicated secret takes precedence, and a different secret gives a different key.
+  env = { SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, RATE_LIMIT_KEY_SECRET: 'r'.repeat(48) };
+  try {
+    const dedicated = await ipKey(request({ 'cf-connecting-ip': VICTIM }));
+    assert.equal(dedicated, hmacKey('r'.repeat(48), VICTIM));
+    assert.notEqual(dedicated, key);
+  } finally {
+    env = { SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY };
+  }
+  assert.equal(await ipKey(request({ 'cf-connecting-ip': VICTIM })), key, 'the key follows the configured secret');
+});
+
+test('without any secret a function uses a random per-instance one, and says so once', async () => {
+  env = {};
+  const errors = [];
+  const original = console.error;
+  console.error = (...args) => errors.push(args.join(' '));
+  try {
+    const first = await loadSecurity();
+    const a = await first.ipKey(request({ 'cf-connecting-ip': CLIENT }));
+    assert.equal(await first.ipKey(request({ 'cf-connecting-ip': CLIENT })), a, 'stable within an instance');
+    assert.notEqual(a, plainHash(`${day()}:${CLIENT}`));
+    assert.notEqual(a, hmacKey('', CLIENT));
+    const second = await loadSecurity();
+    assert.notEqual(await second.ipKey(request({ 'cf-connecting-ip': CLIENT })), a, 'another instance has another secret');
+    assert.equal(errors.filter((line) => line.includes('caller keys are per-instance')).length, 2, 'one line per instance');
+  } finally {
+    console.error = original;
+    env = { SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY };
+  }
 });

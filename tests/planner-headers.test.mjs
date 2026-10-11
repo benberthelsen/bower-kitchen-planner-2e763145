@@ -2,7 +2,8 @@
 // file the way Pages applies it: every rule whose path matches contributes
 // its headers, in file order, and a header set by two rules is joined with
 // ", ". Checks the headers each route gets, that /wizard/scan keeps camera
-// and WebXR, and that the report-only CSP admits every origin the app loads.
+// and WebXR, that the report-only CSP admits every origin the app loads, and
+// that its violation reports reach the csp-report function.
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -136,4 +137,25 @@ test('connect-src and the other directives admit every origin the app loads', ()
   // Decoders and troika run in blob: workers; Draco and meshopt need WebAssembly.
   assert.ok(csp.get('worker-src').includes('blob:'));
   assert.ok(csp.get('script-src').includes("'wasm-unsafe-eval'"));
+});
+
+test('CSP violations are reported to the csp-report function, through report-uri and report-to', () => {
+  const endpoint = 'https://ehtwywctledgkxexztbh.supabase.co/functions/v1/csp-report';
+  for (const path of routes) {
+    const headers = headersFor(path);
+    const csp = directives(headers.get('content-security-policy-report-only'));
+    assert.deepEqual(csp.get('report-uri'), [endpoint], `${path}: report-uri`);
+    const [group, ...extra] = csp.get('report-to') ?? [];
+    assert.ok(group && !extra.length, `${path}: report-to names one endpoint group`);
+    const declared = new Map((headers.get('reporting-endpoints') ?? '').split(',').map((entry) => entry.trim())
+      .filter(Boolean).map((entry) => {
+        const match = entry.match(/^([a-z0-9_-]+)="([^"]+)"$/i);
+        assert.ok(match, `${path}: Reporting-Endpoints entry ${entry}`);
+        return [match[1], match[2]];
+      }));
+    assert.equal(declared.get(group), endpoint, `${path}: Reporting-Endpoints declares ${group}`);
+  }
+  // The endpoint is a function in this repository that browsers can reach without a JWT.
+  assert.ok(existsSync(new URL('../supabase/functions/csp-report/index.ts', import.meta.url)));
+  assert.match(read('supabase/config.toml'), /\[functions\.csp-report\]\s+verify_jwt = false/);
 });

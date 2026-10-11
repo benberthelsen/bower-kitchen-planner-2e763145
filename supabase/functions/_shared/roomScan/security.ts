@@ -9,9 +9,10 @@
  * - Generic, stable public error codes; existence is never revealed to an
  *   invalid capability.
  * - Body-size caps before JSON parsing; POST-only data operations.
- * - Per-instance and durable rate limiting keyed by pseudonymous IP hashes
- *   (daily salt, never a durable raw IP), counted against the platform
- *   address and the leftmost X-Forwarded-For entry alike.
+ * - Per-instance and durable rate limiting keyed by pseudonymous IP keys
+ *   (HMAC under a server-side secret and the day, never a durable raw IP),
+ *   counted against the platform address and the leftmost X-Forwarded-For
+ *   entry alike.
  * - Redacted logging: function name, outcome, duration, request id only.
  */
 
@@ -120,9 +121,41 @@ export function addressBucket(raw: string): string {
   return `${groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, '')).join(':')}::/64`;
 }
 
+// The caller-key secret. A plain hash of "<day>:<ip>" can be reversed by
+// hashing every IPv4 address, so keys are an HMAC under a value only the
+// server holds: RATE_LIMIT_KEY_SECRET when it is set, otherwise the service
+// role key that every function already has. With neither (a misconfigured
+// function), a random per-instance secret keeps keys irreversible, at the
+// cost of each instance counting under its own durable keys.
+let instanceSecret: string | null = null;
+let hmacKey: { secret: string; key: Promise<CryptoKey> } | null = null;
+function rateKeySecret(): string {
+  const configured = Deno.env.get('RATE_LIMIT_KEY_SECRET') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (configured) return configured;
+  if (!instanceSecret) {
+    instanceSecret = generateToken();
+    console.error('[rate-limit] no RATE_LIMIT_KEY_SECRET or SUPABASE_SERVICE_ROLE_KEY: caller keys are per-instance');
+  }
+  return instanceSecret;
+}
+async function keyedHex(text: string): Promise<string> {
+  const secret = rateKeySecret();
+  if (hmacKey?.secret !== secret) {
+    hmacKey = {
+      secret,
+      key: crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    };
+  }
+  const signature = await crypto.subtle.sign('HMAC', await hmacKey.key, new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 /**
- * Pseudonymous, day-scoped caller keys, platform address first. Never store
- * or log a raw IP.
+ * Pseudonymous, day-scoped caller keys, platform address first: an HMAC of
+ * "<day>:<address>" under the server-side secret above. Never store or log a
+ * raw IP, or anything a guess of the IP can be checked against.
  *
  * The leftmost X-Forwarded-For entry is whatever the client wrote whenever
  * the gateway appends to a client-sent header (reported for Supabase in 2025
@@ -142,9 +175,9 @@ export async function ipKeys(req: Request): Promise<string[]> {
   const addresses = [platform, leftmost]
     .filter((value): value is string => Boolean(value))
     .map(addressBucket);
-  const daySalt = new Date().toISOString().slice(0, 10);
+  const day = new Date().toISOString().slice(0, 10);
   const distinct = [...new Set(addresses.length ? addresses : ['unknown'])];
-  return Promise.all(distinct.map(async (address) => (await sha256Hex(`${daySalt}:${address}`)).slice(0, 24)));
+  return Promise.all(distinct.map(async (address) => (await keyedHex(`rate-key-v2:${day}:${address}`)).slice(0, 24)));
 }
 
 /** The first of ipKeys: the platform address when there is one. */
@@ -187,8 +220,11 @@ export type RateLimitResult = 'allowed' | 'throttled' | 'unavailable';
  * with the per-instance limiter as the fast path. Every key is bumped, and
  * the request is throttled when any key is over the limit.
  *
- * When the RPC fails the default is to fall back to the per-instance limiter
- * and log the degradation. `failClosed: true` answers 'unavailable' instead;
+ * Only a boolean answer counts: `false` throttles and `true` allows. An error,
+ * a throw or any other value (null, a count, a row) means the store is
+ * unavailable. The default is then to fall back to the per-instance limiter
+ * and log the degradation. `failClosed: true` answers 'unavailable' instead,
+ * so a fail-closed request is allowed only when every key came back `true`;
  * use it on every path that sends email.
  */
 export async function durableRateLimit(
@@ -211,9 +247,12 @@ export async function durableRateLimit(
     }
   }));
   if (results.some((result) => !result.error && result.data === false)) return 'throttled';
-  const failed = results.find((result) => result.error);
+  const failed = results.find((result) => result.error || result.data !== true);
   if (failed) {
-    console.error(`[${options.fn}] durable rate limit unavailable`, String(failed.error?.message ?? '').slice(0, 200));
+    const reason = failed.error
+      ? String(failed.error.message ?? '')
+      : `unexpected result (${failed.data === null ? 'null' : typeof failed.data})`;
+    console.error(`[${options.fn}] durable rate limit unavailable`, reason.slice(0, 200));
     if (options.failClosed) return 'unavailable';
   }
   return 'allowed';

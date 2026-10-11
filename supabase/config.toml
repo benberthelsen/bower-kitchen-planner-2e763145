@@ -32,6 +32,11 @@ verify_jwt = false
 [functions.get-planner-handoff]
 verify_jwt = false
 
+# Browsers post CSP violation reports without a JWT. The function keeps only
+# daily aggregate counts (see public/_headers).
+[functions.csp-report]
+verify_jwt = false
+
 # Synthetic usability control is protected by a separate server-only secret.
 # It never accepts a public URL flag and has no browser-readable data policies.
 [functions.synthetic-test-control]
