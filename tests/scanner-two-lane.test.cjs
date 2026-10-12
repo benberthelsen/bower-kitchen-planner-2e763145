@@ -255,11 +255,17 @@ ok(
     && manualEntrySource.includes('offsetMm + widthMm > lengthMm'),
 );
 ok(
-  'scanner UI: assisted wall lock keeps a manual fallback',
+  'scanner UI: assisted wall lock keeps a two-aim method and a manual fallback',
   scanRoomSource.includes('Smart wall lock')
     && scanRoomSource.includes('intersectDetectedWallLines')
-    && scanRoomSource.includes('Use 4-point fallback'),
+    && scanRoomSource.includes('hiddenCornerFromAims')
+    && scanRoomSource.includes('Four-point fallback')
+    && scanRoomSource.includes('wallTapIssue(hit)'),
 );
+// Tracking loss, the floor-ray and wall-edge readings, saved progress, the
+// resume card and the dom-overlay fallback are driven for real, with a fake
+// AR session, by scripts/quick-scan-capture-smoke.tsx (test:quick-scan-capture).
+// Source-string checks for them passed with the behaviour broken.
 ok(
   'scanner UI: makes floor and wall plane acquisition visible',
   scanRoomSource.includes('Floor locked')
