@@ -42,10 +42,10 @@ import { fingerprintV1 } from '../_shared/roomScan/fingerprint.ts';
 import {
   errorResponse,
   gate,
-  ipKey,
   jsonResponse,
   logOutcome,
   newRequestId,
+  rateKeys,
   rateLimited,
   readJsonBody,
 } from '../_shared/roomScan/security.ts';
@@ -93,7 +93,7 @@ serve(async (req) => {
       return errorResponse(req, 500, 'not_configured');
     }
 
-    if (rateLimited(`promote:${await ipKey(req)}`, 60)) {
+    if (rateLimited(await rateKeys(req, 'promote'), 60)) {
       logOutcome('promote-ai-design', requestId, 'throttled', started);
       return errorResponse(req, 429, 'rate_limited');
     }

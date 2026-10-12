@@ -95,6 +95,8 @@ globalThis.__fakeSupabase = {
       },
       async rpc(name, args) {
         calls.push({ op: 'rpc', name, key, args });
+        // get-planner-handoff's durable rate limit; never over the limit here.
+        if (name === 'bump_edge_rate_limit_v1') return { data: true, error: null };
         if (name !== 'is_bower_staff') return { data: null, error: { message: 'unknown function' } };
         return { data: staffIds.has(args.p_user), error: null };
       },
@@ -212,7 +214,7 @@ test('get-planner-handoff: website rows open with the token alone', async () => 
     assert.equal(result.body.payload.source, 'website');
   }
   const noStaffCheck = await call(getHandoff, { handoffId: websiteId, token: TOKEN });
-  assert.equal(calls.some((entry) => entry.op === 'getUser' || entry.op === 'rpc'), false,
+  assert.equal(calls.some((entry) => entry.op === 'getUser' || entry.name === 'is_bower_staff'), false,
     'without Authorization there is no identity to look up');
   assert.equal(noStaffCheck.status, 200);
 });
@@ -280,7 +282,7 @@ test('get-planner-handoff: staff open a scanner row and see its expiry', async (
   const result = await call(getHandoff, { handoffId: scannerId, token: TOKEN }, STAFF_JWT);
   assert.equal(result.status, 200);
   assert.equal(result.body.payload.source, 'scanner');
-  assert.deepEqual(calls.find((entry) => entry.op === 'rpc'),
+  assert.deepEqual(calls.find((entry) => entry.name === 'is_bower_staff'),
     { op: 'rpc', name: 'is_bower_staff', key: SERVICE_KEY, args: { p_user: STAFF_ID } });
   const expired = await call(getHandoff, { handoffId: expiredScannerId, token: TOKEN }, STAFF_JWT);
   assert.equal(expired.status, 410);

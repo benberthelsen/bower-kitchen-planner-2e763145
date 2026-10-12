@@ -5,8 +5,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
-  corsHeaders, errorResponse, gate, ipKey, jsonResponse, logOutcome,
-  newRequestId, rateLimited,
+  corsHeaders, errorResponse, gate, jsonResponse, logOutcome,
+  newRequestId, rateKeys, rateLimited,
 } from '../_shared/roomScan/security.ts';
 import {
   bridgeOrigins, parseScannerBridgeInput, readBoundedBytes, savedRoomMatchesCapture,
@@ -35,7 +35,7 @@ serve(async (req) => {
   if (!jwt) return fail(401, 'not_authorized');
   if (Number(req.headers.get('content-length') ?? '0') > MAX_REQUEST_BYTES)
     return fail(413, 'body_too_large');
-  if (rateLimited(`private:${await ipKey(req)}`, 300)) return fail(429, 'rate_limited');
+  if (rateLimited(await rateKeys(req, 'private'), 300)) return fail(429, 'rate_limited');
 
   const requestBytes = await readBoundedBytes(req, MAX_REQUEST_BYTES);
   if (!requestBytes) return fail(413, 'body_too_large');
