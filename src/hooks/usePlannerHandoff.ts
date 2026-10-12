@@ -7,8 +7,9 @@
 //    explicit staff/admin roles (`is_bower_staff`).
 //
 // Mutations NEVER happen from the browser: consumption/linking runs inside
-// `submit_planner_enquiry_v1` (homeowner) or `link_trade_handoff_v1` (trade,
-// via the `link-trade-handoff` function). The old on-load consume is gone.
+// `submit_planner_enquiry_v1` (homeowner) or `link_trade_handoff_v2` (trade,
+// via the `link-trade-handoff` function, bound to the handoff token). The old
+// on-load consume is gone.
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -130,11 +131,16 @@ export function captureHandoffToken(handoffId: string | null): string | null {
   }
 }
 
-/** Trade path: link + consume AFTER the job exists. Non-fatal on failure —
- *  the job still works; admin just won't see the lead link. */
-export async function linkTradeHandoff(handoffId: string, jobId: string): Promise<void> {
+/** Trade path: link + consume AFTER the job exists. Pass the token from
+ *  captureHandoffToken: anyone who is not Bower staff needs it to link
+ *  (link_trade_handoff_v2); staff reading the row directly may pass null.
+ *  Non-fatal on failure — the job still works; admin just won't see the lead
+ *  link. */
+export async function linkTradeHandoff(handoffId: string, jobId: string, token: string | null): Promise<void> {
   try {
-    await supabase.functions.invoke('link-trade-handoff', { body: { handoffId, jobId } });
+    await supabase.functions.invoke('link-trade-handoff', {
+      body: { handoffId, jobId, ...(token ? { token } : {}) },
+    });
   } catch {
     // Non-fatal by design.
   }

@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
+import { buildTradeCandidates, type TradeCandidate } from '@/lib/tradeCandidates';
 import { toast } from 'sonner';
 import { Search, Mail, Phone } from 'lucide-react';
 
@@ -18,8 +20,13 @@ interface Customer {
   total_spent?: number;
 }
 
+const formatDate = (value: string | null) => (value ? new Date(value).toLocaleDateString() : '—');
+
 export default function AdminCustomers() {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [tradeCandidates, setTradeCandidates] = useState<TradeCandidate[]>([]);
+  const [tradeListError, setTradeListError] = useState(false);
+  const [pendingTradeId, setPendingTradeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -39,9 +46,9 @@ export default function AdminCustomers() {
       if (profilesError) throw profilesError;
 
       // Get job stats for each customer
-      const { data: jobs } = await supabase
+      const { data: jobs, error: jobsError } = await supabase
         .from('jobs')
-        .select('customer_id, cost_incl_tax');
+        .select('customer_id, cost_incl_tax, created_at, updated_at');
 
       const jobStats = new Map<string, { count: number; total: number }>();
       jobs?.forEach(job => {
@@ -59,11 +66,75 @@ export default function AdminCustomers() {
       })) || [];
 
       setCustomers(customersWithStats);
+
+      // Trade approval list: roles (to leave staff out) and current approvals.
+      // trade_accounts is newer than the generated types. Without the jobs
+      // the job owners could not be told apart, so that is an error too.
+      const [rolesResult, tradeResult] = await Promise.all([
+        supabase.from('user_roles').select('user_id, role'),
+        (supabase as any).from('trade_accounts').select('user_id, approved_at'),
+      ]);
+      if (jobsError || rolesResult.error || tradeResult.error) {
+        setTradeListError(true);
+        setTradeCandidates([]);
+      } else {
+        setTradeListError(false);
+        setTradeCandidates(buildTradeCandidates(profiles ?? [], jobs ?? [], rolesResult.data ?? [],
+          tradeResult.data ?? []));
+      }
     } catch (error) {
       console.error('Error loading customers:', error);
       toast.error('Failed to load customers');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const setTradeApproval = (userId: string, approvedAt: string | null) => {
+    setTradeCandidates(current => current.map(candidate => candidate.profile.id === userId
+      ? { ...candidate, approved: approvedAt !== null, approvedAt }
+      : candidate));
+  };
+
+  const approveTrade = async (candidate: TradeCandidate) => {
+    setPendingTradeId(candidate.profile.id);
+    try {
+      // approved_by defaults to the signed-in admin; RLS requires it to match.
+      const { data, error } = await (supabase as any)
+        .from('trade_accounts')
+        .insert({ user_id: candidate.profile.id })
+        .select('approved_at')
+        .single();
+      if (error) throw error;
+      setTradeApproval(candidate.profile.id, data?.approved_at ?? new Date().toISOString());
+      toast.success(`Approved ${candidate.profile.email || 'account'} for trade`);
+    } catch (error) {
+      console.error('Error approving trade account:', error);
+      toast.error('Could not approve this account');
+    } finally {
+      setPendingTradeId(null);
+    }
+  };
+
+  const revokeTrade = async (candidate: TradeCandidate) => {
+    if (!confirm(`Revoke trade approval for ${candidate.profile.email || 'this account'}?`)) return;
+    setPendingTradeId(candidate.profile.id);
+    try {
+      // RLS turns a refused delete into "no rows", so check one was removed.
+      const { data, error } = await (supabase as any)
+        .from('trade_accounts')
+        .delete()
+        .eq('user_id', candidate.profile.id)
+        .select('user_id');
+      if (error) throw error;
+      if (!data?.length) throw new Error('trade approval was not removed');
+      setTradeApproval(candidate.profile.id, null);
+      toast.success(`Revoked trade approval for ${candidate.profile.email || 'account'}`);
+    } catch (error) {
+      console.error('Error revoking trade account:', error);
+      toast.error('Could not revoke this approval');
+    } finally {
+      setPendingTradeId(null);
     }
   };
 
@@ -89,6 +160,84 @@ export default function AdminCustomers() {
         <h1 className="text-2xl font-bold">Customers</h1>
         <p className="text-gray-500">{customers.length} total customers</p>
       </div>
+
+      {/* Trade approval: decided per account by an admin; nothing starts approved. */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Trade access</CardTitle>
+          <p className="text-sm text-gray-500">
+            Approve the accounts that should be treated as trade. Accounts that own jobs are listed
+            first. Staff and admin accounts already count as trade and are not listed. Approving does
+            not change what an account can see yet.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-gray-500">Loading...</p>
+          ) : tradeListError ? (
+            <p className="text-sm text-red-600">The trade approval list could not be loaded.</p>
+          ) : tradeCandidates.length === 0 ? (
+            <p className="text-gray-500">No accounts to review</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account</TableHead>
+                    <TableHead>Signed up as</TableHead>
+                    <TableHead className="text-right">Jobs</TableHead>
+                    <TableHead>First job</TableHead>
+                    <TableHead>Last job activity</TableHead>
+                    <TableHead>Joined</TableHead>
+                    <TableHead>Trade</TableHead>
+                    <TableHead><span className="sr-only">Action</span></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tradeCandidates.map(candidate => (
+                    <TableRow key={candidate.profile.id}>
+                      <TableCell>
+                        <div className="font-medium">{candidate.profile.full_name || 'Unnamed'}</div>
+                        <div className="text-xs text-gray-500">{candidate.profile.email}</div>
+                        {candidate.profile.company_name && (
+                          <div className="text-xs text-gray-500">{candidate.profile.company_name}</div>
+                        )}
+                      </TableCell>
+                      <TableCell>{candidate.profile.user_type || 'consumer'}</TableCell>
+                      <TableCell className="text-right">{candidate.jobCount}</TableCell>
+                      <TableCell>{formatDate(candidate.firstJobAt)}</TableCell>
+                      <TableCell>{formatDate(candidate.lastJobAt)}</TableCell>
+                      <TableCell>{formatDate(candidate.profile.created_at)}</TableCell>
+                      <TableCell>
+                        {candidate.approved ? (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                            Approved {formatDate(candidate.approvedAt)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-500">Not approved</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {candidate.approved ? (
+                          <Button size="sm" variant="outline" disabled={pendingTradeId !== null}
+                            onClick={() => revokeTrade(candidate)}>
+                            Revoke
+                          </Button>
+                        ) : (
+                          <Button size="sm" disabled={pendingTradeId !== null}
+                            onClick={() => approveTrade(candidate)}>
+                            Approve
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Search */}
       <Card className="mb-6">

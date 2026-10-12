@@ -334,7 +334,7 @@ export default function JobEditor() {
       await upsertRoom({ jobId, room: updatedRoom,
         expectedRoomRevision: room.roomDocument?.revision ?? null });
       updateRoom(room.id, updatedRoom);
-      if (handoffId) void linkTradeHandoff(handoffId, jobId);
+      if (handoffId) void linkTradeHandoff(handoffId, jobId, handoffToken);
       const captureId = nextDocument.capture?.captureId;
       const session = captureId ? (scannerSession?.captureId === captureId ? scannerSession : readScannerSession(captureId)) : null;
       const advanced = nextDocument.capture?.sourceRevision !== room.roomDocument?.capture?.sourceRevision;
@@ -467,9 +467,10 @@ export default function JobEditor() {
         return;
       }
       // WS5 loop closure: link the created job back onto the handoff/lead row
-      // so admin Leads can connect lead → job. Runs through the authenticated
-      // link_trade_handoff_v1 RPC — direct table updates are RLS-denied.
-      if (handoffId) void linkTradeHandoff(handoffId, newId);
+      // so admin Leads can connect lead → job. Runs through the authenticated,
+      // token-bound link_trade_handoff_v2 RPC — direct table updates are
+      // RLS-denied.
+      if (handoffId) void linkTradeHandoff(handoffId, newId, handoffToken);
 
       const roomScannerSession = scannerSession ?? (firstRoom.roomDocument?.capture?.captureId
         ? readScannerSession(firstRoom.roomDocument.capture.captureId) : null);
