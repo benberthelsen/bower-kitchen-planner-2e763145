@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { type AppRole, resolveRoles } from '@/lib/authRoles';
 
-export type AppRole = 'admin' | 'moderator' | 'user';
+export type { AppRole };
 export type UserType = 'consumer' | 'trade';
 
 interface AuthState {
@@ -10,6 +11,10 @@ interface AuthState {
   session: Session | null;
   loading: boolean;
   isAdmin: boolean;
+  /** Admin-approved trade account (trade_accounts). Not the same as
+   *  userType, which the person picks at sign-up. Grants nothing yet. */
+  isTrade: boolean;
+  roles: AppRole[];
   userRole: AppRole | null;
   userType: UserType;
 }
@@ -20,6 +25,8 @@ export function useAuth() {
     session: null,
     loading: true,
     isAdmin: false,
+    isTrade: false,
+    roles: [],
     userRole: null,
     userType: 'consumer',
   });
@@ -47,6 +54,8 @@ export function useAuth() {
         setAuthState((prev) => ({
           ...prev,
           isAdmin: false,
+          isTrade: false,
+          roles: [],
           userRole: null,
           userType: 'consumer',
           loading: false,
@@ -76,27 +85,30 @@ export function useAuth() {
     setAuthState((prev) => ({ ...prev, loading: true }));
 
     try {
-      // Fetch role and profile in parallel
-      const [roleResult, profileResult] = await Promise.all([
+      // Fetch roles, profile and trade approval in parallel. Every role row
+      // is read: .single() failed for an account with two roles.
+      const [roleResult, profileResult, tradeResult] = await Promise.all([
         supabase
           .from('user_roles')
           .select('role')
-          .eq('user_id', userId)
-          .single(),
+          .eq('user_id', userId),
         supabase
           .from('profiles')
           .select('user_type')
           .eq('id', userId)
           .single(),
+        // RLS returns only the caller's own row. trade_accounts is newer than
+        // the generated types.
+        (supabase as any)
+          .from('trade_accounts')
+          .select('user_id')
+          .eq('user_id', userId)
+          .maybeSingle(),
       ]);
 
-      let role: AppRole | null = null;
+      const { roles, isAdmin, userRole } = resolveRoles(roleResult.error ? [] : roleResult.data);
+      const isTrade = !tradeResult.error && Boolean(tradeResult.data);
       let userType: UserType = 'consumer';
-
-      // Handle role result
-      if (roleResult.error?.code !== 'PGRST116' && !roleResult.error) {
-        role = (roleResult.data?.role as AppRole | null) ?? null;
-      }
 
       // Handle profile result
       if (!profileResult.error && profileResult.data?.user_type) {
@@ -105,8 +117,10 @@ export function useAuth() {
 
       setAuthState((prev) => ({
         ...prev,
-        isAdmin: role === 'admin',
-        userRole: role,
+        isAdmin,
+        isTrade,
+        roles,
+        userRole,
         userType,
         loading: false,
       }));

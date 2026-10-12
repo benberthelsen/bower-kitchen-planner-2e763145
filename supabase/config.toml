@@ -64,3 +64,10 @@ verify_jwt = true
 # gateway. SCANNER_SITES_ACCESS_TOKEN is an Edge secret, never a VITE_ value.
 [functions.scanner-private-bridge]
 verify_jwt = true
+
+# Production runs these without the gateway JWT check; each checks auth itself.
+[functions.send-email]
+verify_jwt = false
+
+[functions.promote-ai-design]
+verify_jwt = false
