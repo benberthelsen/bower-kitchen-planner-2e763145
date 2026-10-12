@@ -4,8 +4,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { evaluateRoomDocumentCandidateRequest } from '../_shared/layout/roomDocumentCandidateApi.ts';
 import {
-  errorResponse, gate, ipKey, jsonResponse, logOutcome, newRequestId,
-  rateLimited, readJsonBody,
+  errorResponse, gate, jsonResponse, logOutcome, newRequestId,
+  rateKeys, rateLimited, readJsonBody,
 } from '../_shared/roomScan/security.ts';
 
 serve(async (req) => {
@@ -13,7 +13,7 @@ serve(async (req) => {
   const requestId = newRequestId();
   const gated = gate(req);
   if (gated) return gated;
-  if (rateLimited(`room-document-candidates:${await ipKey(req)}`, 60)) {
+  if (rateLimited(await rateKeys(req, 'room-document-candidates'), 60)) {
     logOutcome('room-document-candidates', requestId, 'throttled', started);
     return errorResponse(req, 429, 'rate_limited');
   }

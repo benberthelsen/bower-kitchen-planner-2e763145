@@ -7,8 +7,9 @@
 //    explicit staff/admin roles (`is_bower_staff`).
 //
 // Mutations NEVER happen from the browser: consumption/linking runs inside
-// `submit_planner_enquiry_v1` (homeowner) or `link_trade_handoff_v1` (trade,
-// via the `link-trade-handoff` function). The old on-load consume is gone.
+// `submit_planner_enquiry_v1` (homeowner) or `link_trade_handoff_v2` (trade,
+// via the `link-trade-handoff` function, bound to the handoff token). The old
+// on-load consume is gone.
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -41,14 +42,13 @@ export interface WebsitePlannerHandoff {
   roomCaptureDraft?: RoomCaptureDraftV1;
 }
 
+/** Handoffs carry no contact details: create-planner-handoff stores the
+ *  lead_* columns as NULL, and the browser never selects them. */
 export interface PlannerHandoffRow {
   id: string;
   created_at: string;
   source: string;
   payload: WebsitePlannerHandoff;
-  lead_name: string | null;
-  lead_email: string | null;
-  lead_phone: string | null;
   consumed_at: string | null;
   job_id: string | null;
 }
@@ -71,7 +71,7 @@ export function usePlannerHandoff(handoffId: string | null) {
     queryFn: async (): Promise<PlannerHandoffRow | null> => {
       const { data, error } = await sb
         .from('planner_handoffs')
-        .select('*')
+        .select('id, created_at, source, payload, consumed_at, job_id')
         .eq('id', handoffId!)
         .maybeSingle();
       if (error) throw error;
@@ -83,7 +83,6 @@ export function usePlannerHandoff(handoffId: string | null) {
 
 export interface TokenizedHandoff {
   payload: WebsitePlannerHandoff;
-  leadName: string | null;
   consumedAt: string | null;
   expiresAt: string | null;
 }
@@ -130,11 +129,16 @@ export function captureHandoffToken(handoffId: string | null): string | null {
   }
 }
 
-/** Trade path: link + consume AFTER the job exists. Non-fatal on failure —
- *  the job still works; admin just won't see the lead link. */
-export async function linkTradeHandoff(handoffId: string, jobId: string): Promise<void> {
+/** Trade path: link + consume AFTER the job exists. Pass the token from
+ *  captureHandoffToken: anyone who is not Bower staff needs it to link
+ *  (link_trade_handoff_v2); staff reading the row directly may pass null.
+ *  Non-fatal on failure — the job still works; admin just won't see the lead
+ *  link. */
+export async function linkTradeHandoff(handoffId: string, jobId: string, token: string | null): Promise<void> {
   try {
-    await supabase.functions.invoke('link-trade-handoff', { body: { handoffId, jobId } });
+    await supabase.functions.invoke('link-trade-handoff', {
+      body: { handoffId, jobId, ...(token ? { token } : {}) },
+    });
   } catch {
     // Non-fatal by design.
   }

@@ -88,7 +88,8 @@ check('Edge Function creates sessions and atomically persists proposals', () =>
 check('AI endpoint uses restricted CORS/body/rate helpers', () =>
   edge.includes('const gated = gate(req)')
   && edge.includes('readJsonBody(req)')
-  && edge.includes('ipKey(req)')
+  && edge.includes("rateKeys(req, 'ai-designer')")
+  && edge.includes('durableRateLimit(service')
   && !edge.includes("'Access-Control-Allow-Origin': '*'"));
 
 check('AI endpoint does not return raw provider failures', () =>
