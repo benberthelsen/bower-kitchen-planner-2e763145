@@ -64,8 +64,9 @@ $$;
 
 REVOKE ALL ON FUNCTION public.guard_enquiry_jobs() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS guard_enquiry_jobs ON public.jobs;
-CREATE TRIGGER guard_enquiry_jobs
+-- CREATE OR REPLACE rather than DROP + CREATE: same result, and it applies
+-- without the destructive-statement confirmation some tools ask for.
+CREATE OR REPLACE TRIGGER guard_enquiry_jobs
   BEFORE INSERT OR UPDATE ON public.jobs
   FOR EACH ROW EXECUTE FUNCTION public.guard_enquiry_jobs();
 

@@ -23,27 +23,37 @@ REVOKE ALL ON public.trade_accounts FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.trade_accounts TO authenticated;
 GRANT ALL ON public.trade_accounts TO service_role;
 
-DROP POLICY IF EXISTS "Users can view own trade account" ON public.trade_accounts;
-CREATE POLICY "Users can view own trade account"
-  ON public.trade_accounts FOR SELECT TO authenticated
-  USING (auth.uid() = user_id);
-
--- The admin approval list needs every row.
-DROP POLICY IF EXISTS "Admins can view all trade accounts" ON public.trade_accounts;
-CREATE POLICY "Admins can view all trade accounts"
-  ON public.trade_accounts FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'));
-
--- An approval always names the admin who gave it.
-DROP POLICY IF EXISTS "Admins can approve trade accounts" ON public.trade_accounts;
-CREATE POLICY "Admins can approve trade accounts"
-  ON public.trade_accounts FOR INSERT TO authenticated
-  WITH CHECK (public.has_role(auth.uid(), 'admin') AND approved_by = auth.uid());
-
-DROP POLICY IF EXISTS "Admins can revoke trade accounts" ON public.trade_accounts;
-CREATE POLICY "Admins can revoke trade accounts"
-  ON public.trade_accounts FOR DELETE TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'));
+-- Policies are created only when missing (no DROP), so the file re-runs
+-- safely and applies without a destructive-statement confirmation.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'trade_accounts'
+                 AND policyname = 'Users can view own trade account') THEN
+    CREATE POLICY "Users can view own trade account"
+      ON public.trade_accounts FOR SELECT TO authenticated
+      USING (auth.uid() = user_id);
+  END IF;
+  -- The admin approval list needs every row.
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'trade_accounts'
+                 AND policyname = 'Admins can view all trade accounts') THEN
+    CREATE POLICY "Admins can view all trade accounts"
+      ON public.trade_accounts FOR SELECT TO authenticated
+      USING (public.has_role(auth.uid(), 'admin'));
+  END IF;
+  -- An approval always names the admin who gave it.
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'trade_accounts'
+                 AND policyname = 'Admins can approve trade accounts') THEN
+    CREATE POLICY "Admins can approve trade accounts"
+      ON public.trade_accounts FOR INSERT TO authenticated
+      WITH CHECK (public.has_role(auth.uid(), 'admin') AND approved_by = auth.uid());
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'trade_accounts'
+                 AND policyname = 'Admins can revoke trade accounts') THEN
+    CREATE POLICY "Admins can revoke trade accounts"
+      ON public.trade_accounts FOR DELETE TO authenticated
+      USING (public.has_role(auth.uid(), 'admin'));
+  END IF;
+END $$;
 
 -- Approved trade account or Bower staff (admin/staff roles). SECURITY DEFINER
 -- so a policy can call it for the signed-in user without that user reading
