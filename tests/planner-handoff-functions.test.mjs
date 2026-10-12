@@ -215,8 +215,20 @@ test('create-planner-handoff: forging X-Forwarded-For does not reset the limit',
   create = await loadHandler('../supabase/functions/create-planner-handoff/index.ts');
   statuses.push((await call(create, { payload: websitePayload }, { xff: '203.0.113.99, 198.51.100.7' })).status);
   assert.deepEqual(statuses, [...Array(20).fill(200), 429]);
-  assert.equal(new Set(rateCalls().map((entry) => entry.args.p_key)).size, 22,
-    'each forged entry is counted beside the platform address');
+  assert.equal(new Set(rateCalls().map((entry) => entry.args.p_key)).size, 1,
+    'only the platform address is counted; forged entries are ignored');
+});
+
+test("create-planner-handoff: an attacker naming a victim's address cannot lock the victim out", async () => {
+  reset();
+  let create = await loadHandler('../supabase/functions/create-planner-handoff/index.ts');
+  const attacker = { cf: '198.51.100.66', xff: '198.51.100.7, 198.51.100.66' };
+  const statuses = [];
+  for (let i = 0; i < 21; i += 1) statuses.push((await call(create, { payload: websitePayload }, attacker)).status);
+  assert.deepEqual(statuses, [...Array(20).fill(200), 429], 'the attacker is limited on its own address');
+  // The victim arrives at a cold instance, so only the durable store decides.
+  create = await loadHandler('../supabase/functions/create-planner-handoff/index.ts');
+  assert.equal((await call(create, { payload: websitePayload }, { cf: '198.51.100.7' })).status, 200);
 });
 
 test('create-planner-handoff: an unavailable store still falls back to the per-instance limit', async () => {
