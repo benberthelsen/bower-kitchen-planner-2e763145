@@ -11,8 +11,8 @@
  * - Body-size caps before JSON parsing; POST-only data operations.
  * - Per-instance and durable rate limiting keyed by pseudonymous IP keys
  *   (HMAC under a server-side secret and the day, never a durable raw IP),
- *   counted against the platform address and the leftmost X-Forwarded-For
- *   entry alike.
+ *   counted against the platform address, or the leftmost X-Forwarded-For
+ *   entry only when the platform address is missing.
  * - Redacted logging: function name, outcome, duration, request id only.
  */
 
@@ -153,31 +153,39 @@ async function keyedHex(text: string): Promise<string> {
 }
 
 /**
- * Pseudonymous, day-scoped caller keys, platform address first: an HMAC of
- * "<day>:<address>" under the server-side secret above. Never store or log a
- * raw IP, or anything a guess of the IP can be checked against.
+ * Pseudonymous, day-scoped caller key: an HMAC of "<day>:<address>" under the
+ * server-side secret above. Never store or log a raw IP, or anything a guess
+ * of the IP can be checked against.
  *
- * The leftmost X-Forwarded-For entry is whatever the client wrote whenever
- * the gateway appends to a client-sent header (reported for Supabase in 2025
- * as `forged,<client>`), so it cannot be the only key. CF-Connecting-IP is set
- * by Cloudflare, which fronts Supabase: a client cannot choose it (Cloudflare
- * refuses a request that brings its own, and a Worker on another zone always
- * arrives as one fixed Workers address). Supabase does not document passing
- * it to Edge Functions, so both addresses are returned and every limiter
- * counts the request against each of them: a forged header buys no new
- * bucket, and a request without CF-Connecting-IP is limited as before. The
- * rightmost X-Forwarded-For entry is not used: behind Supabase's gateway it
- * has been an internal hop that every caller shares.
+ * CF-Connecting-IP is set by Cloudflare, which fronts Supabase, and a client
+ * cannot choose it: a request that brings its own is refused at Cloudflare
+ * (403, error 1000, checked against this project on 2026-10-12), and a
+ * Worker on another zone always arrives as one fixed Workers address. When
+ * it is present it is the only key. X-Forwarded-For is then ignored, because
+ * its leftmost entry is whatever the client wrote whenever the gateway
+ * appends to a client-sent header (reported for Supabase in 2025 as
+ * `forged,<client>`). Counting that entry as well would let anyone spend a
+ * victim's allowance by naming the victim's address in the header.
+ *
+ * Supabase does not document passing CF-Connecting-IP to Edge Functions, so
+ * without it the leftmost X-Forwarded-For entry is the key, as before, under
+ * its own `xff:` prefix: a header the client can write never produces the
+ * key of a CF-identified caller. That fallback is spoofable, but every Edge
+ * Function request in Supabase's gateway logs for the day to 2026-10-12
+ * carried CF-Connecting-IP, and a forged X-Forwarded-For sent to the PR #42
+ * limiter in production was not counted. The rightmost entry is never used:
+ * behind Supabase's gateway it has been an internal hop that every caller
+ * shares.
+ *
+ * Returns one key; the array shape lets limiters count several identities.
  */
 export async function ipKeys(req: Request): Promise<string[]> {
   const platform = req.headers.get('cf-connecting-ip')?.trim();
-  const leftmost = req.headers.get('x-forwarded-for')?.split(',')[0].trim();
-  const addresses = [platform, leftmost]
-    .filter((value): value is string => Boolean(value))
-    .map(addressBucket);
+  const identity = platform
+    ? addressBucket(platform)
+    : `xff:${addressBucket(req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown')}`;
   const day = new Date().toISOString().slice(0, 10);
-  const distinct = [...new Set(addresses.length ? addresses : ['unknown'])];
-  return Promise.all(distinct.map(async (address) => (await keyedHex(`rate-key-v2:${day}:${address}`)).slice(0, 24)));
+  return [(await keyedHex(`rate-key-v2:${day}:${identity}`)).slice(0, 24)];
 }
 
 /** The first of ipKeys: the platform address when there is one. */

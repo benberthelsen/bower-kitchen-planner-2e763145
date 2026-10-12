@@ -1,7 +1,7 @@
 // Rate-limit identity for the public Edge Functions. A client can write the
-// leftmost X-Forwarded-For entry, so every limiter also counts the request
-// against Cloudflare's CF-Connecting-IP, and forging the header never buys a
-// fresh bucket. Keys are an HMAC under a server-side secret, so a stored key
+// leftmost X-Forwarded-For entry, so when Cloudflare's CF-Connecting-IP is
+// present it is the only key: forging the header neither buys a fresh bucket
+// nor spends anyone else's. Keys are an HMAC under a server-side secret, so a stored key
 // cannot be reversed by hashing every address, and a fail-closed limiter
 // allows a request only on a `true` answer. Loads the real shared helper
 // with Deno's env stubbed.
@@ -48,20 +48,28 @@ test('without CF-Connecting-IP the leftmost entry is the key, as before', async 
   assert.equal(await ipKey(request({ 'x-forwarded-for': ` ${CLIENT} ,${OTHER}` })), single);
   assert.deepEqual(await ipKeys(request()), await ipKeys(request()), 'no address at all shares one bucket');
   assert.equal((await ipKeys(request())).length, 1);
+  // The fallback has its own namespace: a header the client writes never
+  // yields the key of a caller identified by CF-Connecting-IP.
+  assert.notEqual(single, await ipKey(request({ 'cf-connecting-ip': CLIENT })));
 });
 
-test('ipKeys returns the platform and leftmost addresses, once each, never the rightmost', async () => {
+test('with CF-Connecting-IP, ipKeys is that address alone and X-Forwarded-For is ignored', async () => {
   const keyOf = async (ip) => ipKey(request({ 'cf-connecting-ip': ip }));
   // Supabase's gateway has rebuilt the header as "<client>,<client>,<internal hop>".
   assert.deepEqual(await ipKeys(request({
     'cf-connecting-ip': CLIENT, 'x-forwarded-for': `${CLIENT},${CLIENT}, ${INTERNAL_HOP}`,
   })), [await keyOf(CLIENT)]);
-  // An appending gateway passes a forged entry through first: both are counted.
+  // An appending gateway passes a forged entry through first: it is not counted.
   const forged = await ipKeys(request({
     'cf-connecting-ip': CLIENT, 'x-forwarded-for': `203.0.113.9, ${CLIENT}, ${INTERNAL_HOP}`,
   }));
-  assert.deepEqual(forged, [await keyOf(CLIENT), await keyOf('203.0.113.9')]);
+  assert.deepEqual(forged, [await keyOf(CLIENT)]);
+  assert.ok(!forged.includes(await keyOf('203.0.113.9')), 'a forged entry is never a key');
   assert.ok(!forged.includes(await keyOf(INTERNAL_HOP)), 'the shared internal hop is never a key');
+  // An empty platform header counts as missing (Headers already strip the
+  // surrounding whitespace, so ' ' arrives as '').
+  assert.deepEqual(await ipKeys(request({ 'cf-connecting-ip': '', 'x-forwarded-for': CLIENT })),
+    await ipKeys(request({ 'x-forwarded-for': CLIENT })));
   assert.deepEqual(await rateKeys(request({ 'cf-connecting-ip': CLIENT }), 'create-planner-handoff'),
     [`create-planner-handoff:${await keyOf(CLIENT)}`]);
 });
@@ -86,7 +94,7 @@ test('rateLimited counts every key: rotating a forged X-Forwarded-For does not e
   const results = [];
   for (let i = 0; i < limit + 1; i += 1) {
     const keys = await rateKeys(request({ 'cf-connecting-ip': CLIENT, 'x-forwarded-for': `203.0.113.${i}` }), 'forge');
-    assert.equal(keys.length, 2);
+    assert.equal(keys.length, 1);
     results.push(rateLimited(keys, limit));
   }
   assert.deepEqual(results, [false, false, false, false, false, true]);
@@ -131,6 +139,35 @@ test('durableRateLimit bumps every key through bump_edge_rate_limit_v1', async (
   const fresh = fakeStore();
   assert.equal(await durableRateLimit(fresh, ['durable:c'], 3, { fn: 'fn-a', windowSeconds: 60 }), 'allowed');
   assert.equal(fresh.calls[0].args.p_window_seconds, 60);
+});
+
+test("naming a victim's address in X-Forwarded-For does not spend the victim's allowance", async () => {
+  // PR #42 review: with both addresses counted, an attacker could exhaust a
+  // victim's bucket by sending the limit with the victim's address in XFF.
+  const limit = 3;
+  const store = fakeStore();
+  const attacker = () => request({ 'cf-connecting-ip': OTHER, 'x-forwarded-for': `${CLIENT}, ${OTHER}` });
+  const victim = () => request({ 'cf-connecting-ip': CLIENT, 'x-forwarded-for': CLIENT });
+  const attacks = [];
+  for (let i = 0; i < limit + 2; i += 1) {
+    attacks.push(await durableRateLimit(store, await rateKeys(attacker(), 'victim-durable'), limit, { fn: 'fn-v' }));
+  }
+  assert.deepEqual(attacks, ['allowed', 'allowed', 'allowed', 'throttled', 'throttled'], 'the attacker is limited on its own address');
+  const [victimKey] = await rateKeys(victim(), 'victim-durable');
+  assert.ok(!store.calls.some((call) => call.args.p_key === victimKey), 'no attacking request touched the victim key');
+  assert.equal(await durableRateLimit(store, [victimKey], limit, { fn: 'fn-v' }), 'allowed');
+
+  for (let i = 0; i < limit + 2; i += 1) rateLimited(await rateKeys(attacker(), 'victim-memory'), limit);
+  assert.equal(rateLimited(await rateKeys(victim(), 'victim-memory'), limit), false, 'the per-instance limiter agrees');
+
+  // Nor can a request that arrives without CF-Connecting-IP: its fallback key
+  // lives in another namespace from every CF-identified caller's.
+  const crossStore = fakeStore();
+  const headerless = () => request({ 'x-forwarded-for': `${CLIENT}, ${OTHER}` });
+  for (let i = 0; i < limit + 2; i += 1) {
+    await durableRateLimit(crossStore, await rateKeys(headerless(), 'victim-cross'), limit, { fn: 'fn-v' });
+  }
+  assert.equal(await durableRateLimit(crossStore, await rateKeys(victim(), 'victim-cross'), limit, { fn: 'fn-v' }), 'allowed');
 });
 
 test('durableRateLimit fails open by default and closed when asked', async () => {
