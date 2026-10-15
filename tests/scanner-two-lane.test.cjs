@@ -272,9 +272,16 @@ ok(
     && scanRoomSource.includes('wall plane')
     && scanRoomSource.includes('Plane matching runs on your phone'),
 );
+const scanPickupSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'lib', 'homeowner', 'scanPickup.ts'), 'utf8');
 ok(
   'scanner handoff: forces room confirmation and clears stale design',
-  (wizardSource.match(/step: 1,\s+design: null,\s+incomingScan: scan,/g) ?? []).length >= 2,
+  (wizardSource.match(/\.\.\.wizardPatchForScan\(scan\)/g) ?? []).length >= 2
+    && /step: 1 as const,\s+design: null,\s+incomingScan: scan,/.test(scanPickupSource),
+);
+ok(
+  'scanner handoff: a new scan clears the previous room',
+  ['incomingCaptureDraft: undefined', 'roomDocument: undefined', 'pendingCaptureUpdate: undefined', 'useManualRoomInstead: false']
+    .every((field) => scanPickupSource.includes(field)),
 );
 
 fs.rmSync(OUT, { recursive: true, force: true });

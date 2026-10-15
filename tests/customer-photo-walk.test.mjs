@@ -157,13 +157,13 @@ test('the photo requests: the staff token as a bearer, no cookies, no referrer, 
   const fetcher = async (url, init) => {
     calls.push({ url, init });
     if (url.endsWith(`/captures/${CAPTURE}`)) {
-      return Response.json({ id: CAPTURE, title: 'Kitchen', status: 'awaiting-review', created: '2026-10-15T02:30:00Z',
+      return Response.json({ id: CAPTURE, title: 'Kitchen', status: 'awaiting-review', created: Date.parse('2026-10-15T02:30:00Z'),
         photos: [{ id: '0000' }, { id: '0001' }, { id: '../x' }, { id: 7 }] });
     }
     return new Response(jpeg, { headers: { 'Content-Type': 'image/jpeg' } });
   };
   const capture = await photos.loadCustomerScan(CAPTURE, TOKEN, fetcher);
-  assert.deepEqual(capture, { id: CAPTURE, title: 'Kitchen', status: 'awaiting-review', created: '2026-10-15T02:30:00Z',
+  assert.deepEqual(capture, { id: CAPTURE, title: 'Kitchen', status: 'awaiting-review', created: '2026-10-15T02:30:00.000Z',
     photos: [{ id: '0000' }, { id: '0001' }] }, 'only well-formed photo ids are kept');
   const blob = await photos.loadCustomerScanPhoto(CAPTURE, '0001', TOKEN, fetcher);
   assert.equal(blob.type, 'image/jpeg');

@@ -27,6 +27,7 @@ import { captureDraftReadiness, captureDraftRelation, resolveRoomCapture, roomDo
 import { captureScannerSession } from '@/lib/roomScan/scannerSession';
 import { CUSTOMER_PHOTOS_SAVED, customerRoomOutcome, isCustomerScannerDraft } from '@/lib/roomScan/customerCornerScan';
 import { roomStepReady } from '@/lib/homeowner/roomStepGate';
+import { wizardPatchForScan } from '@/lib/homeowner/scanPickup';
 import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
@@ -2458,24 +2459,15 @@ export default function HomeownerWizard() {
       handoffContext: nextContext,
       ...(scan
         ? {
-            step: 1,
-            design: null,
-            incomingScan: scan,
-            incomingCaptureDraft: undefined,
-            roomDocument: undefined,
-            pendingCaptureUpdate: undefined,
-            roomWidth: scan.room.width,
-            roomDepth: scan.room.depth,
-            roomHeight: scan.room.height,
-            roomGeometryShape: scan.room.shape,
-            roomCutoutWidth: scan.room.cutoutWidth,
-            roomCutoutDepth: scan.room.cutoutDepth,
+            ...wizardPatchForScan(scan),
             openings: scan.room.openings as Opening[],
             services: scan.room.services as ServicePoint[],
           }
         : draft ? {
             step: 1,
             design: null,
+            // A new capture replaces any earlier scan's warnings and source.
+            incomingScan: undefined,
             incomingCaptureDraft: draft,
             roomDocument: draftDocument,
             pendingCaptureUpdate: undefined,
@@ -2511,7 +2503,7 @@ export default function HomeownerWizard() {
         const typeSizes = customer?.kind === 'type-sizes';
         let document: RoomDocumentV1 | undefined;
         if (!typeSizes) try { document = roomDocumentFromCaptureDraft(draft, crypto.randomUUID()); } catch { /* Keep the draft for review. */ }
-        onChange({ step: 1, design: null, incomingCaptureDraft: draft, roomDocument: document, useManualRoomInstead: typeSizes });
+        onChange({ step: 1, design: null, incomingScan: undefined, incomingCaptureDraft: draft, roomDocument: document, pendingCaptureUpdate: undefined, useManualRoomInstead: typeSizes });
         toast.info(typeSizes ? CUSTOMER_PHOTOS_SAVED : 'Room capture draft loaded — review the measured walls before planning cabinets.');
         return;
       }
@@ -2519,17 +2511,7 @@ export default function HomeownerWizard() {
       if (!parsed.ok || parsed.scan.state !== 'unconfirmed') return;
       const scan = parsed.scan;
       onChange({
-        step: 1,
-        design: null,
-        incomingScan: scan,
-        roomWidth: scan.room.width,
-        roomDepth: scan.room.depth,
-        // The scan is authoritative for the full geometry: height (measured
-        // or defaulted by the scanner) and shape/cutouts (L-scans land as L).
-        roomHeight: scan.room.height,
-        roomGeometryShape: scan.room.shape,
-        roomCutoutWidth: scan.room.cutoutWidth,
-        roomCutoutDepth: scan.room.cutoutDepth,
+        ...wizardPatchForScan(scan),
         openings: scan.room.openings as Opening[],
         services: scan.room.services as ServicePoint[],
       });

@@ -86,8 +86,11 @@ export async function loadCustomerScan(captureId: string, accessToken: string,
   const body: unknown = await (await get(captureId, accessToken, fetcher)).json().catch(() => null);
   if (!isRecord(body) || body.id !== captureId || !Array.isArray(body.photos)) throw new CustomerScanError(customerScanMessage(0), 0);
   const text = (value: unknown) => typeof value === 'string' ? value.slice(0, 200) : '';
+  // The scanner stores created as epoch milliseconds; shown as an ISO date.
+  const created = typeof body.created === 'number' && Number.isFinite(body.created) && Math.abs(body.created) <= 8.64e15
+    ? new Date(body.created).toISOString() : text(body.created);
   return {
-    id: captureId, title: text(body.title), status: text(body.status), created: text(body.created),
+    id: captureId, title: text(body.title), status: text(body.status), created,
     photos: body.photos.flatMap(photo => isRecord(photo) && typeof photo.id === 'string' && PHOTO_ID.test(photo.id)
       ? [{ id: photo.id }] : []).slice(0, 200),
   };
