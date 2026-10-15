@@ -88,7 +88,7 @@
     "assets:import-appliance-images": "node scripts/import-appliance-images.mjs",
     "build:pricing-engine": "node scripts/build-pricing-engine.mjs",
     "scanner:sync-customer": "node scripts/sync-customer-scanner.mjs",
-    "test:customer-scanner": "node --test tests/customer-scanner.test.mjs"
+    "test:customer-scanner": "node --test tests/customer-scanner.test.mjs tests/customer-photo-walk.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

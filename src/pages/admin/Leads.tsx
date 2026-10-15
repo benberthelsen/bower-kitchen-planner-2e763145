@@ -7,6 +7,8 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import CustomerScanPhotos from '@/components/admin/CustomerScanPhotos';
+import { customerScanCaptureId, customerScanCapturesForJobs, type HandoffReader } from '@/lib/roomScan/customerScanPhotos';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,6 +67,8 @@ export default function AdminLeads() {
   const [search, setSearch] = useState('');
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [showSynthetic, setShowSynthetic] = useState(false);
+  // Leads whose room came from a customer's photo walk: job id → capture id.
+  const [scanCaptures, setScanCaptures] = useState<Map<string, string>>(new Map());
 
   useEffect(() => { loadLeads(); }, []);
 
@@ -78,7 +82,15 @@ export default function AdminLeads() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setLeads((data as unknown as Lead[]) || []);
+      const rows = (data as unknown as Lead[]) || [];
+      setLeads(rows);
+      void customerScanCapturesForJobs(supabase as unknown as HandoffReader, rows.map(lead => lead.id)).then(found => {
+        for (const lead of rows) {
+          const fromEnquiry = customerScanCaptureId(lead.design_data);
+          if (fromEnquiry) found.set(lead.id, fromEnquiry);
+        }
+        setScanCaptures(found);
+      });
     } catch (err) {
       console.error(err);
       toast.error('Failed to load leads');
@@ -292,6 +304,11 @@ export default function AdminLeads() {
                       {info['benchtop'] && <span>Benchtop: <strong>{info['benchtop']}</strong></span>}
                       {info['handle'] && <span>Handle: <strong>{info['handle']}</strong></span>}
                       {info['estimate'] && <span className="ml-auto font-medium text-gray-700">{info['estimate']}</span>}
+                    </div>
+                  )}
+                  {scanCaptures.get(lead.id) && (
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      <CustomerScanPhotos key={scanCaptures.get(lead.id)} captureId={scanCaptures.get(lead.id)!} />
                     </div>
                   )}
                 </CardContent>

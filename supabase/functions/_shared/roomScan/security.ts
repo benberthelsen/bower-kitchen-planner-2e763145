@@ -36,12 +36,31 @@ const PLANNER_PREVIEW_ORIGINS = [
   'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev',
 ];
 
+// The customer photo walk hands a room to the planner from the customer's
+// browser on this exact origin. Only a function that calls
+// acceptCustomerScannerOrigin() admits it (create-planner-handoff); every
+// other function keeps the lists above.
+export const CUSTOMER_SCANNER_ORIGINS = [
+  'https://scan.bowercabinets.com',
+];
+let customerScannerAccepted = false;
+
+/** Admit CUSTOMER_SCANNER_ORIGINS in this function. Each Edge Function is
+ *  bundled and run on its own, so this widens no other function. */
+export function acceptCustomerScannerOrigin(): void {
+  customerScannerAccepted = true;
+}
+
 function allowedOrigins(): string[] {
   const env = Deno.env.get('SCANNER_ALLOWED_ORIGINS');
   const configured = env && env.trim()
     ? env.split(',').map((o) => o.trim()).filter(Boolean)
     : DEFAULT_DEV_ORIGINS;
-  return [...new Set([...configured, ...PLANNER_PREVIEW_ORIGINS])];
+  return [...new Set([
+    ...configured,
+    ...PLANNER_PREVIEW_ORIGINS,
+    ...(customerScannerAccepted ? CUSTOMER_SCANNER_ORIGINS : []),
+  ])];
 }
 
 const SECURITY_HEADERS: Record<string, string> = {

@@ -1,17 +1,22 @@
 /**
- * ScanRoom — two-lane room capture (master plan §10.1 + scanner buildout).
+ * ScanRoom — room capture (master plan §10.1 + scanner buildout).
  *
- * Lane 1 — Quick scan (web AR): WebXR guided capture on supported Android
- *   Chrome. Phased flow: corners → ceiling height (optional) → doors &
- *   windows (optional) → UnconfirmedRoomScanV1.
- * Lane 2 — Pro scan (LiDAR): import an Apple RoomPlan JSON export from a
- *   LiDAR iPhone/iPad scanning app. RoomPlan detects walls/doors/windows
- *   itself; the importer maps them onto the same contract.
+ * Photo scan — the customer photo walk at https://scan.bowercabinets.com, for
+ *   every phone. It hands the room back to /wizard?handoff= through
+ *   create-planner-handoff: a complete outline is checked and priced like any
+ *   scan; otherwise the photos are saved for Bower and the customer types the
+ *   room sizes (customerCornerScan.ts).
+ * Quick corner scan — the corner scan copied into /scan/ (AR phones only),
+ *   handed over through sessionStorage.
+ * Pro scan (LiDAR): import an Apple RoomPlan JSON export from a LiDAR
+ *   iPhone/iPad scanning app. RoomPlan detects walls/doors/windows itself; the
+ *   importer maps them onto the same contract.
+ * The earlier quick scan (web AR) stays at ?quick=1 for comparison and tests.
  *
- * Both lanes (and manual entry) produce the SAME UnconfirmedRoomScanV1 and
- * hand off through sessionStorage to /wizard, where RoomFeaturesEditor must
- * confirm — a scan is quote/design-grade input, never manufacturing
- * authority. An info dialog explains the two options to the customer.
+ * Every lane (and manual entry) reaches /wizard as the SAME unconfirmed
+ * RoomScanV1 or a capture draft, where RoomFeaturesEditor must confirm — a
+ * scan is quote/design-grade input, never manufacturing authority. An info
+ * dialog explains the options to the customer.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -47,6 +52,7 @@ import {
   type ManualOpeningInput,
   type ManualOpeningType,
 } from '@/lib/roomScan/manualEntry';
+import { CUSTOMER_SCANNER_ORIGIN } from '@/lib/roomScan/customerScanPhotos';
 
 /**
  * How far a tap is allowed to move when it snaps to detected geometry.
@@ -148,8 +154,8 @@ export function quickScanErrorMessage(error: unknown): string {
 
 export default function ScanRoom() {
   const navigate = useNavigate();
-  // Customers scan with the Bower corner scanner (/scan/corners/, the room
-  // scanner app's corner scan and floor plan, copied in by
+  // Customers scan with the photo walk at scan.bowercabinets.com; AR phones
+  // also get the corner scan (/scan/corners/, copied in by
   // scanner:sync-customer). The earlier quick scan below stays reachable at
   // /wizard/scan?quick=1 for comparison and its tests; customers are not
   // offered it.
@@ -1215,7 +1221,7 @@ export default function ScanRoom() {
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Scan your room</h1>
           <p className="text-sm text-slate-500">
-            Two ways to capture your room — pick the one that fits your phone.
+            Scan your room with your phone's camera, or type the sizes in.
             You'll check and fine-tune everything before any design is made, and a
             professional check measure always happens before manufacture.
           </p>
@@ -1227,33 +1233,32 @@ export default function ScanRoom() {
           </button>
         </div>
 
-        {/* ── Option 1: Bower corner scanner (web AR) ── */}
+        {/* ── Option 1: the photo walk at scan.bowercabinets.com, any phone ── */}
         {!quickScan && (
           <section className="rounded-xl border border-slate-200 p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Camera className="w-5 h-5 text-slate-700" />
-                <h2 className="font-semibold text-slate-900">Corner scan</h2>
+                <h2 className="font-semibold text-slate-900">Photo scan</h2>
               </div>
-              <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">Android · Chrome</span>
+              <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">Any phone</span>
             </div>
             <p className="text-sm text-slate-500">
-              Aim your phone at each floor corner of the room in turn, then type in the wall
-              lengths you measured. Your scan stays on your phone until you continue to your design.
+              Walk slowly around your kitchen and your phone takes the photos as you go.
+              On most Android phones you also mark each floor corner and measure one wall
+              with a tape, and your room comes back here ready to price. Otherwise your
+              photos are saved for Bower and you type your room sizes here.
             </p>
-            {support === 'checking' && <p className="text-sm text-slate-400">Checking your device…</p>}
+            <a
+              href={`${CUSTOMER_SCANNER_ORIGIN}/`}
+              className="flex w-full h-11 items-center justify-center rounded-md bg-slate-900 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              <Camera className="w-4 h-4 mr-2" /> Scan your room with photos
+            </a>
             {support === 'ready' && (
-              <a
-                href="/scan/corners/"
-                className="flex w-full h-11 items-center justify-center rounded-md bg-slate-900 text-sm font-medium text-white hover:bg-slate-700"
-              >
-                <Camera className="w-4 h-4 mr-2" /> Start corner scan
-              </a>
-            )}
-            {support !== 'checking' && support !== 'ready' && (
-              <p role="status" className="text-sm text-slate-500 rounded-md bg-slate-50 border border-slate-200 p-3">
-                {supportCopy[support as Exclude<Support, 'ready' | 'checking'>]}{' '}
-                If you have an iPhone Pro, use the Pro scan below — otherwise manual entry only takes a minute.
+              <p className="text-center text-xs text-slate-500">
+                In a hurry? <a href="/scan/corners/" className="underline underline-offset-2 hover:text-slate-900">Quick corner scan</a>{' '}
+                marks the corners without photos.
               </p>
             )}
           </section>
@@ -1452,23 +1457,32 @@ export default function ScanRoom() {
         </section>
       </main>
 
-      {/* ── Info dialog: the two options explained ── */}
+      {/* ── Info dialog: the options explained ── */}
       <Dialog open={showInfo} onOpenChange={setShowInfo}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Two ways to scan</DialogTitle>
-            <DialogDescription>Both feed the same planner — pick whichever fits your phone.</DialogDescription>
+            <DialogTitle>Ways to scan your room</DialogTitle>
+            <DialogDescription>They all feed the same planner — pick whichever suits your phone.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 text-sm">
             <div className="rounded-lg border border-slate-200 p-3 space-y-1">
-              <p className="font-semibold text-slate-900 flex items-center gap-2"><Camera className="w-4 h-4" /> Corner scan — most Android phones</p>
+              <p className="font-semibold text-slate-900 flex items-center gap-2"><Camera className="w-4 h-4" /> Photo scan — any phone</p>
               <p className="text-slate-600">
-                Runs in your browser using the camera. You aim a ring at each floor
-                corner in turn; a corner hidden behind cabinets can be found from two
-                aims a metre apart, and you can mark the ceiling height. Then you type
-                in the wall lengths you measured with a tape. Takes a few minutes, and
-                a professional check measure happens before manufacture. Doors and
-                windows are added in the planner.
+                Opens Bower's room scanner in your browser. Walk slowly around the
+                kitchen and your phone takes the photos as you go. On most Android
+                phones you also mark each floor corner in turn and measure one wall
+                with a tape; your room then comes back here with its sizes for you to
+                check and price. On an iPhone, or if not every corner was marked, your
+                photos are saved for Bower to prepare your plan and you type your room
+                sizes here to get your price.
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 p-3 space-y-1">
+              <p className="font-semibold text-slate-900 flex items-center gap-2"><Ruler className="w-4 h-4" /> Quick corner scan — most Android phones</p>
+              <p className="text-slate-600">
+                Aim your phone at each floor corner in turn, then type in the wall
+                lengths you measured with a tape. No photos are taken, and the scan
+                stays on your phone until you continue to your design.
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3 space-y-1">
@@ -1481,9 +1495,9 @@ export default function ScanRoom() {
               </p>
             </div>
             <p className="text-slate-500 text-xs">
-              Not sure? If your phone is an iPhone 12 Pro or newer Pro model, use
-              Pro scan. Otherwise try the corner scan — and if it isn't supported,
-              manual entry only takes a minute. Every option is checked by a
+              Not sure? Use the photo scan. If your phone is an iPhone 12 Pro or
+              newer Pro model, the Pro scan is the most detailed, and typing the
+              sizes in only takes a minute. Every option is checked by a
               professional measure before manufacture.
             </p>
           </div>

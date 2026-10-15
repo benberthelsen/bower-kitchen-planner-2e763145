@@ -8,10 +8,20 @@ import type { RoomCaptureDraftV1, RoomScanV1 } from './contract';
 type DraftGeometry = NonNullable<RoomCaptureDraftV1['partialGeometry']>;
 type DraftChain = NonNullable<DraftGeometry['wallChains']>[number];
 
-function captureIdOf(draft: RoomCaptureDraftV1, fallback: string): string {
+/** The owner's private scanner capture a draft names. Rooms customers scan
+ * themselves name none: a corner scan made on the phone ('device-only') has
+ * no capture anywhere, and a photo walk ('customer-scanner') names a capture
+ * on the public scanner, whose photos staff read there. Neither may be sent to
+ * scanner-private-bridge or linked into the private scanner, so neither is
+ * treated as a private capture. */
+function privateCaptureIdOf(draft: RoomCaptureDraftV1): string | undefined {
   const state = draft.adapterState;
-  if (state && typeof state === 'object' && !Array.isArray(state) && typeof state.captureId === 'string') return state.captureId;
-  return fallback;
+  if (!state || typeof state !== 'object' || Array.isArray(state) || typeof state.captureId !== 'string') return undefined;
+  return state.access === 'customer-scanner' || state.access === 'device-only' ? undefined : state.captureId;
+}
+
+function captureIdOf(draft: RoomCaptureDraftV1, fallback: string): string {
+  return privateCaptureIdOf(draft) ?? fallback;
 }
 
 function sourceRevisionOf(draft: RoomCaptureDraftV1): string | undefined {
@@ -22,11 +32,10 @@ function sourceRevisionOf(draft: RoomCaptureDraftV1): string | undefined {
 }
 
 export function captureDraftIdentity(draft: RoomCaptureDraftV1): { captureId?: string; sourceRevision?: string } {
-  const state = draft.adapterState;
+  const captureId = privateCaptureIdOf(draft);
   const sourceRevision = sourceRevisionOf(draft);
   return {
-    ...(state && typeof state === 'object' && !Array.isArray(state) && typeof state.captureId === 'string'
-      ? { captureId: state.captureId } : {}),
+    ...(captureId ? { captureId } : {}),
     ...(sourceRevision ? { sourceRevision } : {}),
   };
 }

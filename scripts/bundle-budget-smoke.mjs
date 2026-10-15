@@ -17,11 +17,15 @@ const entryBytes = statSync(entryPath).size;
 // take the build to 4,606,193 bytes (9 October 2026), 6.2 KB over the
 // previous 4,600,000 budget. Turning a customer corner scan (/scan/, the room
 // scanner app's pages) into a priced room scan brings the planner's corner
-// fit into the wizard: 4,613,734 bytes (15 October 2026). The earlier quick
-// scan is no longer offered to customers; removing it once the corner scanner
-// has been proven on phones would give this room back. Keep the guard tight:
+// fit into the wizard: 4,613,734 bytes (15 October 2026). Offering every
+// customer the photo walk (scan.bowercabinets.com), turning its hand-over into
+// a priced room or typed sizes, and the staff view of its photos on Leads and
+// the job page add 6.2 KB: 4,619,937 bytes (15 October 2026), 3.9 KB over the
+// previous 4,616,000 budget. The earlier quick scan is no longer offered to
+// customers; removing it once the photo walk and corner scanner have been
+// proven on phones would give this room back. Keep the guard tight:
 // splitting the bundle would break browsers that block dynamic app modules.
-const budgetBytes = 4_616_000;
+const budgetBytes = 4_622_000;
 assert.ok(
   entryBytes <= budgetBytes,
   `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is ${(budgetBytes / 1024).toFixed(1)} KiB`,

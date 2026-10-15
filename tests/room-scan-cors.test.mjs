@@ -5,7 +5,9 @@ import { transform } from 'esbuild';
 
 const source = await readFile(new URL('../supabase/functions/_shared/roomScan/security.ts', import.meta.url), 'utf8');
 const { code } = await transform(source, { loader: 'ts', format: 'esm' });
-const { corsHeaders } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+/** A fresh module, as each Edge Function bundles and runs its own copy. */
+const instance = (n) => import(`data:text/javascript;base64,${Buffer.from(`${code}\n// function ${n}\n`).toString('base64')}`);
+const { corsHeaders } = await instance(1);
 
 const production = 'https://bower-kitchen-planner.pages.dev';
 const preview = 'https://codex-shared-room-geometry.bower-kitchen-planner.pages.dev';
@@ -41,4 +43,42 @@ test('similar or unrelated origins remain denied', () => {
   ]) {
     assert.equal(headersFor(origin, production)['Access-Control-Allow-Origin'], undefined);
   }
+});
+
+const customerScanner = 'https://scan.bowercabinets.com';
+
+test('the customer scanner origin is denied by every function that does not accept it', () => {
+  assert.equal(headersFor(customerScanner, production)['Access-Control-Allow-Origin'], undefined);
+  assert.equal(headersFor(customerScanner, undefined)['Access-Control-Allow-Origin'], undefined);
+});
+
+test('a function that accepts the customer scanner admits exactly that origin, beside the configured ones', async () => {
+  const handoff = await instance(2);
+  assert.deepEqual(handoff.CUSTOMER_SCANNER_ORIGINS, [customerScanner]);
+  handoff.acceptCustomerScannerOrigin();
+  const allowed = (origin, configured = production) => {
+    globalThis.Deno = { env: { get: (key) => key === 'SCANNER_ALLOWED_ORIGINS' ? configured : undefined } };
+    return handoff.corsHeaders(new Request('https://example.supabase.co/functions/v1/create-planner-handoff', {
+      method: 'OPTIONS', headers: { Origin: origin },
+    }));
+  };
+  const headers = allowed(customerScanner);
+  assert.equal(headers['Access-Control-Allow-Origin'], customerScanner);
+  assert.equal(headers['Access-Control-Allow-Methods'], 'POST, OPTIONS');
+  for (const name of ['apikey', 'authorization', 'content-type']) {
+    assert.ok(headers['Access-Control-Allow-Headers'].split(', ').includes(name), name);
+  }
+  assert.equal(allowed(production)['Access-Control-Allow-Origin'], production, 'configured origins still apply');
+  assert.equal(allowed(customerScanner, undefined)['Access-Control-Allow-Origin'], customerScanner);
+  for (const origin of [
+    'http://scan.bowercabinets.com',
+    'https://scan.bowercabinets.com.evil.invalid',
+    'https://evil.scan.bowercabinets.com',
+    'https://bowercabinets.com',
+    'https://scan.bowercabinets.com:8443',
+  ]) {
+    assert.equal(allowed(origin)['Access-Control-Allow-Origin'], undefined, origin);
+  }
+  // Accepting it in one function leaves the others as they were.
+  assert.equal(headersFor(customerScanner, production)['Access-Control-Allow-Origin'], undefined);
 });

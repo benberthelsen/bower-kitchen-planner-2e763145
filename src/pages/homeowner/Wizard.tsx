@@ -25,7 +25,8 @@ import {
 } from '@/lib/roomScan/contract';
 import { captureDraftReadiness, captureDraftRelation, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
 import { captureScannerSession } from '@/lib/roomScan/scannerSession';
-import { isCustomerCornerScan, roomScanFromCustomerCornerScan } from '@/lib/roomScan/customerCornerScan';
+import { CUSTOMER_PHOTOS_SAVED, customerRoomOutcome, isCustomerScannerDraft } from '@/lib/roomScan/customerCornerScan';
+import { roomStepReady } from '@/lib/homeowner/roomStepGate';
 import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
@@ -1239,6 +1240,9 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
   const scanConfidence = state.incomingScan?.confidence?.overall;
   const lowConfidence = typeof scanConfidence === 'number' && scanConfidence <= 0.4;
   const captureDraft = state.incomingCaptureDraft;
+  // A customer's photo walk that could not size the room: their words, not
+  // the staff notes about source photos and the trade planner.
+  const customerDraft = !!captureDraft && isCustomerScannerDraft(captureDraft);
   const captureReadiness = captureDraft ? captureDraftReadiness(captureDraft) : null;
   const pendingCapture = state.pendingCaptureUpdate;
   const pendingReadiness = pendingCapture ? captureDraftReadiness(pendingCapture.draft) : null;
@@ -1262,7 +1266,10 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
           </div>
         </div>
       )}
-      {captureDraft && !state.useManualRoomInstead && (
+      {customerDraft && (
+        <p className="border border-amber-300 bg-amber-50 rounded-lg p-4 text-sm text-amber-900" role="status">{CUSTOMER_PHOTOS_SAVED}</p>
+      )}
+      {captureDraft && !customerDraft && !state.useManualRoomInstead && (
         <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-2" role="alert">
           <p className="text-sm font-semibold text-amber-900">Room capture draft received</p>
           <p className="text-xs text-amber-800">
@@ -1275,7 +1282,7 @@ function Step1Room({ state, onChange, onValidityChange }: { state: WizardState; 
           </Button>
         </div>
       )}
-      {captureDraft && state.useManualRoomInstead && (
+      {captureDraft && !customerDraft && state.useManualRoomInstead && (
         <p className="text-xs text-amber-800" role="status">The scanner draft is retained for review. The room sizes below are manual design inputs.</p>
       )}
       {scanWarnings.length > 0 && (
@@ -2427,9 +2434,15 @@ export default function HomeownerWizard() {
     const h = parsed.handoff;
     const styleWords = handoffToStyleWords(h);
     const incomingCapture = resolveRoomCapture(h, handoffId);
-    const scan = incomingCapture.kind === 'scan' ? incomingCapture.scan : undefined;
     const draft = incomingCapture.kind === 'draft' ? incomingCapture.draft : undefined;
-    const draftDocument = incomingCapture.kind === 'draft' ? incomingCapture.document : undefined;
+    // A customer's photo walk (scan.bowercabinets.com) with a complete outline
+    // is checked and priced like the planner's own scan. Without one the
+    // customer types the room sizes; the draft stays with the enquiry and its
+    // photos stay with the scanner for Bower.
+    const customer = draft ? customerRoomOutcome(draft) : null;
+    const scan = incomingCapture.kind === 'scan' ? incomingCapture.scan
+      : customer?.kind === 'scan' ? customer.scan : undefined;
+    const draftDocument = incomingCapture.kind === 'draft' && !customer ? incomingCapture.document : undefined;
     const existingDraft = state.incomingCaptureDraft;
     const relation = draft ? captureDraftRelation(existingDraft, draft, state.roomDocument?.capture?.captureId) : 'new-capture';
     const nextContext = { handoffId, ...(handoffToken ? { token: handoffToken } : {}) };
@@ -2466,7 +2479,7 @@ export default function HomeownerWizard() {
             incomingCaptureDraft: draft,
             roomDocument: draftDocument,
             pendingCaptureUpdate: undefined,
-            useManualRoomInstead: false,
+            useManualRoomInstead: customer?.kind === 'type-sizes',
           } : {
             ...(h.dimensions?.widthMm ? { roomWidth: h.dimensions.widthMm } : {}),
             ...(h.dimensions?.depthMm ? { roomDepth: h.dimensions.depthMm } : {}),
@@ -2474,6 +2487,7 @@ export default function HomeownerWizard() {
       ...(styleWords ? { styleWords } : {}),
     });
     if (scan) toast.success('Room scan loaded — please check the room details.');
+    else if (customer) toast.info(CUSTOMER_PHOTOS_SAVED);
     else if (draft) toast.info('Room capture draft loaded — review the measured walls before planning cabinets.');
   }, [handoffPayload, handoffId, handoffToken, onChange, state.incomingCaptureDraft, state.roomDocument]);
 
@@ -2491,17 +2505,17 @@ export default function HomeownerWizard() {
       // A room from the customer corner scanner (/scan/) is checked and priced
       // like the planner's own scan; an outline that does not fit a rectangle
       // or L stays a capture draft.
-      const cornerScan = pendingDraft.ok && isCustomerCornerScan(pendingDraft.draft)
-        ? roomScanFromCustomerCornerScan(pendingDraft.draft) : null;
-      if (pendingDraft.ok && !cornerScan?.ok) {
+      const customer = pendingDraft.ok ? customerRoomOutcome(pendingDraft.draft) : null;
+      if (pendingDraft.ok && customer?.kind !== 'scan') {
         const draft = pendingDraft.draft;
+        const typeSizes = customer?.kind === 'type-sizes';
         let document: RoomDocumentV1 | undefined;
-        try { document = roomDocumentFromCaptureDraft(draft, crypto.randomUUID()); } catch { /* Keep the draft for review. */ }
-        onChange({ step: 1, design: null, incomingCaptureDraft: draft, roomDocument: document, useManualRoomInstead: false });
-        toast.info('Room capture draft loaded — review the measured walls before planning cabinets.');
+        if (!typeSizes) try { document = roomDocumentFromCaptureDraft(draft, crypto.randomUUID()); } catch { /* Keep the draft for review. */ }
+        onChange({ step: 1, design: null, incomingCaptureDraft: draft, roomDocument: document, useManualRoomInstead: typeSizes });
+        toast.info(typeSizes ? CUSTOMER_PHOTOS_SAVED : 'Room capture draft loaded — review the measured walls before planning cabinets.');
         return;
       }
-      const parsed = cornerScan?.ok ? { ok: true as const, scan: cornerScan.scan } : parseRoomScan(input);
+      const parsed = customer?.kind === 'scan' ? { ok: true as const, scan: customer.scan } : parseRoomScan(input);
       if (!parsed.ok || parsed.scan.state !== 'unconfirmed') return;
       const scan = parsed.scan;
       onChange({
@@ -2557,7 +2571,7 @@ export default function HomeownerWizard() {
 
   const canAdvance =
     state.step === 1
-      ? !!activeRoomDocument || (state.roomWidth >= 1200 && state.roomDepth >= 1200 && state.roomHeight >= 2100 && !step1Invalid && (!state.incomingCaptureDraft || state.useManualRoomInstead === true)) :
+      ? roomStepReady(state, step1Invalid) :
     state.step === 2 ? true :
     state.step === 3 ? true :
     state.step === 4 ? (designStudioEnabled ? !activeRoomDocument && state.design !== null && !selectedDesignHasBlockingErrors : true) :

@@ -128,7 +128,7 @@ globalThis.__fakeSupabase = {
   },
 };
 
-async function call(handler, body, { cf = '198.51.100.7', xff, bearer } = {}) {
+async function call(handler, body, { cf = '198.51.100.7', xff, bearer, origin, apikey } = {}) {
   const logs = [];
   const errors = [];
   const [log, error] = [console.log, console.error];
@@ -142,13 +142,22 @@ async function call(handler, body, { cf = '198.51.100.7', xff, bearer } = {}) {
         ...(cf ? { 'cf-connecting-ip': cf } : {}),
         ...(xff ? { 'x-forwarded-for': xff } : {}),
         ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+        ...(origin ? { Origin: origin } : {}),
+        ...(apikey ? { apikey } : {}),
       },
       body: JSON.stringify(body),
     }));
     const text = await response.text();
-    return { status: response.status, text, body: JSON.parse(text), logs, errors };
+    return { status: response.status, headers: response.headers, text, body: JSON.parse(text), logs, errors };
   } finally { [console.log, console.error] = [log, error]; }
 }
+
+/** A browser's CORS preflight for a POST with the scanner's headers. */
+const preflight = (handler, origin) => handler(new Request('https://project.supabase.invalid/functions/v1/fn', {
+  method: 'OPTIONS',
+  headers: { Origin: origin, 'Access-Control-Request-Method': 'POST',
+    'Access-Control-Request-Headers': 'apikey, authorization, content-type' },
+}));
 
 const contactFields = ['lead_name', 'lead_email', 'lead_phone'];
 const rateCalls = () => state.calls.filter((entry) => entry.name === 'bump_edge_rate_limit_v1');
@@ -271,6 +280,61 @@ test('get-planner-handoff: 60 an hour per caller through bump_edge_rate_limit_v1
   assert.equal(throttled.status, 429);
   assert.deepEqual(throttled.body, { error: 'rate_limited' });
   assert.deepEqual(state.calls.map((entry) => entry.op), ['rpc'], 'a throttled caller reaches no row and no identity lookup');
+});
+
+// The customer photo walk on its own origin posts the hand-over from the
+// customer's browser with the public publishable key, exactly as the
+// scanner sends it.
+const CUSTOMER_SCANNER = 'https://scan.bowercabinets.com';
+const PUBLISHABLE_KEY = 'sb_publishable_test-only-public-key';
+const { readFile } = await import('node:fs/promises');
+const photoWalkPayload = {
+  handoffSchemaVersion: 1, source: 'website', roomType: 'kitchen', styleTags: [], materials: {},
+  roomCaptureDraft: JSON.parse(await readFile(new URL('./fixtures/customer-photo-walk-complete.json', import.meta.url), 'utf8')),
+};
+
+test('create-planner-handoff: the customer scanner origin may create a hand-over from the browser', async () => {
+  reset();
+  const create = await loadHandler('../supabase/functions/create-planner-handoff/index.ts');
+  const options = await preflight(create, CUSTOMER_SCANNER);
+  assert.equal(options.status, 204);
+  assert.equal(options.headers.get('access-control-allow-origin'), CUSTOMER_SCANNER);
+  assert.equal(options.headers.get('access-control-allow-methods'), 'POST, OPTIONS');
+  for (const name of ['apikey', 'authorization', 'content-type']) {
+    assert.ok(options.headers.get('access-control-allow-headers').split(', ').includes(name), name);
+  }
+  assert.equal(options.headers.get('vary'), 'Origin');
+
+  const result = await call(create, { payload: photoWalkPayload },
+    { origin: CUSTOMER_SCANNER, apikey: PUBLISHABLE_KEY, bearer: PUBLISHABLE_KEY });
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get('access-control-allow-origin'), CUSTOMER_SCANNER);
+  assert.deepEqual(Object.keys(result.body).sort(), ['expiresAt', 'id', 'token']);
+  assert.deepEqual(state.inserted[0].payload, photoWalkPayload, 'the photo walk is stored as sent');
+  assert.equal(state.inserted[0].source, 'website', 'a customer hand-over is not a staff-only scanner row');
+
+  const bad = await call(create, { payload: { ...photoWalkPayload, roomType: 'garage' } }, { origin: CUSTOMER_SCANNER });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.headers.get('access-control-allow-origin'), CUSTOMER_SCANNER, 'the page can read why it failed');
+  const lookalike = await preflight(create, 'https://scan.bowercabinets.com.evil.invalid');
+  assert.equal(lookalike.headers.get('access-control-allow-origin'), null);
+});
+
+test('create-planner-handoff: the customer scanner shares the same 20 an hour per caller', async () => {
+  reset();
+  const create = await loadHandler('../supabase/functions/create-planner-handoff/index.ts');
+  const statuses = [];
+  for (let i = 0; i < 21; i += 1) statuses.push((await call(create, { payload: photoWalkPayload }, { origin: CUSTOMER_SCANNER })).status);
+  assert.deepEqual(statuses, [...Array(20).fill(200), 429]);
+  assert.equal(rateCalls()[0].args.p_limit, 20);
+});
+
+test('get-planner-handoff: the customer scanner origin gains nothing on any other function', async () => {
+  reset();
+  const get = await loadHandler('../supabase/functions/get-planner-handoff/index.ts');
+  assert.equal((await preflight(get, CUSTOMER_SCANNER)).headers.get('access-control-allow-origin'), null);
+  const result = await call(get, { handoffId: legacyId, token: TOKEN }, { origin: CUSTOMER_SCANNER });
+  assert.equal(result.headers.get('access-control-allow-origin'), null);
 });
 
 test('get-planner-handoff: the staff rule for scanner rows still holds', async () => {
