@@ -15,9 +15,13 @@ const entryBytes = statSync(entryPath).size;
 // bytes on 8 October 2026). The quick scan's floor-ray and two-aim corners,
 // confirmed wall-edge ceiling, tracking check and editable saved progress
 // take the build to 4,606,193 bytes (9 October 2026), 6.2 KB over the
-// previous 4,600,000 budget. Keep the guard tight: splitting the bundle would
-// break browsers that block dynamic app modules.
-const budgetBytes = 4_612_000;
+// previous 4,600,000 budget. Turning a customer corner scan (/scan/, the room
+// scanner app's pages) into a priced room scan brings the planner's corner
+// fit into the wizard: 4,613,734 bytes (15 October 2026). The earlier quick
+// scan is no longer offered to customers; removing it once the corner scanner
+// has been proven on phones would give this room back. Keep the guard tight:
+// splitting the bundle would break browsers that block dynamic app modules.
+const budgetBytes = 4_616_000;
 assert.ok(
   entryBytes <= budgetBytes,
   `self-contained application bundle is ${(entryBytes / 1024).toFixed(1)} KiB; budget is ${(budgetBytes / 1024).toFixed(1)} KiB`,

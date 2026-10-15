@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><title>Bower · Your floor plan</title><link rel="stylesheet" href="/scan/plan/capture.css?v=36da66c93ca5"><link rel="stylesheet" href="/scan/plan/style.css?v=36da66c93ca5"><link rel="stylesheet" href="/scan/plan/bower.css?v=36da66c93ca5"></head>
+<body><header class="site-header"><div class="header-inner"><a class="brand" href="/wizard" aria-label="Bower Cabinets kitchen planner"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-name"><strong>Bower</strong> Cabinets</span></a><div class="header-context"><span>Your floor plan</span><a href="/scan/corners/">← Corner scan</a></div></div></header>
+<main>
+<nav class="flow-steps" aria-label="Room to kitchen design"><span>1. Scan</span><span class="current" aria-current="step">2. Measure</span><span>3. Design</span></nav>
+<div class="draft-heading"><div><h1>Your room</h1><p id="summary"></p></div><span class="draft-badge">Check the lengths</span></div>
+<section id="missing" hidden><p>This floor plan is not on this phone any more. It may have been cleared from the browser, or the scan was made on another phone.</p><div class="actions"><a id="missing-link" class="button" href="/scan/corners/">Scan the room again</a><a class="button secondary" href="/wizard/scan">Add your room another way</a></div></section>
+<div id="workspace" hidden>
+<section id="floor-plan-section">
+<div class="section-heading"><h2>Floor plan · your measurements</h2><span id="plan-count"></span></div>
+<p id="plan-drawing-help">Tap a wall or its number to type the length you measured. Measure each full wall, including any door or window in it. Values starting with ~ are estimates from the scan.</p>
+<p id="estimate-source" class="estimate-source" role="note"></p>
+<div class="plan-grid">
+<div><div id="floor-plan"></div>
+<p class="plan-legend"><span>Solid green = your measured length</span><span>Dashed amber / ~ = scan estimate</span></p></div>
+<div class="plan-editor"><div id="plan-wall-editor">
+<h3 id="plan-wall-title"></h3><p id="plan-estimate"></p>
+<p class="small">Enter the full straight wall length in millimetres. Leave walls you did not measure blank.</p>
+<div class="actions"><button id="plan-save">Apply &amp; save lengths</button></div>
+<p id="plan-status" role="status" aria-live="polite"></p>
+<div id="plan-fit-review" class="plan-fit-review" hidden><h4>Check an adjusted outline</h4><p id="plan-fit-explanation"></p><div id="plan-fit-preview"></div><button id="plan-fit-apply" class="secondary">Accept adjusted corners &amp; save</button><p class="small">Your lengths stay exactly as typed; only the corner angles change.</p></div>
+<div class="plan-next"><button id="plan-continue" disabled>Continue to design your kitchen →</button><p id="plan-next-help" class="small">Enter at least one wall length you measured with a tape, then tap Apply &amp; save lengths.</p></div>
+<p class="small">Corner scans do not record doors or windows. You can add them in the kitchen planner.</p>
+</div></div></div>
+<details><summary>Enter or review all wall lengths</summary><div id="plan-wall-list" class="plan-wall-list"></div></details>
+</section>
+<p class="small">Your room stays on this phone until you continue. It is then passed to the kitchen planner on this website.</p>
+</div>
+</main><script type="module" src="/scan/plan/app.js?v=36da66c93ca5"></script></body></html>

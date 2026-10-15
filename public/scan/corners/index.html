@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><title>Bower · Scan your room</title><meta name="description" content="Mark each floor corner of your room with your phone camera to get an editable floor plan for your kitchen design."><link rel="stylesheet" href="/scan/corners/capture.css?v=36da66c93ca5"><link rel="stylesheet" href="/scan/corners/style.css?v=36da66c93ca5"></head>
+<body><header><a href="/wizard">← Kitchen planner</a><span>Bower · Scan your room</span></header><main>
+<h1>Mark the corners. Get the plan.</h1><p class="intro">Stand in your kitchen and aim the ring at each floor corner in turn, going around the room in order. Your phone tracks where it is and where the floor is; you show it where the corners are. Plain walls are no problem.</p>
+<details id="corner-guide"><summary>How it works</summary><ol class="guide"><li>Tap <strong>Start corner scan</strong> and move the phone slowly until it finds the floor.</li><li>Aim the ring where two walls meet the floor and tap <strong>Mark corner</strong>. Go around the room in order.</li><li>If a bench hides a corner, tap <strong>Corner hidden</strong>, aim at the vertical corner edge, step sideways a metre and aim at it again.</li><li>Optionally aim at the top edge of a marked wall and tap <strong>Mark ceiling</strong>.</li><li>Tap <strong>Finish</strong>, check the sketch, then <strong>Save</strong>. On the next page, type in the wall lengths you measured with a tape.</li></ol></details>
+<p id="corner-support" role="status">Checking AR support…</p><p id="corner-status" role="status" aria-live="polite"></p>
+<div class="actions"><button id="corner-start" disabled>Start corner scan</button><a id="corner-walk-link" class="button" href="/wizard/scan" hidden>Add your room another way</a><button id="corner-restart" class="secondary">Start another room</button></div>
+<section id="corner-overlay" hidden aria-label="Live corner marking">
+<div class="reticle" aria-hidden="true"></div>
+<div class="corner-hud"><div class="section-heading"><strong id="corner-count">0 corners</strong><span id="corner-aim">Finding the floor…</span></div>
+<div class="corner-live"><canvas id="corner-sketch" width="180" height="120" role="img" aria-label="Sketch of the corners marked so far"></canvas><p id="corner-message" role="status" aria-live="polite">Aim the ring at a floor corner.</p></div>
+<div class="actions"><button id="corner-mark" disabled>Mark corner</button><button id="corner-hidden" class="secondary">Corner hidden</button><button id="corner-ceiling" class="secondary">Mark ceiling</button><button id="corner-undo" class="secondary" disabled>Undo</button><button id="corner-finish" disabled>Finish</button></div>
+</div></section>
+<section id="result-section" hidden><h2>Your corner scan</h2><p id="result-summary" role="status"></p>
+<canvas id="result-sketch" width="640" height="420" role="img" aria-label="Top view of the marked corners with approximate wall lengths in millimetres"></canvas>
+<ul id="result-walls"></ul>
+<div class="fields"><label class="wide">Room name (optional)<input id="corner-title" maxlength="100" placeholder="Kitchen"></label></div>
+<div class="actions"><button id="corner-save" disabled>Save corner scan</button><a id="corner-saved-link" class="button" hidden>Open the floor plan</a></div><p id="corner-save-status" role="status" aria-live="polite"></p>
+<p class="small">Your scan stays on this phone. Nothing is uploaded and no photos are taken. The floor plan opens with estimated lengths that you replace with tape measurements.</p>
+</section>
+<p class="small">Your corners set the room shape. Type the wall lengths you measured on the floor plan afterwards. On an iPhone, or a phone without AR, <a href="/wizard/scan">add your room another way</a>.</p>
+</main><script type="module" src="/scan/corners/app.js?v=36da66c93ca5"></script></body></html>

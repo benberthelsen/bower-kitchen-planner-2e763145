@@ -15,7 +15,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   AppWindow, ArrowLeft, Camera, Check, CircleDot, DoorOpen, Info, Plus, Redo2, Ruler,
   ScanLine, Trash2, Upload,
@@ -148,6 +148,12 @@ export function quickScanErrorMessage(error: unknown): string {
 
 export default function ScanRoom() {
   const navigate = useNavigate();
+  // Customers scan with the Bower corner scanner (/scan/corners/, the room
+  // scanner app's corner scan and floor plan, copied in by
+  // scanner:sync-customer). The earlier quick scan below stays reachable at
+  // /wizard/scan?quick=1 for comparison and its tests; customers are not
+  // offered it.
+  const quickScan = new URLSearchParams(useLocation().search).has('quick');
   const [support, setSupport] = useState<Support>('checking');
   const [scanning, setScanning] = useState(false);
   const [phase, setPhase] = useState<Phase>('corners');
@@ -1066,7 +1072,7 @@ export default function ScanRoom() {
   }, []);
 
   const supportCopy: Record<Exclude<Support, 'ready' | 'checking'>, string> = {
-    insecure: 'Quick scan needs a secure (https) connection.',
+    insecure: 'Camera scanning needs a secure (https) connection.',
     'no-xr': "This browser can't run camera scanning. On an Android phone, open this page in Chrome.",
     'no-ar': "This device doesn't support browser AR scanning.",
   };
@@ -1221,7 +1227,40 @@ export default function ScanRoom() {
           </button>
         </div>
 
-        {/* ── Option 1: Quick scan (web AR) ── */}
+        {/* ── Option 1: Bower corner scanner (web AR) ── */}
+        {!quickScan && (
+          <section className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-slate-700" />
+                <h2 className="font-semibold text-slate-900">Corner scan</h2>
+              </div>
+              <span className="text-[11px] rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">Android · Chrome</span>
+            </div>
+            <p className="text-sm text-slate-500">
+              Aim your phone at each floor corner of the room in turn, then type in the wall
+              lengths you measured. Your scan stays on your phone until you continue to your design.
+            </p>
+            {support === 'checking' && <p className="text-sm text-slate-400">Checking your device…</p>}
+            {support === 'ready' && (
+              <a
+                href="/scan/corners/"
+                className="flex w-full h-11 items-center justify-center rounded-md bg-slate-900 text-sm font-medium text-white hover:bg-slate-700"
+              >
+                <Camera className="w-4 h-4 mr-2" /> Start corner scan
+              </a>
+            )}
+            {support !== 'checking' && support !== 'ready' && (
+              <p role="status" className="text-sm text-slate-500 rounded-md bg-slate-50 border border-slate-200 p-3">
+                {supportCopy[support as Exclude<Support, 'ready' | 'checking'>]}{' '}
+                If you have an iPhone Pro, use the Pro scan below — otherwise manual entry only takes a minute.
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* ── Earlier quick scan, kept for comparison at ?quick=1 ── */}
+        {quickScan && (
         <section className="rounded-xl border border-slate-200 p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -1318,6 +1357,7 @@ export default function ScanRoom() {
             </p>
           )}
         </section>
+        )}
 
         {/* ── Option 2: Pro scan (LiDAR import) ── */}
         <section
@@ -1421,14 +1461,14 @@ export default function ScanRoom() {
           </DialogHeader>
           <div className="space-y-4 text-sm">
             <div className="rounded-lg border border-slate-200 p-3 space-y-1">
-              <p className="font-semibold text-slate-900 flex items-center gap-2"><Camera className="w-4 h-4" /> Quick scan — most Android phones</p>
+              <p className="font-semibold text-slate-900 flex items-center gap-2"><Camera className="w-4 h-4" /> Corner scan — most Android phones</p>
               <p className="text-slate-600">
-                Runs in your browser using the camera. Your phone recognises floor
-                and wall planes, and Smart wall lock can calculate corners hidden
-                behind existing cabinets. You confirm the corners, then optionally
-                the ceiling and each door and window.
-                Takes 2–3 minutes. Measurements are a strong starting point — you'll confirm
-                them on a plan, and a professional check measure happens before manufacture.
+                Runs in your browser using the camera. You aim a ring at each floor
+                corner in turn; a corner hidden behind cabinets can be found from two
+                aims a metre apart, and you can mark the ceiling height. Then you type
+                in the wall lengths you measured with a tape. Takes a few minutes, and
+                a professional check measure happens before manufacture. Doors and
+                windows are added in the planner.
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3 space-y-1">
@@ -1442,7 +1482,7 @@ export default function ScanRoom() {
             </div>
             <p className="text-slate-500 text-xs">
               Not sure? If your phone is an iPhone 12 Pro or newer Pro model, use
-              Pro scan. Otherwise try Quick scan — and if it isn't supported,
+              Pro scan. Otherwise try the corner scan — and if it isn't supported,
               manual entry only takes a minute. Every option is checked by a
               professional measure before manufacture.
             </p>

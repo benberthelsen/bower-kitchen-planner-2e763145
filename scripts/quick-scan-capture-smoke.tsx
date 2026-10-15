@@ -86,12 +86,12 @@ const reconciler = Reconciler({
 
 let container = new HostNode('root', {});
 let root: ReturnType<typeof reconciler.createContainer> | null = null;
-function mount() {
+function mount(path = '/wizard/scan?quick=1') {
   if (root) reconciler.updateContainer(null, root, null, null);
   container = new HostNode('root', {});
   root = reconciler.createContainer(container, LegacyRoot, null, false, null, '', (error: unknown) => { throw error; }, null);
   reconciler.updateContainer(
-    <MemoryRouter initialEntries={['/wizard/scan']}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/wizard/scan" element={<ScanRoom />} />
         <Route path="/wizard" element={<p>Wizard step 1</p>} />
@@ -177,9 +177,16 @@ const EYE = { x: 2, y: 1.4, z: 1.5 };
 const floor = (x: number, z: number) => ({ x, y: 0, z });
 const [A, B, C, D] = [floor(0, 0), floor(4, 0), floor(4, 3), floor(0, 3)];
 
+// Customers on an AR phone are sent to the Bower corner scanner, not this one.
+mount('/wizard/scan');
+await settle();
+const cornerLinks = findAll((n) => n.type === 'a' && n.props.href === '/scan/corners/');
+check('customers are offered the corner scanner', cornerLinks.length === 1 && /Start corner scan/.test(textOf(cornerLinks[0])));
+check('customers are not offered the quick scan', buttons(/Start quick scan/).length === 0 && !shows(/Quick scan/));
+
 mount();
 await settle();
-check('lobby offers the quick scan', buttons(/Start quick scan/).length === 1);
+check('lobby offers the quick scan at ?quick=1', buttons(/Start quick scan/).length === 1);
 
 // 1. Start: dom-overlay and plane detection are asked for, not required.
 await press(button(/Start quick scan/));
