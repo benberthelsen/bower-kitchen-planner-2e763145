@@ -1,0 +1,105 @@
+{
+ "schemaVersion": 1,
+ "state": "draft",
+ "source": "webxr",
+ "coordinateFrame": {
+  "assignment": "source-orientation",
+  "sourcePlanAxes": "x-z",
+  "sourceUnits": "millimetres",
+  "sourceToCanonicalMatrix": [
+   1,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   1
+  ],
+  "snappedQuarterTurnDegrees": 0,
+  "originDescription": "north-west-corner-in-canonical-plan"
+ },
+ "photos": [],
+ "partialGeometry": {
+  "wallChains": [
+   {
+    "id": "photo-outline",
+    "cornersMm": [
+     {
+      "id": "corner-c1",
+      "x": 0,
+      "z": 0
+     },
+     {
+      "id": "corner-c2",
+      "x": 3600,
+      "z": 10
+     },
+     {
+      "id": "corner-c3",
+      "x": 3580,
+      "z": 2775
+     },
+     {
+      "id": "corner-c4",
+      "x": 10,
+      "z": 2785
+     }
+    ],
+    "wallIds": [
+     "c1",
+     "c2",
+     "c3",
+     "c4"
+    ],
+    "closed": true,
+    "provenance": "inferred"
+   }
+  ],
+  "wallMeasurements": [
+   {
+    "wallId": "c1",
+    "millimetres": 3600
+   }
+  ],
+  "wallEvidence": [
+   {
+    "wallId": "c1",
+    "source": "inferred",
+    "evidenceIds": [],
+    "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site."
+   },
+   {
+    "wallId": "c2",
+    "source": "inferred",
+    "evidenceIds": [],
+    "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site."
+   },
+   {
+    "wallId": "c3",
+    "source": "inferred",
+    "evidenceIds": [],
+    "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site."
+   },
+   {
+    "wallId": "c4",
+    "source": "inferred",
+    "evidenceIds": [],
+    "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site."
+   }
+  ],
+  "featureCandidates": []
+ },
+ "adapterState": {
+  "reviewKind": "corner-scan",
+  "access": "device-only",
+  "sourceRevision": "device-e5bc684b3a99c9c2",
+  "arCeiling": {
+   "heightMm": 2550,
+   "source": "ceiling-hit"
+  }
+ },
+ "notes": "Kitchen: room outline from corners marked in AR.\nCorner positions and wall lengths are AR tracking estimates. Confirm the floor boundary and check dimensions before a whole-room design.\nScanned on the customer's phone in the planner's corner scanner. Nothing was uploaded to the room scanner and no photos were taken.\nCorner positions come from AR tracking and the floor plane. Expect about 10 to 40 mm per corner, more for corners marked from far away.\nCeiling height 2550 mm is an AR estimate from a ceiling surface hit.",
+ "capturedAt": "2026-10-15T00:00:00.000Z"
+}

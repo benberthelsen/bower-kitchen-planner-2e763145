@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+:root{font-family:'Inter',system-ui,sans-serif;color:#273943;background:#faf9f5}
+body{background:#faf9f5}
+h1,h2,h3{font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#273943;letter-spacing:-.035em}
+.site-header{display:block;background:#436272;border:0;padding:0;color:#f8f5ee;box-shadow:0 3px 12px #233d4a24}
+.header-inner{max-width:1280px;min-height:80px;margin:auto;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.site-header .brand{display:inline-flex;align-items:center;gap:12px;color:#f8f5ee;text-decoration:none;white-space:nowrap}
+.site-header .brand-mark{width:48px;height:48px;display:grid;place-items:center;border:2px solid #e8e5dd80;border-radius:50%;font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:22px;font-weight:800;line-height:1}
+.site-header .brand-name{font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:18px;letter-spacing:.045em;text-transform:uppercase}
+.header-context{display:flex;align-items:center;gap:20px;font-size:13px;font-weight:600}
+.header-context>span{color:#f8f5eeb3;letter-spacing:.09em;text-transform:uppercase}
+.header-context a{color:#f8f5ee;text-decoration:none;border:1px solid #f8f5ee70;border-radius:6px;padding:11px 13px;min-height:44px;display:inline-flex;align-items:center}
+.header-context a:hover,.header-context a:focus-visible{background:#f8f5ee24}
+.flow-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;max-width:650px;margin:0 0 30px}
+.flow-steps span{min-height:39px;padding:10px 12px;border:1px solid #d0dbde;border-radius:6px;background:#f1f0e9;color:#627780;text-align:center;font-size:.78rem;font-weight:700;line-height:1.35;text-transform:uppercase;letter-spacing:.04em}
+.flow-steps .current{background:#436272;border-color:#436272;color:#f8f5ee}
+main{max-width:1240px;padding:28px 24px 72px}
+#advanced-scan-checks{margin:20px 0;padding:0 20px;border:1px solid #d2dde0;border-radius:8px;background:#fffefa}
+#advanced-scan-checks>summary{cursor:pointer;padding:18px 0;color:#3b5d6c;font-weight:800}
+#advanced-scan-checks>section{margin:16px 0}
+button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #8fb7c7;outline-offset:3px}
+@media(max-width:650px){.header-inner{padding:12px 16px}.header-context>span{display:none}.flow-steps{gap:5px;margin-bottom:23px}.flow-steps span{padding:8px 5px;font-size:.69rem}main{padding:18px 14px 52px}.section-heading{display:block}.section-heading #plan-count,.section-heading #scale-state{display:block;margin-top:6px;max-width:100%;overflow-wrap:anywhere}}
+@media(max-width:490px){.header-inner{align-items:flex-start;flex-direction:column;gap:9px}.site-header .brand-mark{width:38px;height:38px;font-size:18px}.site-header .brand-name{display:inline;font-size:15px}.header-context a{border:0;padding:5px 0;min-height:32px;font-size:12px}}
+.geometry-caution{max-width:880px;padding:13px 16px;border:1px solid #d3a54a;border-radius:8px;background:#fff7e7;color:#694c21;line-height:1.5}

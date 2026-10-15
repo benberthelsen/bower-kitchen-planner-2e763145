@@ -25,6 +25,7 @@ import {
 } from '@/lib/roomScan/contract';
 import { captureDraftReadiness, captureDraftRelation, resolveRoomCapture, roomDocumentFromCaptureDraft } from '@/lib/roomScan/roomDocumentAdapter';
 import { captureScannerSession } from '@/lib/roomScan/scannerSession';
+import { isCustomerCornerScan, roomScanFromCustomerCornerScan } from '@/lib/roomScan/customerCornerScan';
 import type { RoomDocumentV1 } from '@/lib/roomDocument/types';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, Send, DoorOpen, Share2, ClipboardCheck, RotateCcw,
@@ -2487,7 +2488,12 @@ export default function HomeownerWizard() {
       sessionStorage.removeItem('bower.pendingScan');
       const input = JSON.parse(raw);
       const pendingDraft = parseRoomCaptureDraft(input);
-      if (pendingDraft.ok) {
+      // A room from the customer corner scanner (/scan/) is checked and priced
+      // like the planner's own scan; an outline that does not fit a rectangle
+      // or L stays a capture draft.
+      const cornerScan = pendingDraft.ok && isCustomerCornerScan(pendingDraft.draft)
+        ? roomScanFromCustomerCornerScan(pendingDraft.draft) : null;
+      if (pendingDraft.ok && !cornerScan?.ok) {
         const draft = pendingDraft.draft;
         let document: RoomDocumentV1 | undefined;
         try { document = roomDocumentFromCaptureDraft(draft, crypto.randomUUID()); } catch { /* Keep the draft for review. */ }
@@ -2495,7 +2501,7 @@ export default function HomeownerWizard() {
         toast.info('Room capture draft loaded — review the measured walls before planning cabinets.');
         return;
       }
-      const parsed = parseRoomScan(input);
+      const parsed = cornerScan?.ok ? { ok: true as const, scan: cornerScan.scan } : parseRoomScan(input);
       if (!parsed.ok || parsed.scan.state !== 'unconfirmed') return;
       const scan = parsed.scan;
       onChange({

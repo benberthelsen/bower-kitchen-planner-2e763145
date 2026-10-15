@@ -1,0 +1,22 @@
+.guide{padding:16px 20px 16px 38px;background:#edf5f5;border-radius:8px;margin:16px 0}.guide li{margin:6px 0}
+#corner-overlay{padding:0;overflow:hidden;background:#102b32;color:#fff}
+/* The ring marks the centre of the view, where the hit test and aim ray point (cornerCapture.ts).
+   The HUD stays 40px clear of it: below in portrait, beside it in landscape. The sketch and
+   message stack, message first, whenever the HUD itself is narrow, as the landscape panel is. */
+#corner-overlay.ar{position:fixed;inset:0;z-index:10000;margin:0;border:0;border-radius:0;background:transparent;pointer-events:none;display:flex;align-items:end}
+#corner-overlay.ar .corner-hud{background:#102b32ed;pointer-events:auto;width:100%;max-height:calc(50% - 40px);overflow:auto;container:corner-hud/inline-size;padding:14px max(14px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+#corner-overlay .reticle{position:absolute;top:50%;left:50%;width:30px;height:30px;transform:translate(-50%,-50%);border:3px solid #fff;border-radius:50%;box-shadow:0 0 4px #000,inset 0 0 4px #000}
+#corner-overlay .reticle:before,#corner-overlay .reticle:after{content:'';position:absolute;background:#fff;box-shadow:0 0 3px #000}
+#corner-overlay .reticle:before{width:2px;height:44px;left:11px;top:-10px}#corner-overlay .reticle:after{height:2px;width:44px;top:11px;left:-10px}
+.corner-hud .section-heading{margin-bottom:10px}.corner-hud #corner-aim{white-space:normal;color:#c9e2e6;font-weight:500;text-align:right}
+.corner-live{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:12px;align-items:start}#corner-sketch{width:100%;max-width:180px;aspect-ratio:3/2;background:#102b32;border:1px solid #78969c;border-radius:8px}
+#corner-message{margin:0;font-size:1rem;font-weight:600}.corner-hud .actions{margin:12px 0 0;position:sticky;bottom:0;background:#102b32;padding:8px 0 2px}.corner-hud .actions>*{flex:1 1 110px;min-height:48px}
+#result-sketch{width:100%;max-width:640px;height:auto;border:1px solid #dae2e8;border-radius:8px;background:#f5f8fa}#result-walls{padding-left:20px}#result-walls li{margin:6px 0}
+#corner-overlay[hidden],#result-section[hidden]{display:none!important}
+@container corner-hud (max-width:352px){.corner-live{grid-template-columns:1fr}#corner-message{order:-1}#corner-sketch{max-width:160px}}
+@media(orientation:landscape){#corner-overlay.ar{justify-content:flex-end}#corner-overlay.ar .corner-hud{width:calc(50% - 40px);max-height:100%}}
+
+#corner-guide summary{cursor:pointer;font-weight:650;margin-top:12px}#corner-guide[hidden],#corner-walk-link[hidden],#corner-save[hidden]{display:none!important}
+.corner-hud #corner-mark{flex:1 1 100%;font-size:1.05rem}#corner-save-status{font-weight:600}#corner-save-status.error{color:#9e2424}
+#corner-restart[hidden]{display:none!important}
+#corner-start[hidden]{display:none!important}
