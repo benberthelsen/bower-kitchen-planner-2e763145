@@ -81,3 +81,28 @@ test('other captures are left alone: a scanner draft, an open outline, a scan wi
   assert.ok(result.ok);
   assert.notEqual(result.scan.room.height, 2550, 'without a reading the planner uses its default height');
 });
+
+test('a four-sided room that is not rectangular is not squared off silently', () => {
+  const draft = structuredClone(parseRoomCaptureDraft(JSON.parse(JSON.stringify(fixture))).draft);
+  // Slant the far wall: corner 3 moves 450 mm along it, a trapezoid.
+  draft.partialGeometry.wallChains[0].cornersMm[2].x -= 450;
+  const result = roomScanFromCustomerCornerScan(draft);
+  assert.ok(result.ok, result.ok ? '' : result.reason);
+  assert.ok(result.warnings.length > 0, 'the fit says the room was simplified');
+  assert.ok((result.scan.normalizationWarnings ?? []).some((w) => /not rectangular|simplified/.test(w)), 'the warning travels with the scan');
+  assert.ok(result.scan.confidence.overall < 0.7, `confidence is lowered (${result.scan.confidence.overall})`);
+});
+
+const { wizardPatchForScan } = await load('src/lib/homeowner/scanPickup.ts');
+
+test('a new scan replaces the whole room: the earlier draft, its walls and the manual override are cleared', () => {
+  const scan = roomScanFromCustomerCornerScan(parseRoomCaptureDraft(JSON.parse(JSON.stringify(fixture))).draft).scan;
+  const before = { roomDocument: { walls: ['old'] }, incomingCaptureDraft: { old: true }, pendingCaptureUpdate: { old: true }, useManualRoomInstead: true, roomWidth: 5000 };
+  const after = { ...before, ...wizardPatchForScan(scan) };
+  assert.equal(after.roomDocument, undefined);
+  assert.equal(after.incomingCaptureDraft, undefined);
+  assert.equal(after.pendingCaptureUpdate, undefined);
+  assert.equal(after.useManualRoomInstead, false);
+  assert.equal(after.incomingScan, scan);
+  assert.equal(after.roomWidth, 3600);
+});
