@@ -196,6 +196,10 @@ test('the staff view is opened before it fetches, uses the current sign-in, and 
   assert.match(component, /supabase\.auth\.getSession\(\)/);
   assert.match(component, /if \(!open \|\| capture \|\| error\) return;/, 'nothing is fetched until it is opened');
   assert.match(component, /URL\.revokeObjectURL/);
+  // Hiding releases every loaded photo; after a failure, Try again clears the error so loading resumes.
+  assert.match(component, /const hide = \(\) => \{ release\(\); setPhotos\(\[\]\); setCapture\(null\);/);
+  assert.match(component, /onClick=\{hide\}>Hide photos</);
+  assert.match(component, /onClick=\{\(\) => setError\(''\)\}>Try again</);
   for (const page of ['src/pages/admin/JobDetail.tsx', 'src/pages/admin/Leads.tsx']) {
     assert.match(await readFile(page, 'utf8'), /<CustomerScanPhotos key=\{[^}]+\} captureId=/, page);
   }
