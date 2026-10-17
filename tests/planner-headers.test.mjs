@@ -134,6 +134,12 @@ test('connect-src and the other directives admit every origin the app loads', ()
   assert.ok(csp.get('font-src').includes('https://fonts.gstatic.com'));
   // No other script origin than ours in index.html.
   for (const [, src] of html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)) assert.ok(src.startsWith('/'), src);
+  // Staff read customer scan photos from the public scanner and show them as
+  // blob: images.
+  const scanner = read('src/lib/roomScan/customerScanPhotos.ts').match(/CUSTOMER_SCANNER_ORIGIN = '([^']+)'/)[1];
+  assert.equal(scanner, 'https://scan.bowercabinets.com');
+  assert.ok(csp.get('connect-src').includes(scanner), scanner);
+  assert.ok(csp.get('img-src').includes('blob:'));
   // Decoders and troika run in blob: workers; Draco and meshopt need WebAssembly.
   assert.ok(csp.get('worker-src').includes('blob:'));
   assert.ok(csp.get('script-src').includes("'wasm-unsafe-eval'"));

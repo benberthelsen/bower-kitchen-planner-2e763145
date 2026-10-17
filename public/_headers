@@ -28,6 +28,8 @@
 # - www.gstatic.com: the Draco decoder for appliance models (ApplianceModel.tsx).
 # - raw.githack.com: drei's "apartment" environment map (UnifiedScene.tsx).
 # - cdn.jsdelivr.net: troika's font data for drei <Text> labels.
+# - scan.bowercabinets.com: staff read customer scan photos from the public
+#   scanner (CustomerScanPhotos.tsx); they are shown as blob: images.
 # - blob: workers and 'wasm-unsafe-eval': the Draco and meshopt decoders and
 #   troika run WebAssembly or scripts inside blob: workers.
 # - img-src https:: catalogue and product images come from database rows.
@@ -42,7 +44,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
   Reporting-Endpoints: csp-endpoint="https://ehtwywctledgkxexztbh.supabase.co/functions/v1/csp-report"
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://ehtwywctledgkxexztbh.supabase.co https://www.gstatic.com https://raw.githack.com https://cdn.jsdelivr.net data: blob:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; report-uri https://ehtwywctledgkxexztbh.supabase.co/functions/v1/csp-report; report-to csp-endpoint
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://ehtwywctledgkxexztbh.supabase.co https://www.gstatic.com https://raw.githack.com https://cdn.jsdelivr.net https://scan.bowercabinets.com data: blob:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; report-uri https://ehtwywctledgkxexztbh.supabase.co/functions/v1/csp-report; report-to csp-endpoint
 
 # Quote links carry the job id in the path, so they send no referrer. Pages
 # joins a header set by two matching rules with a comma, in file order, and

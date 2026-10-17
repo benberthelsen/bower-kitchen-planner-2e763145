@@ -1,0 +1,48 @@
+{
+ "schemaVersion": 1,
+ "state": "draft",
+ "source": "webxr",
+ "coordinateFrame": {
+  "assignment": "source-orientation",
+  "sourcePlanAxes": "x-z",
+  "sourceUnits": "millimetres",
+  "sourceToCanonicalMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  "snappedQuarterTurnDegrees": 0,
+  "originDescription": "north-west-corner-in-canonical-plan"
+ },
+ "photos": [],
+ "partialGeometry": {
+  "wallChains": [
+   {
+    "id": "photo-outline",
+    "cornersMm": [
+     { "id": "corner-c1", "x": 0, "z": 0 },
+     { "id": "corner-c2", "x": 4185, "z": 12 },
+     { "id": "corner-c3", "x": 4170, "z": 3215 },
+     { "id": "corner-c4", "x": 8, "z": 3190 }
+    ],
+    "wallIds": ["c1", "c2", "c3", "c4"],
+    "closed": true,
+    "provenance": "inferred"
+   }
+  ],
+  "wallMeasurements": [{ "wallId": "c1", "millimetres": 4200 }],
+  "wallEvidence": [
+   { "wallId": "c1", "source": "inferred", "evidenceIds": [], "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site." },
+   { "wallId": "c2", "source": "inferred", "evidenceIds": [], "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site." },
+   { "wallId": "c3", "source": "inferred", "evidenceIds": [], "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site." },
+   { "wallId": "c4", "source": "inferred", "evidenceIds": [], "reason": "Wall between two corners marked in AR. Its length is a tracking estimate; check it on site." }
+  ],
+  "featureCandidates": []
+ },
+ "adapterState": {
+  "access": "customer-scanner",
+  "reviewKind": "photo-walk",
+  "captureId": "5b7e2f1c-9a4d-4c3e-8f2a-1d6b0c9e8a7f",
+  "scanner": "https://scan.bowercabinets.com",
+  "sourceRevision": "walk-3f9a1c2e7b4d",
+  "arCeiling": { "heightMm": 2580, "source": "wall-ray" }
+ },
+ "notes": "Kitchen: room outline from the corners you marked on your photo walk.\nCorner positions and wall lengths are AR tracking estimates. Bower checks every size on site before anything is made.\nYour photos are saved with Bower's scanner for Bower to check.\nCeiling height 2580 mm is an AR estimate.",
+ "capturedAt": "2026-10-15T02:30:00.000Z"
+}

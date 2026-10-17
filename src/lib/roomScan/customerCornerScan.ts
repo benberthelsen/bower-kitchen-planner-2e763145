@@ -1,8 +1,13 @@
-/** Rooms from the customer corner scanner (/scan/corners/ → /scan/plan/, built
- * from the room-scanner app and copied in by scanner:sync-customer). They
- * arrive in sessionStorage 'bower.pendingScan' as a RoomCaptureDraftV1 with
- * adapterState.access 'device-only': scanned on the customer's phone, nothing
- * uploaded, at least one wall measured with a tape.
+/** Rooms customers scan themselves. Two scanners hand the wizard a
+ * RoomCaptureDraftV1:
+ * - the corner scan copied into /scan/ (scanner:sync-customer) puts it in
+ *   sessionStorage 'bower.pendingScan' with adapterState.access 'device-only':
+ *   scanned on the phone, nothing uploaded, at least one wall measured with a
+ *   tape;
+ * - the photo walk at https://scan.bowercabinets.com hands it over through
+ *   create-planner-handoff (/wizard?handoff=) with access 'customer-scanner'
+ *   and reviewKind 'photo-walk'. Its photos stay with that scanner, under the
+ *   capture's captureId, for Bower staff only.
  *
  * The homeowner wizard sizes, designs and prices a RoomScanV1, so a closed
  * outline of 4 to 8 corners becomes the same unconfirmed scan the planner's
@@ -12,15 +17,26 @@
  * and lower confidence instead of being squared off silently. Only a
  * four-corner room the fit accepts as a clean rectangle (no warning) takes the
  * customer's tape lengths exactly, so the Room step shows the numbers they
- * typed. Anything the fit refuses stays a capture draft. */
+ * typed. A photo walk the fit refuses keeps its photos for Bower while the
+ * customer types the room sizes; a corner scan the fit refuses stays a capture
+ * draft. */
 import type { RoomCaptureDraftV1, RoomScanV1 } from './contract';
 import { parseRoomScan } from './contract';
 import { buildScanFromCapture, MAX_CEILING_MM, MIN_CEILING_MM, RECT_REJECT_MM, RECT_WARN_MM, type XrCorner } from './webxrFit';
+
+/** Wording the customer sees on the Room step when the photo walk could not
+ * size the room. */
+export const CUSTOMER_PHOTOS_SAVED = 'Your photos are saved for Bower. Type your room sizes below to get your price.';
 
 type AdapterState = { access?: unknown; reviewKind?: unknown; arCeiling?: { heightMm?: unknown; source?: unknown } };
 const stateOf = (draft: RoomCaptureDraftV1): AdapterState =>
   draft.adapterState && typeof draft.adapterState === 'object' && !Array.isArray(draft.adapterState)
     ? draft.adapterState as AdapterState : {};
+
+/** A room from the public photo walk (scan.bowercabinets.com). */
+export function isCustomerScannerDraft(draft: RoomCaptureDraftV1): boolean {
+  return stateOf(draft).access === 'customer-scanner';
+}
 
 /** How far a four-corner outline is from a rectangle, in millimetres: the
  *  largest mismatch between opposite walls or between the diagonals. A
@@ -36,7 +52,8 @@ function rectangleMismatchMm(mm: readonly PointMm[]): number {
 
 export function isCustomerCornerScan(draft: RoomCaptureDraftV1): boolean {
   const state = stateOf(draft);
-  return state.access === 'device-only' && state.reviewKind === 'corner-scan';
+  return (state.access === 'device-only' && state.reviewKind === 'corner-scan')
+    || (state.access === 'customer-scanner' && state.reviewKind === 'photo-walk');
 }
 
 export function roomScanFromCustomerCornerScan(draft: RoomCaptureDraftV1):
@@ -92,4 +109,18 @@ export function roomScanFromCustomerCornerScan(draft: RoomCaptureDraftV1):
   const rectangle: XrCorner[] = [{ x: 0, z: 0 }, { x: w, z: 0 }, { x: w, z: d }, { x: 0, z: d }];
   const taped = buildScanFromCapture(rectangle, extras, draft.capturedAt);
   return taped.ok ? taped : scanned;
+}
+
+/** What the wizard does with a customer's room: 'scan' to check its sizes and
+ * price it, 'type-sizes' for a photo walk the planner cannot size (the
+ * customer types the room sizes and the draft stays with the enquiry for
+ * Bower), or null for anything else, which keeps the capture-draft path. */
+export function customerRoomOutcome(draft: RoomCaptureDraftV1):
+  | { kind: 'scan'; scan: RoomScanV1 }
+  | { kind: 'type-sizes' }
+  | null {
+  if (!isCustomerCornerScan(draft) && !isCustomerScannerDraft(draft)) return null;
+  const result = roomScanFromCustomerCornerScan(draft);
+  if (result.ok) return { kind: 'scan', scan: result.scan };
+  return isCustomerScannerDraft(draft) ? { kind: 'type-sizes' } : null;
 }

@@ -177,12 +177,32 @@ const EYE = { x: 2, y: 1.4, z: 1.5 };
 const floor = (x: number, z: number) => ({ x, y: 0, z });
 const [A, B, C, D] = [floor(0, 0), floor(4, 0), floor(4, 3), floor(0, 3)];
 
-// Customers on an AR phone are sent to the Bower corner scanner, not this one.
+// Every customer is offered the photo walk on the public scanner first; an AR
+// phone also gets the corner scan as a small link. Neither is this quick scan.
+const links = (href: string) => findAll((n) => n.type === 'a' && n.props.href === href);
+const PHOTO_WALK = 'https://scan.bowercabinets.com/';
 mount('/wizard/scan');
 await settle();
-const cornerLinks = findAll((n) => n.type === 'a' && n.props.href === '/scan/corners/');
-check('customers are offered the corner scanner', cornerLinks.length === 1 && /Start corner scan/.test(textOf(cornerLinks[0])));
+const photoWalk = links(PHOTO_WALK);
+check('customers are offered the photo walk', photoWalk.length === 1 && /Scan your room with photos/.test(textOf(photoWalk[0])));
+check('the photo walk opens the scanner in this tab', photoWalk[0]?.props.target === undefined);
+const actions = findAll((n) => n.type === 'a' || n.type === 'button');
+check('the photo walk is the first option', actions.indexOf(photoWalk[0]) >= 0
+  && actions.indexOf(photoWalk[0]) < actions.indexOf(button(/Choose or drop scan file/))
+  && actions.indexOf(photoWalk[0]) < actions.indexOf(button(/Enter room by hand/)));
+const cornerLinks = links('/scan/corners/');
+check('an AR phone also gets the quick corner scan as a link', cornerLinks.length === 1 && textOf(cornerLinks[0]) === 'Quick corner scan');
+check('Pro scan and typing the sizes stay', buttons(/Choose or drop scan file/).length === 1 && buttons(/Enter room by hand/).length === 1);
 check('customers are not offered the quick scan', buttons(/Start quick scan/).length === 0 && !shows(/Quick scan/));
+
+// A phone without browser AR (an iPhone) still gets the photo walk.
+const arSupport = xr.isSessionSupported;
+xr.isSessionSupported = async () => false;
+mount('/wizard/scan');
+await settle();
+check('a phone without AR is offered the photo walk', links(PHOTO_WALK).length === 1);
+check('a phone without AR is not offered the corner scan', links('/scan/corners/').length === 0);
+xr.isSessionSupported = arSupport;
 
 mount();
 await settle();

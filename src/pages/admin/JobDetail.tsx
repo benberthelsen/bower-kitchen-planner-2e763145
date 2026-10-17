@@ -31,6 +31,8 @@ import {
   parseContactFromNotes,
   readPriceBand,
 } from '@/lib/adminJobEnquiry';
+import CustomerScanPhotos from '@/components/admin/CustomerScanPhotos';
+import { customerScanCaptureId, customerScanCapturesForJobs, type HandoffReader } from '@/lib/roomScan/customerScanPhotos';
 
 interface Job {
   id: string;
@@ -118,6 +120,19 @@ export default function AdminJobDetail() {
   useEffect(() => {
     if (id) loadJob();
   }, [id]);
+
+  // A customer's photo walk: its capture is named in the enquiry when the
+  // room was typed in, otherwise in the linked hand-over (staff-only read).
+  const [scanCaptureId, setScanCaptureId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!job) return;
+    const fromEnquiry = customerScanCaptureId(job.design_data);
+    if (fromEnquiry) { setScanCaptureId(fromEnquiry); return; }
+    let active = true;
+    void customerScanCapturesForJobs(supabase as unknown as HandoffReader, [job.id])
+      .then(found => { if (active) setScanCaptureId(found.get(job.id) ?? null); });
+    return () => { active = false; };
+  }, [job]);
 
   const loadJob = async () => {
     try {
@@ -634,6 +649,17 @@ export default function AdminJobDetail() {
                     {priceBand ? `${AUD(priceBand.low)} – ${AUD(priceBand.high)}` : '—'}
                   </p>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {scanCaptureId && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Customer scan</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CustomerScanPhotos key={scanCaptureId} captureId={scanCaptureId} />
               </CardContent>
             </Card>
           )}

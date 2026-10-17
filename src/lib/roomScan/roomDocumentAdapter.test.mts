@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { roomCaptureDraftV1Schema } from './contract';
-import { captureDraftReadiness, captureDraftRelation, previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from './roomDocumentAdapter';
+import { captureDraftIdentity, captureDraftReadiness, captureDraftRelation, previewCaptureUpdate, resolveRoomCapture, roomDocumentFromCaptureDraft } from './roomDocumentAdapter';
 import { parseWebsitePlannerHandoff as parseServerHandoff } from '../../../supabase/functions/_shared/roomScan/contract';
 
 const frame = {
@@ -350,5 +350,22 @@ assert.ok(remeasured.lengthDifferences.every(difference => difference.scanSource
   'scan estimates never compete with the room\'s lengths');
 assert.deepEqual(remeasured.lengthDifferences, [{ wallId: 'q-a', currentMm: 4000, scanMm: 4200, scanSource: 'measured' }],
   'a re-measured wall is reported with its measured source');
+
+// A customer's photo walk names a capture on the public scanner. It is never
+// a private scanner capture: the room carries its own id, so no evidence
+// panel, private-scanner link or scanner-private-bridge call can use it.
+const customerCapture = '5b7e2f1c-9a4d-4c3e-8f2a-1d6b0c9e8a7f';
+const photoWalk = roomCaptureDraftV1Schema.parse({
+  ...draft, adapterState: { access: 'customer-scanner', reviewKind: 'photo-walk', captureId: customerCapture,
+    scanner: 'https://scan.bowercabinets.com', sourceRevision: 'walk-1' },
+});
+const walkDocument = roomDocumentFromCaptureDraft(photoWalk, 'handoff-room');
+assert.equal(walkDocument.capture?.captureId, 'handoff-room', 'the public capture id is not the room\'s capture');
+assert.ok(!JSON.stringify(walkDocument).includes(customerCapture), 'the room document never carries the public capture id');
+assert.deepEqual(captureDraftIdentity(photoWalk), { sourceRevision: 'walk-1' });
+assert.equal(captureDraftRelation(photoWalk, photoWalk, customerCapture), 'new-capture',
+  'a photo walk is never treated as a revision of a private scanner capture');
+const phoneOnly = roomCaptureDraftV1Schema.parse({ ...draft, adapterState: { access: 'device-only', reviewKind: 'corner-scan', captureId: customerCapture } });
+assert.equal(roomDocumentFromCaptureDraft(phoneOnly, 'phone-room').capture?.captureId, 'phone-room');
 
 console.log('room document handoff smoke passed');

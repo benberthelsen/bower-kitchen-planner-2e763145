@@ -1,0 +1,15 @@
+{
+ "schemaVersion": 1,
+ "state": "draft",
+ "source": "photo-review",
+ "photos": [],
+ "adapterState": {
+  "access": "customer-scanner",
+  "reviewKind": "photo-walk",
+  "captureId": "8c1d4e2a-6b3f-4a5c-9d7e-2f0a1b3c4d5e",
+  "scanner": "https://scan.bowercabinets.com",
+  "sourceRevision": "walk-a1b2c3d4e5f6"
+ },
+ "notes": "Kitchen: photo walk.\nYour photos were saved for Bower to prepare the plan. Not every floor corner was marked, so the room sizes are typed in the planner.",
+ "capturedAt": "2026-10-15T02:45:00.000Z"
+}

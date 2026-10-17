@@ -4,11 +4,16 @@
  * Stores only the token HASH; token travels once in the response and then
  * lives in the /wizard URL fragment. Contact details are never taken here:
  * any `lead` in the body is ignored and the contact columns stay NULL.
+ *
+ * The customer photo walk (https://scan.bowercabinets.com) calls this from
+ * the customer's browser, so this function, and no other, admits that origin.
+ * The same limit (20 an hour per caller) applies.
  */
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { parseWebsitePlannerHandoff } from '../_shared/roomScan/contract.ts';
 import {
+  acceptCustomerScannerOrigin,
   durableRateLimit,
   errorResponse,
   gate,
@@ -23,6 +28,7 @@ import {
 } from '../_shared/roomScan/security.ts';
 
 const EXPIRY_DAYS = 7;
+acceptCustomerScannerOrigin();
 
 serve(async (req) => {
   const started = Date.now();
